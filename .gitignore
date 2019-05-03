@@ -1,0 +1,15 @@
+doc
+target
+out
+.gradle
+build
+*.class
+classes
+project
+
+# IntelliJ project files
+*.iml
+*.iws
+*.ipr
+.idea
+========
