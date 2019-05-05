@@ -24,7 +24,7 @@ object Parapet {
   }
 
   trait Queue[F[_]] {
-    def enqueue(e: Event): F[Unit]
+    def enqueue(e: => Event): F[Unit]
 
     def dequeue: F[Event]
   }
@@ -120,8 +120,7 @@ object Parapet {
       fa match {
         case Empty => State.set(ListBuffer.empty)
         case Send(thunk, receivers) =>
-          val event = thunk()
-          val ops = receivers.map(receiver => IO(println(s"send $event to $receiver")) *> env.queue.enqueue(event))
+          val ops = receivers.map(receiver =>  env.queue.enqueue(thunk()))
           State[Seq[IO[_]], Unit] { s => (s ++ ops, ()) }
         case Par(flow) =>
           val res = flow.asInstanceOf[Free[CatsFlow, A]]
@@ -164,7 +163,7 @@ object Parapet {
   // replace with Queue from cats effects
   def ioQueue: IO[Queue[IO]] = IO {
     new Queue[IO] {
-      override def enqueue(e: Event): IO[Unit] = IO(println(s"enqueue: $e"))
+      override def enqueue(e: => Event): IO[Unit] = IO(println(s"enqueue: $e"))
 
       override def dequeue: IO[Event] = IO.pure(Message("", ""))
     }

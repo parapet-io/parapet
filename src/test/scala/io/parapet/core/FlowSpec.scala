@@ -67,6 +67,24 @@ class FlowSpec extends FlatSpec with Matchers with OptionValues {
     env.queue.peekLast.value shouldBe TestEvent("4")
   }
 
+  "Send event" should "observe eval side effects" in {
+    val blackhole = new Blackhole()
+    var i = 0
+    val program = eval {
+      i = i + 1
+    } ++ TestEvent(i.toString) ~> blackhole
+    val env = interpret(program).unsafeRunSync()
+    env.queue.peek.value shouldBe TestEvent("1")
+  }
+
+  "Send event" should "observe suspend side effects" in {
+    val blackhole = new Blackhole()
+    var i = 0
+    val program = suspend(IO{i = i + 1}) ++ TestEvent(i.toString) ~> blackhole
+    val env = interpret(program).unsafeRunSync()
+    env.queue.peek.value shouldBe TestEvent("1")
+  }
+
 }
 
 object FlowSpec {
@@ -94,7 +112,7 @@ object FlowSpec {
   class EventQueue extends Queue[IO] {
     val queue: SQueue[Event] = new SQueue()
 
-    override def enqueue(e: Event): IO[Unit] = IO(queue.enqueue(e))
+    override def enqueue(e: => Event): IO[Unit] = IO(queue.enqueue(e))
 
     override def dequeue: IO[Event] = IO(queue.dequeue())
 
