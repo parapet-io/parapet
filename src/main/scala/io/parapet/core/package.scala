@@ -1,14 +1,14 @@
 package io.parapet
 
-import cats.data.EitherK
-import io.parapet.core.Parapet.{Flow, FlowOp, IOEffects}
+import cats.effect.IO
+import io.parapet.core.Parapet.{Effects, Flow}
 
 package object core {
 
   object catsInstances {
-    type CatsFlow[A] = EitherK[FlowOp, IOEffects.IOEffect, A]
-    val flow = implicitly[Flow[CatsFlow]]
-    val effect = implicitly[IOEffects[CatsFlow]]
+    type CatsFlow[A] = Parapet.FlowOpOrEffect[IO, A]
+    val flow = implicitly[Flow[IO, CatsFlow]]
+    val effect = implicitly[Effects[IO, CatsFlow]]
   }
 
 }

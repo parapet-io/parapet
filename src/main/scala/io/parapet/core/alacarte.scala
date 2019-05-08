@@ -189,11 +189,11 @@ object alacarte {
   def lift[F[_], G[_], A](f: F[A])(implicit I: Inject[F, G]): Free[G, A] =
     Bind(I.inj(f), Return(_: A))
 
-  class Interacts[F[_]](implicit I: Inject[Interact, App]) {
+  class Interacts[F[_]](implicit I: Inject[Interact, F]) {
 
-    def tell(msg: String): Free[App, Unit] = lift(Tell(msg))
+    def tell(msg: String): Free[F, Unit] = lift(Tell(msg))
 
-    def ask(prompt: String): Free[App, String] = lift(Ask(prompt))
+    def ask(prompt: String): Free[F, String] = lift(Ask(prompt))
   }
 
   class Auths[F[_]](implicit I: Inject[Auth, F]) {
