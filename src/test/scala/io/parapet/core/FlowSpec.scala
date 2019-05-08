@@ -4,6 +4,7 @@ import cats.effect.{ContextShift, IO, Timer}
 import cats.free.Free
 import io.parapet.core.FlowSpec._
 import io.parapet.core.Parapet._
+import io.parapet.core.Parapet.Process
 import io.parapet.core.catsInstances.effect._
 import io.parapet.core.catsInstances.flow._
 import org.scalatest.{FlatSpec, _}

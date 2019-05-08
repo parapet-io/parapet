@@ -1,7 +1,9 @@
 package io.parapet.core
 
+import java.util.concurrent.atomic.AtomicInteger
+
 import cats.data.{EitherK, State}
-import cats.effect.{ContextShift, IO, Timer}
+import cats.effect.{Concurrent, ContextShift, IO, Timer}
 import cats.free.Free
 import cats.{InjectK, Monad}
 import io.parapet.core.Parapet.CatsProcess
@@ -13,9 +15,15 @@ import scala.language.{higherKinds, implicitConversions, reflectiveCalls}
 import cats.effect.IO._
 import cats.implicits._
 import cats.~>
+import scala.concurrent.duration._
+//import fs2.concurrent.{Queue => CQueue}
+//
+//import scala.collection.mutable.{Queue => SQueue}
 
-import scala.collection.mutable.{Queue => SQueue}
-
+// todo define failure scenarios
+// todo Send failed message to dead letter queue
+// todo add Lock
+// todo integration tests
 object Parapet {
 
   type <:<[F[_], G[_], A] = EitherK[F, G, A]
@@ -44,6 +52,17 @@ object Parapet {
     def dequeue: F[A]
   }
 
+  object Queue {
+    def bounded[F[_] : Concurrent, A](capacity: Int): F[Queue[F, A]] = {
+      fs2.concurrent.Queue.bounded[F, A](capacity).map(q => new Queue[F, A] {
+        override def enqueue(e: => A): F[Unit] =
+           q.enqueue1(e) *> implicitly[Concurrent[F]].delay(println("submitted task"))
+
+        override def dequeue: F[A] = q.dequeue1
+      })
+    }
+  }
+
   trait QueueModule[F[_], A] {
     def queue: Queue[F, A]
   }
@@ -57,17 +76,39 @@ object Parapet {
     def par(effects: Seq[F[_]]): F[Unit]
   }
 
-  implicit def ioParallel(implicit ctx: ContextShift[IO]): Parallel[IO] = (effects: Seq[IO[_]]) => effects.toList.parSequence_
+  def ioParallel(implicit ctx: ContextShift[IO]): Parallel[IO] = (effects: Seq[IO[_]]) => effects.toList.parSequence_
+
+  // todo implement RetryStrategy
+  trait Retry[F[_]] {
+    def retryWithBackoff[A](fa: F[A], initialDelay: FiniteDuration, maxRetries: Int, backoffBase: Int = 2): F[A]
+  }
+
+  class IORetry(timer: Timer[IO]) extends Retry[IO] {
+    override def retryWithBackoff[A](ioa: IO[A],
+                                     initialDelay: FiniteDuration,
+                                     maxRetries: Int, backoffBase: Int = 2): IO[A] = {
+      ioa.handleErrorWith { error =>
+        if (maxRetries > 0)
+          IO.sleep(initialDelay)(timer) *> /*IO(println(s"retry: $maxRetries")) *>*/ retryWithBackoff(ioa, initialDelay * backoffBase, maxRetries - 1)
+        else
+          IO.raiseError(error)
+      }
+    }
+  }
 
   // <----------- Schedule ----------->
   case class Task[F[_]](event: () => Event, p: Process[F])
   type TaskQueue[F[_]] = F[Queue[F, Task[F]]]
 
-  class Scheduler[F[_]: Monad](queue: Queue[F, Task[F]], numOfWorkers: Int, parallel: Parallel[F], interpreter: Interpreter[F]) {
+  class Scheduler[F[_]: Monad](queue: Queue[F, Task[F]],
+                               numOfWorkers: Int,
+                               parallel: Parallel[F],
+                               interpreter: Interpreter[F],
+                               retry: Retry[F]) {
     def submit(task: Task[F]): F[Unit] = queue.enqueue(task)
 
     def run: F[Unit] = {
-      parallel.par((0 until numOfWorkers).map(i => new Worker(s"worker-$i", queue, parallel, interpreter).run))
+      parallel.par((0 until numOfWorkers).map(i => new Worker(s"worker-$i", queue, parallel, interpreter, retry).run))
     }
   }
 
@@ -75,21 +116,27 @@ object Parapet {
     val scheduler: Scheduler[F]
   }
 
-  class Worker[F[_] : Monad](name: String, queue: Queue[F, Task[F]], parallel: Parallel[F], interpreter: Interpreter[F]) {
+  class Worker[F[_] : Monad](name: String,
+                             queue: Queue[F, Task[F]],
+                             parallel: Parallel[F],
+                             interpreter: Interpreter[F],
+                             retry: Retry[F]) {
     def process(task: Task[F]): F[Unit] = {
       val program: FlowF[F, Unit] = task.p.handle.apply(task.event())
-      val res = parallel.par(interpreter.interpret(program))
-      res
+      val res = interpreter.interpret(program).fold(Monad[F].unit)(_ *> _).void
+      retry.retryWithBackoff(res, 0.seconds, 5, 0) // todo send to dead letter
     }
 
     def run: F[Unit] = {
-      val step: F[Unit] =
+      def step: F[Unit] =
         for {
           task <- queue.dequeue
+          _ <- implicitly[Monad[F]].pure(println("dequeued task: " + task.event()))
           _ <- process(task)
+          _ <- step
         } yield ()
 
-      step *> run
+      step
     }
   }
 
@@ -168,7 +215,7 @@ object Parapet {
     override def apply[A](fa: FlowOp[IO, A]): FlowState[IO, A] = {
       implicit val ctx: ContextShift[IO] = env.ctx
       implicit val ioTimer: Timer[IO] = env.timer
-      val parallel: Parallel[IO] = implicitly[Parallel[IO]]
+      val parallel: Parallel[IO] = ioParallel
       val interpreter: IOFlowOpOrEffect ~> FlowState[IO, ?] = ioFlowInterpreter(env) or ioEffectInterpreter
       fa match {
         case Empty() => State.set(ListBuffer.empty)
@@ -211,6 +258,12 @@ object Parapet {
     }
   }
 
+  object Process {
+    def apply[F[_]](receive: PartialFunction[Event, FlowF[F, Unit]]): Process[F] = new Process[F] {
+      override val handle: Receive = receive
+    }
+  }
+
   trait CatsProcess extends Process[IO]
 
   trait CatsModule {
@@ -224,18 +277,16 @@ object Parapet {
                          timer: Timer[IO]) extends TaskQueueModule[IO] with CatsModule
 
   object CatsAppEnv {
-    def apply(): IO[CatsAppEnv] =
+    def apply(): IO[CatsAppEnv] = {
+      implicit val ctx: ContextShift[IO] = IO.contextShift(ExecutionContext.global)
       for {
-        taskQueue <- IO.pure(new IOQueue[Task[IO]])
-      } yield CatsAppEnv(taskQueue,
-        IO.contextShift(ExecutionContext.global),
-        IO.timer(ExecutionContext.global)
-      )
+        taskQueue <- Queue.bounded[IO, Task[IO]](10)
+      } yield CatsAppEnv(taskQueue, ctx, IO.timer(ExecutionContext.global))
+    }
   }
 
 
-  // scheduler <> -> interpreter
-  abstract class ParApp[F[+ _], Env <: TaskQueueModule[F]](implicit M: Monad[F]) { // todo add constraints for Env
+  abstract class ParApp[F[+ _], Env <: TaskQueueModule[F]](implicit M: Monad[F]) {
     type EffectF[A] = Effect[F, A]
     type FlowOpF[A] = FlowOp[F, A]
     type FlowStateF[A] = FlowState[F, A]
@@ -249,8 +300,9 @@ object Parapet {
 
     def parallel(env: Env): Parallel[F]
 
-    val numberOfWorkers = 5
+    def retry(env: Env): Retry[F]
 
+    val numberOfWorkers = 1
     def program: ProcessFlow
 
     def run: F[Unit] => Unit
@@ -260,9 +312,8 @@ object Parapet {
         e <- env
         P <- M.pure(parallel(e))
         interpreter <- M.pure(new Interpreter[F](flowInterpreter(e) or effectInterpreter(e)))
-        scheduler <-M.pure(new Scheduler[F](e.taskQueue, numberOfWorkers, P, interpreter))
-        _ <- P.par(Seq(scheduler.run))
-        _ <- P.par(interpreter.interpret(program))
+        scheduler <-M.pure(new Scheduler[F](e.taskQueue, numberOfWorkers, P, interpreter, retry(e)))
+        _ <- P.par(Seq(interpreter.interpret(program).toList.sequence_, scheduler.run))
       } yield ()
       run(p)
     }
@@ -277,17 +328,19 @@ object Parapet {
 
     override def parallel(env: CatsAppEnv): Parallel[IO] = ioParallel(env.ctx)
 
+    override def retry(env: CatsAppEnv): Retry[IO] = new IORetry(env.timer)
+
     override def run: IO[Unit] => Unit = _.unsafeRunSync()
   }
 
-  // todo use cats effect queue
-  class IOQueue[A] extends Queue[IO, A] {
-    val queue: SQueue[A] = new SQueue()
-
-    override def enqueue(e: => A): IO[Unit] = IO(queue.enqueue(e))
-
-    override def dequeue: IO[A] = IO(queue.dequeue())
-  }
+//  // todo use cats effect queue
+//  class IOQueue[A] extends Queue[IO, A] {
+//    val queue: SQueue[A] = new SQueue()
+//
+//    override def enqueue(e: => A): IO[Unit] = IO(queue.enqueue(e))
+//
+//    override def dequeue: IO[A] = IO(queue.dequeue())
+//  }
 
 }
 
@@ -338,4 +391,34 @@ object MyApp extends CatsApp {
   //  c
   //  ^ any permutation of a,b,c
 
+}
+
+object CounterApp extends CatsApp {
+
+  import CounterProcess._
+  import io.parapet.core.catsInstances.flow._ // for Flow DSL
+  import io.parapet.core.catsInstances.effect._ // for Effect DSL
+  import scala.concurrent.duration._
+  class CounterProcess extends CatsProcess {
+    val counter = new AtomicInteger()
+    override val handle: Receive = {
+      case Inc => delay(1.second, eval {
+        counter.incrementAndGet()
+      }) ++ eval(println(s"counter1=${counter.get()}"))
+      case Print => suspend(IO.delay(println(s"counter2=${counter.get()}")))
+    }
+  }
+
+  object CounterProcess {
+    object Inc extends Event
+    object Print extends Event
+  }
+
+  override def program: CounterApp.ProcessFlow = {
+    val counter = new CounterProcess()
+    eval(println("send Inc message to counter")) ++
+      Inc ~> counter ++
+      eval(println("send Print message to counter")) ++
+      Print ~> counter
+  }
 }

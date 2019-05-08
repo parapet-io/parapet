@@ -13,6 +13,7 @@ scalacOptions in ThisBuild ++= Seq(
 
 libraryDependencies += "org.typelevel" %% "cats-effect" % "1.2.0"
 libraryDependencies += "org.typelevel" %% "cats-free" % "1.6.0"
+libraryDependencies += "co.fs2" %% "fs2-core" % "1.0.4"
 libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.7" % Test
 
 resolvers += Resolver.sonatypeRepo("releases")
