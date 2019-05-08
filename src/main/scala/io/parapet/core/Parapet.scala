@@ -22,7 +22,12 @@ object Parapet {
   type FlowOpOrEffect[F[_], A] = <:<[FlowOp[F, ?], Effect[F, ?], A]
   type FlowF[F[_], A] = Free[FlowOpOrEffect[F, ?], A]
   type FlowState[F[_], A] = State[Seq[F[_]], A]
-  type Interpreter[F[_]] = FlowOpOrEffect[F, ?] ~> FlowState[F, ?]
+
+  class Interpreter[F[_]](interpreter: FlowOpOrEffect[F, ?] ~> FlowState[F, ?]) {
+    def interpret(program: FlowF[F, Unit]): Seq[F[_]] =
+      program.foldMap[FlowState[F, ?]](interpreter)
+        .runS(ListBuffer()).value
+  }
 
   trait Event
 
@@ -73,8 +78,7 @@ object Parapet {
   class Worker[F[_] : Monad](name: String, queue: Queue[F, Task[F]], parallel: Parallel[F], interpreter: Interpreter[F]) {
     def process(task: Task[F]): F[Unit] = {
       val program: FlowF[F, Unit] = task.p.handle.apply(task.event())
-      val res = parallel.par(program.foldMap[FlowState[F, ?]](interpreter) //  todo extract to interpreter
-        .runS(ListBuffer()).value.toList)
+      val res = parallel.par(interpreter.interpret(program))
       res
     }
 
@@ -152,10 +156,10 @@ object Parapet {
     def ++[B](fb: Free[F, B]): Free[F, B] = fa.flatMap(_ => fb)
   }
 
-  // Interpreters for ADTs based  on cats IO
+  // Interpreters for ADTs based on cats IO
   type IOFlowOpOrEffect[A] = FlowOpOrEffect[IO, A]
 
-  implicit def ioFlowInterpreter[Env <: TaskQueueModule[IO] with CatsModule](env: Env): FlowOp[IO, ?] ~> FlowState[IO, ?] = new (FlowOp[IO, ?] ~> FlowState[IO, ?]) {
+  def ioFlowInterpreter[Env <: TaskQueueModule[IO] with CatsModule](env: Env): FlowOp[IO, ?] ~> FlowState[IO, ?] = new (FlowOp[IO, ?] ~> FlowState[IO, ?]) {
 
     def run[A](flow: FlowF[IO, A], interpreter: IOFlowOpOrEffect ~> FlowState[IO, ?]): Seq[IO[_]] = {
       flow.foldMap(interpreter).runS(ListBuffer()).value
@@ -164,6 +168,7 @@ object Parapet {
     override def apply[A](fa: FlowOp[IO, A]): FlowState[IO, A] = {
       implicit val ctx: ContextShift[IO] = env.ctx
       implicit val ioTimer: Timer[IO] = env.timer
+      val parallel: Parallel[IO] = implicitly[Parallel[IO]]
       val interpreter: IOFlowOpOrEffect ~> FlowState[IO, ?] = ioFlowInterpreter(env) or ioEffectInterpreter
       fa match {
         case Empty() => State.set(ListBuffer.empty)
@@ -171,8 +176,8 @@ object Parapet {
           val ops = receivers.map(receiver => env.taskQueue.enqueue(Task(thunk, receiver)))
           State[Seq[IO[_]], Unit] { s => (s ++ ops, ()) }
         case Par(flow) =>
-          val res = flow.asInstanceOf[FlowF[IO, A]]
-            .foldMap(interpreter).runS(ListBuffer()).value.toList.parSequence_
+          val res = parallel.par(flow.asInstanceOf[FlowF[IO, A]]
+            .foldMap(interpreter).runS(ListBuffer()).value)
           State[Seq[IO[_]], Unit] { s => (s :+ res, ()) }
         // todo: behavior needs to be determined for par / seq flow
         case Delay(duration, flow) =>
@@ -183,7 +188,7 @@ object Parapet {
     }
   }
 
-  implicit def ioEffectInterpreter: Effect[IO, ?] ~> FlowState[IO, ?] = new (Effect[IO, ?] ~> FlowState[IO, ?]) {
+  def ioEffectInterpreter: Effect[IO, ?] ~> FlowState[IO, ?] = new (Effect[IO, ?] ~> FlowState[IO, ?]) {
     override def apply[A](fa: Effect[IO, A]): FlowState[IO, A] = fa match {
       case Suspend(thunk) => State.modify[Seq[IO[_]]](s => s ++ Seq(thunk()))
       case Eval(thunk) => State.modify[Seq[IO[_]]](s => s ++ Seq(IO(thunk())))
@@ -254,11 +259,10 @@ object Parapet {
       val p = for {
         e <- env
         P <- M.pure(parallel(e))
-        interpreter <- M.pure(flowInterpreter(e) or effectInterpreter(e))
+        interpreter <- M.pure(new Interpreter[F](flowInterpreter(e) or effectInterpreter(e)))
         scheduler <-M.pure(new Scheduler[F](e.taskQueue, numberOfWorkers, P, interpreter))
         _ <- P.par(Seq(scheduler.run))
-        _ <- program.foldMap[FlowStateF](interpreter)
-          .runS(ListBuffer()).value.toList.sequence_
+        _ <- P.par(interpreter.interpret(program))
       } yield ()
       run(p)
     }
