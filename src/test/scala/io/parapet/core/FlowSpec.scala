@@ -94,7 +94,7 @@ object FlowSpec {
 
   def interpret(f: FlowF[IO, Unit], env: TestEnv): IO[TestEnv] = {
     val interpreter = ioFlowInterpreter(env) or ioEffectInterpreter
-    f.foldMap[FlowState[IO, ?]](interpreter).runS(ListBuffer()).value.toList.sequence_.map(_ => env)
+    f.foldMap[FlowStateF[IO, ?]](interpreter).runS(FlowState(SystemRef, SystemRef, ListBuffer())).value.ops.toList.sequence_.map(_ => env)
   }
 
   def interpret(f: FlowF[IO, Unit]): IO[TestEnv] = {
@@ -128,7 +128,7 @@ object FlowSpec {
   }
 
   implicit class TaskOps[F[_]](task: Task[F]) {
-    def evalEvent: Event = task.asInstanceOf[Deliver[IO]].event()
+    def evalEvent: Event = task.asInstanceOf[Deliver[IO]].event().asInstanceOf[Mail].event()
   }
 
 }

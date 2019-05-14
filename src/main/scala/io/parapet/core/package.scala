@@ -9,6 +9,7 @@ package object core {
     type CatsFlow[A] = Parapet.FlowOpOrEffect[IO, A]
     val flow = implicitly[Flow[IO, CatsFlow]]
     val effect = implicitly[Effects[IO, CatsFlow]]
+    // todo val all = ???
   }
 
 }
