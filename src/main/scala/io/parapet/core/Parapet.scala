@@ -6,11 +6,12 @@ import java.util.concurrent.{ExecutorService, Executors}
 
 import cats.data.{EitherK, State}
 import cats.effect.IO._
-import cats.effect.concurrent.Deferred
 import cats.effect._
+import cats.effect.concurrent.Deferred
 import cats.free.Free
 import cats.implicits._
 import cats.{InjectK, Monad, ~>}
+
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.{FiniteDuration, _}
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor}
@@ -26,6 +27,7 @@ import scala.language.{higherKinds, implicitConversions, reflectiveCalls}
 // todo use logger instead of println
 // todo implement par(flow1, flow2, ...)
 // todo how to reply, bi-directional
+// todo resource release on shutdown
 //
 object Parapet {
 
@@ -52,12 +54,16 @@ object Parapet {
   trait Event
 
   case class Mail(sender: ProcessRef, event: () => Event) extends Event
+
   case object Start extends Event
+
+  case object Stop extends Event
+
   case class Failure(error: Throwable, event: Event) extends Event
 
   implicit class EventOps[F[_]](e: => Event) {
     def ~>(process: ProcessRef)(implicit FL: Flow[F, FlowOpOrEffect[F, ?]]): FlowF[F, Unit] = FL.send(e, process) //?
-    private [core] def ~>(process: Process[F])(implicit FL: Flow[F, FlowOpOrEffect[F, ?]]): FlowF[F, Unit] = FL.send(e, process.selfRef)
+    private[core] def ~>(process: Process[F])(implicit FL: Flow[F, FlowOpOrEffect[F, ?]]): FlowF[F, Unit] = FL.send(e, process.selfRef)
   }
 
   trait Queue[F[_], A] {
@@ -70,7 +76,7 @@ object Parapet {
     def bounded[F[_] : Concurrent, A](capacity: Int): F[Queue[F, A]] = {
       fs2.concurrent.Queue.bounded[F, A](capacity).map(q => new Queue[F, A] {
         override def enqueue(e: => A): F[Unit] =
-           q.enqueue1(e) //*> implicitly[Concurrent[F]].delay(println("submitted task"))
+          q.enqueue1(e) //*> implicitly[Concurrent[F]].delay(println("submitted task"))
 
         override def dequeue: F[A] = q.dequeue1
       })
@@ -112,21 +118,37 @@ object Parapet {
 
   // <----------- Schedule ----------->
   sealed trait Task[F[_]]
+
   case class Deliver[F[_]](event: () => Event, processRef: ProcessRef) extends Task[F] // todo consider change thunk to Mail
   case class Terminate[F[_]]() extends Task[F]
 
   type TaskQueue[F[_]] = F[Queue[F, Task[F]]]
 
-  class Scheduler[F[_]: ConcurrentEffect : Timer: Parallel](
-                                                             queue: Queue[F, Task[F]],
-                                                             config: SchedulerConfig,
-                                                             processes: Array[Process[F]],
-                                                             interpreter: Interpreter[F]) {
+  class Scheduler[F[_] : ConcurrentEffect : Timer : Parallel](
+                                                               queue: Queue[F, Task[F]],
+                                                               config: SchedulerConfig,
+                                                               processes: Array[Process[F]],
+                                                               interpreter: Interpreter[F],
+                                                               cancelationSignal: Deferred[F, Unit],
+                                                               completionSignal: Deferred[F, Unit]) {
 
 
-
+    private val ce = implicitly[ConcurrentEffect[F]]
+    private val parallel = implicitly[Parallel[F]]
     val processesMap: Map[String, Process[F]] = processes.map(p => p.name -> p).toMap
+
     def submit(task: Task[F]): F[Unit] = queue.enqueue(task)
+
+    //def stop: F[Unit] = cancelationSignal.complete(()) *> completionSignal.get
+
+    def awaitWorkers(workers: Seq[Worker[F]]): F[Unit] = {
+      ce.delay(println("awaitWorkers")) *> workers.map(_.await).toList.sequence_
+    }
+
+    def cancelWorkers(workers: Seq[Worker[F]]): F[Unit] = {
+      //println(workers)
+      parallel.par(workers.map(_.cancel) :+ awaitWorkers(workers))
+    }
 
     def reader(workers: Map[String, Worker[F]]): F[Unit] = {
       println("READER")
@@ -135,54 +157,67 @@ object Parapet {
       }
 
       def step: F[Unit] = for {
-       // _  <-  ConcurrentEffect[F].delay(println("reader is waiting for tasks"))
+        // _  <-  ConcurrentEffect[F].delay(println("reader is waiting for tasks"))
         task <- queue.dequeue
         _ <- task match {
           case Terminate() =>
-              workers.values.map(_.queue.enqueue(task)).toList.sequence_ *> //  todo submit in par
-              workers.values.map(_.stop).toList.sequence_ *>
+            ce.delay(println("Scheduler - normal termination")) *>
+             workers.values.map(_.queue.enqueue(task)).toList.sequence_ *> //  todo submit in par
+//              awaitWorkers(workers.values.toSeq) *>
               ConcurrentEffect[F].delay(println("kill Scheduler"))
-          case Deliver(_, processRef) =>  workers.get(processRef.ref)
+          case Deliver(_, processRef) => workers.get(processRef.ref)
             .fold(ConcurrentEffect[F].delay(println(s"unknown process: ${processRef.ref}. ignore event"))) {
               worker => worker.queue.enqueue(task)
             } *> step
         }
       } yield ()
 
-      step *>  ConcurrentEffect[F].delay(println("kill reader"))
+      step *> ConcurrentEffect[F].delay(println("kill reader"))
     }
 
     def run: F[Unit] = {
       val window = Math.ceil(processes.length.toDouble / config.numberOfWorkers).toInt
       println(s"window: $window")
-      val workersF: F[List[(Worker[F], Array[Process[F]])]]  = processes.sliding(window, window).zipWithIndex.map {
+      val workersF: F[List[(Worker[F], Array[Process[F]])]] = processes.sliding(window, window).zipWithIndex.map {
         case (pgroup, i) =>
           val w: F[(Worker[F], Array[Process[F]])] =
             for {
-              q <-  Queue.bounded[F, Task[F]](config.numberOfWorkers)
-              c <-  Deferred[F, Unit]
-            }yield (new Worker(s"worker-$i", q, processesMap, config, interpreter, c), pgroup)
+              q <- Queue.bounded[F, Task[F]](config.numberOfWorkers)
+              completionSignal <- Deferred[F, Unit]
+            } yield (new Worker(
+              s"worker-$i", q, pgroup.map(p => p.selfRef.ref ->p).toMap, config, interpreter,
+              completionSignal), pgroup)
 
           w
       }.toList.sequence
 
-     // val tmp: F[List[(Worker[F], Array[Process[F]])]] = workers.sequence
+      // val tmp: F[List[(Worker[F], Array[Process[F]])]] = workers.sequence
 
-//      val m: Map[Int, Int] = List((1, List(11, 12, 13)), (2, List(21, 22, 23))).flatMap {
-//        case (w, pg) => pg.map(p => (p ->  w))
-//      }.toMap
+      //      val m: Map[Int, Int] = List((1, List(11, 12, 13)), (2, List(21, 22, 23))).flatMap {
+      //        case (w, pg) => pg.map(p => (p ->  w))
+      //      }.toMap
 
-      (for {
-        workers <- workersF
-        _ <- implicitly[Parallel[F]].par(workers.map(_._1.run *> ConcurrentEffect[F].delay(println("worker done"))) :+
+      ce.bracket(workersF) { workers =>
+        parallel.par(workers.map(w => w._1.run *> ConcurrentEffect[F].delay(println("worker done"))) :+
           reader(workers.flatMap {
-          case (w, pgroup) => pgroup.map(_.name -> w)
-        }.toMap)*> ConcurrentEffect[F].delay(println("reader done")))
+            case (w, pgroup) => pgroup.map(_.name -> w)
+          }.toMap) *> ConcurrentEffect[F].delay(println("reader done"))) *>
+          ConcurrentEffect[F].delay(println("scheduler done"))
+      } { workers =>
+        ce.delay(println(s"cancel workers: $workers")) *> cancelWorkers(workers.map(_._1))
+      }
 
+      //      (for {
+      //        workers <- workersF
+      //        _ <- implicitly[Parallel[F]].par(workers.map(_._1.run *> ConcurrentEffect[F].delay(println("worker done"))) :+
+      //          reader(workers.flatMap {
+      //          case (w, pgroup) => pgroup.map(_.name -> w)
+      //        }.toMap)*> ConcurrentEffect[F].delay(println("reader done")))
+      //
+      //
+      //      } yield ()) *>  ConcurrentEffect[F].delay(println("scheduler done"))
 
-      } yield ()) *>  ConcurrentEffect[F].delay(println("scheduler done"))
-
-     // implicitly[Parallel[F]].par((0 until numOfWorkers).map(i => new Worker(s"worker-$i", queue, interpreter).run))
+      // implicitly[Parallel[F]].par((0 until numOfWorkers).map(i => new Worker(s"worker-$i", queue, interpreter).run))
     }
   }
 
@@ -190,9 +225,10 @@ object Parapet {
     val scheduler: Scheduler[F]
   }
 
-  def interpretAndRun[F[_]: Monad, A](program: FlowF[F, A], senderRef: ProcessRef, selfRef: ProcessRef, interpreter: Interpreter[F]): F[Unit] =
+  def interpretAndRun[F[_] : Monad, A](program: FlowF[F, A], senderRef: ProcessRef, selfRef: ProcessRef, interpreter: Interpreter[F]): F[Unit] =
     interpreter.interpret(senderRef, selfRef, program).fold(Monad[F].unit)(_ *> _).void
-    // implicitly[Interpreter[F]].interpret(program).toList.sequence_
+
+  // implicitly[Interpreter[F]].interpret(program).toList.sequence_
 
   class Worker[F[_] : ConcurrentEffect : Timer : Parallel](
                                                             val name: String,
@@ -200,8 +236,9 @@ object Parapet {
                                                             processesMap: Map[String, Process[F]],
                                                             config: SchedulerConfig,
                                                             interpreter: Interpreter[F],
-                                                            cancelSignal: Deferred[F, Unit]) {
+                                                            completionSignal: Deferred[F, Unit]) {
     private val ce = implicitly[ConcurrentEffect[F]]
+    private val parallel = implicitly[Parallel[F]]
 
     def processTask(task: Task[F]): F[Unit] = {
       task match {
@@ -212,7 +249,7 @@ object Parapet {
 
           val process: Parapet.Process[F] = processesMap(processRef.ref)
           val program: FlowF[F, Unit] = process.handle.apply(event) // todo check if defined
-        val res = interpretAndRun(program, sender, processRef, interpreter)
+          val res = interpretAndRun(program, sender, processRef, interpreter)
           res.retryWithBackoff(config.redeliveryInitialDelay, config.maxRedeliveryRetries).handleErrorWith { err =>
             val failure = Failure(err, event)
             if (process.handle.isDefinedAt(failure)) {
@@ -227,29 +264,45 @@ object Parapet {
       }
     }
 
+    def deliverStopAndNotify: F[Unit] = {
+      parallel.par(processesMap.values.map { p =>
+        if (p.handle.isDefinedAt(Stop)) {
+          ce.delay(println(s"$name delivers Stop to ${p.selfRef.ref}")) *> interpretAndRun(p.handle.apply(Stop), SystemRef, p.selfRef, interpreter)
+        } else {
+          ce.unit //  add debug
+        }
+      }.toSeq) *> completionSignal.complete(())
+    }
+
     def run: F[Unit] = {
       def step: F[Unit] =
         for {
           task <- queue.dequeue
           _ <- task match {
             case Deliver(_, _) => /*implicitly[Monad[F]].pure(println(s"$name dequeued task: " + task)) *>*/ processTask(task) *> step
-            case Terminate() => ce.delay(println(s"kill $name")) *> cancelSignal.complete(())
+            case Terminate() => ce.delay(println(s"normal termination $name"))
           }
         } yield ()
-
       step
     }
 
-    def stop: F[Unit] = cancelSignal.get
+    def cancel: F[Unit] = ce.delay(println(s"cancel worker $name")) *>  deliverStopAndNotify
+    def await: F[Unit] = completionSignal.get
   }
 
   // <----------- Flow ADT ----------->
   sealed trait FlowOp[F[_], A]
+
   case class Empty[F[_]]() extends FlowOp[F, Unit]
+
   case class Send[F[_]](f: () => Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
+
   case class Par[F[_], G[_]](flow: Seq[Free[G, Unit]]) extends FlowOp[F, Unit]
+
   case class Delay[F[_], G[_]](duration: FiniteDuration, flow: Option[Free[G, Unit]]) extends FlowOp[F, Unit]
+
   case class Stop[F[_]]() extends FlowOp[F, Unit]
+
   case class SenderOp[F[_], G[_]](f: ProcessRef => Free[G, Unit]) extends FlowOp[F, Unit]
 
 
@@ -281,7 +334,9 @@ object Parapet {
   // Allows to use some other effect directly outside of Flow ADT, e.g cats IO, Future, Task and etc.
   // must be compatible with Flow F
   sealed trait Effect[F[_], A]
+
   case class Suspend[F[_]](thunk: () => F[Unit]) extends Effect[F, Unit]
+
   case class Eval[F[_]](thunk: () => Unit) extends Effect[F, Unit]
 
   // F - effect type
@@ -304,6 +359,7 @@ object Parapet {
     //type IOEffect[A] = Effect[IO, A]
 
     implicit def effects[F[_], G[_]](implicit I: InjectK[Effect[F, ?], G]): Effects[F, G] = new Effects[F, G]
+
     //implicit def effects[G[_]](implicit I: InjectK[Effect[IO, ?], G]): Effects[IO, G] = new Effects[IO, G]
   }
 
@@ -330,7 +386,7 @@ object Parapet {
       val interpreter: IOFlowOpOrEffect ~> FlowStateF[IO, ?] = ioFlowInterpreter(env) or ioEffectInterpreter
       fa match {
         case Empty() => State.set(FlowState[IO](UnknownRef, UnknownRef, ListBuffer.empty))
-        case Stop() =>  State[FlowState[IO], Unit] { s => (s.addOps(Seq(env.taskQueue.enqueue(Terminate()))), ()) }
+        case Stop() => State[FlowState[IO], Unit] { s => (s.addOps(Seq(env.taskQueue.enqueue(Terminate()))), ()) }
         case Send(thunk, receivers) =>
           State[FlowState[IO], Unit] { s =>
             val ops = receivers.map(receiver => env.taskQueue.enqueue(Deliver(() => Mail(s.selfRef, thunk), receiver)))
@@ -346,7 +402,8 @@ object Parapet {
           State[FlowState[IO], Unit] { s =>
             val delayIO = IO.sleep(duration)
             val res = run(flow.asInstanceOf[FlowF[IO, A]], s.senderRef, s.selfRef, interpreter).map(op => delayIO *> op)
-            (s.addOps(res), ()) }
+            (s.addOps(res), ())
+          }
         case Delay(duration, None) =>
           State[FlowState[IO], Unit] { s => (s.addOps(Seq(IO.sleep(duration))), ()) }
 
@@ -407,17 +464,18 @@ object Parapet {
                          timer: Timer[IO]) extends TaskQueueModule[IO] with CatsModule
 
   object CatsAppEnv {
-//    def apply(): IO[CatsAppEnv] = {
-//      implicit val ctx: ContextShift[IO] = IO.contextShift(ExecutionContext.global)
-//      for {
-//        taskQueue <- Queue.bounded[IO, Task[IO]](10)
-//      } yield CatsAppEnv(taskQueue, ctx, IO.timer(ExecutionContext.global))
-//    }
+    //    def apply(): IO[CatsAppEnv] = {
+    //      implicit val ctx: ContextShift[IO] = IO.contextShift(ExecutionContext.global)
+    //      for {
+    //        taskQueue <- Queue.bounded[IO, Task[IO]](10)
+    //      } yield CatsAppEnv(taskQueue, ctx, IO.timer(ExecutionContext.global))
+    //    }
   }
 
   case class SchedulerConfig(numberOfWorkers: Int,
-                              maxRedeliveryRetries: Int,
-                              redeliveryInitialDelay: FiniteDuration)
+                             maxRedeliveryRetries: Int,
+                             redeliveryInitialDelay: FiniteDuration)
+
   case class ParConfig(schedulerConfig: SchedulerConfig)
 
   abstract class ParApp[F[+ _], Env <: TaskQueueModule[F]] {
@@ -449,10 +507,16 @@ object Parapet {
       } else {
         for {
           env <- environment
+          schedulerCancelationSignal <- Deferred[F, Unit]
+          schedulerCompletionSignal <- Deferred[F, Unit]
           interpreter <- concurrentEffect.pure(new Interpreter[F](flowInterpreter(env) or effectInterpreter(env)))
-          scheduler <- concurrentEffect.pure(new Scheduler[F](env.taskQueue, config.schedulerConfig, processes, interpreter))
+          scheduler <- concurrentEffect.pure(new Scheduler[F](env.taskQueue, config.schedulerConfig,
+            processes, interpreter, schedulerCancelationSignal, schedulerCompletionSignal))
           _ <- parallel.par(Seq(interpretAndRun(program, SystemRef, SystemRef, interpreter) *>
-            concurrentEffect.delay(println("program finished")), scheduler.run *> concurrentEffect.delay(println("scheduler closed"))))
+            concurrentEffect.delay(println("program finished")),
+            scheduler.run
+            //concurrentEffect.guarantee(scheduler.run)(scheduler.stop)
+          ))
           _ <- stop
         } yield env
       }
@@ -480,15 +544,27 @@ object Parapet {
 
     override def effectInterpreter(e: CatsAppEnv): EffectF ~> FlowStateA = ioEffectInterpreter
 
-    override def unsafeRun(io: IO[Unit]): Unit = io.unsafeRunSync()
+    override def unsafeRun(io: IO[Unit]): Unit = {
+      io.start.flatMap { fiber =>
+        installHook(fiber).map(_ => fiber)
+      }.flatMap(_.join).unsafeRunSync()
+    }
 
-    override def stop: IO[Unit] = IO(println("shutdown execution context")) *> IO(unsafeStop)
+    override def stop: IO[Unit] = IO(println("shutdown")) *> IO(unsafeStop)
 
     def unsafeStop: Unit = {
       println("executorService.shutdownNow()")
       println(executorService.shutdownNow())
       println("done")
     }
+
+    private def installHook(fiber: Fiber[IO, Unit]): IO[Unit] =
+      IO {
+        sys.addShutdownHook {
+          // Should block the thread until all finalizers are executed
+          fiber.cancel.unsafeRunSync()
+        }
+      }
   }
 
   object ParApp {
@@ -503,7 +579,7 @@ object Parapet {
 
 }
 
-import io.parapet.core.Parapet.{CatsApp, Event}
+import io.parapet.core.Parapet.CatsApp
 
 object MyApp extends CatsApp {
 
@@ -512,7 +588,7 @@ object MyApp extends CatsApp {
   import io.parapet.core.catsInstances.effect._
   import io.parapet.core.catsInstances.flow._ // for Effect DSL
 
-  val counter: io.parapet.core.Parapet.Process[IO]  = new CounterProcess()
+  val counter: io.parapet.core.Parapet.Process[IO] = new CounterProcess()
 
   override val processes: Array[io.parapet.core.Parapet.Process[IO]] = Array(counter)
 
@@ -564,8 +640,9 @@ object CounterApp extends CatsApp {
   import io.parapet.core.catsInstances.flow._
 
   import scala.concurrent.duration._
-  val counter1: Process[IO]  = new CounterProcess("counter1")
-  val counter2: Process[IO]  = new CounterProcess("counter2")
+
+  val counter1: Process[IO] = new CounterProcess("counter1")
+  val counter2: Process[IO] = new CounterProcess("counter2")
 
   override val processes: Array[io.parapet.core.Parapet.Process[IO]] = Array(counter1, counter2)
 
@@ -577,12 +654,16 @@ object CounterApp extends CatsApp {
         counter.incrementAndGet()
       }) ++ eval(println(s"counter1=${counter.get()}"))
       case Print => suspend(IO.delay(println(s"counter2=${counter.get()}")))
+      case Stop => eval(println(s"s$id -- stop"))
     }
   }
 
   object CounterProcess {
+
     object Inc extends Event
+
     object Print extends Event
+
   }
 
   override val program: CounterApp.ProcessFlow = {
@@ -594,6 +675,6 @@ object CounterApp extends CatsApp {
     }
 
     par(delay(2.seconds) ++ create(counter1), create(counter2)) ++ terminate
-   // create(counter1) ++ create(counter2) ++ terminate
+    // create(counter1) ++ create(counter2) ++ terminate
   }
 }
