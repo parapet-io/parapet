@@ -14,19 +14,21 @@ object SendToSelfApp extends CatsApp {
   import RecursiveProcess._
 
   override val processes: Array[Process[IO]] = Array(recursiveProcess)
-  override val program: SendToSelfApp.ProcessFlow = RecEvent ~> recursiveProcess
+  override val program: SendToSelfApp.ProcessFlow = Counter(10000000) ~> recursiveProcess
 
 
 
   class RecursiveProcess extends Process[IO] {
     override val handle: Receive = {
-      case RecEvent => delay(1.seconds) ++ eval(println("tick")) ++ RecEvent ~> selfRef
+      case Counter(i) =>
+        if (i == 0) terminate
+        else eval(println(i)) ++ Counter(i - 1) ~> selfRef
     }
   }
 
   object RecursiveProcess {
 
-    object RecEvent extends Event
+    case class Counter(value: Int) extends Event
 
   }
 

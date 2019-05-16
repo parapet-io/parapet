@@ -12,6 +12,7 @@ import cats.free.Free
 import cats.implicits._
 import cats.{InjectK, Monad, ~>}
 
+import scala.annotation.tailrec
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.{FiniteDuration, _}
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor}
@@ -76,7 +77,7 @@ object Parapet {
     def bounded[F[_] : Concurrent, A](capacity: Int): F[Queue[F, A]] = {
       fs2.concurrent.Queue.bounded[F, A](capacity).map(q => new Queue[F, A] {
         override def enqueue(e: => A): F[Unit] =
-          q.enqueue1(e) //*> implicitly[Concurrent[F]].delay(println("submitted task"))
+          q.enqueue1(e) //>> implicitly[Concurrent[F]].delay(println("submitted task"))
 
         override def dequeue: F[A] = q.dequeue1
       })
@@ -109,7 +110,7 @@ object Parapet {
                                                              maxRetries: Int, backoffBase: Int = 2): F[A] = {
       fa.handleErrorWith { error =>
         if (maxRetries > 0)
-          implicitly[Timer[F]].sleep(initialDelay) *> implicitly[ConcurrentEffect[F]].delay(println(s"retry: $maxRetries")) *> retryWithBackoff(fa, initialDelay * backoffBase, maxRetries - 1)
+          implicitly[Timer[F]].sleep(initialDelay) >> implicitly[ConcurrentEffect[F]].delay(println(s"retry: $maxRetries")) >> retryWithBackoff(fa, initialDelay * backoffBase, maxRetries - 1)
         else
           implicitly[ConcurrentEffect[F]].raiseError(error)
       }
@@ -139,10 +140,10 @@ object Parapet {
 
     def submit(task: Task[F]): F[Unit] = queue.enqueue(task)
 
-    //def stop: F[Unit] = cancelationSignal.complete(()) *> completionSignal.get
+    //def stop: F[Unit] = cancelationSignal.complete(()) >> completionSignal.get
 
     def awaitWorkers(workers: Seq[Worker[F]]): F[Unit] = {
-      ce.delay(println("awaitWorkers")) *> workers.map(_.await).toList.sequence_
+      ce.delay(println("awaitWorkers")) >> workers.map(_.await).toList.sequence_
     }
 
     def cancelWorkers(workers: Seq[Worker[F]]): F[Unit] = {
@@ -156,23 +157,23 @@ object Parapet {
         case (p, w) => println(s"process $p assigned to ${w.name}")
       }
 
-      def step: F[Unit] = for {
-        // _  <-  ConcurrentEffect[F].delay(println("reader is waiting for tasks"))
-        task <- queue.dequeue
-        _ <- task match {
-          case Terminate() =>
-            ce.delay(println("Scheduler - normal termination")) *>
-             workers.values.map(_.queue.enqueue(task)).toList.sequence_ *> //  todo submit in par
-//              awaitWorkers(workers.values.toSeq) *>
+
+      def step: F[Unit] =
+      // _  <-  ConcurrentEffect[F].delay(println("reader is waiting for tasks"))
+        queue.dequeue.flatMap {
+          case task@Terminate() =>
+            ce.delay(println("Scheduler - normal termination")) >>
+              workers.values.map(_.queue.enqueue(task)).toList.sequence_ >> //  todo submit in par
+              //              awaitWorkers(workers.values.toSeq) >>
               ConcurrentEffect[F].delay(println("kill Scheduler"))
-          case Deliver(_, processRef) => workers.get(processRef.ref)
+          case task@Deliver(_, processRef) => workers.get(processRef.ref)
             .fold(ConcurrentEffect[F].delay(println(s"unknown process: ${processRef.ref}. ignore event"))) {
               worker => worker.queue.enqueue(task)
-            } *> step
+            } >> step
         }
-      } yield ()
 
-      step *> ConcurrentEffect[F].delay(println("kill reader"))
+
+      step >> ConcurrentEffect[F].delay(println("kill reader"))
     }
 
     def run: F[Unit] = {
@@ -198,24 +199,24 @@ object Parapet {
       //      }.toMap
 
       ce.bracket(workersF) { workers =>
-        parallel.par(workers.map(w => w._1.run *> ConcurrentEffect[F].delay(println("worker done"))) :+
-          reader(workers.flatMap {
+        parallel.par(workers.map(w => w._1.run >> ConcurrentEffect[F].delay(println("worker done"))) :+
+          (reader(workers.flatMap {
             case (w, pgroup) => pgroup.map(_.name -> w)
-          }.toMap) *> ConcurrentEffect[F].delay(println("reader done"))) *>
-          ConcurrentEffect[F].delay(println("scheduler done"))
+          }.toMap) >> ConcurrentEffect[F].delay(println("reader done")) >>
+          ConcurrentEffect[F].delay(println("scheduler done"))))
       } { workers =>
-        ce.delay(println(s"cancel workers: $workers")) *> cancelWorkers(workers.map(_._1))
+        ce.delay(println(s"cancel workers: $workers")) >> cancelWorkers(workers.map(_._1))
       }
 
       //      (for {
       //        workers <- workersF
-      //        _ <- implicitly[Parallel[F]].par(workers.map(_._1.run *> ConcurrentEffect[F].delay(println("worker done"))) :+
+      //        _ <- implicitly[Parallel[F]].par(workers.map(_._1.run >> ConcurrentEffect[F].delay(println("worker done"))) :+
       //          reader(workers.flatMap {
       //          case (w, pgroup) => pgroup.map(_.name -> w)
-      //        }.toMap)*> ConcurrentEffect[F].delay(println("reader done")))
+      //        }.toMap)>> ConcurrentEffect[F].delay(println("reader done")))
       //
       //
-      //      } yield ()) *>  ConcurrentEffect[F].delay(println("scheduler done"))
+      //      } yield ()) >>  ConcurrentEffect[F].delay(println("scheduler done"))
 
       // implicitly[Parallel[F]].par((0 until numOfWorkers).map(i => new Worker(s"worker-$i", queue, interpreter).run))
     }
@@ -226,7 +227,7 @@ object Parapet {
   }
 
   def interpretAndRun[F[_] : Monad, A](program: FlowF[F, A], senderRef: ProcessRef, selfRef: ProcessRef, interpreter: Interpreter[F]): F[Unit] =
-    interpreter.interpret(senderRef, selfRef, program).fold(Monad[F].unit)(_ *> _).void
+    interpreter.interpret(senderRef, selfRef, program).fold(Monad[F].unit)(_ >> _).void
 
   // implicitly[Interpreter[F]].interpret(program).toList.sequence_
 
@@ -267,26 +268,24 @@ object Parapet {
     def deliverStopAndNotify: F[Unit] = {
       parallel.par(processesMap.values.map { p =>
         if (p.handle.isDefinedAt(Stop)) {
-          ce.delay(println(s"$name delivers Stop to ${p.selfRef.ref}")) *> interpretAndRun(p.handle.apply(Stop), SystemRef, p.selfRef, interpreter)
+          ce.delay(println(s"$name delivers Stop to ${p.selfRef.ref}")) >> interpretAndRun(p.handle.apply(Stop), SystemRef, p.selfRef, interpreter)
         } else {
           ce.unit //  add debug
         }
-      }.toSeq) *> completionSignal.complete(())
+      }.toSeq) >> completionSignal.complete(())
     }
 
     def run: F[Unit] = {
       def step: F[Unit] =
-        for {
-          task <- queue.dequeue
-          _ <- task match {
-            case Deliver(_, _) => /*implicitly[Monad[F]].pure(println(s"$name dequeued task: " + task)) *>*/ processTask(task) *> step
-            case Terminate() => ce.delay(println(s"normal termination $name"))
-          }
-        } yield ()
+        queue.dequeue.flatMap {
+          case task@Deliver(_, _) => processTask(task) >> step
+          case Terminate() => ce.delay(println(s"normal termination $name"))
+        }
+
       step
     }
 
-    def cancel: F[Unit] = ce.delay(println(s"cancel worker $name")) *>  deliverStopAndNotify
+    def cancel: F[Unit] = ce.delay(println(s"cancel worker $name")) >> deliverStopAndNotify
     def await: F[Unit] = completionSignal.get
   }
 
@@ -401,7 +400,7 @@ object Parapet {
         case Delay(duration, Some(flow)) =>
           State[FlowState[IO], Unit] { s =>
             val delayIO = IO.sleep(duration)
-            val res = run(flow.asInstanceOf[FlowF[IO, A]], s.senderRef, s.selfRef, interpreter).map(op => delayIO *> op)
+            val res = run(flow.asInstanceOf[FlowF[IO, A]], s.senderRef, s.selfRef, interpreter).map(op => delayIO >> op)
             (s.addOps(res), ())
           }
         case Delay(duration, None) =>
@@ -512,7 +511,7 @@ object Parapet {
           interpreter <- concurrentEffect.pure(new Interpreter[F](flowInterpreter(env) or effectInterpreter(env)))
           scheduler <- concurrentEffect.pure(new Scheduler[F](env.taskQueue, config.schedulerConfig,
             processes, interpreter, schedulerCancelationSignal, schedulerCompletionSignal))
-          _ <- parallel.par(Seq(interpretAndRun(program, SystemRef, SystemRef, interpreter) *>
+          _ <- parallel.par(Seq(interpretAndRun(program, SystemRef, SystemRef, interpreter) >>
             concurrentEffect.delay(println("program finished")),
             scheduler.run
             //concurrentEffect.guarantee(scheduler.run)(scheduler.stop)
@@ -550,7 +549,7 @@ object Parapet {
       }.flatMap(_.join).unsafeRunSync()
     }
 
-    override def stop: IO[Unit] = IO(println("shutdown")) *> IO(unsafeStop)
+    override def stop: IO[Unit] = IO(println("shutdown")) >> IO(unsafeStop)
 
     def unsafeStop: Unit = {
       println("executorService.shutdownNow()")
