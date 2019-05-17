@@ -6,7 +6,7 @@ import io.parapet.core.catsInstances.effect._
 import io.parapet.core.catsInstances.flow._
 import org.scalatest.{FlatSpec, Matchers, OptionValues}
 
-
+//todo non deterministic
 class ProcessTerminationSpec extends FlatSpec with Matchers with OptionValues {
 
   "Terminate" should "deliver Stop message to each process" in {
@@ -29,7 +29,7 @@ class ProcessTerminationSpec extends FlatSpec with Matchers with OptionValues {
 
   def run(pProgram: FlowF[IO, Unit], pProcesses: Process[IO]*): Unit = {
     val app = new CatsApp {
-      override val program: ProcessFlow = pProgram ++ terminate
+      override val program: ProcessFlow = pProgram
 
       override val processes: Array[Process[IO]] = pProcesses.toArray
     }

@@ -18,7 +18,7 @@ class EventRedeliverySpec extends FlatSpec with Matchers with OptionValues {
         } ++ suspend(IO.raiseError(new RuntimeException("unexpected error")))
     }
 
-    val program = TextEvent ~> p
+    val program = TextEvent ~> p ++ terminate
     run(program, p)
 
     deliveryCount shouldBe 6
@@ -32,25 +32,25 @@ class EventRedeliverySpec extends FlatSpec with Matchers with OptionValues {
         failedEvent = Some(f)
       }
     }
-    val program = TextEvent ~> p
+    val program = TextEvent ~> p ++ terminate
     run(program, p)
     failedEvent.value.error.getMessage shouldBe "unexpected error"
     failedEvent.value.event shouldBe TextEvent
   }
 
-  "Failure event handling error" should "not be propagated" in {
+  "Error during Failure event handling" should "not be propagated" in {
     val p = Process[IO] {
       case TextEvent => suspend(IO.raiseError(new RuntimeException("unexpected error")))
       case Failure(_, _) => suspend(IO.raiseError(new RuntimeException("failed to process 'failure' event")))
     }
-    val program = TextEvent ~> p
+    val program = TextEvent ~> p ++ terminate
     run(program, p)
   }
 
 
   def run(pProgram: FlowF[IO, Unit], pProcesses: Process[IO]*): Unit = {
     val app = new CatsApp {
-      override val program: ProcessFlow = pProgram ++ terminate
+      override val program: ProcessFlow = pProgram
 
       override val processes: Array[Process[IO]] = pProcesses.toArray
     }

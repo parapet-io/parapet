@@ -1,23 +1,24 @@
 package io.parapet.core
 
 import cats.effect.{ContextShift, IO, Timer}
-import io.parapet.core.FlowSpec._
+import io.parapet.core.Parapet.ProcessRef._
 import io.parapet.core.Parapet._
-import io.parapet.core.Parapet.Process
 import io.parapet.core.catsInstances.effect._
 import io.parapet.core.catsInstances.flow._
-import org.scalatest.{FlatSpec, _}
+import org.scalatest.FlatSpec
+import org.scalatest.Matchers._
+import org.scalatest.OptionValues._
 
 import scala.collection.mutable.{ListBuffer, Queue => SQueue}
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
-class FlowSpec extends FlatSpec with Matchers with OptionValues {
-
+class FlowSpec extends FlatSpec {
+  import FlowSpec._
   // m1 ~> p1
   "Flow send" should "enqueue an event" in {
     val program = TestEvent("1") ~> blackhole
-    val env = interpret(program).unsafeRunSync()
+    val env = run_(program)
     env.taskQueue.size shouldBe 1
     env.taskQueue.peek.value.evalEvent shouldBe TestEvent("1")
   }
@@ -25,7 +26,7 @@ class FlowSpec extends FlatSpec with Matchers with OptionValues {
   // m1 ~> p1 ++ m2 ~> p1
   "Flow composition of two seq flows" should "send events in program order" in {
     val program = TestEvent("1") ~> blackhole ++ TestEvent("2") ~> blackhole
-    val env = interpret(program).unsafeRunSync()
+    val env = run_(program)
     env.taskQueue.size shouldBe 2
     env.taskQueue.pull.value.evalEvent shouldBe TestEvent("1")
     env.taskQueue.pull.value.evalEvent shouldBe TestEvent("2")
@@ -39,7 +40,7 @@ class FlowSpec extends FlatSpec with Matchers with OptionValues {
         TestEvent("2") ~> blackhole
       )
 
-    val env = interpret(program).unsafeRunSync()
+    val env = run_(program)
     env.taskQueue.size shouldBe 2
     env.taskQueue.pull.value.evalEvent shouldBe TestEvent("2")
     env.taskQueue.pull.value.evalEvent shouldBe TestEvent("1")
@@ -55,7 +56,7 @@ class FlowSpec extends FlatSpec with Matchers with OptionValues {
         par(delay(3.seconds) ++ TestEvent("2") ~> blackhole, TestEvent("3") ~> blackhole) ++
         TestEvent("4") ~> blackhole
 
-    val env = interpret(program).unsafeRunSync()
+    val env = run_(program)
 
     env.taskQueue.size shouldBe 4
     env.taskQueue.pull.value.evalEvent shouldBe TestEvent("1")
@@ -75,7 +76,7 @@ class FlowSpec extends FlatSpec with Matchers with OptionValues {
       suspend(IO { i = i + 1 }) ++ TestEvent(i.toString) ~> blackhole ++
       eval { events += env.taskQueue.pull.value.evalEvent }
 
-    interpret(program, env).unsafeRunSync()
+    run_(program, env)
     env.taskQueue.size shouldBe 0
     events.size shouldBe 2
     events.head shouldBe TestEvent("1")
@@ -87,18 +88,17 @@ class FlowSpec extends FlatSpec with Matchers with OptionValues {
 object FlowSpec {
 
   import cats.effect.IO._
-  import cats.implicits._
-
+  import io.parapet.core.catsInstances.flow._
   val ec: ExecutionContext = scala.concurrent.ExecutionContext.global
   implicit val ioTimer: Timer[IO] = IO.timer(ec)
 
-  def interpret(f: FlowF[IO, Unit], env: TestEnv): IO[TestEnv] = {
+  def run_(program: FlowF[IO, Unit], env: TestEnv): TestEnv = {
     val interpreter = ioFlowInterpreter(env) or ioEffectInterpreter
-    f.foldMap[FlowStateF[IO, ?]](interpreter).runS(FlowState(SystemRef, SystemRef, ListBuffer())).value.ops.toList.sequence_.map(_ => env)
+    interpret_(program, interpreter, FlowState(SystemRef, SystemRef)).map(_ => env).unsafeRunSync()
   }
 
-  def interpret(f: FlowF[IO, Unit]): IO[TestEnv] = {
-    interpret(f, new TestEnv())
+  def run_(f: FlowF[IO, Unit]): TestEnv = {
+    run_(f, new TestEnv())
   }
 
   class TestEnv extends TaskQueueModule[IO] with CatsModule {
@@ -128,7 +128,7 @@ object FlowSpec {
   }
 
   implicit class TaskOps[F[_]](task: Task[F]) {
-    def evalEvent: Event = task.asInstanceOf[Deliver[IO]].event().asInstanceOf[Mail].event()
+    def evalEvent: Event = task.asInstanceOf[Deliver[IO]].envelope.event()
   }
 
 }

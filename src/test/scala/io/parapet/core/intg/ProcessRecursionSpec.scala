@@ -9,7 +9,7 @@ import org.scalatest.{FlatSpec, Matchers, OptionValues}
 
 class ProcessRecursionSpec extends FlatSpec with Matchers with OptionValues {
 
-  "Stack safe" should "deliver Stop message to each process" in {
+  "Process" should "be able to send event to itself" in {
     var deliverCount = 0
     val count = 100000
     val p = new Process[IO] {
@@ -18,7 +18,7 @@ class ProcessRecursionSpec extends FlatSpec with Matchers with OptionValues {
           if (i == 0) terminate
           else eval {
             deliverCount = deliverCount + 1
-          } ++ Counter(i - 1) ~> selfRef
+          } ++ Counter(i - 1) ~> ref
       }
     }
 

@@ -14,7 +14,9 @@ scalacOptions in ThisBuild ++= Seq(
 libraryDependencies += "org.typelevel" %% "cats-effect" % "1.2.0"
 libraryDependencies += "org.typelevel" %% "cats-free" % "1.6.0"
 libraryDependencies += "co.fs2" %% "fs2-core" % "1.0.4"
+libraryDependencies += "com.typesafe.scala-logging" %% "scala-logging" % "3.9.2"
 libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.7" % Test
+libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3"
 
 resolvers += Resolver.sonatypeRepo("releases")
 
