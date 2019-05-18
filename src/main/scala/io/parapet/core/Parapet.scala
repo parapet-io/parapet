@@ -6,6 +6,7 @@ import java.util.concurrent.{ExecutorService, Executors}
 import cats.data.{EitherK, State}
 import cats.effect.IO._
 import cats.effect._
+import cats.effect.concurrent.Semaphore
 import cats.free.Free
 import cats.implicits._
 import cats.{InjectK, Monad, ~>}
@@ -15,6 +16,9 @@ import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.{FiniteDuration, _}
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor}
 import scala.language.{higherKinds, implicitConversions, reflectiveCalls}
+import scala.collection.mutable.{Map => MutMap}
+import scala.collection.immutable.{Queue => SQueue}
+import scala.util.Random
 
 object Parapet extends StrictLogging {
   import ProcessRef._
@@ -42,6 +46,21 @@ object Parapet extends StrictLogging {
       FlowState(senderRef = senderRef, selfRef = selfRef, ops = ListBuffer())
   }
 
+  trait Lock[F[_]] {
+    def acquire: F[Unit]
+    def release: F[Unit]
+  }
+
+  object Lock {
+    def apply[F[_] : Concurrent]: F[Lock[F]] = Semaphore(1).map { s =>
+      new Lock[F] {
+        override def acquire: F[Unit] = s.acquire
+
+        override def release: F[Unit] = s.release
+      }
+    }
+  }
+
   trait Event
   case object Start extends Event
   case object Stop extends Event
@@ -54,16 +73,38 @@ object Parapet extends StrictLogging {
   }
 
   trait Queue[F[_], A] {
-    def enqueue(e: => A): F[Unit]
+    def enqueue(e: => A): F[Unit] // todo don't need to be lazy
+    def enqueueAll(es: Seq[A])(implicit M:Monad[F]): F[Unit] = es.map(e => enqueue(e)).foldLeft(M.unit)(_ >> _)
     def dequeue: F[A]
+    def tryDequeue: F[Option[A]]
+    def dequeueThrough[F1[x] >: F[x] : Monad, B](f: A => F1[B]): F1[B] = {
+      implicitly[Monad[F1]].flatMap(dequeue)(a => f(a))
+    }
+
+    // returns elements that match predicate in right
+    def partition(p: A => Boolean)(implicit M: Monad[F]): F[(Seq[A], Seq[A])] = {
+      def partition(left: Seq[A], right: Seq[A]): F[(Seq[A], Seq[A])] = {
+        tryDequeue.flatMap {
+          case Some(a) => if (p(a)) partition(left, right :+ a) else partition(left :+ a, right)
+          case None => M.pure((left, right))
+        }
+      }
+
+      partition(ListBuffer(), ListBuffer())
+    }
   }
 
   object Queue {
     def bounded[F[_] : Concurrent, A](capacity: Int): F[Queue[F, A]] = {
-      fs2.concurrent.Queue.bounded[F, A](capacity).map(q => new Queue[F, A] {
+      for {
+        q <- fs2.concurrent.Queue.bounded[F, A](capacity)
+      } yield new Queue[F, A] {
         override def enqueue(e: => A): F[Unit] = q.enqueue1(e)
+
         override def dequeue: F[A] = q.dequeue1
-      })
+
+        override def tryDequeue: F[Option[A]] = q.tryDequeue1
+      }
     }
   }
 
@@ -117,6 +158,10 @@ object Parapet extends StrictLogging {
     private val ce = implicitly[ConcurrentEffect[F]]
     private val parallel = implicitly[Parallel[F]]
     private val ctxShift = implicitly[ContextShift[F]]
+    private val timer = implicitly[Timer[F]]
+    private val enqueueTimeout = 5.seconds
+
+    private val processMap = processes.map(p => p.ref -> p).toMap
 
     def submit(task: Task[F]): F[Unit] = queue.enqueue(task)
 
@@ -124,44 +169,71 @@ object Parapet extends StrictLogging {
       ce.delay(logger.debug("Scheduler - stop workers")) >> parallel.par(workers.map(_.stop))
     }
 
-    def consumer(workers: Map[ProcessRef, Worker[F]]): F[Unit] = {
-      def step: F[Unit] =
-        queue.dequeue.flatMap {
-          case task@Terminate() =>
-            ce.delay(logger.debug("Scheduler - normal termination")) >>
-              workers.values.map(_.queue.enqueue(task)).toList.sequence_
-          case task@Deliver(Envelope(_, _, receiver)) => workers.get(receiver)
-            .fold(ce.delay(logger.warn(s"unknown process: $receiver. Ignore event"))) {
-              worker => worker.queue.enqueue(task)
-            } >> step
-        }
+    // randomly selects a victim from { w | w ∈ workers and w != excludeWorker }
+    def selectVictim(excludeWorker: Worker[F], workers: Vector[Worker[F]]): Worker[F] = {
+      val filtered = workers.filter(w => w.name != excludeWorker.name)
+      filtered(Random.nextInt(filtered.size))
+    }
 
-      step
+    // todo carry on tasks, try to send first using schedule - done, verify
+    def balance(tasks: SQueue[Deliver[F]],
+                worker: Worker[F],
+                workersMap: Map[ProcessRef, Worker[F]],
+                allWorkers: List[Worker[F]]): F[Map[ProcessRef, Worker[F]]] = {
+      val receiver = tasks.head.envelope.receiver
+      val victim = selectVictim(worker, allWorkers.toVector)
+      victim.addProcess(processMap(receiver)) >>
+        worker.balanceTo(receiver, victim.name).flatMap { shared =>
+          schedule(shared ++ tasks, victim, workersMap + (receiver -> victim), allWorkers)
+        }
+    }
+
+    def schedule(tasks: SQueue[Deliver[F]],
+                 worker: Worker[F],
+                 workersMap: Map[ProcessRef, Worker[F]],
+                 allWorkers: List[Worker[F]]): F[Map[ProcessRef, Worker[F]]] = {
+      tasks.dequeueOption match {
+        case Some((task, q)) =>
+          ce.race(worker.queue.enqueue(task), timer.sleep(enqueueTimeout)).flatMap {
+            case Left(_) => schedule(q, worker, workersMap, allWorkers)
+            case Right(_) =>
+              ce.delay(logger.warn(s"${worker.name} enqueue has failed by timeout. Transfer all tasks that belong to ${task.envelope.receiver}")) >>
+                balance(tasks, worker, workersMap, allWorkers)
+          }
+        case None => ce.pure(workersMap)
+      }
+    }
+
+    def consumer(workersMap: Map[ProcessRef, Worker[F]], allWorkers: List[Worker[F]]): F[Unit] = {
+      queue.dequeue.flatMap {
+        case task@Terminate() =>
+          ce.delay(logger.debug("Scheduler - normal termination")) >>
+            allWorkers.map(_.queue.enqueue(task)).sequence_
+        case task@Deliver(Envelope(_, _, receiver)) =>
+          workersMap.get(receiver)
+            .fold(ce.delay(logger.warn(s"unknown process: $receiver. Ignore event")) >> ce.pure(workersMap)) {
+              worker => schedule(SQueue(task), worker, workersMap, allWorkers)
+            } >>= (wm => consumer(wm, allWorkers))
+      }
     }
 
     def run: F[Unit] = {
       val window = Math.ceil(processes.length.toDouble / config.numberOfWorkers.toDouble).toInt
-      val groupedProcesses: List[(Array[Process[F]], Int)] = processes.sliding(window, window).zipWithIndex.toList
+      val groupedProcesses: List[(Array[Process[F]], Int)] =
+        grow(processes.sliding(window, window).toList, Array.empty[Process[F]], config.numberOfWorkers).zipWithIndex
 
       val workersF: F[List[Worker[F]]] = groupedProcesses.map {
-        case (processGroup, i) =>
-          Queue.bounded[F, Task[F]](config.workerQueueCapacity).map { workerQueue =>
-            new Worker(
-              s"π-worker-$i",
-              workerQueue,
-              processGroup,
-              config,
-              interpreter)
-          }
-
+        case (processGroup, i) => Worker(i, config, processGroup, interpreter)
       }.sequence
 
       ce.bracket(workersF) { workers =>
-        val processToWorker: Map[ProcessRef, Worker[F]] = workers.flatMap(worker => worker.processes.map(_.ref -> worker)).toMap
-        parallel.par(workers.map(worker => ctxShift.shift >> worker.run) :+ consumer(processToWorker))
+        val processToWorker: Map[ProcessRef, Worker[F]] = workers.flatMap(worker => worker.processes.keys.map(_ -> worker)).toMap
+        parallel.par(workers.map(worker => ctxShift.shift >> worker.run) :+ consumer(processToWorker, workers))
       }(stopWorkers)
 
     }
+
+    def grow[A](xs: List[A], a: A, size: Int): List[A] = xs ++ List.fill(size - xs.size)(a)
   }
 
   trait SchedulerModule[F[_]] {
@@ -179,18 +251,18 @@ object Parapet extends StrictLogging {
   class Worker[F[_] : ConcurrentEffect : Timer : Parallel](
                                                             val name: String,
                                                             val queue: TaskQueue[F],
-                                                            val processes: Seq[Process[F]],
+                                                            var processes: MutMap[ProcessRef, Process[F]],
+                                                            val queueReadLock: Lock[F],
                                                             config: SchedulerConfig,
                                                             interpreter: Interpreter[F]) {
     private val ce = implicitly[ConcurrentEffect[F]]
     private val parallel = implicitly[Parallel[F]]
-    private val processesMap: Map[ProcessRef, Process[F]] = processes.map(p => p.ref -> p).toMap
 
     def deliver(envelope: Envelope): F[Unit] = {
       val event = envelope.event()
       val sender = envelope.sender
       val receiver = envelope.receiver
-      processesMap.get(receiver)
+      processes.get(receiver)
         .fold(ce.raiseError[Unit](new RuntimeException(s"unknown process: $receiver"))) { process =>
           if (process.handle.isDefinedAt(event)) {
             val program = process.handle.apply(event)
@@ -211,33 +283,69 @@ object Parapet extends StrictLogging {
 
     def processTask(task: Task[F]): F[Unit] = {
       task match {
-        case Deliver(envelope) => deliver(envelope)
+        case Deliver(envelope) => ce.delay(println(s"$name process task pid=${envelope.receiver}")) >> deliver(envelope)
         case unknown => ce.raiseError(new RuntimeException(s"$name - unsupported task: $unknown"))
       }
     }
 
     def run: F[Unit] = {
       def step: F[Unit] =
-        queue.dequeue.flatMap {
-          case task@Deliver(_) => processTask(task) >> step
-          case Terminate() => ce.delay(logger.debug(s"$name - normal termination"))
-        }
+        queueReadLock.acquire >>
+          queue.dequeue.flatMap {
+            case task@Deliver(_) => processTask(task) >> queueReadLock.release >> step
+            case Terminate() => ce.delay(logger.debug(s"$name - normal termination")) >> queueReadLock.release
+          }
 
       step
     }
 
+    def balanceTo(pRef: ProcessRef, victim: String): F[SQueue[Deliver[F]]] = {
+      queueReadLock.acquire >>
+        // it's safe to a remove process here b/c next time when processTask is executed
+        // this queue wont contain any events dedicated to the removed process
+        ce.suspend(ce.fromOption(processes.remove(pRef),
+          new RuntimeException(s"$name does not contain process with ref=$pRef")))
+          .flatMap { process =>
+            queue.partition {
+              case Deliver(envelop) => envelop.receiver == pRef
+              case _ => false
+            }.flatMap {
+              case (left, right) => ce.delay(println(s"transfer ${right.size} to $victim")) >>
+                queue.enqueueAll(left) >> ce.pure(SQueue(right.map(_.asInstanceOf[Deliver[F]]): _*))
+            }
+          } >>= (tasks => queueReadLock.release.map(_ => tasks))
+    }
+
     def deliverStopEvent: F[Unit] = {
-      parallel.par(processes.map { process =>
+      parallel.par(processes.values.map { process =>
         if (process.handle.isDefinedAt(Stop)) {
           ce.delay(logger.debug(s"$name - deliver Stop to ${process.ref}")) >>
             interpret_(process.handle.apply(Stop), interpreter, FlowState(senderRef = SystemRef, selfRef = process.ref))
         } else {
           ce.unit // todo add config property: failOnUnmatched
         }
-      })
+      }.toSeq)
     }
 
     def stop: F[Unit] = ce.delay(logger.debug(s"$name - stop")) >> deliverStopEvent
+
+    def addProcess(p: Process[F]): F[Unit] = ce.delay(processes.put(p.ref, p))
+  }
+
+  object Worker {
+    def apply[F[_] : ConcurrentEffect : Timer : Parallel](id: Int,
+                                                          config: SchedulerConfig,
+                                                          processes: Seq[Process[F]],
+                                                          interpreter: Interpreter[F]): F[Worker[F]] = for {
+      workerQueue <- Queue.bounded[F, Task[F]](config.workerQueueCapacity)
+      qReadLock <- Lock[F]
+    } yield new Worker(
+      s"π-worker-$id",
+      workerQueue,
+      MutMap(processes.map(p => p.ref -> p): _*),
+      qReadLock,
+      config,
+      interpreter)
   }
 
   // <----------- Flow ADT ----------->
