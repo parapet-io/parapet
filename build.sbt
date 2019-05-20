@@ -32,3 +32,7 @@ libraryDependencies ++= (scalaBinaryVersion.value match {
   case _ =>
     Nil
 })
+
+def testUntilFailed = Command.command("testUntilFailed") { state =>
+  "test" :: "testUntilFailed" :: state
+}

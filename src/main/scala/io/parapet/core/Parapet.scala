@@ -6,7 +6,7 @@ import java.util.concurrent.{ExecutorService, Executors}
 import cats.data.{EitherK, State}
 import cats.effect.IO._
 import cats.effect._
-import cats.effect.concurrent.Semaphore
+import cats.effect.concurrent.{Deferred, Semaphore}
 import cats.free.Free
 import cats.implicits._
 import cats.{InjectK, Monad, ~>}
@@ -65,7 +65,7 @@ object Parapet extends StrictLogging {
   case object Start extends Event
   case object Stop extends Event
   case class Envelope(sender: ProcessRef, event: () => Event, receiver: ProcessRef) extends Event
-  case class Failure(error: Throwable, event: Event) extends Event
+  case class Failure(error: Throwable, event: Event) extends Event // todo add receiver ref
 
   implicit class EventOps[F[_]](e: => Event) {
     def ~>(process: ProcessRef)(implicit FL: Flow[F, FlowOpOrEffect[F, ?]]): FlowF[F, Unit] = FL.send(e, process) //?
@@ -159,15 +159,10 @@ object Parapet extends StrictLogging {
     private val parallel = implicitly[Parallel[F]]
     private val ctxShift = implicitly[ContextShift[F]]
     private val timer = implicitly[Timer[F]]
-    private val enqueueTimeout = 5.seconds
 
     private val processMap = processes.map(p => p.ref -> p).toMap
 
     def submit(task: Task[F]): F[Unit] = queue.enqueue(task)
-
-    def stopWorkers(workers: Seq[Worker[F]]): F[Unit] = {
-      ce.delay(logger.debug("Scheduler - stop workers")) >> parallel.par(workers.map(_.stop))
-    }
 
     // randomly selects a victim from { w | w ∈ workers and w != excludeWorker }
     def selectVictim(excludeWorker: Worker[F], workers: Vector[Worker[F]]): Worker[F] = {
@@ -175,44 +170,44 @@ object Parapet extends StrictLogging {
       filtered(Random.nextInt(filtered.size))
     }
 
-    // todo carry on tasks, try to send first using schedule - done, verify
     def balance(tasks: SQueue[Deliver[F]],
                 worker: Worker[F],
-                workersMap: Map[ProcessRef, Worker[F]],
+                assignedWorkers: Map[ProcessRef, Worker[F]],
                 allWorkers: List[Worker[F]]): F[Map[ProcessRef, Worker[F]]] = {
       val receiver = tasks.head.envelope.receiver
       val victim = selectVictim(worker, allWorkers.toVector)
       victim.addProcess(processMap(receiver)) >>
-        worker.balanceTo(receiver, victim.name).flatMap { shared =>
-          schedule(shared ++ tasks, victim, workersMap + (receiver -> victim), allWorkers)
+        worker.removeEvents(receiver).flatMap { shared =>
+          ce.delay(logger.debug(s"Transfer ${shared.size} tasks that belong to $receiver process to worker ${victim.name}")) >>
+            submitTask(shared ++ tasks, victim, assignedWorkers + (receiver -> victim), allWorkers)
         }
     }
 
-    def schedule(tasks: SQueue[Deliver[F]],
+    def submitTask(tasks: SQueue[Deliver[F]],
                  worker: Worker[F],
-                 workersMap: Map[ProcessRef, Worker[F]],
+                 assignedWorkers: Map[ProcessRef, Worker[F]],
                  allWorkers: List[Worker[F]]): F[Map[ProcessRef, Worker[F]]] = {
       tasks.dequeueOption match {
-        case Some((task, q)) =>
-          ce.race(worker.queue.enqueue(task), timer.sleep(enqueueTimeout)).flatMap {
-            case Left(_) => schedule(q, worker, workersMap, allWorkers)
+        case Some((task, remainingTasks)) =>
+          ce.race(worker.queue.enqueue(task), timer.sleep(config.taskSubmissionTimeout)).flatMap {
+            case Left(_) => submitTask(remainingTasks, worker, assignedWorkers, allWorkers)
             case Right(_) =>
-              ce.delay(logger.warn(s"${worker.name} enqueue has failed by timeout. Transfer all tasks that belong to ${task.envelope.receiver}")) >>
-                balance(tasks, worker, workersMap, allWorkers)
+              ce.delay(logger.warn(s"${worker.name} enqueue has failed by timeout")) >>
+                balance(tasks, worker, assignedWorkers, allWorkers)
           }
-        case None => ce.pure(workersMap)
+        case None => ce.pure(assignedWorkers)
       }
     }
 
-    def consumer(workersMap: Map[ProcessRef, Worker[F]], allWorkers: List[Worker[F]]): F[Unit] = {
+    def consumer(assignedWorkers: Map[ProcessRef, Worker[F]], allWorkers: List[Worker[F]]): F[Unit] = {
       queue.dequeue.flatMap {
         case task@Terminate() =>
-          ce.delay(logger.debug("Scheduler - normal termination")) >>
+          ce.delay(logger.debug("Scheduler - termination")) >>
             allWorkers.map(_.queue.enqueue(task)).sequence_
         case task@Deliver(Envelope(_, _, receiver)) =>
-          workersMap.get(receiver)
-            .fold(ce.delay(logger.warn(s"unknown process: $receiver. Ignore event")) >> ce.pure(workersMap)) {
-              worker => schedule(SQueue(task), worker, workersMap, allWorkers)
+          assignedWorkers.get(receiver)
+            .fold(ce.delay(logger.warn(s"unknown process: $receiver. Ignore event")) >> ce.pure(assignedWorkers)) {
+              worker => submitTask(SQueue(task), worker, assignedWorkers, allWorkers)
             } >>= (wm => consumer(wm, allWorkers))
       }
     }
@@ -229,7 +224,7 @@ object Parapet extends StrictLogging {
       ce.bracket(workersF) { workers =>
         val processToWorker: Map[ProcessRef, Worker[F]] = workers.flatMap(worker => worker.processes.keys.map(_ -> worker)).toMap
         parallel.par(workers.map(worker => ctxShift.shift >> worker.run) :+ consumer(processToWorker, workers))
-      }(stopWorkers)
+      } { workers => workers.map(_.waitForCompletion).sequence_ } // todo try to send Terminate to support canceling
 
     }
 
@@ -254,7 +249,8 @@ object Parapet extends StrictLogging {
                                                             var processes: MutMap[ProcessRef, Process[F]],
                                                             val queueReadLock: Lock[F],
                                                             config: SchedulerConfig,
-                                                            interpreter: Interpreter[F]) {
+                                                            interpreter: Interpreter[F],
+                                                            completionSignal: Deferred[F, Unit]) {
     private val ce = implicitly[ConcurrentEffect[F]]
     private val parallel = implicitly[Parallel[F]]
 
@@ -268,12 +264,13 @@ object Parapet extends StrictLogging {
             val program = process.handle.apply(event)
             interpret_(program, interpreter, FlowState(senderRef = sender, selfRef = receiver))
               .retryWithBackoff(config.redeliveryInitialDelay, config.maxRedeliveryRetries)
-              .handleErrorWith { err =>
-                val failure = Failure(err, event)
+              .handleErrorWith { causeError =>
+                // todo log causeError  here
+                val failure = Failure(causeError, event)
                 if (process.handle.isDefinedAt(failure)) {
                   interpret_(process.handle.apply(failure), interpreter, FlowState(senderRef = SystemRef, selfRef = receiver))
-                    .handleErrorWith { err =>
-                      ce.delay(logger.warn(s"$receiver failed to process Failure event. Source event = $event, error = $err"))
+                    .handleErrorWith { fallbackError =>
+                      ce.delay(logger.warn(s"$receiver failed to process Failure event. Source event = $event, error = $fallbackError"))
                     }
                 } else ce.delay(logger.warn(s"failure event case isn't defined in $receiver"))
               }
@@ -283,7 +280,7 @@ object Parapet extends StrictLogging {
 
     def processTask(task: Task[F]): F[Unit] = {
       task match {
-        case Deliver(envelope) => ce.delay(println(s"$name process task pid=${envelope.receiver}")) >> deliver(envelope)
+        case Deliver(envelope) => deliver(envelope)
         case unknown => ce.raiseError(new RuntimeException(s"$name - unsupported task: $unknown"))
       }
     }
@@ -293,41 +290,44 @@ object Parapet extends StrictLogging {
         queueReadLock.acquire >>
           queue.dequeue.flatMap {
             case task@Deliver(_) => processTask(task) >> queueReadLock.release >> step
-            case Terminate() => ce.delay(logger.debug(s"$name - normal termination")) >> queueReadLock.release
+            case Terminate() => stop >> queueReadLock.release >> completionSignal.complete(())
           }
 
       step
     }
 
-    def balanceTo(pRef: ProcessRef, victim: String): F[SQueue[Deliver[F]]] = {
+    // removes all events dedicated to `pRef`
+    def removeEvents(pRef: ProcessRef): F[SQueue[Deliver[F]]] = {
       queueReadLock.acquire >>
-        // it's safe to a remove process here b/c next time when processTask is executed
+        // it's safe to a remove process here b/c next the time when `processTask` is executed
         // this queue wont contain any events dedicated to the removed process
         ce.suspend(ce.fromOption(processes.remove(pRef),
           new RuntimeException(s"$name does not contain process with ref=$pRef")))
-          .flatMap { process =>
+          .flatMap { _ =>
             queue.partition {
               case Deliver(envelop) => envelop.receiver == pRef
               case _ => false
             }.flatMap {
-              case (left, right) => ce.delay(println(s"transfer ${right.size} to $victim")) >>
-                queue.enqueueAll(left) >> ce.pure(SQueue(right.map(_.asInstanceOf[Deliver[F]]): _*))
+              case (left, right) => queue.enqueueAll(left) >>
+                ce.pure(SQueue(right.map(_.asInstanceOf[Deliver[F]]): _*))
             }
           } >>= (tasks => queueReadLock.release.map(_ => tasks))
     }
 
     def deliverStopEvent: F[Unit] = {
       parallel.par(processes.values.map { process =>
-        if (process.handle.isDefinedAt(Stop)) {
-          ce.delay(logger.debug(s"$name - deliver Stop to ${process.ref}")) >>
+        ce.delay(logger.debug(s"$name - deliver Stop to ${process.ref}")) >>
+          (if (process.handle.isDefinedAt(Stop)) {
             interpret_(process.handle.apply(Stop), interpreter, FlowState(senderRef = SystemRef, selfRef = process.ref))
-        } else {
-          ce.unit // todo add config property: failOnUnmatched
-        }
+          } else {
+            ce.unit // todo consider to add config property: failOnUnmatched
+          })
       }.toSeq)
     }
 
-    def stop: F[Unit] = ce.delay(logger.debug(s"$name - stop")) >> deliverStopEvent
+    private [this] def stop: F[Unit] = ce.delay(logger.debug(s"$name - stop")) >> deliverStopEvent
+
+    def waitForCompletion: F[Unit] = completionSignal.get >> ce.delay(logger.debug(s"$name competed"))
 
     def addProcess(p: Process[F]): F[Unit] = ce.delay(processes.put(p.ref, p))
   }
@@ -339,13 +339,15 @@ object Parapet extends StrictLogging {
                                                           interpreter: Interpreter[F]): F[Worker[F]] = for {
       workerQueue <- Queue.bounded[F, Task[F]](config.workerQueueCapacity)
       qReadLock <- Lock[F]
+      completionSignal <- Deferred[F, Unit]
     } yield new Worker(
       s"π-worker-$id",
       workerQueue,
       MutMap(processes.map(p => p.ref -> p): _*),
       qReadLock,
       config,
-      interpreter)
+      interpreter,
+      completionSignal)
   }
 
   // <----------- Flow ADT ----------->
@@ -421,7 +423,7 @@ object Parapet extends StrictLogging {
       val parallel: Parallel[IO] = ioParallel
       val interpreter: Interpreter[IO] = ioFlowInterpreter(env) or ioEffectInterpreter
       fa match {
-        case Empty() => State.set(FlowState[IO](UnknownRef, UnknownRef, ListBuffer.empty))
+        case Empty() => State[FlowState[IO], Unit] {s => (s, ())}
         case Stop() => State[FlowState[IO], Unit] { s => (s.addOps(Seq(env.taskQueue.enqueue(Terminate()))), ()) }
         case Send(thunk, receivers) =>
           State[FlowState[IO], Unit] { s =>
@@ -473,6 +475,11 @@ object Parapet extends StrictLogging {
 
     val handle: Receive
 
+    def apply(e: Event,
+              ifUndefined: => ProcessFlow = implicitly[Flow[F, FlowOpOrEffect[F, ?]]].empty): ProcessFlow =
+      if (handle.isDefinedAt(e)) handle(e)
+      else ifUndefined
+
     // composition of this and `pb` process
     // todo add tests
     def ++(that: Process[F]): Process[F] = new Process[F] {
@@ -502,6 +509,7 @@ object Parapet extends StrictLogging {
   case class SchedulerConfig(numberOfWorkers: Int,
                              queueCapacity: Int,
                              workerQueueCapacity: Int,
+                             taskSubmissionTimeout: FiniteDuration,
                              maxRedeliveryRetries: Int,
                              redeliveryInitialDelay: FiniteDuration)
 
@@ -531,6 +539,9 @@ object Parapet extends StrictLogging {
 
     def stop: F[Unit]
 
+    private[core] final def initProcesses(implicit F: Flow[F, FlowOpOrEffect[F, ?]]): Free[FlowOpOrEffect[F, ?], Unit] =
+      processes.map(p => Start ~> p).foldLeft(F.empty)(_ ++ _)
+
     def run: F[Env] = {
       if (processes.isEmpty) {
         concurrentEffect.raiseError(new RuntimeException("Initialization error:  at least one process must be provided"))
@@ -540,7 +551,7 @@ object Parapet extends StrictLogging {
           interpreter <- concurrentEffect.pure(flowInterpreter(env) or effectInterpreter(env))
           scheduler <- concurrentEffect.pure(new Scheduler[F](env.taskQueue, config.schedulerConfig,
             processes, interpreter))
-          _ <- parallel.par(Seq(interpret_(program, interpreter, FlowState(SystemRef, SystemRef)), scheduler.run))
+          _ <- parallel.par(Seq(interpret_(initProcesses ++ program, interpreter, FlowState(SystemRef, SystemRef)), scheduler.run))
           _ <- stop
         } yield env
       }
@@ -595,6 +606,7 @@ object Parapet extends StrictLogging {
         numberOfWorkers = Runtime.getRuntime.availableProcessors(),
         queueCapacity = 100,
         workerQueueCapacity = 100,
+        taskSubmissionTimeout = 10.seconds,
         maxRedeliveryRetries = 5,
         redeliveryInitialDelay = 0.seconds))
   }
