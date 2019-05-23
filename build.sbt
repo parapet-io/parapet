@@ -16,7 +16,9 @@ libraryDependencies += "org.typelevel" %% "cats-free" % "1.6.0"
 libraryDependencies += "co.fs2" %% "fs2-core" % "1.0.4"
 libraryDependencies += "com.typesafe.scala-logging" %% "scala-logging" % "3.9.2"
 libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.7" % Test
-libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3"
+libraryDependencies += "org.pegdown" % "pegdown" % "1.6.0" % Test
+libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3" % Test
+libraryDependencies += "net.logstash.logback" % "logstash-logback-encoder" % "5.3" % Test
 
 resolvers += Resolver.sonatypeRepo("releases")
 
@@ -33,6 +35,10 @@ libraryDependencies ++= (scalaBinaryVersion.value match {
     Nil
 })
 
+testOptions in Test += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports")
+
 def testUntilFailed = Command.command("testUntilFailed") { state =>
   "test" :: "testUntilFailed" :: state
 }
+
+commands += testUntilFailed

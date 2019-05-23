@@ -5,39 +5,31 @@ import java.util.concurrent.atomic.AtomicInteger
 import cats.effect.IO
 import io.parapet.core.Parapet._
 import io.parapet.core.catsInstances.effect._
-import io.parapet.core.catsInstances.flow._
+import io.parapet.core.catsInstances.flow.{empty => emptyFlow, _}
 import io.parapet.core.intg.EventDeliverySpec._
-import org.scalatest.{FlatSpec, Matchers, OptionValues}
+import org.scalatest.FlatSpec
+import org.scalatest.Matchers._
 
-class EventDeliverySpec extends FlatSpec with Matchers with OptionValues {
+class EventDeliverySpec extends FlatSpec with IntegrationSpec {
 
   "Event sent to each process" should "be eventually delivered" in {
     val counter = new AtomicInteger()
     val numOfProcesses = 1000
-    val processes = createProcesses(numOfProcesses, () => counter.incrementAndGet())
-    val program = processes.foldLeft(ø)((acc, p) => acc ++ QualifiedEvent(p.ref) ~> p) ++ terminate
-    run(program, processes: _*)
+    val processes =
+      createProcesses(numOfProcesses, () => counter.incrementAndGet())
+    val program = processes.foldLeft(emptyFlow)((acc, p) => acc ++ QualifiedEvent(p.ref) ~> p)
+    run(program ++ terminate, processes: _*)
 
     counter.get() shouldBe numOfProcesses
   }
 
   "Unmatched event" should "be ignored" in {
     val p = Process {
-      case QualifiedEvent(_) => ø
+      case Start => emptyFlow
     }
     val program = UnknownEvent ~> p ++ terminate
 
     run(program, p)
-  }
-
-
-  def run(pProgram: FlowF[IO, Unit], pProcesses: Process[IO]*): Unit = {
-    val app = new CatsApp {
-      override val program: ProcessFlow = pProgram
-
-      override val processes: Array[Process[IO]] = pProcesses.toArray
-    }
-    app.run.unsafeRunSync()
   }
 
 }
@@ -54,7 +46,8 @@ object EventDeliverySpec {
         override val name: String = s"p-$i"
         override val handle: Receive = {
           case QualifiedEvent(pRef) =>
-            if (pRef != ref) eval(throw new RuntimeException(s"unexpected process ref. expected: $ref, actual: $pRef"))
+            if (pRef != ref)
+             eval(throw new RuntimeException(s"unexpected process ref. expected: $ref, actual: $pRef"))
             else eval(cb())
         }
       }

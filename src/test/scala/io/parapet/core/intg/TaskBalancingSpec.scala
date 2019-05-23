@@ -1,7 +1,6 @@
 package io.parapet.core.intg
 import cats.effect.IO
 import io.parapet.core.Parapet._
-import io.parapet.core.catsInstances.effect._
 import io.parapet.core.catsInstances.flow._
 import io.parapet.core.intg.TaskBalancingSpec._
 import io.parapet.core.testutils.EventStoreProcess
@@ -68,12 +67,12 @@ class TaskBalancingSpec extends FlatSpec {
 
 object TaskBalancingSpec {
 
-  case class TestEvent(id: Int) extends Event
+  case class TestEvent(taceId: Int) extends Event
 
   class SlowProcess(eventStore: EventStoreProcess) extends Process[IO] {
     override val name: String = "slow-process"
     override val handle: Receive = {
-      case e@TestEvent(id) => delay(2.seconds) ++ eval(println(id)) ++ eventStore(e)
+      case e:TestEvent => delay(2.seconds)  ++ eventStore(e)
     }
   }
 }

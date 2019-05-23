@@ -1,43 +1,36 @@
 package io.parapet.core.intg
 
+import java.util.concurrent.atomic.AtomicInteger
+
 import cats.effect.IO
 import io.parapet.core.Parapet._
 import io.parapet.core.catsInstances.effect._
 import io.parapet.core.catsInstances.flow._
 import io.parapet.core.intg.ProcessRecursionSpec._
-import org.scalatest.{FlatSpec, Matchers, OptionValues}
+import org.scalatest.FlatSpec
+import org.scalatest.Matchers._
 
-class ProcessRecursionSpec extends FlatSpec with Matchers with OptionValues {
+class ProcessRecursionSpec extends FlatSpec with IntegrationSpec {
 
   "Process" should "be able to send event to itself" in {
-    var deliverCount = 0
+    val deliverCount = new AtomicInteger()
     val count = 100000
-    val p = new Process[IO] {
-      override val handle: Receive = {
-        case Counter(i) =>
-          if (i == 0) terminate
-          else eval {
-            deliverCount = deliverCount + 1
-          } ++ Counter(i - 1) ~> ref
-      }
-    }
+
+    val p = Process.apply1[IO](self => {
+      case Counter(i) =>
+        if (i == 0) terminate
+        else eval(deliverCount.incrementAndGet()) ++ Counter(i - 1) ~> self
+    })
+
 
     val program = Counter(count) ~> p
 
     run(program, p)
 
-    deliverCount shouldBe count
+    deliverCount.get() shouldBe count
 
   }
 
-  def run(pProgram: FlowF[IO, Unit], pProcesses: Process[IO]*): Unit = {
-    val app = new CatsApp {
-      override val program: ProcessFlow = pProgram
-
-      override val processes: Array[Process[IO]] = pProcesses.toArray
-    }
-    app.run.unsafeRunSync()
-  }
 }
 
 object ProcessRecursionSpec {

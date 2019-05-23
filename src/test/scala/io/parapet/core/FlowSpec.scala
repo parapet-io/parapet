@@ -123,7 +123,7 @@ object FlowSpec {
     override def tryDequeue: IO[Option[A]] = IO(Option(queue.dequeue()))
   }
 
-  case class TestEvent(id: String) extends Event
+  case class TestEvent(body: String) extends Event
 
   val blackhole = Process[IO] {
     case _ => empty

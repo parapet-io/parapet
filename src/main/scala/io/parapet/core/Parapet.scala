@@ -1,7 +1,9 @@
 package io.parapet.core
 
+import java.io.{PrintWriter, StringWriter}
 import java.util.UUID
-import java.util.concurrent.{ExecutorService, Executors}
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
+import java.util.concurrent.{ExecutorService, Executors, ThreadFactory}
 
 import cats.data.{EitherK, State}
 import cats.effect.IO._
@@ -11,13 +13,13 @@ import cats.free.Free
 import cats.implicits._
 import cats.{InjectK, Monad, ~>}
 import com.typesafe.scalalogging.StrictLogging
+import org.slf4j.MDC
 
-import scala.collection.mutable.ListBuffer
+import scala.collection.immutable.{Queue => SQueue}
+import scala.collection.mutable.{ListBuffer, Map => MutMap}
 import scala.concurrent.duration.{FiniteDuration, _}
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor}
 import scala.language.{higherKinds, implicitConversions, reflectiveCalls}
-import scala.collection.mutable.{Map => MutMap}
-import scala.collection.immutable.{Queue => SQueue}
 import scala.util.Random
 
 object Parapet extends StrictLogging {
@@ -27,23 +29,53 @@ object Parapet extends StrictLogging {
   type FlowOpOrEffect[F[_], A] = <:<[FlowOp[F, ?], Effect[F, ?], A]
   type FlowF[F[_], A] = Free[FlowOpOrEffect[F, ?], A]
   type FlowStateF[F[_], A] = State[FlowState[F], A]
+  type ReceiveF[F[_]] = PartialFunction[Event, FlowF[F, Unit]]
   type Interpreter[F[_]] = FlowOpOrEffect[F, ?] ~> FlowStateF[F, ?]
+
+  val ParapetPrefix = "parapet"
+
+  //  Utils
+  type MDCFields = Map[String, Any]
+
+  implicit class LoggerOps(m: MDCFields) {
+    def mdc(log: MDCFields => Unit): Unit = {
+      m.foreach {
+        case (key, value) => MDC.put(key, Option(value).fold("null")(_.toString))
+      }
+      log(m)
+      MDC.clear()
+    }
+  }
+
+  def whenDebugEnabled[F[_] : Monad](body: => F[Unit]): F[Unit] = {
+    if (logger.underlying.isDebugEnabled()) {
+      body
+    } else {
+      Monad[F].unit
+    }
+  }
+
+  def whenWarnEnabled[F[_] : Monad](body: => F[Unit]): F[Unit] = {
+    if (logger.underlying.isWarnEnabled()) {
+      body
+    } else {
+      Monad[F].unit
+    }
+  }
+
+  // Exceptions
+  class UnknownProcessException(message: String) extends RuntimeException(message)
+  class EventDeliveryException(message: String = "", cause: Throwable = null) extends RuntimeException(message, cause)
+  class EventRecoveryException(message: String = "", cause: Throwable = null) extends RuntimeException(message, cause)
 
   case class ProcessRef(private[core] val ref: String) {
     override def toString: String = ref
   }
   object ProcessRef {
-    val SystemRef = ProcessRef("π.system")
-    val UnknownRef = ProcessRef("π.unknown")
-  }
-
-  case class FlowState[F[_]](senderRef: ProcessRef, selfRef: ProcessRef, ops: Seq[F[_]]) {
-    def addOps(that: Seq[F[_]]): FlowState[F] = this.copy(ops = ops ++ that)
-  }
-
-  object FlowState {
-    def apply[F[_]](senderRef: ProcessRef, selfRef: ProcessRef): FlowState[F] =
-      FlowState(senderRef = senderRef, selfRef = selfRef, ops = ListBuffer())
+    val SystemRef = ProcessRef(ParapetPrefix + "-system")
+    val DeadLetterRef = ProcessRef(ParapetPrefix + "-deadletter")
+    val UnknownRef = ProcessRef(ParapetPrefix + "-unknown")
+    def jdkUUIDRef: ProcessRef = new ProcessRef(UUID.randomUUID().toString)
   }
 
   trait Lock[F[_]] {
@@ -61,14 +93,17 @@ object Parapet extends StrictLogging {
     }
   }
 
-  trait Event
+  trait Event {
+    final val id: String = UUID.randomUUID().toString
+  }
   case object Start extends Event
   case object Stop extends Event
   case class Envelope(sender: ProcessRef, event: () => Event, receiver: ProcessRef) extends Event
-  case class Failure(error: Throwable, event: Event) extends Event // todo add receiver ref
+  case class Failure(pRef: ProcessRef, event: Event, error: Throwable) extends Event
+  case class DeadLetter(failure: Failure) extends Event
 
   implicit class EventOps[F[_]](e: => Event) {
-    def ~>(process: ProcessRef)(implicit FL: Flow[F, FlowOpOrEffect[F, ?]]): FlowF[F, Unit] = FL.send(e, process) //?
+    def ~>(process: ProcessRef)(implicit FL: Flow[F, FlowOpOrEffect[F, ?]]): FlowF[F, Unit] = FL.send(e, process)
     private[core] def ~>(process: Process[F])(implicit FL: Flow[F, FlowOpOrEffect[F, ?]]): FlowF[F, Unit] = FL.send(e, process.ref)
   }
 
@@ -81,7 +116,7 @@ object Parapet extends StrictLogging {
       implicitly[Monad[F1]].flatMap(dequeue)(a => f(a))
     }
 
-    // returns elements that match predicate in right
+    // returns a tuple where Element 2 contains elements that match the given predicate
     def partition(p: A => Boolean)(implicit M: Monad[F]): F[(Seq[A], Seq[A])] = {
       def partition(left: Seq[A], right: Seq[A]): F[(Seq[A], Seq[A])] = {
         tryDequeue.flatMap {
@@ -114,6 +149,7 @@ object Parapet extends StrictLogging {
 
   type TaskQueue[F[_]] = Queue[F, Task[F]]
 
+  // todo remove
   trait TaskQueueModule[F[_]] {
     def taskQueue: TaskQueue[F]
   }
@@ -121,6 +157,10 @@ object Parapet extends StrictLogging {
   trait Parallel[F[_]] {
     // runs given effects in parallel and returns a single effect
     def par(effects: Seq[F[_]]): F[Unit]
+  }
+
+  object Parallel {
+    def apply[F[_] : Parallel]: Parallel[F] = implicitly[Parallel[F]]
   }
 
   implicit def ioParallel(implicit ctx: ContextShift[IO]): Parallel[IO] = (effects: Seq[IO[_]]) => effects.toList.parSequence_
@@ -201,9 +241,8 @@ object Parapet extends StrictLogging {
 
     def consumer(assignedWorkers: Map[ProcessRef, Worker[F]], allWorkers: List[Worker[F]]): F[Unit] = {
       queue.dequeue.flatMap {
-        case task@Terminate() =>
-          ce.delay(logger.debug("Scheduler - termination")) >>
-            allWorkers.map(_.queue.enqueue(task)).sequence_
+        case Terminate() =>
+          ce.delay(logger.debug("Scheduler - terminate")) >> terminateWorkers(allWorkers)
         case task@Deliver(Envelope(_, _, receiver)) =>
           assignedWorkers.get(receiver)
             .fold(ce.delay(logger.warn(s"unknown process: $receiver. Ignore event")) >> ce.pure(assignedWorkers)) {
@@ -224,8 +263,13 @@ object Parapet extends StrictLogging {
       ce.bracket(workersF) { workers =>
         val processToWorker: Map[ProcessRef, Worker[F]] = workers.flatMap(worker => worker.processes.keys.map(_ -> worker)).toMap
         parallel.par(workers.map(worker => ctxShift.shift >> worker.run) :+ consumer(processToWorker, workers))
-      } { workers => workers.map(_.waitForCompletion).sequence_ } // todo try to send Terminate to support canceling
+      } { workers => parallel.par(workers.map(_.stop)) }
 
+    }
+
+    def terminateWorkers(workers: List[Worker[F]]): F[Unit] = {
+      parallel.par(workers.map(w => w.queue.enqueue(Terminate()))) >>
+        workers.map(w => w.waitForCompletion).sequence_
     }
 
     def grow[A](xs: List[A], a: A, size: Int): List[A] = xs ++ List.fill(size - xs.size)(a)
@@ -253,29 +297,72 @@ object Parapet extends StrictLogging {
                                                             completionSignal: Deferred[F, Unit]) {
     private val ce = implicitly[ConcurrentEffect[F]]
     private val parallel = implicitly[Parallel[F]]
+    private val flowOps = implicitly[Flow[F, FlowOpOrEffect[F, ?]]]
+    private [this] val stopped = new AtomicBoolean()
 
     def deliver(envelope: Envelope): F[Unit] = {
       val event = envelope.event()
       val sender = envelope.sender
       val receiver = envelope.receiver
       processes.get(receiver)
-        .fold(ce.raiseError[Unit](new RuntimeException(s"unknown process: $receiver"))) { process =>
+        .fold(ce.raiseError[Unit](new UnknownProcessException(s"unknown process: $receiver"))) { process =>
           if (process.handle.isDefinedAt(event)) {
             val program = process.handle.apply(event)
             interpret_(program, interpreter, FlowState(senderRef = sender, selfRef = receiver))
               .retryWithBackoff(config.redeliveryInitialDelay, config.maxRedeliveryRetries)
-              .handleErrorWith { causeError =>
-                // todo log causeError  here
-                val failure = Failure(causeError, event)
-                if (process.handle.isDefinedAt(failure)) {
-                  interpret_(process.handle.apply(failure), interpreter, FlowState(senderRef = SystemRef, selfRef = receiver))
-                    .handleErrorWith { fallbackError =>
-                      ce.delay(logger.warn(s"$receiver failed to process Failure event. Source event = $event, error = $fallbackError"))
+              .handleErrorWith { deliveryError =>
+                val mdcFields: MDCFields = Map(
+                  "processId" -> receiver,
+                  "processName" -> process.name,
+                  "senderId" -> sender,
+                  "eventId" -> event.id,
+                  "worker" -> name)
+                val logError = ce.delay {
+                  mdcFields
+                    .mdc { args =>
+                      logger.error(
+                        s"process[id=${args("processId")}] failed to process event[id=${args("eventId")}] " +
+                          s"received from process[id=${args("senderId")}]", deliveryError)
                     }
-                } else ce.delay(logger.warn(s"failure event case isn't defined in $receiver"))
+                }
+
+                val recover = event match {
+                  case _: Failure =>
+                    val failure = Failure(receiver, event, new EventRecoveryException(cause = deliveryError))
+                    ce.delay {
+                      mdcFields.mdc { args =>
+                        logger.error(s"process[id=${args("processId")}] failed to recover event[id=${args("eventId")}]", deliveryError)
+                      }
+                    } >> sendToDeadLetter(failure)
+                  case _ =>
+                    val failure = Failure(receiver, event, new EventDeliveryException(cause = deliveryError))
+                    ce.start(interpret_(flowOps.send(failure, sender), interpreter,
+                      FlowState(senderRef = SystemRef, selfRef = sender))) >>
+                      ce.delay(println(s"sent failure to $sender"))
+//                    interpret_(flowOps.send(failure, sender), interpreter,
+//                      FlowState(senderRef = SystemRef, selfRef = sender)) >>
+
+                }
+
+                logError >> recover
               }
-          } else ce.unit // todo add config property: failOnUnmatched
+          } else {
+            event match {
+              case f: Failure =>
+                // todo revisit: send to supervisor
+                sendToDeadLetter(Failure(receiver, f,
+                  new EventRecoveryException(s"recovery logic isn't defined in process[id=$receiver]")))
+              case Stop | Start => ce.unit
+              case _ => ce.unit // todo add config property: failOnUndefined
+            }
+          }
         }
+    }
+
+    def sendToDeadLetter(failure: Failure): F[Unit] = {
+      interpret_(
+        flowOps.send(DeadLetter(failure), DeadLetterRef),
+        interpreter, FlowState(senderRef = failure.pRef, selfRef = DeadLetterRef))
     }
 
     def processTask(task: Task[F]): F[Unit] = {
@@ -320,14 +407,18 @@ object Parapet extends StrictLogging {
           (if (process.handle.isDefinedAt(Stop)) {
             interpret_(process.handle.apply(Stop), interpreter, FlowState(senderRef = SystemRef, selfRef = process.ref))
           } else {
-            ce.unit // todo consider to add config property: failOnUnmatched
+            ce.unit
           })
       }.toSeq)
     }
 
-    private [this] def stop: F[Unit] = ce.delay(logger.debug(s"$name - stop")) >> deliverStopEvent
+    def stop: F[Unit] = {
+      if (stopped.compareAndSet(false, true)) {
+        ce.delay(logger.debug(s"$name - stop")) >> deliverStopEvent
+      } else ce.unit
+    }
 
-    def waitForCompletion: F[Unit] = completionSignal.get >> ce.delay(logger.debug(s"$name competed"))
+    def waitForCompletion: F[Unit] = completionSignal.get >> ce.delay(logger.debug(s"$name completed"))
 
     def addProcess(p: Process[F]): F[Unit] = ce.delay(processes.put(p.ref, p))
   }
@@ -341,13 +432,22 @@ object Parapet extends StrictLogging {
       qReadLock <- Lock[F]
       completionSignal <- Deferred[F, Unit]
     } yield new Worker(
-      s"π-worker-$id",
+      s"$ParapetPrefix-worker-$id",
       workerQueue,
       MutMap(processes.map(p => p.ref -> p): _*),
       qReadLock,
       config,
       interpreter,
       completionSignal)
+  }
+
+  case class FlowState[F[_]](senderRef: ProcessRef, selfRef: ProcessRef, ops: Seq[F[_]]) {
+    def addOps(that: Seq[F[_]]): FlowState[F] = this.copy(ops = ops ++ that)
+  }
+
+  object FlowState {
+    def apply[F[_]](senderRef: ProcessRef, selfRef: ProcessRef): FlowState[F] =
+      FlowState(senderRef = senderRef, selfRef = selfRef, ops = ListBuffer())
   }
 
   // <----------- Flow ADT ----------->
@@ -363,7 +463,6 @@ object Parapet extends StrictLogging {
   // G - target program
   class Flow[F[_], G[_]](implicit I: InjectK[FlowOp[F, ?], G]) {
     val empty: Free[G, Unit] = Free.inject[FlowOp[F, ?], G](Empty())
-    val ø: Free[G, Unit] = empty
     val terminate: Free[G, Unit] = Free.inject[FlowOp[F, ?], G](Stop())
 
     // sends event `e` to the list of receivers
@@ -466,12 +565,15 @@ object Parapet extends StrictLogging {
   // <-------------- Process -------------->
   trait Process[F[_]] {
     self =>
-    type ProcessFlow = FlowF[F, Unit] //  replaced  with FlowF[F]
-    type Receive = PartialFunction[Event, ProcessFlow]
+    type ProcessFlow = FlowF[F, Unit]
+    type Receive = ReceiveF[F]
 
-    val name: String = UUID.randomUUID().toString // todo revisit
+    private[core] val flowOps = implicitly[Flow[F, FlowOpOrEffect[F, ?]]]
+    private[core] val effectOps = implicitly[Effects[F, FlowOpOrEffect[F, ?]]]
 
-    def ref: ProcessRef = ProcessRef(name)
+    val name: String = "default"
+
+    val ref: ProcessRef = ProcessRef.jdkUUIDRef
 
     val handle: Receive
 
@@ -490,10 +592,68 @@ object Parapet extends StrictLogging {
   }
 
   object Process {
+    def apply1[F[_]](receive: ProcessRef => PartialFunction[Event, FlowF[F, Unit]]): Process[F] = new Process[F] {
+      override val handle: Receive = receive(this.ref)
+    }
+
+    @deprecated
     def apply[F[_]](receive: PartialFunction[Event, FlowF[F, Unit]]): Process[F] = new Process[F] {
       override val handle: Receive = receive
     }
   }
+
+  // <-------------- System processes -------------->
+
+  class SystemProcess[F[_]] extends Process[F] {
+    override val name: String = SystemRef.ref
+    override val ref: ProcessRef = SystemRef
+    override val handle: Receive = {
+      case f: Failure =>
+        //effectOps.eval(println("system received Failure"))
+       flowOps.send(DeadLetter(f), DeadLetterRef)
+    }
+  }
+
+  trait DeadLetterProcess[F[_]] extends Process[F] {
+    override val name: String = DeadLetterRef.ref
+    override final val ref: ProcessRef = DeadLetterRef
+  }
+
+  object DeadLetterProcess {
+
+    class DeadLetterLoggingProcess[F[_]](implicit ce: Concurrent[F]) extends DeadLetterProcess[F] {
+      override val name: String = DeadLetterRef.ref + "-logging"
+      override val handle: Receive = {
+        case DeadLetter(Failure(pREf, event, error)) =>
+          effectOps.suspend {
+            whenDebugEnabled {
+              ce.delay {
+                Map(
+                  "processId" -> ref,
+                  "processName" -> name,
+                  "failedProcessId" -> pREf,
+                  "eventId" -> event.id,
+                  "errorMsg" -> error.getMessage,
+                  "stack_trace" -> getStackTrace(error)).mdc { args =>
+                  logger.debug(s"$name: process[id=$pREf] failed to process event[id=${event.id}], error=${args("errorMsg")}")
+                }
+              }
+            }
+          }
+      }
+
+      private def getStackTrace(throwable: Throwable): String = {
+        val sw = new StringWriter
+        val pw = new PrintWriter(sw, true)
+        throwable.printStackTrace(pw)
+        sw.getBuffer.toString
+      }
+    }
+
+    def logging[F[_] : Concurrent]: DeadLetterProcess[F] = new DeadLetterLoggingProcess()
+
+  }
+
 
   trait CatsProcess extends Process[IO]
 
@@ -522,12 +682,16 @@ object Parapet extends StrictLogging {
     type ProcessFlow = FlowF[F, Unit]
 
     val config: ParConfig = ParApp.defaultConfig
-    val environment: F[Env]
+    def environment: F[Env]
     implicit val parallel: Parallel[F]
     implicit val timer: Timer[F]
     implicit val concurrentEffect: ConcurrentEffect[F]
     implicit val contextShift: ContextShift[F]
     val processes: Array[Process[F]]
+
+    // system processes
+    def deadLetter: DeadLetterProcess[F] = DeadLetterProcess.logging
+    private[core] val systemProcess: Process[F] = new SystemProcess[F]
 
     def flowInterpreter(e: Env): FlowOpF ~> FlowStateA
 
@@ -546,12 +710,16 @@ object Parapet extends StrictLogging {
       if (processes.isEmpty) {
         concurrentEffect.raiseError(new RuntimeException("Initialization error:  at least one process must be provided"))
       } else {
+        val systemProcesses = Array(systemProcess, deadLetter)
         for {
           env <- environment
+         // todo taskQueue <- Queue.bounded[F, Task[F]](config.schedulerConfig.queueCapacity)
           interpreter <- concurrentEffect.pure(flowInterpreter(env) or effectInterpreter(env))
           scheduler <- concurrentEffect.pure(new Scheduler[F](env.taskQueue, config.schedulerConfig,
-            processes, interpreter))
-          _ <- parallel.par(Seq(interpret_(initProcesses ++ program, interpreter, FlowState(SystemRef, SystemRef)), scheduler.run))
+            systemProcesses ++ processes, interpreter))
+          _ <- parallel.par(
+            Seq(interpret_(initProcesses ++ program, interpreter, FlowState(SystemRef, SystemRef)),
+            scheduler.run))
           _ <- stop
         } yield env
       }
@@ -564,15 +732,21 @@ object Parapet extends StrictLogging {
   }
 
   abstract class CatsApp extends ParApp[IO, CatsAppEnv] {
-    val executorService: ExecutorService = Executors.newFixedThreadPool(Runtime.getRuntime.availableProcessors())
+    val executorService: ExecutorService =
+      Executors.newFixedThreadPool(
+        Runtime.getRuntime.availableProcessors(), new ThreadFactory {
+          val threadNumber = new AtomicInteger(1)
+          override def newThread(r: Runnable): Thread =
+            new Thread(r, s"$ParapetPrefix-thread-${threadNumber.getAndIncrement()}")
+        })
     implicit val executionContext: ExecutionContextExecutor = ExecutionContext.fromExecutor(executorService)
     implicit val contextShift: ContextShift[IO] = IO.contextShift(executionContext)
     override val parallel: Parallel[IO] = implicitly[Parallel[IO]]
     override val timer: Timer[IO] = IO.timer(executionContext)
     override val concurrentEffect: ConcurrentEffect[IO] = implicitly[ConcurrentEffect[IO]]
 
-    override val environment: IO[CatsAppEnv] = for {
-      taskQueue <- Queue.bounded[IO, Task[IO]](10)
+    override def environment: IO[CatsAppEnv] = for {
+      taskQueue <- Queue.bounded[IO, Task[IO]](config.schedulerConfig.queueCapacity) // todo queueCapacity
     } yield CatsAppEnv(taskQueue, contextShift, timer)
 
     override def flowInterpreter(e: CatsAppEnv): FlowOpF ~> FlowStateA = ioFlowInterpreter(e)
@@ -606,7 +780,7 @@ object Parapet extends StrictLogging {
         numberOfWorkers = Runtime.getRuntime.availableProcessors(),
         queueCapacity = 100,
         workerQueueCapacity = 100,
-        taskSubmissionTimeout = 10.seconds,
+        taskSubmissionTimeout = 60.seconds,
         maxRedeliveryRetries = 5,
         redeliveryInitialDelay = 0.seconds))
   }

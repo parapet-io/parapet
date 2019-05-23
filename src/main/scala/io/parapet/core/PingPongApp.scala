@@ -17,6 +17,7 @@ object PingPongApp extends CatsApp {
     override val handle: Receive = {
       case Start => reply(sender => eval(println(s"$name received Start from: ${sender.ref}")) ++ Ping ~> pongProcess)
       case Pong => reply(sender => eval(println(s"$name received Pong from: ${sender.ref}")) ++ Ping ~> sender)
+      case Stop => eval(println("PingProcess stopped"))
     }
   }
 
@@ -28,6 +29,7 @@ object PingPongApp extends CatsApp {
     override val name: String = "pongProcess"
     override val handle: Receive = {
       case Ping => reply(sender => eval(println(s"$name received Ping from: ${sender.ref}")) ++ delay(1.seconds) ++ Pong ~> sender)
+      case Stop => eval(println("PongProcess stopped"))
     }
   }
 
