@@ -1,7 +1,7 @@
 package io.parapet.core.intg
 
 import cats.effect.IO
-import io.parapet.core.Parapet.{CatsApp, DeadLetterProcess, FlowF, Process}
+import io.parapet.core.Parapet.{CatsApp, DeadLetterProcess, FlowF, ParApp, ParConfig, Process}
 
 import scala.concurrent.duration._
 
@@ -13,10 +13,11 @@ trait IntegrationSpec {
 
   class SpecApp(val program: FlowF[IO, Unit],
                 val processes: Array[Process[IO]],
-                deadLetterOpt: Option[DeadLetterProcess[IO]] = None) extends CatsApp {
+                deadLetterOpt: Option[DeadLetterProcess[IO]] = None,
+                configOpt: Option[ParConfig] = None) extends CatsApp {
     override def deadLetter: DeadLetterProcess[IO] =
       deadLetterOpt.getOrElse(super.deadLetter)
-
+    override val config: ParConfig = configOpt.getOrElse(ParApp.defaultConfig)
 
     def unsafeRun(timeout: FiniteDuration = 1.minute): Unit = {
       run.unsafeRunTimed(timeout).getOrElse(throw new RuntimeException("Test failed by timeout"))

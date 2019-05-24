@@ -24,9 +24,10 @@ class EventDeliverySpec extends FlatSpec with IntegrationSpec {
   }
 
   "Unmatched event" should "be ignored" in {
-    val p = Process {
+    val p = Process[IO](_ => {
       case Start => emptyFlow
-    }
+    })
+
     val program = UnknownEvent ~> p ++ terminate
 
     run(program, p)

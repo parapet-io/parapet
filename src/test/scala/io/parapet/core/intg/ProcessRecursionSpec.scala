@@ -16,7 +16,7 @@ class ProcessRecursionSpec extends FlatSpec with IntegrationSpec {
     val deliverCount = new AtomicInteger()
     val count = 100000
 
-    val p = Process.apply1[IO](self => {
+    val p = Process.apply[IO](self => {
       case Counter(i) =>
         if (i == 0) terminate
         else eval(deliverCount.incrementAndGet()) ++ Counter(i - 1) ~> self
