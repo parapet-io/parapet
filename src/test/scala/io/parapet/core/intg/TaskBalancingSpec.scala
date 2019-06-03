@@ -8,6 +8,7 @@ import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
 
 import scala.concurrent.duration._
+// todo non deterministic TestEvent(3) delivered twice
 class TaskBalancingSpec extends FlatSpec {
 
   "Slow worker" should "transfer some events to another worker" in {
@@ -72,7 +73,7 @@ object TaskBalancingSpec {
   class SlowProcess(eventStore: EventStoreProcess) extends Process[IO] {
     override val name: String = "slow-process"
     override val handle: Receive = {
-      case e:TestEvent => delay(2.seconds)  ++ eventStore(e)
+      case e:TestEvent => delay(3.seconds)  ++ eventStore(e)
     }
   }
 }

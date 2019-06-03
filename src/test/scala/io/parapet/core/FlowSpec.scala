@@ -3,6 +3,7 @@ package io.parapet.core
 import cats.effect.{ContextShift, IO, Timer}
 import io.parapet.core.Parapet.ProcessRef._
 import io.parapet.core.Parapet._
+import io.parapet.core.Scheduler._
 import io.parapet.core.catsInstances.effect._
 import io.parapet.core.catsInstances.flow._
 import org.scalatest.FlatSpec

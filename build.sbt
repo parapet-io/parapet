@@ -38,7 +38,7 @@ libraryDependencies ++= (scalaBinaryVersion.value match {
 testOptions in Test += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports")
 
 def testUntilFailed = Command.command("testUntilFailed") { state =>
-  "test" :: "testUntilFailed" :: state
+  "testOnly io.parapet.core.intg.SchedulerSpec" :: "testUntilFailed" :: state
 }
 
 commands += testUntilFailed
