@@ -133,7 +133,7 @@ object FlowSpec {
     def peekLast: Option[A] = queue.lastOption
 
     def pull: Option[A] = Option(queue.dequeue())
-    def size: Int = queue.size
+    override def size: Int = queue.size
 
     override def tryDequeue: IO[Option[A]] = IO(Option(queue.dequeue()))
   }

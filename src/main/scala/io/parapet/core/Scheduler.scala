@@ -3,7 +3,7 @@ package io.parapet.core
 import java.util.concurrent.atomic.AtomicBoolean
 
 import cats.effect.concurrent.{Deferred, Ref}
-import cats.effect.{Concurrent, ContextShift, Timer}
+import cats.effect.{Concurrent, ContextShift, IO, Timer}
 import cats.implicits._
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.Logging._
@@ -13,18 +13,19 @@ import io.parapet.core.Scheduler._
 import org.slf4j.LoggerFactory
 
 import scala.collection.immutable.{Queue => SQueue}
+import scala.collection.mutable
 import scala.collection.mutable.{Map => MutMap}
 import scala.concurrent.duration._
 import scala.util.Random
 
-class Scheduler[F[_] : Concurrent : Timer : Parallel: ContextShift](
-                                                                           queue: TaskQueue[F],
-                                                                           config: SchedulerConfig,
-                                                                           processes: Array[Process[F]],
-                                                                           interpreter: Interpreter[F]) {
-
-
-
+class Scheduler[F[_] : Concurrent : Timer : Parallel : ContextShift](
+                                                                      config: SchedulerConfig,
+                                                                      processes: Array[Process[F]],
+                                                                      queue: TaskQueue[F],
+                                                                      lock: Lock[F],
+                                                                      assignedWorkersRef: Ref[F, Map[ProcessRef, Worker[F]]],
+                                                                      idleWorkersRef: Ref[F, mutable.LinkedHashSet[String]],
+                                                                      interpreter: Interpreter[F]) {
 
 
   private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
@@ -45,38 +46,60 @@ class Scheduler[F[_] : Concurrent : Timer : Parallel: ContextShift](
   }
 
 
+  // todo review
   def submitTask(task: Deliver[F],
                  assignedWorkers: Map[ProcessRef, Worker[F]],
                  allWorkers: List[Worker[F]]): F[Map[ProcessRef, Worker[F]]] = {
-    val receiver = task.envelope.receiver
+    //val receiver = task.envelope.receiver
     val worker = assignedWorkers(task.envelope.receiver)
     ce.race(worker.queue.enqueue(task), timer.sleep(config.taskSubmissionTimeout)).flatMap {
       case Left(_) =>
         ce.delay(logger.debug(
-          s"successfully submitted task[pRef=${task.envelope.receiver}, event=${task.envelope.event()}] to worker ${worker.name}"))>>
+          s"successfully submitted task[pRef=${task.envelope.receiver}, event=${task.envelope.event()}] to worker ${worker.name}")) >>
+          // remove `worker` from idle workers
+          idleWorkersRef.update(idleWorkers => idleWorkers.filter(_ != worker.name)) >>
           ce.pure(assignedWorkers)
-      case Right(_) =>
-        val victim = selectVictim(worker, allWorkers.toVector)
-        worker.removeEvents(receiver, 100.millis).flatMap {
-          case Some(removedTasks) =>
-            ce.delay {
-              val tasks = removedTasks :+ task
-              val reassignedWorkers = assignedWorkers + (receiver -> victim)
-              (tasks, reassignedWorkers)
-            }  flatMap {
-              case  (tasks, reassignedWorkers) =>
-                ce.delay(logger.debug(s"Transfer ${tasks.size} tasks ${tasks.map(_.envelope.event())} from ${worker.name} to worker ${victim.name}")) >>
-                  victim.addProcess(processMap(receiver)) >>
-                  submitTasks(tasks.toList, reassignedWorkers, allWorkers)
-//                  tasks.map(t => submitTask(t, reassignedWorkers, allWorkers)).toList.sequence_
-//                    .map(_ => reassignedWorkers)
-            }
+      case Right(_) => submitTask(task, assignedWorkers, allWorkers) // no idle workers, resubmit task using current worker
 
-          case None => submitTask(task, assignedWorkers, allWorkers) //  failed to acquire worker's queue lock, try again
+        val victimOpt = idleWorkersRef.modify { idleWorkers =>
+          idleWorkers.toList match {
+            case x :: xs => (mutable.LinkedHashSet(xs:_*), Some(x))
+            case _ => (idleWorkers, None)
+          }
+        }
+
+        victimOpt.flatMap {
+          case Some(victimName) =>
+            val victim = getWorkerByName(allWorkers, victimName)
+            ce.delay(logger.debug(s"try to steal tasks from ${worker.name}")) >>
+              worker.steal(100.millis).flatMap {
+                case Some((vp, removedTasks)) =>
+                  ce.delay {
+                    val tasks = removedTasks :+ task
+                    val reassignedWorkers = assignedWorkers + (vp.ref -> victim)
+                    (tasks, reassignedWorkers)
+                  } flatMap {
+                    case (tasks, reassignedWorkers) =>
+                      ce.delay(logger.debug(s"Transfer ${tasks.size} tasks ${tasks.map(_.envelope.event())} from ${worker.name} to worker ${victim.name}")) >>
+                        // todo problem could be here
+                        // assignedWorkersRef.set(reassignedWorkers) >> todo revisit
+                        victim.addProcess(vp) >>
+                        submitTasks(tasks.toList, reassignedWorkers, allWorkers)
+                    //                  tasks.map(t => submitTask(t, reassignedWorkers, allWorkers)).toList.sequence_
+                    //                    .map(_ => reassignedWorkers)
+                  }
+                case None => submitTask(task, assignedWorkers, allWorkers) // no tasks to steal
+              }
+          case None => submitTask(task, assignedWorkers, allWorkers) // no idle workers, resubmit task using current worker
         }
     }
 
   }
+
+  def getWorkerByName(allWorkers: List[Worker[F]], name: String): Worker[F] = {
+    allWorkers.find(_.name == name).get
+  }
+
   def submitTasks(tasks: List[Deliver[F]], assignedWorkers: Map[ProcessRef, Worker[F]],
                   allWorkers: List[Worker[F]]): F[Map[ProcessRef, Worker[F]]] = {
     tasks match {
@@ -86,15 +109,20 @@ class Scheduler[F[_] : Concurrent : Timer : Parallel: ContextShift](
     }
   }
 
-  def consumer(assignedWorkers: Map[ProcessRef, Worker[F]], allWorkers: List[Worker[F]]): F[Unit] = {
+  def consumer(allWorkers: List[Worker[F]]): F[Unit] = {
     queue.dequeue.flatMap {
       case Terminate() =>
         ce.delay(logger.debug("Scheduler - terminate")) >> terminateWorkers(allWorkers)
+      //  todo review
       case task@Deliver(Envelope(_, _, receiver)) =>
-        assignedWorkers.get(receiver)
-          .fold(ce.delay(logger.warn(s"unknown process: $receiver. Ignore event")) >> ce.pure(assignedWorkers)) {
-            _ => submitTask(task, assignedWorkers, allWorkers)
-          } >>= (wm => consumer(wm, allWorkers))
+        lock.acquire >>
+          assignedWorkersRef.get >>= { assignedWorkers =>
+          assignedWorkers.get(receiver)
+            .fold(ce.delay(logger.warn(s"unknown process: $receiver. Ignore event")) >> ce.pure(assignedWorkers)) {
+              _ => submitTask(task, assignedWorkers, allWorkers)
+            } >>= (wm => assignedWorkersRef.set(wm) >> lock.release >> consumer(allWorkers))
+        }
+
     }
   }
 
@@ -104,13 +132,14 @@ class Scheduler[F[_] : Concurrent : Timer : Parallel: ContextShift](
       grow(processes.sliding(window, window).toList, Array.empty[Process[F]], config.numberOfWorkers).zipWithIndex
 
     val workersF: F[List[Worker[F]]] = groupedProcesses.map {
-      case (processGroup, i) => Worker(i, config, processGroup, interpreter)
+      case (processGroup, i) => Worker(i, config, lock, assignedWorkersRef,idleWorkersRef, processGroup, interpreter)
     }.sequence
 
     ce.bracket(workersF) { workers =>
-      val processToWorker: Map[ProcessRef, Worker[F]] = workers.flatMap(worker => worker.processes.keys.map(_ -> worker)).toMap
-      ce.delay(logger.debug(s"initially assigned workers: ${processToWorker.mapValues(_.name)}")) >>
-      parallel.par(workers.map(worker => ctxShift.shift >> worker.run) :+ consumer(processToWorker, workers))
+      val assignedWorkers: Map[ProcessRef, Worker[F]] = workers.flatMap(worker => worker.processes.keys.map(_ -> worker)).toMap
+      assignedWorkersRef.set(assignedWorkers) >>
+      ce.delay(logger.debug(s"initially assigned workers: ${assignedWorkers.mapValues(_.name)}")) >>
+        parallel.par(workers.map(worker => ctxShift.shift >> worker.run) :+ consumer(workers))
     } { workers => parallel.par(workers.map(_.stop)) }
 
   }
@@ -132,33 +161,50 @@ object Scheduler {
 
   type TaskQueue[F[_]] = Queue[F, Task[F]]
 
-  def apply[F[_] : Concurrent : Timer: Parallel: ContextShift](queue: TaskQueue[F],
-                                       config: SchedulerConfig,
-                                       processes: Array[Process[F]], interpreter: Interpreter[F]): Scheduler[F] = {
-    new Scheduler[F](queue, config, processes, interpreter)
+  def apply[F[_] : Concurrent : Timer : Parallel : ContextShift](config: SchedulerConfig,
+                                                                 processes: Array[Process[F]],
+                                                                 queue: TaskQueue[F],
+                                                                 interpreter: Interpreter[F]): F[Scheduler[F]] = {
+    for {
+      lock <- Lock[F]
+      assignedWorkersRef <- Ref.of[F, Map[ProcessRef, Worker[F]]](Map.empty)
+      idleWorkersRef <- Ref.of[F, mutable.LinkedHashSet[String]](mutable.LinkedHashSet.empty)
+    } yield new Scheduler[F](config,
+      processes,
+      queue,
+      lock,
+      assignedWorkersRef,
+      idleWorkersRef,
+      interpreter)
   }
 
-  case class SchedulerConfig(numberOfWorkers: Int,
-                             queueCapacity: Int,
-                             workerQueueCapacity: Int, //  todo rename
+  case class SchedulerConfig(queueSize: Int,
+                             numberOfWorkers: Int,
+                             workerQueueSize: Int,
                              taskSubmissionTimeout: FiniteDuration,
+                             workerTaskDequeueTimeout: FiniteDuration,
                              maxRedeliveryRetries: Int,
                              redeliveryInitialDelay: FiniteDuration)
 
   class Worker[F[_] : Concurrent : Timer : Parallel](
-                                                            val name: String,
-                                                            val queue: TaskQueue[F],
-                                                            var processes: MutMap[ProcessRef, Process[F]],
-                                                            val queueReadLock: Lock[F],
-                                                            config: SchedulerConfig,
-                                                            interpreter: Interpreter[F],
-                                                            currentTaskProcessRef: Ref[F, Option[ProcessRef]],
-                                                            completionSignal: Deferred[F, Unit]) {
+                                                      val name: String,
+                                                      val queue: TaskQueue[F],
+                                                      var processes: MutMap[ProcessRef, Process[F]],
+                                                      val schedulerLock: Lock[F],
+                                                      val assignedWorkersRef: Ref[F, Map[ProcessRef, Worker[F]]],
+                                                      val queueReadLock: Lock[F],
+                                                      val idleWorkersRef: Ref[F, mutable.LinkedHashSet[String]],
+                                                      config: SchedulerConfig,
+                                                      interpreter: Interpreter[F],
+                                                      currentTaskProcessRef: Ref[F, Option[ProcessRef]],
+                                                      completionSignal: Deferred[F, Unit]) {  self=>
     private val logger = Logger(LoggerFactory.getLogger(s"parapet-$name"))
     private val ce = implicitly[Concurrent[F]]
+    private val timer = implicitly[Timer[F]]
     private val parallel = implicitly[Parallel[F]]
     private val flowOps = implicitly[Flow[F, FlowOpOrEffect[F, ?]]]
-    private [this] val stopped = new AtomicBoolean()
+    private[this] val stopped = new AtomicBoolean()
+    private val idle = new AtomicBoolean()
 
     def deliver(envelope: Envelope): F[Unit] = {
       val event = envelope.event()
@@ -240,56 +286,134 @@ object Scheduler {
       }
     }
 
+    // todo review
     def run: F[Unit] = {
       def step: F[Unit] = {
-        val task = for {
+        val taskOpt = for {
           _ <- queueReadLock.acquire
-          task <- queue.dequeue
-          _ <- currentTaskProcessRef.set(getReceiverRef(task))
+          taskOpt <- ce.race(queue.dequeue, timer.sleep(config.workerTaskDequeueTimeout)).flatMap {
+            case Left(t) => ce.pure(Option(t))
+            case Right(_) => ce.delay(logger.debug(s"$name is out of tasks, try to steal")) >> stealTasks
+          }
+          _ <- taskOpt.fold(ce.pure(taskOpt))(task => currentTaskProcessRef.set(getReceiverRef(task)).map(_ => taskOpt))
           _ <- queueReadLock.release
-        } yield task
+        } yield taskOpt
 
-        task.flatMap {
-          case t: Deliver[F] =>
-            ce.delay(logger.debug(s"$name started processing event=[${t.envelope.event()}] for  process ${t.envelope.receiver}")) >>
-            processTask(t) >> currentTaskProcessRef.set(None) >> step
-          case _: Terminate[F] => stop >> completionSignal.complete(())
+        taskOpt.flatMap {
+          case Some(task) =>
+            removeSelfToIdleList >>
+              (
+                task match {
+                  case t: Deliver[F] =>
+                    ce.delay(logger.debug(s"$name started processing event=[${t.envelope.event()}] for  process ${t.envelope.receiver}")) >>
+                      processTask(t) >>
+                      ce.delay(logger.debug(s"$name finished processing event=[${t.envelope.event()}] for process ${t.envelope.receiver}"))>>
+                      currentTaskProcessRef.set(None) >> step
+                  case _: Terminate[F] => stop >> completionSignal.complete(())
+                }
+              )
+          case None => step
         }
       }
+
       step
     }
 
-    // waits indefinitely while the given process is used by some task
-    def waitForProcess(pRef: ProcessRef): F[Unit] = {
-      //ce.delay(logger.debug(s"await process: $pRef")) >>
-      currentTaskProcessRef.get flatMap {
-        case Some(processInUse) if processInUse == pRef => waitForProcess(pRef)
-        case e => ce.delay(logger.debug(s"process $pRef is finished: $e"))
+    // todo review
+    def stealTasks: F[Option[Task[F]]] = {
+      addSelfToIdleList >>
+        schedulerLock.tryAcquire(100.millis).flatMap {
+          case true =>
+            // check the worker queue to avoid double stealing
+            queue.tryDequeue.flatMap {
+              case Some(task) => ce.pure(Option(task.asInstanceOf[Deliver[F]]))
+              case None =>
+                chooseWorker.flatMap {
+                  case Some(victim) =>
+                    ce.delay(logger.debug(s"$name chose ${victim.name} as victim")) >>
+                      victim.steal(100.millis).flatMap {
+                        case Some((process, tasks)) =>
+                          ce.pure(processes.put(process.ref, process)) >>
+                            ce.delay(logger.debug(s"$name stole ${tasks.size} tasks for process[ref=${process.ref}] from ${victim.name}")) >>
+                            assignedWorkersRef.update(m => m + (process.ref -> self)) >>
+                            removeSelfToIdleList >> // to prevent scheduler from using this worker for work balancing
+                            (tasks.dequeueOption match {
+                              case Some((head, tail)) => queue.enqueueAll(tail) >> ce.pure(Option(head))
+                              case None => ce.pure(Option.empty[Deliver[F]]) // stolen process has no events yet
+                            })
+                        case None =>
+                          ce.delay(logger.debug(s"$name has failed to steal a process from victim: ${victim.name}"))
+                          ce.pure(Option.empty[Deliver[F]])
+                      }
+                  case None => ce.delay(
+                    logger.debug(s"$name has failed to find a victim for balancing, apparently b/c number of workers ==  1")) >>
+                    ce.pure(Option.empty[Deliver[F]])
+                }
+            } >>= (t => schedulerLock.release.map(_ => t))
+          case false => ce.pure(Option.empty[Task[F]])
+        }
+    }
+
+    def addSelfToIdleList: F[Unit] = {
+      if (idle.compareAndSet(false, true))
+        idleWorkersRef.update(idleWorkers => mutable.LinkedHashSet(idleWorkers.toSeq :+ self.name: _*))
+      else ce.unit
+    }
+
+    def removeSelfToIdleList: F[Unit] = {
+      if (idle.compareAndSet(true, false))
+        idleWorkersRef.update(idleWorkers => idleWorkers.filter(_ != self.name))
+      else ce.unit
+    }
+
+    def chooseWorker: F[Option[Worker[F]]] = {
+      val rnd = Random
+      for {
+        workers <- assignedWorkersRef.get
+      } yield {
+        val candidates = workers.values.filter(_.name != name).toVector
+        if (candidates.isEmpty) None
+        else Some(candidates.maxBy(_.queue.size))
       }
     }
 
-    // removes all events dedicated to `pRef`
-    def removeEvents(pRef: ProcessRef, lockAcquireTimeout: FiniteDuration): F[Option[SQueue[Deliver[F]]]] = {
+    // waits indefinitely while the given process is used by some task
+//    def waitForProcess(pRef: ProcessRef): F[Unit] = {
+//      //ce.delay(logger.debug(s"await process: $pRef")) >>
+//      currentTaskProcessRef.get flatMap {
+//        case Some(processInUse) if processInUse == pRef => waitForProcess(pRef)
+//        case e => ce.delay(logger.debug(s"process $pRef is finished: $e"))
+//      }
+//    }
+
+    // todo review
+    def steal(lockAcquireTimeout: FiniteDuration): F[Option[(Process[F], SQueue[Deliver[F]])]] = {
       // try acquire to avoid deadlock
       queueReadLock.tryAcquire(lockAcquireTimeout).flatMap {
         case true =>
-          waitForProcess(pRef) >>
-          // it's safe to a remove process here b/c next the time when `processTask` is executed
-          // this queue wont contain any events dedicated to the removed process
-          ce.delay(logger.debug(s"$name removing process $pRef")) >>
-          ce.suspend(ce.fromOption(processes.remove(pRef),
-            new RuntimeException(s"$name does not contain process with ref=$pRef"))) // todo use unknown process exception
-            .flatMap { _ =>
-            queue.partition {
-              case Deliver(envelop) => envelop.receiver == pRef
-              case _ => false
-            }.flatMap {
-              case (left, right) => queue.enqueueAll(left) >> ce.pure(SQueue(right.map(_.asInstanceOf[Deliver[F]]): _*))
-            }
-          } >>= (tasks => queueReadLock.release.map(_ => Some(tasks)))
-        case false => ce.pure(None)
+          chooseProcess.flatMap {
+            case Some(victimRef) =>
+              // it's safe to a remove process here b/c next the time when `processTask` is executed
+              // this queue wont contain any events dedicated to the removed process
+              ce.delay(logger.debug(s"$name removing process $victimRef")) >>
+                ce.suspend(ce.fromOption(processes.remove(victimRef),
+                  new RuntimeException(s"$name does not contain process with ref=$victimRef")))
+                  .flatMap { victim =>
+                    queue.partition {
+                      case Deliver(envelop) => envelop.receiver == victimRef
+                      case _ => false
+                    }.flatMap {
+                      case (left, right) => queue.enqueueAll(left) >> ce.pure((victim, SQueue(right.map(_.asInstanceOf[Deliver[F]]): _*)))
+                    }
+                  } >>= (tasks => queueReadLock.release.map(_ => Some(tasks)))
+            case None => ce.delay(s"$name failed to choose a victim process") >>
+              queueReadLock.release >> ce.pure(None)
+          }
+
+        case false => ce.delay(s"failed to acquire $name queue lock") >> ce.pure(None)
       }
     }
+
 
     def deliverStopEvent: F[Unit] = {
       parallel.par(processes.values.map { process =>
@@ -300,6 +424,33 @@ object Scheduler {
             ce.unit
           })
       }.toSeq)
+    }
+
+
+    def chooseProcess: F[Option[ProcessRef]] = {
+      for {
+        currProcess <- currentTaskProcessRef.get
+      } yield currProcess match {
+        case Some(ref) => randomProcess(ref)
+        case None => randomProcess
+      }
+    }
+
+    // randomly choose a process != exclude
+    def randomProcess(exclude: ProcessRef): Option[ProcessRef] = {
+      val rnd = Random
+      val candidates = processes.keys.filter(_ != exclude).toVector
+      if (candidates.isEmpty) None
+      else Some(candidates(rnd.nextInt(candidates.size)))
+    }
+
+    // randomly choose a process
+    def randomProcess: Option[ProcessRef] = randomProcess(processes.keys.toVector)
+
+    def randomProcess(candidates: Vector[ProcessRef]): Option[ProcessRef] = {
+      val rnd = Random
+      if (candidates.isEmpty) None
+      else Some(candidates(rnd.nextInt(candidates.size)))
     }
 
     def stop: F[Unit] = {
@@ -315,19 +466,25 @@ object Scheduler {
 
   object Worker {
     def apply[F[_] : Concurrent : Timer : Parallel](id: Int,
-                                                          config: SchedulerConfig,
-                                                          processes: Seq[Process[F]],
-                                                          interpreter: Interpreter[F]): F[Worker[F]] =
+                                                    config: SchedulerConfig,
+                                                    schedulerLock: Lock[F],
+                                                    assignedWorkersRef: Ref[F, Map[ProcessRef, Worker[F]]],
+                                                    idleWorkersRef: Ref[F, mutable.LinkedHashSet[String]],
+                                                    processes: Seq[Process[F]],
+                                                    interpreter: Interpreter[F]): F[Worker[F]] =
       for {
-        workerQueue <- Queue.bounded[F, Task[F]](config.workerQueueCapacity)
+        workerQueue <- Queue.bounded[F, Task[F]](config.workerQueueSize)
         qReadLock <- Lock[F]
         completionSignal <- Deferred[F, Unit]
         currentTaskProcessRef <- Ref.of[F, Option[ProcessRef]](None)
       } yield new Worker(
-        s"$ParapetPrefix-worker-$id",
-        workerQueue,
-        MutMap(processes.map(p => p.ref -> p): _*),
+        name = s"$ParapetPrefix-worker-$id",
+        queue = workerQueue,
+        processes = MutMap(processes.map(p => p.ref -> p): _*),
+        schedulerLock = schedulerLock,
+        assignedWorkersRef = assignedWorkersRef,
         qReadLock,
+        idleWorkersRef = idleWorkersRef,
         config,
         interpreter,
         currentTaskProcessRef,

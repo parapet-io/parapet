@@ -8,7 +8,7 @@ import java.util.concurrent.{ExecutorService, Executors, ThreadFactory}
 import cats.data.{EitherK, State}
 import cats.effect.IO._
 import cats.effect._
-import cats.effect.concurrent.Semaphore
+import cats.effect.concurrent.{Ref, Semaphore}
 import cats.free.Free
 import cats.implicits._
 import cats.{InjectK, Monad, ~>}
@@ -17,6 +17,7 @@ import io.parapet.core.Logging._
 import io.parapet.core.Scheduler._
 import io.parapet.core.annotations.experimental
 
+import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.{FiniteDuration, _}
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor}
@@ -55,6 +56,7 @@ object Parapet extends StrictLogging {
   trait Lock[F[_]] {
     def acquire: F[Unit]
     def release: F[Unit]
+    // todo add def safe(body: => F[A], time: FiniteDuration): F[A]
     def tryAcquire(time: FiniteDuration): F[Boolean]
   }
 
@@ -95,6 +97,7 @@ object Parapet extends StrictLogging {
   }
 
   trait Queue[F[_], A] {
+    def size: Int = 0
     def enqueue(e: => A): F[Unit] // todo don't need to be lazy
     def enqueueAll(es: Seq[A])(implicit M:Monad[F]): F[Unit] = es.map(e => enqueue(e)).foldLeft(M.unit)(_ >> _)
     def dequeue: F[A]
@@ -121,11 +124,20 @@ object Parapet extends StrictLogging {
       for {
         q <- fs2.concurrent.Queue.bounded[F, A](capacity)
       } yield new Queue[F, A] {
-        override def enqueue(e: => A): F[Unit] = q.enqueue1(e)
+        val sizeRef = new AtomicInteger()
+        override def enqueue(e: => A): F[Unit] = {
+          sizeRef.incrementAndGet()
+          q.enqueue1(e)
+        }
 
-        override def dequeue: F[A] = q.dequeue1
+        override def dequeue: F[A] = {
+          sizeRef.decrementAndGet()
+          q.dequeue1
+        }
 
         override def tryDequeue: F[Option[A]] = q.tryDequeue1
+
+        override def size: Int = sizeRef.get()
       }
     }
 
@@ -474,11 +486,10 @@ object Parapet extends StrictLogging {
       } else {
         val systemProcesses = Array(systemProcess, deadLetter)
         for {
-          taskQueue <- Queue.bounded[F, Task[F]](config.schedulerConfig.queueCapacity)
+          taskQueue <- Queue.bounded[F, Task[F]](config.schedulerConfig.queueSize)
           context <- concurrentEffect.pure(AppContext(taskQueue))
           interpreter <- concurrentEffect.pure(flowInterpreter(taskQueue) or effectInterpreter)
-          scheduler <- concurrentEffect.pure(new Scheduler[F](taskQueue, config.schedulerConfig,
-            systemProcesses ++ processes, interpreter))
+          scheduler <- Scheduler[F](config.schedulerConfig, systemProcesses ++ processes, taskQueue, interpreter)
           _ <- parallel.par(
             Seq(interpret_(initProcesses ++ program, interpreter, FlowState(SystemRef, SystemRef)),
               scheduler.run))
@@ -536,10 +547,11 @@ object Parapet extends StrictLogging {
   object ParApp {
     val defaultConfig: ParConfig = ParConfig(
       schedulerConfig = SchedulerConfig(
+        queueSize = 1000,
         numberOfWorkers = Runtime.getRuntime.availableProcessors(),
-        queueCapacity = 1000,
-        workerQueueCapacity = 100,
-        taskSubmissionTimeout = 60.seconds,
+        workerQueueSize = 100,
+        taskSubmissionTimeout = 5.seconds,
+        workerTaskDequeueTimeout = 5.seconds,
         maxRedeliveryRetries = 5,
         redeliveryInitialDelay = 0.seconds))
   }

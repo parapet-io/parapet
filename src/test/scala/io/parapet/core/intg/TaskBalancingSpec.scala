@@ -59,7 +59,7 @@ class TaskBalancingSpec extends FlatSpec {
       schedulerConfig = ParApp.defaultConfig.schedulerConfig
         .copy(
           numberOfWorkers = numOfWorkers,
-          workerQueueCapacity = workerQueueSize,
+          workerQueueSize = workerQueueSize,
           taskSubmissionTimeout = taskSubmissionTimeout
         )
     )

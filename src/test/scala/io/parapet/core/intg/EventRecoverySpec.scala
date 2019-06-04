@@ -179,8 +179,8 @@ class EventRecoverySpec extends FlatSpec with Inside with IntegrationSpec {
     val config = ParApp.defaultConfig.copy(
       schedulerConfig = ParApp.defaultConfig.schedulerConfig
         .copy(
-          queueCapacity = numberOfEvents,
-          workerQueueCapacity = 100,
+          queueSize = numberOfEvents,
+          workerQueueSize = 100,
           taskSubmissionTimeout = 1.minute))
 
 
