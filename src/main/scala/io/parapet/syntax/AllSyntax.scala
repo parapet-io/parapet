@@ -1,3 +1,3 @@
 package io.parapet.syntax
 
-trait AllSyntax extends EventSyntax with FlowSyntax
+trait AllSyntax extends EventSyntax with FlowSyntax with EffectSyntax

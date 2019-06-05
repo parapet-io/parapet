@@ -3,16 +3,17 @@ package io.parapet.core
 import java.util.concurrent.atomic.AtomicBoolean
 
 import cats.effect.concurrent.{Deferred, Ref}
-import cats.effect.{Concurrent, ContextShift, IO, Timer}
+import cats.effect.{Concurrent, ContextShift, Timer}
 import cats.implicits._
 import com.typesafe.scalalogging.Logger
+import io.parapet.core.Event.{Stop => StopEvent, _}
 import io.parapet.core.Logging._
 import io.parapet.core.Parapet.ProcessRef.{DeadLetterRef, SystemRef}
 import io.parapet.core.Parapet._
 import io.parapet.core.Scheduler._
+import io.parapet.core.exceptions._
+import io.parapet.syntax.effect._
 import org.slf4j.LoggerFactory
-import io.parapet.core.Event.{Stop => StopEvent, _}
-import io.parapet.core.exceptions.{EventDeliveryException, EventRecoveryException, UnknownProcessException}
 
 import scala.collection.immutable.{Queue => SQueue}
 import scala.collection.mutable

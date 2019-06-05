@@ -5,9 +5,10 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import cats.effect.{ContextShift, IO, Timer}
 import cats.implicits._
-import io.parapet.core.Parapet.{Process, ProcessRef, Queue, ioEffectInterpreter, ioFlowInterpreter}
+import io.parapet.core.Parapet.{Process, ProcessRef, ioEffectInterpreter, ioFlowInterpreter}
 import io.parapet.core.Event
 import io.parapet.core.Event._
+import io.parapet.core.Queue
 import io.parapet.implicits._
 import io.parapet.core.Scheduler
 import io.parapet.core.Scheduler._

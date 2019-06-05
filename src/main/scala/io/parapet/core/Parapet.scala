@@ -19,6 +19,7 @@ import io.parapet.core.annotations.experimental
 import io.parapet.core.Event._
 import io.parapet.core.exceptions.{EventDeliveryException, EventRecoveryException}
 import io.parapet.syntax.flow._
+import io.parapet.core.Queue
 
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.{FiniteDuration, _}
@@ -50,89 +51,6 @@ object Parapet extends StrictLogging {
     def jdkUUIDRef: ProcessRef = new ProcessRef(UUID.randomUUID().toString)
   }
 
-
-
-  trait Queue[F[_], A] {
-    def size: Int = 0
-    def enqueue(a: A): F[Unit]
-    def enqueueAll(elements: Seq[A])(implicit M:Monad[F]): F[Unit] = elements.map(e => enqueue(e)).foldLeft(M.unit)(_ >> _)
-    def dequeue: F[A]
-    def tryDequeue: F[Option[A]]
-    def dequeueThrough[F1[x] >: F[x] : Monad, B](f: A => F1[B]): F1[B] = {
-      implicitly[Monad[F1]].flatMap(dequeue)(a => f(a))
-    }
-
-    // returns a tuple where Element 2 contains elements that match the given predicate
-    def partition(p: A => Boolean)(implicit M: Monad[F]): F[(Seq[A], Seq[A])] = {
-      def partition(left: Seq[A], right: Seq[A]): F[(Seq[A], Seq[A])] = {
-        tryDequeue.flatMap {
-          case Some(a) => if (p(a)) partition(left, right :+ a) else partition(left :+ a, right)
-          case None => M.pure((left, right))
-        }
-      }
-
-      partition(ListBuffer(), ListBuffer())
-    }
-  }
-
-  object Queue {
-    def bounded[F[_] : Concurrent, A](capacity: Int): F[Queue[F, A]] = {
-      for {
-        q <- fs2.concurrent.Queue.bounded[F, A](capacity)
-      } yield new Queue[F, A] {
-        val sizeRef = new AtomicInteger()
-        override def enqueue(a: A): F[Unit] = {
-          sizeRef.incrementAndGet()
-          q.enqueue1(a)
-        }
-
-        override def dequeue: F[A] = {
-          sizeRef.decrementAndGet()
-          q.dequeue1
-        }
-
-        override def tryDequeue: F[Option[A]] = q.tryDequeue1
-
-        override def size: Int = sizeRef.get()
-      }
-    }
-
-    def unbounded[F[_] : Concurrent, A]: F[Queue[F, A]] = {
-      for {
-        q <- fs2.concurrent.Queue.unbounded[F, A]
-      } yield new Queue[F, A] {
-        override def enqueue(a: A): F[Unit] = q.enqueue1(a)
-
-        override def dequeue: F[A] = q.dequeue1
-
-        override def tryDequeue: F[Option[A]] = q.tryDequeue1
-      }
-    }
-  }
-
-  trait QueueModule[F[_], A] {
-    def queue: Queue[F, A]
-  }
-
-
-  implicit class EffectOps[F[_] : Concurrent : Timer, A](fa: F[A]) {
-    def retryWithBackoff(initialDelay: FiniteDuration, maxRetries: Int, backoffBase: Int = 2): F[A] =
-      EffectOps.retryWithBackoff(fa, initialDelay, maxRetries, backoffBase)
-  }
-
-  object EffectOps {
-    def retryWithBackoff[F[_], A](fa: F[A],
-                                  initialDelay: FiniteDuration,
-                                  maxRetries: Int, backoffBase: Int = 2)
-                                 (implicit timer: Timer[F], ce: Concurrent[F]): F[A] = {
-      fa.handleErrorWith { error =>
-        if (maxRetries > 0)
-          timer.sleep(initialDelay) >> retryWithBackoff(fa, initialDelay * backoffBase, maxRetries - 1)
-        else
-          ce.raiseError(error)
-      }
-    }
-  }
 
   private[core] def interpret[F[_] : Monad, A](program: FlowF[F, A], interpreter: Interpreter[F], state: FlowState[F]): Seq[F[_]] = {
     program.foldMap[FlowStateF[F, ?]](interpreter).runS(state).value.ops

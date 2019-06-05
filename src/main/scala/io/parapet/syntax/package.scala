@@ -8,4 +8,6 @@ package object syntax {
 
   object flow extends FlowSyntax
 
+  object effect extends EffectSyntax
+
 }
