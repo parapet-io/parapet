@@ -3,12 +3,11 @@ package io.parapet.core.intg
 import java.util.concurrent.atomic.AtomicBoolean
 
 import cats.effect.IO
-import io.parapet.core.Parapet.Process
-import io.parapet.core.Event
 import io.parapet.core.Event._
-import io.parapet.implicits._
+import io.parapet.core.{Event, Process}
 import io.parapet.core.catsInstances.effect._
 import io.parapet.core.catsInstances.flow.{empty => emptyFlow, _}
+import io.parapet.implicits._
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
 

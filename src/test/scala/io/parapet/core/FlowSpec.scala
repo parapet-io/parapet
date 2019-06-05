@@ -1,15 +1,15 @@
 package io.parapet.core
 
 import cats.effect.{ContextShift, IO, Timer}
-import io.parapet.core.Parapet.ProcessRef._
 import io.parapet.core.Parapet._
+import io.parapet.core.ProcessRef._
 import io.parapet.core.Scheduler._
 import io.parapet.core.catsInstances.effect._
 import io.parapet.core.catsInstances.flow._
+import io.parapet.implicits._
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
-import io.parapet.implicits._
 
 import scala.collection.mutable.{ListBuffer, Queue => SQueue}
 import scala.concurrent.ExecutionContext

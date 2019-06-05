@@ -1,7 +1,7 @@
 package io.parapet.core.testutils
 
 import cats.effect.IO
-import io.parapet.core.Parapet.Process
+import io.parapet.core.Process
 import io.parapet.core.Event
 import io.parapet.core.Event._
 import io.parapet.core.catsInstances.effect._

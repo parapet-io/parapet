@@ -5,17 +5,15 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import cats.effect.{ContextShift, IO, Timer}
 import cats.implicits._
-import io.parapet.core.Parapet.{Process, ProcessRef, ioEffectInterpreter, ioFlowInterpreter}
-import io.parapet.core.Event
 import io.parapet.core.Event._
-import io.parapet.core.Queue
-import io.parapet.implicits._
-import io.parapet.core.Scheduler
+import io.parapet.core.Parapet.{ioEffectInterpreter, ioFlowInterpreter}
+import io.parapet.core.{Event, Process, ProcessRef, Queue, Scheduler}
 import io.parapet.core.Scheduler._
 import io.parapet.core.catsInstances.effect._
 import io.parapet.core.catsInstances.flow.{empty => emptyFlow, _}
-import io.parapet.core.intg.SchedulerSpec._
 import io.parapet.core.intg.SchedulerSpec.TaskProcessingTime._
+import io.parapet.core.intg.SchedulerSpec._
+import io.parapet.implicits._
 import org.scalatest.FunSuite
 import org.scalatest.Matchers._
 
@@ -119,7 +117,7 @@ class SchedulerSpec extends FunSuite {
     verifyEvents(tasks, eventStore)
   }
 
-  test("random spec 0.25, random workload gem") {
+  test("random spec 0.5, random workload gen") {
     val config = SchedulerConfig(
       queueSize = 1000,
       numberOfWorkers = 5,
@@ -134,7 +132,24 @@ class SchedulerSpec extends FunSuite {
     val eventStore = new EventStore[TestEvent]
     val processes = createProcesses(numberOfProcesses, instant, 0.5, range(2.second, 3.seconds), eventStore)
     randomSpec(config, numberOfEvents, processes, eventStore, WorkloadGen.Random)
-}
+  }
+
+  test("random spec 0.5, batch workload gen") {
+    val config = SchedulerConfig(
+      queueSize = 1000,
+      numberOfWorkers = 5,
+      workerQueueSize = 20,
+      taskSubmissionTimeout = 1.second,
+      workerTaskDequeueTimeout = 1.second,
+      maxRedeliveryRetries = 0,
+      redeliveryInitialDelay = 0.seconds)
+
+    val numberOfEvents = 100
+    val numberOfProcesses = 10
+    val eventStore = new EventStore[TestEvent]
+    val processes = createProcesses(numberOfProcesses, instant, 0.5, range(500.millis, 1.seconds), eventStore)
+    randomSpec(config, numberOfEvents, processes, eventStore, WorkloadGen.Batch)
+  }
 
   test("Random task gen") {
     val numberOfEvents = 5

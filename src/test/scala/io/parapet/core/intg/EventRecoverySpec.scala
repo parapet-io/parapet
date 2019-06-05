@@ -3,15 +3,17 @@ package io.parapet.core.intg
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 import cats.effect.IO
-import io.parapet.core.Parapet.{DeadLetterProcess, ParApp, Process, ProcessRef, ReceiveF}
-import io.parapet.core.Event
 import io.parapet.core.Event._
-import io.parapet.implicits._
+import io.parapet.core.Parapet.ParApp
+import io.parapet.core.processes.DeadLetterProcess
+import io.parapet.core.Process.ReceiveF
+import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.core.catsInstances.effect._
 import io.parapet.core.catsInstances.flow.{empty => emptyFlow, _}
 import io.parapet.core.exceptions.{EventDeliveryException, EventRecoveryException}
 import io.parapet.core.intg.EventRecoverySpec._
 import io.parapet.core.testutils.EventStoreProcess
+import io.parapet.implicits._
 import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
 import org.scalatest.{FlatSpec, Inside}

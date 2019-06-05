@@ -2,8 +2,6 @@ package io.parapet.core
 
 import java.util.UUID
 
-import io.parapet.core.Parapet.ProcessRef
-
 trait Event {
   final val id: String = UUID.randomUUID().toString
 }

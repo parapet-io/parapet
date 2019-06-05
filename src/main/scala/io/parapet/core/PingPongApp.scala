@@ -1,13 +1,13 @@
 package io.parapet.core
 
 import cats.effect.IO
-import io.parapet.core.Parapet.CatsApp
-import io.parapet.core.Parapet.Process
 import io.parapet.core.Event._
-import io.parapet.core.catsInstances.flow._
+import io.parapet.core.Parapet.CatsApp
 import io.parapet.core.catsInstances.effect._
-import scala.concurrent.duration._
+import io.parapet.core.catsInstances.flow._
 import io.parapet.implicits._
+
+import scala.concurrent.duration._
 
 object PingPongApp extends CatsApp {
 
@@ -44,7 +44,7 @@ object PingPongApp extends CatsApp {
   val pongProcess = new PongProcess()
   val pingProcess = new PingProcess(pongProcess)
 
-  override val processes: Array[Parapet.Process[IO]] = Array(pingProcess, pongProcess)
+  override val processes: Array[Process[IO]] = Array(pingProcess, pongProcess)
   override val program: PingPongApp.ProcessFlow = Start ~> pingProcess
 }
 

@@ -1,13 +1,13 @@
 package io.parapet.core.intg
 import cats.effect.IO
 import io.parapet.core.Parapet._
-import io.parapet.core.Event
-import io.parapet.implicits._
 import io.parapet.core.catsInstances.flow._
 import io.parapet.core.intg.TaskBalancingSpec._
 import io.parapet.core.testutils.EventStoreProcess
-import org.scalatest.{FlatSpec, Ignore}
+import io.parapet.core.{Event, Process}
+import io.parapet.implicits._
 import org.scalatest.Matchers._
+import org.scalatest.{FlatSpec, Ignore}
 
 import scala.concurrent.duration._
 // todo non deterministic TestEvent(3) delivered twice

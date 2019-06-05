@@ -6,14 +6,14 @@ import cats.effect.concurrent.{Deferred, Ref}
 import cats.effect.{Concurrent, ContextShift, Timer}
 import cats.implicits._
 import com.typesafe.scalalogging.Logger
-import io.parapet.core.Event.{Stop => StopEvent, _}
+import io.parapet.core.Event._
 import io.parapet.core.Logging._
-import io.parapet.core.Parapet.ProcessRef.{DeadLetterRef, SystemRef}
-import io.parapet.core.Parapet._
+import io.parapet.core.Parapet.{ParapetPrefix, Interpreter, FlowState, interpret_, Flow, FlowOpOrEffect}
+import io.parapet.core.ProcessRef.{DeadLetterRef, SystemRef}
 import io.parapet.core.Scheduler._
 import io.parapet.core.exceptions._
-import io.parapet.syntax.effect._
 import org.slf4j.LoggerFactory
+import io.parapet.syntax.effect._
 
 import scala.collection.immutable.{Queue => SQueue}
 import scala.collection.mutable
@@ -37,8 +37,6 @@ class Scheduler[F[_] : Concurrent : Timer : Parallel : ContextShift](
   private val parallel = implicitly[Parallel[F]]
   private val ctxShift = implicitly[ContextShift[F]]
   private val timer = implicitly[Timer[F]]
-
-  private val processMap = processes.map(p => p.ref -> p).toMap
 
   def submit(task: Task[F]): F[Unit] = queue.enqueue(task)
 
@@ -259,7 +257,7 @@ object Scheduler {
                 case f: Failure =>
                   ce.delay(logger.warn(s"recovery logic isn't defined in process[id=$receiver]")) >>
                     sendToDeadLetter(f)
-                case StopEvent | Start => ce.unit
+                case Stop | Start => ce.unit
                 case _ => ce.unit // todo add config property: failOnUndefined
               }
             }
@@ -421,8 +419,8 @@ object Scheduler {
     def deliverStopEvent: F[Unit] = {
       parallel.par(processes.values.map { process =>
         ce.delay(logger.debug(s"$name - deliver Stop to ${process.ref}")) >>
-          (if (process.handle.isDefinedAt(StopEvent)) {
-            interpret_(process.handle.apply(StopEvent), interpreter, FlowState(senderRef = SystemRef, selfRef = process.ref))
+          (if (process.handle.isDefinedAt(Stop)) {
+            interpret_(process.handle.apply(Stop), interpreter, FlowState(senderRef = SystemRef, selfRef = process.ref))
           } else {
             ce.unit
           })

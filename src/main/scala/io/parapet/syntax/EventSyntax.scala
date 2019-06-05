@@ -1,7 +1,7 @@
 package io.parapet.syntax
 
-import io.parapet.core.Event
-import io.parapet.core.Parapet.{Flow, FlowF, FlowOpOrEffect, Process, ProcessRef}
+import io.parapet.core.Parapet.{Flow, FlowF, FlowOpOrEffect}
+import io.parapet.core.{Event, Process, ProcessRef}
 
 trait EventSyntax {
 

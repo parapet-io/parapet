@@ -1,7 +1,9 @@
 package io.parapet.core.intg
 
 import cats.effect.IO
-import io.parapet.core.Parapet.{CatsApp, DeadLetterProcess, FlowF, ParApp, ParConfig, Process}
+import io.parapet.core.Parapet.{CatsApp, FlowF, ParApp, ParConfig}
+import io.parapet.core.Process
+import io.parapet.core.processes.DeadLetterProcess
 
 import scala.concurrent.duration._
 
