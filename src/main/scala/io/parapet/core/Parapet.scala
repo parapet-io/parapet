@@ -10,6 +10,7 @@ import cats.effect.IO._
 import cats.effect._
 import cats.free.Free
 import cats.implicits._
+import io.parapet.instances.parallel._
 import cats.{InjectK, Monad, ~>}
 import com.typesafe.scalalogging.StrictLogging
 import io.parapet.core.Logging._
@@ -113,17 +114,6 @@ object Parapet extends StrictLogging {
     def queue: Queue[F, A]
   }
 
-
-  trait Parallel[F[_]] {
-    // runs given effects in parallel and returns a single effect
-    def par(effects: Seq[F[_]]): F[Unit]
-  }
-
-  object Parallel {
-    def apply[F[_] : Parallel]: Parallel[F] = implicitly[Parallel[F]]
-  }
-
-  implicit def ioParallel(implicit ctx: ContextShift[IO]): Parallel[IO] = (effects: Seq[IO[_]]) => effects.toList.parSequence_
 
   implicit class EffectOps[F[_] : Concurrent : Timer, A](fa: F[A]) {
     def retryWithBackoff(initialDelay: FiniteDuration, maxRetries: Int, backoffBase: Int = 2): F[A] =
@@ -231,7 +221,7 @@ object Parapet extends StrictLogging {
 
     override def apply[A](fa: FlowOp[IO, A]): FlowStateF[IO, A] = {
 
-      val parallel: Parallel[IO] = ioParallel
+      val parallel: Parallel[IO] = Parallel[IO]
       val interpreter: Interpreter[IO] = ioFlowInterpreter(taskQueue) or ioEffectInterpreter
       fa match {
         case Empty() => State[FlowState[IO], Unit] {s => (s, ())}
@@ -284,6 +274,7 @@ object Parapet extends StrictLogging {
     type ProcessFlow = FlowF[F, Unit]
     type Receive = ReceiveF[F]
 
+    // why it's here ???
     private[core] val flowOps = implicitly[Flow[F, FlowOpOrEffect[F, ?]]]
     private[core] val effectOps = implicitly[Effects[F, FlowOpOrEffect[F, ?]]]
 
@@ -339,7 +330,8 @@ object Parapet extends StrictLogging {
 
   object DeadLetterProcess {
 
-    class DeadLetterLoggingProcess[F[_]](implicit ce: Concurrent[F]) extends DeadLetterProcess[F] {
+    class DeadLetterLoggingProcess[F[_]] extends DeadLetterProcess[F] {
+      println("DeadLetterLoggingProcess::effectOps = " +  effectOps)
       override val name: String = DeadLetterRef.ref + "-logging"
       override val handle: Receive = {
         case DeadLetter(Failure(pRef, event, error)) =>
@@ -407,7 +399,7 @@ object Parapet extends StrictLogging {
 
     // system processes
     def deadLetter: DeadLetterProcess[F] = DeadLetterProcess.logging
-    private[core] val systemProcess: Process[F] = new SystemProcess[F]
+    private[core] lazy val systemProcess: Process[F] = new SystemProcess[F]
 
     def flowInterpreter(taskQueue: TaskQueue[F]): FlowOpF ~> FlowStateA
 
@@ -456,7 +448,7 @@ object Parapet extends StrictLogging {
 
     implicit val executionContext: ExecutionContextExecutor = ExecutionContext.fromExecutor(executorService)
     implicit val contextShift: ContextShift[IO] = IO.contextShift(executionContext)
-    override val parallel: Parallel[IO] = implicitly[Parallel[IO]]
+    override val parallel: Parallel[IO] = Parallel[IO]
     override val timer: Timer[IO] = IO.timer(executionContext)
     override val concurrentEffect: ConcurrentEffect[IO] = implicitly[ConcurrentEffect[IO]]
 
