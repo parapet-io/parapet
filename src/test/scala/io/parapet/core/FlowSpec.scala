@@ -9,6 +9,7 @@ import io.parapet.core.catsInstances.flow._
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
+import io.parapet.implicits._
 
 import scala.collection.mutable.{ListBuffer, Queue => SQueue}
 import scala.concurrent.ExecutionContext
@@ -24,7 +25,7 @@ class FlowSpec extends FlatSpec {
     val program = TestEvent("1") ~> blackhole
     val taskQueue = run_(program)
     taskQueue.size shouldBe 1
-    taskQueue.peek.value.evalEvent shouldBe TestEvent("1")
+    taskQueue.peek.value.event shouldBe TestEvent("1")
   }
 
   // m1 ~> p1 ++ m2 ~> p1
@@ -32,8 +33,8 @@ class FlowSpec extends FlatSpec {
     val program = TestEvent("1") ~> blackhole ++ TestEvent("2") ~> blackhole
     val taskQueue = run_(program)
     taskQueue.size shouldBe 2
-    taskQueue.pull.value.evalEvent shouldBe TestEvent("1")
-    taskQueue.pull.value.evalEvent shouldBe TestEvent("2")
+    taskQueue.pull.value.event shouldBe TestEvent("1")
+    taskQueue.pull.value.event shouldBe TestEvent("2")
   }
 
   // par(m1 ~> p1, m2 ~> p1)
@@ -46,8 +47,8 @@ class FlowSpec extends FlatSpec {
 
     val taskQueue = run_(program)
     taskQueue.size shouldBe 2
-    taskQueue.pull.value.evalEvent shouldBe TestEvent("2")
-    taskQueue.pull.value.evalEvent shouldBe TestEvent("1")
+    taskQueue.pull.value.event shouldBe TestEvent("2")
+    taskQueue.pull.value.event shouldBe TestEvent("1")
   }
 
   // m1 ~> p1 ++ par(m2 ~> p1 ++ m3 ~> p1) ++ m4 ~> p1
@@ -63,10 +64,10 @@ class FlowSpec extends FlatSpec {
     val taskQueue = run_(program)
 
     taskQueue.size shouldBe 4
-    taskQueue.pull.value.evalEvent shouldBe TestEvent("1")
-    taskQueue.pull.value.evalEvent shouldBe TestEvent("3")
-    taskQueue.pull.value.evalEvent shouldBe TestEvent("2")
-    taskQueue.pull.value.evalEvent shouldBe TestEvent("4")
+    taskQueue.pull.value.event shouldBe TestEvent("1")
+    taskQueue.pull.value.event shouldBe TestEvent("3")
+    taskQueue.pull.value.event shouldBe TestEvent("2")
+    taskQueue.pull.value.event shouldBe TestEvent("4")
   }
 
   "Send" should "create evaluate event lazily" in {
@@ -75,10 +76,10 @@ class FlowSpec extends FlatSpec {
     val events = new ListBuffer[Event]()
     val taskQueue = new IOQueue[Task[IO]]
     val program =
-      eval { i = i + 1 } ++ TestEvent(i.toString) ~> blackhole ++
-      eval { events += taskQueue.pull.value.evalEvent } ++
-      suspend(IO { i = i + 1 }) ++ TestEvent(i.toString) ~> blackhole ++
-      eval { events += taskQueue.pull.value.evalEvent }
+      eval { i = i + 1 } ++ use(i){ i1 => TestEvent(i1.toString) ~> blackhole } ++
+      eval { events += taskQueue.pull.value.event } ++
+      suspend(IO { i = i + 1 }) ++ use(i){ i1 => TestEvent(i1.toString) ~> blackhole } ++
+      eval { events += taskQueue.pull.value.event }
 
     run_(program, taskQueue)
     taskQueue.size shouldBe 0
@@ -95,11 +96,11 @@ class FlowSpec extends FlatSpec {
         x = x + 1
         y = y + 2
       } ++
-        use((x, y)) { case (x1, y1) => TestEvent((x1 + y1).toString) ~>> blackhole }
+        use((x, y)) { case (x1, y1) => TestEvent((x1 + y1).toString) ~> blackhole }
 
     val taskQueue = run_(program)
     taskQueue.size shouldBe 1
-    taskQueue.pull.value.evalEvent shouldBe TestEvent("3")
+    taskQueue.pull.value.event shouldBe TestEvent("3")
   }
 
 }
@@ -125,7 +126,7 @@ object FlowSpec {
   class IOQueue[A] extends Queue[IO, A] {
     val queue: SQueue[A] = new SQueue()
 
-    override def enqueue(e: => A): IO[Unit] = IO(queue.enqueue(e))
+    override def enqueue(a: A): IO[Unit] = IO(queue.enqueue(a))
 
     override def dequeue: IO[A] = IO(queue.dequeue())
 
@@ -145,7 +146,7 @@ object FlowSpec {
   })
 
   implicit class TaskOps[F[_]](task: Task[F]) {
-    def evalEvent: Event = task.asInstanceOf[Deliver[IO]].envelope.event()
+    def event: Event = task.asInstanceOf[Deliver[IO]].envelope.event
   }
 
 }

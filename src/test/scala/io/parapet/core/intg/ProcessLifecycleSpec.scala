@@ -1,7 +1,10 @@
 package io.parapet.core.intg
 
 import cats.effect.IO
-import io.parapet.core.Parapet._
+import io.parapet.core.Parapet.{Process}
+import io.parapet.core.Event
+import io.parapet.core.Event._
+import io.parapet.implicits._
 import io.parapet.core.catsInstances.flow._
 import io.parapet.core.intg.ProcessLifecycleSpec._
 import io.parapet.core.testutils.EventStoreProcess

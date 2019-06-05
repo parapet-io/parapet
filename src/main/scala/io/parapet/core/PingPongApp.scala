@@ -2,10 +2,12 @@ package io.parapet.core
 
 import cats.effect.IO
 import io.parapet.core.Parapet.CatsApp
-import io.parapet.core.Parapet._
+import io.parapet.core.Parapet.Process
+import io.parapet.core.Event._
 import io.parapet.core.catsInstances.flow._
 import io.parapet.core.catsInstances.effect._
 import scala.concurrent.duration._
+import io.parapet.implicits._
 
 object PingPongApp extends CatsApp {
 

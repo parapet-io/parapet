@@ -8,7 +8,6 @@ import java.util.concurrent.{ExecutorService, Executors, ThreadFactory}
 import cats.data.{EitherK, State}
 import cats.effect.IO._
 import cats.effect._
-import cats.effect.concurrent.{Ref, Semaphore}
 import cats.free.Free
 import cats.implicits._
 import cats.{InjectK, Monad, ~>}
@@ -16,8 +15,10 @@ import com.typesafe.scalalogging.StrictLogging
 import io.parapet.core.Logging._
 import io.parapet.core.Scheduler._
 import io.parapet.core.annotations.experimental
+import io.parapet.core.Event._
+import io.parapet.core.exceptions.{EventDeliveryException, EventRecoveryException}
+import io.parapet.syntax.flow._
 
-import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.{FiniteDuration, _}
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor}
@@ -35,13 +36,8 @@ object Parapet extends StrictLogging {
 
   val ParapetPrefix = "parapet"
 
-  //  Utils
-
-
   // Exceptions
-  class UnknownProcessException(message: String) extends RuntimeException(message)
-  class EventDeliveryException(message: String = "", cause: Throwable = null) extends RuntimeException(message, cause)
-  class EventRecoveryException(message: String = "", cause: Throwable = null) extends RuntimeException(message, cause)
+
 
   case class ProcessRef(private[core] val ref: String) {
     override def toString: String = ref
@@ -53,53 +49,12 @@ object Parapet extends StrictLogging {
     def jdkUUIDRef: ProcessRef = new ProcessRef(UUID.randomUUID().toString)
   }
 
-  trait Lock[F[_]] {
-    def acquire: F[Unit]
-    def release: F[Unit]
-    // todo add def safe(body: => F[A], time: FiniteDuration): F[A]
-    def tryAcquire(time: FiniteDuration): F[Boolean]
-  }
 
-  object Lock {
-    def apply[F[_] : Concurrent: Timer]: F[Lock[F]] = Semaphore(1).map { s =>
-      new Lock[F] {
-        override def acquire: F[Unit] = s.acquire
-
-        override def release: F[Unit] = s.release
-
-        override def tryAcquire(time: FiniteDuration): F[Boolean] = {
-          Concurrent[F].race(s.acquire, Timer[F].sleep(time)).flatMap {
-            case Left(_) => Concurrent[F].pure(true)
-            case Right(_) => Concurrent[F].pure(false)
-          }
-        }
-      }
-    }
-  }
-
-  trait Event {
-    final val id: String = UUID.randomUUID().toString
-  }
-  case object Start extends Event
-  case object Stop extends Event
-  // event should be not lazy
-  case class Envelope(sender: ProcessRef, event: () => Event, receiver: ProcessRef) extends Event
-  case class Failure(pRef: ProcessRef, event: Event, error: Throwable) extends Event
-  case class DeadLetter(failure: Failure) extends Event
-
-  implicit class EventOps[F[_]](e: => Event) {
-    def ~>(process: ProcessRef)(implicit FL: Flow[F, FlowOpOrEffect[F, ?]]): FlowF[F, Unit] = FL.send(e, process)
-    private[core] def ~>(process: Process[F])(implicit FL: Flow[F, FlowOpOrEffect[F, ?]]): FlowF[F, Unit] = FL.send(e, process.ref)
-
-    @experimental
-    def ~>>(process: ProcessRef)(implicit FL: Flow[F, FlowOpOrEffect[F, ?]]): FlowF[F, Unit] = FL.sendEager(e, process)
-    private[core] def ~>>(process: Process[F])(implicit FL: Flow[F, FlowOpOrEffect[F, ?]]): FlowF[F, Unit] = FL.sendEager(e, process.ref)
-  }
 
   trait Queue[F[_], A] {
     def size: Int = 0
-    def enqueue(e: => A): F[Unit] // todo don't need to be lazy
-    def enqueueAll(es: Seq[A])(implicit M:Monad[F]): F[Unit] = es.map(e => enqueue(e)).foldLeft(M.unit)(_ >> _)
+    def enqueue(a: A): F[Unit]
+    def enqueueAll(elements: Seq[A])(implicit M:Monad[F]): F[Unit] = elements.map(e => enqueue(e)).foldLeft(M.unit)(_ >> _)
     def dequeue: F[A]
     def tryDequeue: F[Option[A]]
     def dequeueThrough[F1[x] >: F[x] : Monad, B](f: A => F1[B]): F1[B] = {
@@ -125,9 +80,9 @@ object Parapet extends StrictLogging {
         q <- fs2.concurrent.Queue.bounded[F, A](capacity)
       } yield new Queue[F, A] {
         val sizeRef = new AtomicInteger()
-        override def enqueue(e: => A): F[Unit] = {
+        override def enqueue(a: A): F[Unit] = {
           sizeRef.incrementAndGet()
-          q.enqueue1(e)
+          q.enqueue1(a)
         }
 
         override def dequeue: F[A] = {
@@ -145,7 +100,7 @@ object Parapet extends StrictLogging {
       for {
         q <- fs2.concurrent.Queue.unbounded[F, A]
       } yield new Queue[F, A] {
-        override def enqueue(e: => A): F[Unit] = q.enqueue1(e)
+        override def enqueue(a: A): F[Unit] = q.enqueue1(a)
 
         override def dequeue: F[A] = q.dequeue1
 
@@ -212,8 +167,7 @@ object Parapet extends StrictLogging {
   sealed trait FlowOp[F[_], A]
   case class Empty[F[_]]() extends FlowOp[F, Unit]
   case class Use[F[_], G[_], A](resource: () => A, flow: A => Free[G, Unit]) extends FlowOp[F, Unit]
-  case class Send[F[_]](f: () => Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
-  case class EagerSend[F[_]](e: Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
+  case class Send[F[_]](e: Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
   case class Par[F[_], G[_]](flow: Seq[Free[G, Unit]]) extends FlowOp[F, Unit]
   case class Delay[F[_], G[_]](duration: FiniteDuration, flow: Option[Free[G, Unit]]) extends FlowOp[F, Unit]
   case class Stop[F[_]]() extends FlowOp[F, Unit]
@@ -225,13 +179,10 @@ object Parapet extends StrictLogging {
     val empty: Free[G, Unit] = Free.inject[FlowOp[F, ?], G](Empty())
     val terminate: Free[G, Unit] = Free.inject[FlowOp[F, ?], G](Stop())
 
-    def use[A](resource: => A)(flow: A => Free[G, Unit]): Free[G, Unit] = Free.inject[FlowOp[F, ?], G](Use(() => resource, flow))
+    def use[A](resource: => A)(f: A => Free[G, Unit]): Free[G, Unit] = Free.inject[FlowOp[F, ?], G](Use(() => resource, f))
 
     // sends event `e` to the list of receivers
-    def send(e: => Event, receiver: ProcessRef, other: ProcessRef*): Free[G, Unit] = Free.inject[FlowOp[F, ?], G](Send(() => e, receiver +: other))
-
-    @experimental
-    def sendEager(e: Event, receiver: ProcessRef, other: ProcessRef*): Free[G, Unit] = Free.inject[FlowOp[F, ?], G](EagerSend(e, receiver +: other))
+    def send(e: Event, receiver: ProcessRef, other: ProcessRef*): Free[G, Unit] = Free.inject[FlowOp[F, ?], G](Send(e, receiver +: other))
 
     // executes operations from the given flow in parallel
     def par(flow: Free[G, Unit], other: Free[G, Unit]*): Free[G, Unit] = Free.inject[FlowOp[F, ?], G](Par(flow +: other))
@@ -271,10 +222,7 @@ object Parapet extends StrictLogging {
     implicit def effects[F[_], G[_]](implicit I: InjectK[Effect[F, ?], G]): Effects[F, G] = new Effects[F, G]
   }
 
-  implicit class FreeOps[F[_], A](fa: Free[F, A]) {
-    // alias for Free flatMap
-    def ++[B](fb: Free[F, B]): Free[F, B] = fa.flatMap(_ => fb)
-  }
+
 
   // Interpreters for ADTs based on cats IO
   type IOFlowOpOrEffect[A] = FlowOpOrEffect[IO, A]
@@ -287,20 +235,14 @@ object Parapet extends StrictLogging {
       val interpreter: Interpreter[IO] = ioFlowInterpreter(taskQueue) or ioEffectInterpreter
       fa match {
         case Empty() => State[FlowState[IO], Unit] {s => (s, ())}
-        case Use(resource, flow) => State[FlowState[IO], Unit] { s =>
-          val res = IO.delay(resource()) >>= (r => interpret(flow(r).asInstanceOf[FlowF[IO, A]], interpreter, s.copy(ops = ListBuffer())).toList.sequence)
+        case Use(resource, f) => State[FlowState[IO], Unit] { s =>
+          val res = IO.delay(resource()) >>= (r => interpret(f(r).asInstanceOf[FlowF[IO, A]], interpreter, s.copy(ops = ListBuffer())).toList.sequence)
           (s.addOps(Seq(res)), ())
         }
         case Stop() => State[FlowState[IO], Unit] { s => (s.addOps(Seq(taskQueue.enqueue(Terminate()))), ()) }
-        case Send(thunk, receivers) =>
+        case Send(event, receivers) =>
           State[FlowState[IO], Unit] { s =>
-            val ops = receivers.map(receiver => taskQueue.enqueue(Deliver(Envelope(s.selfRef, thunk, receiver))))
-            (s.addOps(ops), ())
-          }
-        case EagerSend(event, receivers) =>
-          State[FlowState[IO], Unit] { s =>
-            // todo use tryEnqueue and if it fails write event to disk
-            val ops = receivers.map(receiver => taskQueue.enqueue(Deliver(Envelope(s.selfRef, () => event, receiver))))
+            val ops = receivers.map(receiver => taskQueue.enqueue(Deliver(Envelope(s.selfRef, event, receiver))))
             (s.addOps(ops), ())
           }
         case Par(flows) =>
@@ -478,7 +420,7 @@ object Parapet extends StrictLogging {
     def stop: F[Unit]
 
     private[core] final def initProcesses(implicit F: Flow[F, FlowOpOrEffect[F, ?]]): Free[FlowOpOrEffect[F, ?], Unit] =
-      processes.map(p => Start ~> p).foldLeft(F.empty)(_ ++ _)
+      processes.map(p => F.send(Start, p.ref)).foldLeft(F.empty)(_ ++ _)
 
     def run: F[AppContext[F]] = {
       if (processes.isEmpty) {

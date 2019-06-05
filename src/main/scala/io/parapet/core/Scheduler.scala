@@ -11,6 +11,8 @@ import io.parapet.core.Parapet.ProcessRef.{DeadLetterRef, SystemRef}
 import io.parapet.core.Parapet._
 import io.parapet.core.Scheduler._
 import org.slf4j.LoggerFactory
+import io.parapet.core.Event.{Stop => StopEvent, _}
+import io.parapet.core.exceptions.{EventDeliveryException, EventRecoveryException, UnknownProcessException}
 
 import scala.collection.immutable.{Queue => SQueue}
 import scala.collection.mutable
@@ -55,7 +57,7 @@ class Scheduler[F[_] : Concurrent : Timer : Parallel : ContextShift](
     ce.race(worker.queue.enqueue(task), timer.sleep(config.taskSubmissionTimeout)).flatMap {
       case Left(_) =>
         ce.delay(logger.debug(
-          s"successfully submitted task[pRef=${task.envelope.receiver}, event=${task.envelope.event()}] to worker ${worker.name}")) >>
+          s"successfully submitted task[pRef=${task.envelope.receiver}, event=${task.envelope.event}] to worker ${worker.name}")) >>
           // remove `worker` from idle workers
           idleWorkersRef.update(idleWorkers => idleWorkers.filter(_ != worker.name)) >>
           ce.pure(assignedWorkers)
@@ -80,7 +82,7 @@ class Scheduler[F[_] : Concurrent : Timer : Parallel : ContextShift](
                     (tasks, reassignedWorkers)
                   } flatMap {
                     case (tasks, reassignedWorkers) =>
-                      ce.delay(logger.debug(s"Transfer ${tasks.size} tasks ${tasks.map(_.envelope.event())} from ${worker.name} to worker ${victim.name}")) >>
+                      ce.delay(logger.debug(s"Transfer ${tasks.size} tasks ${tasks.map(_.envelope.event)} from ${worker.name} to worker ${victim.name}")) >>
                         // todo problem could be here
                         // assignedWorkersRef.set(reassignedWorkers) >> todo revisit
                         victim.addProcess(vp) >>
@@ -207,13 +209,13 @@ object Scheduler {
     private val idle = new AtomicBoolean()
 
     def deliver(envelope: Envelope): F[Unit] = {
-      val event = envelope.event()
+      val event = envelope.event
       val sender = envelope.sender
       val receiver = envelope.receiver
       currentTaskProcessRef.get.flatMap { currProcessRef =>
         ce.fromOption(processes.get(receiver),
           new UnknownProcessException(
-            s"$name unknown process: $receiver, event=${envelope.event()}, currProcess = $currProcessRef"))
+            s"$name unknown process: $receiver, event=${envelope.event}, currProcess = $currProcessRef"))
           .flatMap { process =>
             if (process.handle.isDefinedAt(event)) {
               val program = process.handle.apply(event)
@@ -256,7 +258,7 @@ object Scheduler {
                 case f: Failure =>
                   ce.delay(logger.warn(s"recovery logic isn't defined in process[id=$receiver]")) >>
                     sendToDeadLetter(f)
-                case Stop | Start => ce.unit
+                case StopEvent | Start => ce.unit
                 case _ => ce.unit // todo add config property: failOnUndefined
               }
             }
@@ -305,9 +307,9 @@ object Scheduler {
               (
                 task match {
                   case t: Deliver[F] =>
-                    ce.delay(logger.debug(s"$name started processing event=[${t.envelope.event()}] for  process ${t.envelope.receiver}")) >>
+                    ce.delay(logger.debug(s"$name started processing event=[${t.envelope.event}] for  process ${t.envelope.receiver}")) >>
                       processTask(t) >>
-                      ce.delay(logger.debug(s"$name finished processing event=[${t.envelope.event()}] for process ${t.envelope.receiver}"))>>
+                      ce.delay(logger.debug(s"$name finished processing event=[${t.envelope.event}] for process ${t.envelope.receiver}"))>>
                       currentTaskProcessRef.set(None) >> step
                   case _: Terminate[F] => stop >> completionSignal.complete(())
                 }
@@ -418,8 +420,8 @@ object Scheduler {
     def deliverStopEvent: F[Unit] = {
       parallel.par(processes.values.map { process =>
         ce.delay(logger.debug(s"$name - deliver Stop to ${process.ref}")) >>
-          (if (process.handle.isDefinedAt(Stop)) {
-            interpret_(process.handle.apply(Stop), interpreter, FlowState(senderRef = SystemRef, selfRef = process.ref))
+          (if (process.handle.isDefinedAt(StopEvent)) {
+            interpret_(process.handle.apply(StopEvent), interpreter, FlowState(senderRef = SystemRef, selfRef = process.ref))
           } else {
             ce.unit
           })

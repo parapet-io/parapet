@@ -5,7 +5,10 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import cats.effect.{ContextShift, IO, Timer}
 import cats.implicits._
-import io.parapet.core.Parapet.{Event, _}
+import io.parapet.core.Parapet.{Process, ProcessRef, Queue, ioEffectInterpreter, ioFlowInterpreter}
+import io.parapet.core.Event
+import io.parapet.core.Event._
+import io.parapet.implicits._
 import io.parapet.core.Scheduler
 import io.parapet.core.Scheduler._
 import io.parapet.core.catsInstances.effect._
@@ -46,9 +49,9 @@ class SchedulerSpec extends FunSuite {
     // p3 and p4 assigned to w2
 
     val tasks: ListBuffer[IODeliver] = ListBuffer()
-    tasks += Deliver[IO](Envelope(ProcessRef.SystemRef, () => TestEvent(1), p1.ref))
+    tasks += Deliver[IO](Envelope(ProcessRef.SystemRef, TestEvent(1), p1.ref))
     (2 until 6).foreach { i =>
-      tasks += Deliver[IO](Envelope(ProcessRef.SystemRef, () => TestEvent(i), p2.ref))
+      tasks += Deliver[IO](Envelope(ProcessRef.SystemRef, TestEvent(i), p2.ref))
     }
 
     run(config, Array(p1, p2, p3, p4), tasks, eventStore)
@@ -78,9 +81,9 @@ class SchedulerSpec extends FunSuite {
     // p2 assigned to w2
 
     val tasks: ListBuffer[IODeliver] = ListBuffer()
-    tasks += Deliver[IO](Envelope(ProcessRef.SystemRef, () => TestEvent(1), p1.ref))
+    tasks += Deliver[IO](Envelope(ProcessRef.SystemRef, TestEvent(1), p1.ref))
     (2 until 6).foreach { i =>
-      tasks += Deliver[IO](Envelope(ProcessRef.SystemRef, () => TestEvent(i), p1.ref))
+      tasks += Deliver[IO](Envelope(ProcessRef.SystemRef, TestEvent(i), p1.ref))
     }
 
     run(config, Array(p1, p2), tasks, eventStore)
@@ -125,7 +128,7 @@ class SchedulerSpec extends FunSuite {
       maxRedeliveryRetries = 0,
       redeliveryInitialDelay = 0.seconds)
 
-    val numberOfEvents = 1000
+    val numberOfEvents = 100
     val numberOfProcesses = 10
     val eventStore = new EventStore[TestEvent]
     val processes = createProcesses(numberOfProcesses, instant, 0.5, range(2.second, 3.seconds), eventStore)
@@ -330,7 +333,7 @@ object SchedulerSpec {
   }
 
   def groupEventsByProcess(tasks: Seq[IODeliver]): Map[ProcessRef, Seq[Event]] = {
-    tasks.groupBy(t => t.envelope.receiver).mapValues(_.map(_.envelope.event()))
+    tasks.groupBy(t => t.envelope.receiver).mapValues(_.map(_.envelope.event))
   }
 
   def toTestEvent(e: Event): TestEvent = e.asInstanceOf[TestEvent]
@@ -391,7 +394,7 @@ object SchedulerSpec {
     object Random extends WorkloadGen {
       override def createTasks(n: Int, processes: Array[Process[IO]]): Seq[IODeliver] = {
         val rnd = scala.util.Random
-        (1 to n).map(i => Deliver[IO](Envelope(ProcessRef.SystemRef, () => TestEvent(i),
+        (1 to n).map(i => Deliver[IO](Envelope(ProcessRef.SystemRef, TestEvent(i),
           processes(rnd.nextInt(processes.length)).ref)))
       }
     }
@@ -400,7 +403,8 @@ object SchedulerSpec {
       override def createTasks(n: Int, processes: Array[Process[IO]]): Seq[IODeliver] = {
         def create(i: Int, offset: Int, n: Int, tasks: Seq[IODeliver]): Seq[IODeliver] = {
           if (i < processes.length) {
-            create(i + 1, offset + n, n, tasks ++ (1 to n).map(j => Deliver[IO](Envelope(ProcessRef.SystemRef, () => TestEvent(offset + j), processes(i).ref))))
+            create(i + 1, offset + n, n, tasks ++ (1 to n).map(j =>
+              Deliver[IO](Envelope(ProcessRef.SystemRef, TestEvent(offset + j), processes(i).ref))))
           } else tasks
         }
 
