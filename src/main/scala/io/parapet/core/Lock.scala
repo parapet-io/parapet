@@ -1,10 +1,8 @@
 package io.parapet.core
 
-import java.util.concurrent.locks.ReentrantLock
-
-import cats.Monad
-import cats.effect.{Concurrent, Timer}
 import cats.effect.concurrent.{MVar, Semaphore}
+import cats.effect.syntax.bracket._
+import cats.effect.{Concurrent, Timer}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import io.parapet.syntax.EffectOps
@@ -24,11 +22,11 @@ trait Lock[F[_]] {
 
   def release: F[Unit]
 
-  def safe[A](body: => F[A])(implicit M: Monad[F]): F[A] = {
-    acquire >> body >>= (a => release.map(_ => a))
+  def withPermit[A](body: => F[A])(implicit ct: Concurrent[F]): F[A] = {
+    (acquire >> body).guaranteeCase(_ => release)
   }
 
-  def safe[A](body: => F[A], duration: FiniteDuration)(implicit ct: Concurrent[F]): F[Option[A]] = {
+  def withPermit[A](body: => F[A], duration: FiniteDuration)(implicit ct: Concurrent[F]): F[Option[A]] = {
     tryAcquire(duration).flatMap {
       case true => body >>= (a => release.map(_ => Option(a)))
       case false => ct.pure(Option.empty[A])
@@ -63,22 +61,5 @@ object Lock {
       override def get: F[Long] = s.isEmpty.map(res => if(res) 1 else 0)
     }
   }
-
-  def jdk[F[_] : Concurrent : Timer]: F[Lock[F]] =
-    Concurrent[F].pure{
-      new Lock[F] {
-        val lock = new ReentrantLock()
-        override def acquire: F[Unit] =  Concurrent[F].delay(lock.lock())
-
-        override def release: F[Unit] =  Concurrent[F].delay(lock.unlock())
-
-        override def tryAcquire: F[Boolean] =  Concurrent[F].delay(lock.tryLock())
-
-        override def tryAcquire(duration: FiniteDuration)(implicit ct: Concurrent[F]): F[Boolean] =
-          ct.delay(lock.tryLock(duration.length, duration.unit))
-
-        override def get: F[Long] =  Concurrent[F].delay(lock.getHoldCount())
-      }
-    }
 
 }
