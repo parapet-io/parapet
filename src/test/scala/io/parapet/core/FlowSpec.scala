@@ -120,10 +120,12 @@ object FlowSpec {
   }
 
   def run_(f: FlowF[IO, Unit]): IOQueue[Task[IO]] = {
-    run_(f, new IOQueue)
+    run_(f, new IOUnboundedQueue)
   }
 
-  class IOQueue[A] extends Queue[IO, A] {
+
+  type IOQueue[A] = IOUnboundedQueue[A]
+  class IOUnboundedQueue[A] extends Queue[IO, A] {
     val queue: SQueue[A] = new SQueue()
 
     override def enqueue(a: A): IO[Unit] = IO(queue.enqueue(a))
@@ -134,9 +136,15 @@ object FlowSpec {
     def peekLast: Option[A] = queue.lastOption
 
     def pull: Option[A] = Option(queue.dequeue())
-    override def size: Int = queue.size
+    override def size: IO[Int] = IO.pure(queue.size)
 
     override def tryDequeue: IO[Option[A]] = IO(Option(queue.dequeue()))
+
+    override def tryEnqueue(a: A): IO[Boolean] = IO {
+      queue.enqueue(a)
+      true
+    }
+
   }
 
   case class TestEvent(body: String) extends Event

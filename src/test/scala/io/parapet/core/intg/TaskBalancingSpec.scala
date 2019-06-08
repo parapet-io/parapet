@@ -15,7 +15,7 @@ import scala.concurrent.duration._
    Expected :List(TestEvent(1), TestEvent(2), TestEvent(3), TestEvent(4))
 Actual   :List(TestEvent(1), TestEvent(2), TestEvent(3), TestEvent(3), TestEvent(4))
  */
-@Ignore
+//@Ignore
 class TaskBalancingSpec extends FlatSpec {
 
   "Slow worker" should "transfer some events to another worker" in {
@@ -75,7 +75,7 @@ class TaskBalancingSpec extends FlatSpec {
 
 object TaskBalancingSpec {
 
-  case class TestEvent(taceId: Int) extends Event
+  case class TestEvent(traceId: Int) extends Event
 
   class SlowProcess(eventStore: EventStoreProcess) extends Process[IO] {
     override val name: String = "slow-process"

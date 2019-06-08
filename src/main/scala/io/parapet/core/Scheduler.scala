@@ -53,14 +53,14 @@ class Scheduler[F[_] : Concurrent : Timer : Parallel : ContextShift](
                  allWorkers: List[Worker[F]]): F[Map[ProcessRef, Worker[F]]] = {
     //val receiver = task.envelope.receiver
     val worker = assignedWorkers(task.envelope.receiver)
-    ce.race(worker.queue.enqueue(task), timer.sleep(config.taskSubmissionTimeout)).flatMap {
-      case Left(_) =>
+    worker.queue.tryEnqueue(task, config.taskSubmissionTimeout).flatMap {
+      case true =>
         ce.delay(logger.debug(
           s"successfully submitted task[pRef=${task.envelope.receiver}, event=${task.envelope.event}] to worker ${worker.name}")) >>
           // remove `worker` from idle workers
           idleWorkersRef.update(idleWorkers => idleWorkers.filter(_ != worker.name)) >>
           ce.pure(assignedWorkers)
-      case Right(_) => submitTask(task, assignedWorkers, allWorkers) // no idle workers, resubmit task using current worker
+      case false => //submitTask(task, assignedWorkers, allWorkers) // no idle workers, resubmit task using current worker
 
         val victimOpt = idleWorkersRef.modify { idleWorkers =>
           idleWorkers.toList match {
@@ -292,9 +292,9 @@ object Scheduler {
       def step: F[Unit] = {
         val taskOpt = for {
           _ <- queueReadLock.acquire
-          taskOpt <- ce.race(queue.dequeue, timer.sleep(config.workerTaskDequeueTimeout)).flatMap {
-            case Left(t) => ce.pure(Option(t))
-            case Right(_) => ce.delay(logger.debug(s"$name is out of tasks, try to steal")) >> stealTasks
+          taskOpt <- ce.start(queue.tryDequeue(config.workerTaskDequeueTimeout)).flatMap(f => f.join).flatMap {
+            case Some(t) => ce.pure(Option(t))
+            case None => ce.delay(logger.debug(s"$name is out of tasks, try to steal")) >> stealTasks
           }
           _ <- taskOpt.fold(ce.pure(taskOpt))(task => currentTaskProcessRef.set(getReceiverRef(task)).map(_ => taskOpt))
           _ <- queueReadLock.release
@@ -360,7 +360,7 @@ object Scheduler {
         idleWorkersRef.update(idleWorkers => mutable.LinkedHashSet(idleWorkers.toSeq :+ self.name: _*))
       else ce.unit
     }
-
+// todo from
     def removeSelfToIdleList: F[Unit] = {
       if (idle.compareAndSet(true, false))
         idleWorkersRef.update(idleWorkers => idleWorkers.filter(_ != self.name))
@@ -368,13 +368,12 @@ object Scheduler {
     }
 
     def chooseWorker: F[Option[Worker[F]]] = {
-      val rnd = Random
       for {
-        workers <- assignedWorkersRef.get
+        candidates <- assignedWorkersRef.get
+          .flatMap(workers => workers.values.filter(_.name != name).map(w => w.queue.size.map(s => (s, w))).toList.sequence)
       } yield {
-        val candidates = workers.values.filter(_.name != name).toVector
         if (candidates.isEmpty) None
-        else Some(candidates.maxBy(_.queue.size))
+        else Some(candidates.maxBy(_._1)._2)
       }
     }
 
