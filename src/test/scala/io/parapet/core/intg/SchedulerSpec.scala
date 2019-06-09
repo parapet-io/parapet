@@ -1,6 +1,6 @@
 package io.parapet.core.intg
 
-import java.util.concurrent.Executors
+import java.util.concurrent.{Executors, TimeUnit}
 import java.util.concurrent.atomic.AtomicInteger
 
 import cats.effect.{ContextShift, IO, Timer}
@@ -120,11 +120,18 @@ class SchedulerSpec extends FunSuite {
       maxRedeliveryRetries = 0,
       redeliveryInitialDelay = 0.seconds)
 
-    val numberOfEvents = 100
+    val numberOfEvents = 1000
     val numberOfProcesses = 10
     val eventStore = new EventStore[TestEvent]
     val processes = createProcesses(numberOfProcesses, instant, 0.5, range(500.millis, 1.seconds), eventStore)
+    val start = System.nanoTime()
     randomSpec(config, numberOfEvents, processes, eventStore, WorkloadGen.Random)
+    val end = System.nanoTime()
+
+    val elapsedTime = TimeUnit.NANOSECONDS.toMillis(end - start)
+
+    println(s"time took: $elapsedTime")
+
   }
 
   test("random spec 0.75, random workload gen") {
@@ -158,7 +165,12 @@ class SchedulerSpec extends FunSuite {
     val numberOfProcesses = 10
     val eventStore = new EventStore[TestEvent]
     val processes = createProcesses(numberOfProcesses, instant, 0.5, range(500.millis, 1.seconds), eventStore)
+    val start = System.nanoTime()
     randomSpec(config, numberOfEvents, processes, eventStore, WorkloadGen.Batch)
+    val end = System.nanoTime()
+    val elapsedTime = TimeUnit.NANOSECONDS.toMillis(end - start)
+
+    println(s"time took: $elapsedTime")
   }
 
   test("random spec 0.75, batch workload gen") {
