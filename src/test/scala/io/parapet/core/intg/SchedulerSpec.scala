@@ -161,7 +161,7 @@ class SchedulerSpec extends FunSuite {
       maxRedeliveryRetries = 0,
       redeliveryInitialDelay = 0.seconds)
 
-    val numberOfEvents = 100
+    val numberOfEvents = 50
     val numberOfProcesses = 10
     val eventStore = new EventStore[TestEvent]
     val processes = createProcesses(numberOfProcesses, instant, 0.5, range(500.millis, 1.seconds), eventStore)
@@ -183,7 +183,7 @@ class SchedulerSpec extends FunSuite {
       maxRedeliveryRetries = 0,
       redeliveryInitialDelay = 0.seconds)
 
-    val numberOfEvents = 100
+    val numberOfEvents = 50
     val numberOfProcesses = 10
     val eventStore = new EventStore[TestEvent]
     val processes = createProcesses(numberOfProcesses, instant, 0.75, range(500.millis, 1.seconds), eventStore)
