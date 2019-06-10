@@ -120,7 +120,7 @@ class SchedulerSpec extends FunSuite {
       maxRedeliveryRetries = 0,
       redeliveryInitialDelay = 0.seconds)
 
-    val numberOfEvents = 1000
+    val numberOfEvents = 100
     val numberOfProcesses = 10
     val eventStore = new EventStore[TestEvent]
     val processes = createProcesses(numberOfProcesses, instant, 0.5, range(500.millis, 1.seconds), eventStore)
@@ -268,29 +268,11 @@ class SchedulerSpec extends FunSuite {
       interpreter <- IO.pure(ioFlowInterpreter(taskQueue)(ctx, timer) or ioEffectInterpreter)
       scheduler <- Scheduler[IO](config, processes, taskQueue, interpreter)
       fiber <- scheduler.run.start
-      _ <- IO {
-        sys.addShutdownHook{
-          println("DONE")
-          verifyEvents(tasks, eventStore)
-        }
-      }
       _ <- submitAll(scheduler, tasks)
       _ <- eventStore.awaitSize(tasks.size)
       _ <- IO.sleep(shutdownDelay)
       _ <- IO(println("stop scheduler"))  >> fiber.cancel
     } yield tasks
-
-
-
-
-//    program.guarantee {
-//      IO(println("done")) >> IO(verifyEvents(tasks, eventStore))
-//    }
-//    val fiber = program.start
-//    val fiberCancel = fiber
-//    sys.addShutdownHook {
-//      fiber.
-//    }
 
     val executedTasks = program.unsafeRunSync()
     executor.shutdownNow()
