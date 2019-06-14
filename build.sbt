@@ -40,5 +40,5 @@ testOptions in Test += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/te
 def testUntilFailed = Command.command("testUntilFailed") { state =>
   "testOnly io.parapet.core.intg.SchedulerSpec" :: "testUntilFailed" :: state
 }
-
+watchSources := watchSources.value.filter { s => s.base.getName != "Scheduler.scala" }
 commands += testUntilFailed

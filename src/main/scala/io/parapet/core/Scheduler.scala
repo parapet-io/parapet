@@ -142,6 +142,8 @@ object Scheduler {
     private val flowOps = implicitly[Flow[F, FlowOpOrEffect[F, ?]]]
     private[this] val stopped = new AtomicBoolean()
     private val idle = new AtomicBoolean()
+    private var stealingCounter = 0
+    private val maxStealingAttempts = 3
 
     def submit(task: Task[F], duration: FiniteDuration): F[Boolean] = {
       queue.tryEnqueue(task, duration)
@@ -235,7 +237,13 @@ object Scheduler {
           taskOpt <- ce.start(queue.tryDequeue(config.workerTaskDequeueTimeout)).flatMap(f => f.join).flatMap {
             case Some(t) => ce.pure(Option(t))
             case None => //ce.pure(Option.empty[Task[F]])
-              ce.delay(logger.debug(s"$name is out of tasks, try to steal")) >> stealTasks
+              if (stealingCounter == maxStealingAttempts) {
+                ce.delay(stealingCounter = 0) >> queue.dequeue.map(t => Option(t))
+              } else {
+                ce.delay(stealingCounter = stealingCounter + 1) >>
+                  ce.delay(logger.debug(s"$name is out of tasks, try to steal")) >> stealTasks
+              }
+
           }
           _ <- taskOpt.fold(ce.pure(taskOpt))(task => currentTaskProcessRef.set(getReceiverRef(task)).map(_ => taskOpt))
           _ <- queueReadLock.release
