@@ -18,13 +18,10 @@ var latestReleaseSchema = new Schema({
         type: ObjectId,
         required: true,
     },
-
     version: {
         type: String,
         required: true
-    },
-    tags: [String]
-
+    }
 
 }, { versionKey: false });
 

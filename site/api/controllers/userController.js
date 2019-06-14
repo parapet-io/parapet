@@ -14,10 +14,7 @@ exports.getUsers = function(req, res) {
 };
 
 exports.createUser = function(req, res) {
-    var payload = req.body;
-    payload.token = uuidv4();
-
-    var newUser = new User(payload);
+    var newUser = new User(req.body);
     newUser.save(function(err, user) {
         if (err)
             res.send(err);

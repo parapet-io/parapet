@@ -13,12 +13,7 @@ var userSchema = new Schema({
         required: true,
         select: false
     },
-    token: {
-        type: String,
-        required: true,
-        unique : true
-    },
-    created_date: {
+    registrationDate: {
         type: Date,
         default: Date.now
     },
