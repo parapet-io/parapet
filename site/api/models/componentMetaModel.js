@@ -80,7 +80,8 @@ var componentMetaSchema = new Schema({
 
     token: {
         type: String,
-        required: true
+        required: true,
+        index:  true
         // validate: {
         //     isAsync: true,
         //     validator: function(v, cb) {

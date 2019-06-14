@@ -2,8 +2,25 @@
 
 var mongoose = require('mongoose');
 var Schema = mongoose.Schema;
+var User = require('./userModel');
 
 var componentSchema = new Schema({
+
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true,
+        index: true,
+        validate: {
+            isAsync: true,
+            validator: function(v, cb) {
+                User.count({
+                    _id: v
+                }, function(err, count) {
+                    cb(count == 1, `User with '${v}' id doesn't exist`);
+                });
+            }
+        }
+    },
 
     token: {
         type: String,

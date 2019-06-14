@@ -14,7 +14,7 @@ var reviewSchema = new Schema({
     text: {
         type: String,
         required: true,
-        unique: true
+        index: true
     },
     rating: {
         type: Number,
