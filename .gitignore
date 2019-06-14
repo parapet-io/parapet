@@ -6,6 +6,7 @@ build
 *.class
 classes
 project
+site/node_modules
 
 # IntelliJ project files
 *.iml
