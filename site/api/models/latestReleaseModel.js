@@ -14,6 +14,10 @@ var latestReleaseSchema = new Schema({
         type: String,
         required: true
     },
+    componentId: {
+        type: ObjectId,
+        required: true,
+    },
     componentMetaId: {
         type: ObjectId,
         required: true,

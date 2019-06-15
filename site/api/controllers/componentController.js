@@ -18,6 +18,23 @@ exports.register = function(req, res) {
     });
 };
 
+exports.getComponent = function(req, res) {
+    Component.findById(req.params.id, function(err, user) {
+        if (err)
+            res.send(err);
+        res.json(user);
+    });
+};
+
+exports.getComponentByUserId = function(req, res) {
+    Component.find({ userId: req.params.id }, function(err, user) {
+        if (err)
+            res.send(err);
+        res.json(user);
+    });
+};
+
+
 exports.publish = function(req, res) {
     Component.findOne({ token: req.body.token }, 'name', function(err, component) {
         console.log("component: " + component);
@@ -28,6 +45,7 @@ exports.publish = function(req, res) {
             newComponentMeta.id = new mongoose.Types.ObjectId();
             var latestRelease = LatestRelease({
                 'token': newComponentMeta.token,
+                'componentId': component.id,
                 'componentMetaId': newComponentMeta.id,
                 'name': component.name,
                 'version': newComponentMeta.artifact.version,
@@ -60,7 +78,7 @@ exports.publish = function(req, res) {
 
 exports.searchByName = function(req, res) {
     LatestRelease.find({ name: new RegExp(req.params.name, "i") })
-        .select({ componentId: 1, name: 1, version: 1 })
+        .select({ _id: 0, componentId: 1, componentMetaId: 1, name: 1, version: 1 })
         .limit(10)
         .exec(function(err, docs) {
             if (err)
@@ -68,6 +86,17 @@ exports.searchByName = function(req, res) {
             res.json(docs);
         });
 
+};
+
+
+exports.getMeta = function(req, res) {
+    ComponentMeta.findById(req.params.id, function(err, componentMeta) {
+        if (err) {
+            res.status(500).send(err)
+        } else {
+            res.json(componentMeta)
+        }
+    });
 };
 
 exports.delete = function(req, res) {
@@ -82,7 +111,7 @@ exports.delete = function(req, res) {
             }
         })
         .then(token => {
-            console.log("delete LatestRelease: "  +  token);
+            console.log("delete LatestRelease: " + token);
             return LatestRelease.deleteMany({ token: token });
         })
         .then(() => res.json({ message: `component with id = '${id}' deleted` }))
