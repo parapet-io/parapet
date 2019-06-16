@@ -7,7 +7,7 @@ var router = express.Router();
 // User Routes
 router.get('/users', user.getUsers);
 router.post('/users', user.createUser);
-router.post("/login/:email/:pass", user.login);
+router.post("/login", user.login);
 
 router.get('/users/:userId', user.getUser);
 router.put('/users/:userId', user.updateUser);
