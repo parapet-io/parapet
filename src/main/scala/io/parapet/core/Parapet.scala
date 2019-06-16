@@ -228,7 +228,7 @@ object Parapet extends StrictLogging {
           taskQueue <- Queue.bounded[F, Task[F]](config.schedulerConfig.queueSize)
           context <- concurrentEffect.pure(AppContext(taskQueue))
           interpreter <- concurrentEffect.pure(flowInterpreter(taskQueue) or effectInterpreter)
-          scheduler <- Scheduler[F](config.schedulerConfig, systemProcesses ++ processes, taskQueue, interpreter)
+          scheduler <- Scheduler.apply1[F](config.schedulerConfig, systemProcesses ++ processes, taskQueue, interpreter)
           _ <- parallel.par(
             Seq(interpret_(initProcesses ++ program, interpreter, FlowState(SystemRef, SystemRef)),
               scheduler.run))

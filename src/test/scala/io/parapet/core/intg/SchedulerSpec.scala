@@ -266,7 +266,7 @@ class SchedulerSpec extends FunSuite {
     val program = for {
       taskQueue <- Queue.bounded[IO, IOTask](config.queueSize)
       interpreter <- IO.pure(ioFlowInterpreter(taskQueue)(ctx, timer) or ioEffectInterpreter)
-      scheduler <- Scheduler[IO](config, processes, taskQueue, interpreter)
+      scheduler <- Scheduler.apply1[IO](config, processes, taskQueue, interpreter)
       fiber <- scheduler.run.start
       _ <- submitAll(scheduler, tasks)
       _ <- eventStore.awaitSize(tasks.size)

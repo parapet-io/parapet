@@ -22,6 +22,17 @@ exports.createUser = function(req, res) {
     });
 };
 
+exports.login = function(req, res) {
+    var email = req.params.email;
+    var pass = req.params.pass;
+    User.findOne({ email: email, password: pass })
+        .then(user => {
+            if (user == null) res.status(404).json({ message: 'user not found' })
+            else res.json(user)
+        }).catch(err => res.status(500).send(err))
+
+}
+
 
 exports.getUser = function(req, res) {
     User.findById(req.params.userId, function(err, user) {

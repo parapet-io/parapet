@@ -14,6 +14,8 @@ trait Queue[F[_], A] {
 
   def size: F[Int]
 
+  def isEmpty(implicit M:Monad[F]): F[Boolean] = size.map(v => v == 0)
+
   def enqueue(a: A): F[Unit]
 
   def enqueueAll(elements: Seq[A])(implicit M: Monad[F]): F[Unit] = elements.map(e => enqueue(e)).foldLeft(M.unit)(_ >> _)

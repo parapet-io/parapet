@@ -2,7 +2,7 @@ package io.parapet.core
 
 import cats.effect.concurrent.{MVar, Semaphore}
 import cats.effect.syntax.bracket._
-import cats.effect.{Concurrent, Timer}
+import cats.effect.Concurrent
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import io.parapet.syntax.EffectOps
@@ -38,7 +38,7 @@ trait Lock[F[_]] {
 }
 
 object Lock {
-  def apply[F[_] : Concurrent : Timer]: F[Lock[F]] = Semaphore(1).map { s =>
+  def apply[F[_] : Concurrent]: F[Lock[F]] = Semaphore(1).map { s =>
     new Lock[F] {
       override def acquire: F[Unit] = s.acquire
 
@@ -50,7 +50,7 @@ object Lock {
     }
   }
 
-  def mvar[F[_] : Concurrent : Timer]: F[Lock[F]] = MVar.of[F, Unit](()).map{ s =>
+  def mvar[F[_] : Concurrent]: F[Lock[F]] = MVar.of[F, Unit](()).map{ s =>
     new Lock[F] {
       override def acquire: F[Unit] = s.take
 
