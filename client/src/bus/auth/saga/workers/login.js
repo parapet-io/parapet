@@ -15,6 +15,6 @@ export function* login({ payload: credentials }) {
 
     yield apply(localStorage, localStorage.setItem, ["token", data.token]);
   } catch (error) {
-    yield put(authActions.handleLoginError(error));
+    console.error(error);
   }
 }
