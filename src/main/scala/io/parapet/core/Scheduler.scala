@@ -46,6 +46,13 @@ object Scheduler {
   }
 
 
+  def apply2[F[_] : Concurrent : Timer : Parallel : ContextShift](config: SchedulerConfig,
+                                                                  processes: Array[Process[F]],
+                                                                  queue: TaskQueue[F],
+                                                                  interpreter: Interpreter[F]): F[Scheduler[F]] = {
+    SchedulerV2.apply(config, processes, queue, interpreter)
+  }
+
   case class SchedulerConfig(queueSize: Int,
                              numberOfWorkers: Int,
                              workerQueueSize: Int,

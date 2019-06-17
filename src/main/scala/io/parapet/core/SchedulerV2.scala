@@ -10,16 +10,22 @@ import cats.instances.list._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.traverse._
-import cats.syntax.parallel._
-import cats.instances.parallel._
+import com.typesafe.scalalogging.Logger
 import io.parapet.core.Event.Envelope
+import io.parapet.core.Parapet.{FlowState, Interpreter, interpret_}
+import org.slf4j.LoggerFactory
 
 class SchedulerV2[F[_] : Concurrent : Timer : Parallel : ContextShift](
                                                                         config: SchedulerConfig,
                                                                         taskQueue: TaskQueue[F],
                                                                         processRefQueue: Queue[F, ProcessRef],
-                                                                        processesMap: Map[ProcessRef, State[F]]) extends Scheduler[F] {
+                                                                        processesMap: Map[ProcessRef, State[F]],
+                                                                        interpreter: Interpreter[F]) extends Scheduler[F] {
 
+
+  // todo use custom thread pool
+  private val ctxShift = implicitly[ContextShift[F]]
+  private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
 
   override def run: F[Unit] = {
     val workers = createWorkers
@@ -32,7 +38,7 @@ class SchedulerV2[F[_] : Concurrent : Timer : Parallel : ContextShift](
       }
     }
 
-    implicitly[Parallel[F]].par(workers.map(_.run) :+ step)
+    implicitly[Parallel[F]].par(workers.map(w => ctxShift.shift >> w.run) :+ step)
   }
 
   override def submit(task: Task[F]): F[Unit] = {
@@ -42,7 +48,7 @@ class SchedulerV2[F[_] : Concurrent : Timer : Parallel : ContextShift](
 
   def createWorkers: List[Worker[F]] = {
     (1 to config.numberOfWorkers).map { i => {
-      new Worker[F](s"worker-$i", processRefQueue, processesMap)
+      new Worker[F](s"worker-$i", processRefQueue, processesMap, interpreter)
     }
     }.toList
   }
@@ -51,6 +57,18 @@ class SchedulerV2[F[_] : Concurrent : Timer : Parallel : ContextShift](
 
 
 object SchedulerV2 {
+
+
+  def apply[F[_] : Concurrent : Parallel : Timer : ContextShift](
+                                                                  config: SchedulerConfig,
+                                                                  processes: Array[Process[F]],
+                                                                  taskQueue: TaskQueue[F],
+                                                                  interpreter: Interpreter[F]): F[Scheduler[F]] =
+    for {
+      processRefQueue <- Queue.unbounded[F, ProcessRef]
+      processesMap <- processes.map(p => State(p).map(s => p.ref -> s)).toList.sequence.map(_.toMap)
+    } yield
+      new SchedulerV2(config, taskQueue, processRefQueue, processesMap, interpreter)
 
   class State[F[_] : Concurrent](
                                   queue: TaskQueue[F],
@@ -82,7 +100,7 @@ object SchedulerV2 {
             case true =>
               ct.delay(executing.compareAndSet(true, false)) >>= {
                 case false => ct.raiseError(new RuntimeException("concurrent release"))
-                case _     => ct.pure(try)
+                case _     => ct.pure(true)
               }
             case false => ct.pure(false) // new task available, don't release yet
           }
@@ -103,7 +121,10 @@ object SchedulerV2 {
 
   class Worker[F[_] : Concurrent](name: String,
                                   processRefQueue: Queue[F, ProcessRef],
-                                  processesMap: Map[ProcessRef, State[F]]) {
+                                  processesMap: Map[ProcessRef, State[F]],
+                                  interpreter: Interpreter[F]) {
+
+    private val logger = Logger(LoggerFactory.getLogger(s"parapet-$name"))
     private val ct = implicitly[Concurrent[F]]
 
     def run: F[Unit] = {
@@ -111,7 +132,7 @@ object SchedulerV2 {
         processRefQueue.dequeue >>= { pRef =>
           val ps = processesMap(pRef)
           ps.acquire >>= {
-            case true  => run(ps)
+            case true  => ct.delay(logger.debug(s"name acquired process $pRef")) >> run(ps) >> step
             case false => step
           }
         }
@@ -136,8 +157,10 @@ object SchedulerV2 {
     }
 
     def executeTask(process: Process[F], t: Deliver[F]): F[Unit] = {
-      //process.handle(t) todo interpret
-      ct.unit
+      val sender = t.envelope.sender
+      val receiver = t.envelope.receiver
+      val program = process.handle.apply(t.envelope.event)
+      interpret_(program, interpreter, FlowState(senderRef = sender, selfRef = receiver))
     }
 
     def stop: F[Unit] = ct.unit
