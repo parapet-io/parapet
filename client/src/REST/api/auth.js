@@ -2,7 +2,7 @@ import { MAIN_URL } from "../config";
 
 export default class Auth {
   static get token() {
-    return localStorage.getItem("token");
+    return localStorage.getItem("_id");
   }
 
   registration(credentials) {
