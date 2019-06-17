@@ -37,3 +37,8 @@ a {
 .prettyprint {
   background: rgba(27, 11, 51, 1) !important;
 }
+
+.modalForm {
+  display: flex;
+  flex-direction: column;
+}

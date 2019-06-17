@@ -1,3 +1,5 @@
 import { combineReducers } from "redux";
 
-export const rootReducer = combineReducers({});
+import { authReducer as auth } from "bus/auth/reducer";
+
+export const rootReducer = combineReducers({ auth });
