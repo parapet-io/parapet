@@ -5,15 +5,17 @@ import { authActions } from "./actions";
 const token = localStorage.getItem("_id");
 
 const initialState = {
-  isAuthenticated: !!token || false
+  isAuthenticated: !!token || false,
+  user: {}
 };
 
 export const authReducer = handleActions(
   {
-    [authActions.authenticate]: state => {
+    [authActions.authenticate]: (state, { payload }) => {
       return {
         ...state,
-        isAuthenticated: true
+        isAuthenticated: true,
+        user: { ...payload }
       };
     },
     [authActions.logout]: state => {

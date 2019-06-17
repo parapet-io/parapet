@@ -10,7 +10,7 @@ export function* registration({ payload: credentials }) {
     const responce = yield apply(api, api.auth.registration, [credentials]);
     const { data, message } = yield apply(responce, responce.json);
 
-    yield apply(localStorage, localStorage.setItem, ["token", data.token]);
+    // yield apply(localStorage, localStorage.setItem, ["token", data.token]);
 
     if (responce.status !== 200) {
       throw new Error(message);

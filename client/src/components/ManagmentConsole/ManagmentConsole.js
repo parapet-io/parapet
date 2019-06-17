@@ -1,4 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { connect } from "react-redux";
+import { componentActions } from "bus/component/actions";
+import { getComponents, getUser } from "bus/component/selectors";
 
 import { makeStyles } from "@material-ui/core/styles";
 import Table from "@material-ui/core/Table";
@@ -14,11 +17,15 @@ import RegisterComponentModal from "./RegisterComponentModal";
 
 import s from "./ManagmentConsole.module.scss";
 
-const ManagmentConsole = () => {
+const ManagmentConsole = ({ components, user, getComponentsByUserAsync }) => {
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
 
   const handleRegisterClose = () => setIsRegisterOpen(false);
   const handleRegisterOpen = () => setIsRegisterOpen(true);
+
+  useEffect(() => {
+    getComponentsByUserAsync(user._id);
+  }, [getComponentsByUserAsync, user._id]);
 
   function createData(name, tags, version, token) {
     return { name, tags, version, token };
@@ -44,6 +51,7 @@ const ManagmentConsole = () => {
     }
   }));
 
+  console.log(components, user, "CHECKING...");
   const classes = useStyles();
   return (
     <div className={s.managmentWrapper}>
@@ -90,4 +98,13 @@ const ManagmentConsole = () => {
   );
 };
 
-export default ManagmentConsole;
+const MSTP = state => ({
+  components: getComponents(state),
+  user: getUser(state)
+});
+export default connect(
+  MSTP,
+  {
+    getComponentsByUserAsync: componentActions.getComponentsByUserAsync
+  }
+)(ManagmentConsole);

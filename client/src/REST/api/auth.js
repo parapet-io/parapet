@@ -23,4 +23,12 @@ export default class Auth {
       body: JSON.stringify(credentials)
     });
   }
+  getUser(id) {
+    return (
+      !!Auth.token &&
+      fetch(`${MAIN_URL}/v1/users/${id}`, {
+        method: "GET"
+      })
+    );
+  }
 }

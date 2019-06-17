@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { connect } from "react-redux";
 
-import { authActions } from "bus/auth/actions";
+import { componentActions } from "bus/component/actions";
+import { user } from "bus/auth/selectors";
 
 import { makeStyles } from "@material-ui/core/styles";
 import Dialog from "@material-ui/core/Dialog";
@@ -12,20 +13,29 @@ import DialogTitle from "@material-ui/core/DialogTitle";
 import TextField from "@material-ui/core/TextField";
 import InputLabel from "@material-ui/core/InputLabel";
 import MenuItem from "@material-ui/core/MenuItem";
-
+import TagsInput from "react-tagsinput";
 import FormControl from "@material-ui/core/FormControl";
 import Select from "@material-ui/core/Select";
 
-const RegisterComponentModal = ({ open, handleClose }) => {
+import "react-tagsinput/react-tagsinput.css";
+
+const RegisterComponentModal = ({
+  open,
+  handleClose,
+  registerComponentAsync,
+  user
+}) => {
   const [values, setValues] = useState({
     name: "",
-    decsription: "",
+    description: "",
     author: "",
     license: "",
     repoUrl: "",
-    homepage: "",
-    tags: ""
+    homepage: ""
   });
+  const [tags, setTags] = useState([]);
+
+  const handleTags = tags => setTags(tags);
 
   const useStyles = makeStyles(theme => ({
     root: {
@@ -47,18 +57,34 @@ const RegisterComponentModal = ({ open, handleClose }) => {
   const clearForm = () =>
     setValues({
       name: "",
-      decsription: "",
+      description: "",
       author: "",
       license: "",
       repoUrl: "",
-      homepage: "",
-      tags: ""
-    });
+      homepage: ""
+    }) || setTags([]);
 
-  const validateForm = () =>
-    values.email && values.password && values.password.length > 5;
+  const validateForm = () => values.name && values.author && values.license;
 
   const handleCloseForm = () => clearForm() || handleClose();
+
+  const onFormSubmit = () => {
+    if (validateForm()) {
+      const { name, description, author, license, repoUrl, homepage } = values;
+
+      const credentials = {
+        userId: user._id,
+        name,
+        description,
+        author,
+        license,
+        sourceCodeRepoUrl: repoUrl,
+        homepage,
+        tags
+      };
+      registerComponentAsync(credentials);
+    }
+  };
 
   const classes = useStyles();
   return (
@@ -118,13 +144,14 @@ const RegisterComponentModal = ({ open, handleClose }) => {
             margin="normal"
             variant="outlined"
           />
+          <TagsInput value={tags} onChange={handleTags} />
         </div>
       </DialogContent>
       <DialogActions>
         <Button onClick={handleCloseForm} color="primary">
           Cancel
         </Button>
-        <Button onClick={() => console.log("submit")} color="primary">
+        <Button onClick={onFormSubmit} color="primary">
           Register component
         </Button>
       </DialogActions>
@@ -132,7 +159,10 @@ const RegisterComponentModal = ({ open, handleClose }) => {
   );
 };
 
+const MSTP = state => ({
+  user: user(state)
+});
 export default connect(
-  null,
-  { loginAsync: authActions.loginAsync }
+  MSTP,
+  { registerComponentAsync: componentActions.registerComponentAsync }
 )(RegisterComponentModal);
