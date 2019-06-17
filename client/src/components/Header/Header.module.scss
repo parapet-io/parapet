@@ -1,0 +1,26 @@
+.headerMain {
+  display: flex;
+  width: 100%;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  span {
+    font-size: 24px;
+    line-height: 1.5;
+    font-weight: 500;
+    color: #ffffff;
+    font-family: "Poppins", "sans-serif";
+    &:first-child {
+      margin-bottom: 22px;
+    }
+  }
+}
+
+.home {
+  width: 100%;
+  min-height: 100vh;
+  background: url("../../assets/img/background.jpg");
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+}

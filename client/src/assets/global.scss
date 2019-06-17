@@ -1,0 +1,39 @@
+@import "./_reset.scss";
+
+* {
+  font-family: "Poppins", "sans-serif" !important;
+}
+html,
+body {
+  height: 100%;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+div {
+  box-sizing: border-box;
+}
+
+a {
+  outline: none;
+  text-decoration: none;
+  &:active,
+  &:focus {
+    outline: none;
+    text-decoration: none;
+  }
+}
+
+.mainContainer {
+  max-width: 1140px;
+  margin: 0 auto;
+}
+.prettyprint {
+  background: rgba(27, 11, 51, 1) !important;
+}

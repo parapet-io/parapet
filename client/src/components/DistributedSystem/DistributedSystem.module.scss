@@ -1,0 +1,53 @@
+.distributedWrapper {
+  width: 100%;
+  padding-top: 123px;
+  padding-bottom: 129px;
+}
+
+.mainContainer {
+  max-width: 1140px;
+  margin: 0 auto;
+}
+
+.distributedLeft {
+  width: 33%;
+  h1 {
+    font-size: 48px;
+    line-height: 1.25;
+    font-weight: 500;
+  }
+}
+.distributedRight {
+  display: flex;
+  justify-content: space-between;
+  width: 66%;
+}
+.distributedRow {
+  display: flex;
+  justify-content: space-between;
+}
+
+.distributedRightItem {
+  margin-bottom: 63px;
+}
+.distributedRightText {
+  font-family: "Poppins", sans-serif;
+  font-size: 15px;
+  line-height: 1.86;
+  font-weight: 400;
+  color: #909090;
+}
+
+.distributedRightTitle {
+  margin-bottom: 21px;
+  font-size: 24px;
+}
+
+.distributedRightPart {
+  &:first-child {
+    width: 45%;
+  }
+  &:last-child {
+    width: 45%;
+  }
+}
