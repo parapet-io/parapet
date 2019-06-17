@@ -8,10 +8,7 @@ export function* getComponentsByUser({ payload: id }) {
   try {
     const responce = yield apply(api, api.component.getComponentsByUser, [id]);
     const data = yield apply(responce, responce.json);
-    console.log(data, "DATA");
-    if (Array.isArray(data)) {
-      yield put(componentActions.setComponents(data));
-    }
+    yield put(componentActions.setComponents(data));
 
     if (responce.status !== 200) {
       // throw new Error(message);

@@ -24,7 +24,9 @@ const ManagmentConsole = ({ components, user, getComponentsByUserAsync }) => {
   const handleRegisterOpen = () => setIsRegisterOpen(true);
 
   useEffect(() => {
-    getComponentsByUserAsync(user._id);
+    if (user._id) {
+      getComponentsByUserAsync(user._id);
+    }
   }, [getComponentsByUserAsync, user._id]);
 
   function createData(name, tags, version, token) {
