@@ -23,7 +23,7 @@ exports.createUser = function(req, res) {
 };
 
 exports.login = function(req, res) {
-    User.findOne({ email: email, password: pass })
+    User.findOne({ email: req.email, password: req.password })
         .then(user => {
             if (user == null) res.status(404).json({ message: 'user not found' })
             else res.json(user)
