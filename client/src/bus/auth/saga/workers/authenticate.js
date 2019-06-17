@@ -4,9 +4,9 @@ import { api } from "REST";
 
 import { authActions } from "bus/auth/actions";
 
-export function* login({ payload: credentials }) {
+export function* authenticate({ payload: id }) {
   try {
-    const responce = yield apply(api, api.auth.login, [credentials]);
+    const responce = yield apply(api, api.auth.getUser, [id]);
     const { _id, email, registrationDate } = yield apply(
       responce,
       responce.json

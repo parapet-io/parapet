@@ -1,9 +1,19 @@
-import React from "react";
+import React, { useEffect } from "react";
+import { connect } from "react-redux";
 import { Switch, Route } from "react-router-dom";
+
+import { authActions } from "bus/auth/actions";
+
 import { HeaderMenu, ManagmentConsole } from "components";
 import { MainPage } from "pages";
 
-function App() {
+const App = ({ authenticate }) => {
+  useEffect(() => {
+    const id = localStorage.getItem("_id");
+    if (id) {
+      authenticate(id);
+    }
+  }, []);
   return (
     <div className="App">
       <HeaderMenu />
@@ -13,6 +23,8 @@ function App() {
       </Switch>
     </div>
   );
-}
-
-export default App;
+};
+export default connect(
+  null,
+  { authenticate: authActions.authenticateAsync }
+)(App);
