@@ -1,6 +1,8 @@
-name := "parapet-scala-v2"
+name := "parapet"
 
-version := "0.1"
+organization in ThisBuild := "io.parapet"
+
+version in ThisBuild := "0.0.1-DONOTUSE"
 
 scalaVersion := "2.12.8"
 
@@ -11,14 +13,51 @@ scalacOptions in ThisBuild ++= Seq(
   "-deprecation"
 )
 
-libraryDependencies += "org.typelevel" %% "cats-effect" % "1.2.0"
-libraryDependencies += "org.typelevel" %% "cats-free" % "1.6.0"
-libraryDependencies += "co.fs2" %% "fs2-core" % "1.0.4"
-libraryDependencies += "com.typesafe.scala-logging" %% "scala-logging" % "3.9.2"
-libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.7" % Test
-libraryDependencies += "org.pegdown" % "pegdown" % "1.6.0" % Test
-libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3" % Test
-libraryDependencies += "net.logstash.logback" % "logstash-logback-encoder" % "5.3" % Test
+libraryDependencies in ThisBuild += compilerPlugin("org.typelevel" %% "kind-projector" % "0.10.0")
+// if your project uses multiple Scala versions, use this for cross building
+libraryDependencies in ThisBuild += compilerPlugin("org.typelevel" % "kind-projector" % "0.10.0" cross CrossVersion.binary)
+// if your project uses both 2.10 and polymorphic lambdas
+libraryDependencies in ThisBuild ++= (scalaBinaryVersion.value match {
+  case "2.10" =>
+    compilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full) :: Nil
+  case _ =>
+    Nil
+})
+lazy val dependencies =
+  new {
+    // Cats
+    val catsEffect = "org.typelevel" %% "cats-effect" % "1.3.1"
+    val catsFree = "org.typelevel" %% "cats-free" % "1.6.1"
+    val fs2Core = "co.fs2" %% "fs2-core" % "1.0.5"
+    // logging
+    val scalaLogging = "com.typesafe.scala-logging" %% "scala-logging" % "3.9.2"
+    val logbackClassic = "ch.qos.logback" % "logback-classic" % "1.2.3"
+    // test
+    val scalaTest = "org.scalatest" %% "scalatest" % "3.0.7" % Test
+    val pegdown = "org.pegdown" % "pegdown" % "1.6.0" % Test
+    val logstashLogbackEncoder = "net.logstash.logback" % "logstash-logback-encoder" % "5.3" % Test
+  }
+
+lazy val global = project
+  .in(file("."))
+  .aggregate(
+    core
+  )
+
+
+lazy val core = project
+  .settings(
+    name := "core",
+    libraryDependencies ++= (commonDependencies ++ catsDependencies)
+  )
+
+
+lazy val catsDependencies = Seq(dependencies.catsEffect, dependencies.catsFree, dependencies.fs2Core)
+lazy val commonDependencies = Seq(
+  dependencies.scalaLogging,
+  dependencies.logbackClassic,
+  dependencies.logstashLogbackEncoder,
+  dependencies.scalaTest)
 
 resolvers += Resolver.sonatypeRepo("releases")
 
@@ -27,18 +66,15 @@ addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.10.0")
 // if your project uses multiple Scala versions, use this for cross building
 addCompilerPlugin("org.typelevel" % "kind-projector" % "0.10.0" cross CrossVersion.binary)
 
-// if your project uses both 2.10 and polymorphic lambdas
-libraryDependencies ++= (scalaBinaryVersion.value match {
-  case "2.10" =>
-    compilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full) :: Nil
-  case _ =>
-    Nil
-})
+
 
 testOptions in Test += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports")
 
 def testUntilFailed = Command.command("testUntilFailed") { state =>
   "testOnly io.parapet.core.intg.SchedulerSpec" :: "testUntilFailed" :: state
 }
-watchSources := watchSources.value.filter { s => s.base.getName != "Scheduler.scala" }
+//watchSources := watchSources.value.filter { s => s.base.getName != "Scheduler.scala" }
 commands += testUntilFailed
+
+parallelExecution in Test := false
+concurrentRestrictions in Global += Tags.limit(Tags.Test, 1)
