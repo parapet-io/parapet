@@ -4,8 +4,8 @@ import java.util.concurrent.atomic.AtomicInteger
 
 import cats.effect.IO
 import io.parapet.core.{Event, Process}
-import io.parapet.core.catsInstances.effect._
-import io.parapet.core.catsInstances.flow._
+import io.parapet.instances.DslInstances.catsInstances.effect._
+import io.parapet.instances.DslInstances.catsInstances.flow._
 import io.parapet.core.intg.ProcessRecursionSpec._
 import io.parapet.implicits._
 import org.scalatest.FlatSpec

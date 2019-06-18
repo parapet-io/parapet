@@ -1,15 +1,18 @@
 package io.parapet.core
 
 import cats.effect.{ContextShift, IO, Timer}
-import io.parapet.core.Parapet._
 import io.parapet.core.ProcessRef._
 import io.parapet.core.Scheduler._
-import io.parapet.core.catsInstances.effect._
-import io.parapet.core.catsInstances.flow._
 import io.parapet.implicits._
+import io.parapet.instances.DslInstances.catsInstances.effect._
+import io.parapet.instances.DslInstances.catsInstances.flow._
+import io.parapet.instances.DslInterpreterInstances.dslInterpreterForCatsIO._
+import io.parapet.core.DslInterpreter.interpret_
 import org.scalatest.FlatSpec
-import org.scalatest.Matchers._
+import org.scalatest.Matchers.{empty => _, _}
 import org.scalatest.OptionValues._
+import io.parapet.core.Dsl._
+import io.parapet.core.DslInterpreter.FlowState
 
 import scala.collection.mutable.{ListBuffer, Queue => SQueue}
 import scala.concurrent.ExecutionContext
@@ -106,20 +109,17 @@ class FlowSpec extends FlatSpec {
 }
 
 object FlowSpec {
-
-  import cats.effect.IO._
-  import io.parapet.core.catsInstances.flow._
   val ec: ExecutionContext = scala.concurrent.ExecutionContext.global
   implicit val contextShift: ContextShift[IO] = IO.contextShift(ec)
   implicit val ioTimer: Timer[IO] = IO.timer(ec)
 
-  def run_(program: FlowF[IO, Unit], taskQueue: IOQueue[Task[IO]]): IOQueue[Task[IO]]  = {
+  def run_(program: DslF[IO, Unit], taskQueue: IOQueue[Task[IO]]): IOQueue[Task[IO]]  = {
     val interpreter = ioFlowInterpreter(taskQueue) or ioEffectInterpreter
     interpret_(program, interpreter, FlowState(SystemRef, SystemRef))
       .map(_ => taskQueue).unsafeRunSync()
   }
 
-  def run_(f: FlowF[IO, Unit]): IOQueue[Task[IO]] = {
+  def run_(f: DslF[IO, Unit]): IOQueue[Task[IO]] = {
     run_(f, new IOUnboundedQueue)
   }
 

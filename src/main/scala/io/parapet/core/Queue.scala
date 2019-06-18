@@ -9,34 +9,13 @@ import io.parapet.syntax.boolean._
 
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.FiniteDuration
+import io.parapet.core.Queue.{Enqueue, Dequeue}
 
-trait Queue[F[_], A] {
+trait Queue[F[_], A] extends Enqueue[F, A] with Dequeue[F, A]{
 
   def size: F[Int]
 
   def isEmpty(implicit M:Monad[F]): F[Boolean] = size.map(v => v == 0)
-
-  def enqueue(a: A): F[Unit]
-
-  def enqueueAll(elements: Seq[A])(implicit M: Monad[F]): F[Unit] = elements.map(e => enqueue(e)).foldLeft(M.unit)(_ >> _)
-
-  def tryEnqueue(a: A): F[Boolean]
-
-  def tryEnqueue(a: A, duration: FiniteDuration)(implicit ct: Concurrent[F]): F[Boolean] = {
-    EffectOps.retryWithTimeout(tryEnqueue(a).map(_.toOption(())), duration.fromNow).map(_.isDefined)
-  }
-
-  def dequeue: F[A]
-
-  def tryDequeue: F[Option[A]]
-
-  def tryDequeue(duration: FiniteDuration)(implicit ct: Concurrent[F]): F[Option[A]] = {
-    EffectOps.retryWithTimeout(tryDequeue, duration.fromNow)
-  }
-
-  def dequeueThrough[F1[x] >: F[x] : Monad, B](f: A => F1[B]): F1[B] = {
-    implicitly[Monad[F1]].flatMap(dequeue)(a => f(a))
-  }
 
   // returns a tuple where Element 2 contains elements that match the given predicate
   def partition(p: A => Boolean)(implicit M: Monad[F]): F[(Seq[A], Seq[A])] = {
@@ -52,6 +31,32 @@ trait Queue[F[_], A] {
 }
 
 object Queue {
+
+  trait Enqueue[F[_], A] {
+    def enqueue(a: A): F[Unit]
+
+    def enqueueAll(elements: Seq[A])(implicit M: Monad[F]): F[Unit] = elements.map(e => enqueue(e)).foldLeft(M.unit)(_ >> _)
+
+    def tryEnqueue(a: A): F[Boolean]
+
+    def tryEnqueue(a: A, duration: FiniteDuration)(implicit ct: Concurrent[F]): F[Boolean] = {
+      EffectOps.retryWithTimeout(tryEnqueue(a).map(_.toOption(())), duration.fromNow).map(_.isDefined)
+    }
+  }
+
+  trait Dequeue[F[_], A] {
+    def dequeue: F[A]
+
+    def tryDequeue: F[Option[A]]
+
+    def tryDequeue(duration: FiniteDuration)(implicit ct: Concurrent[F]): F[Option[A]] = {
+      EffectOps.retryWithTimeout(tryDequeue, duration.fromNow)
+    }
+
+    def dequeueThrough[F1[x] >: F[x] : Monad, B](f: A => F1[B]): F1[B] = {
+      implicitly[Monad[F1]].flatMap(dequeue)(a => f(a))
+    }
+  }
 
   class FS2BasedQueue[F[_] : Concurrent, A](q: fs2.concurrent.InspectableQueue[F, A]) extends Queue[F, A] {
 

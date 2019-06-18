@@ -6,16 +6,17 @@ import java.util.concurrent.atomic.AtomicInteger
 import cats.effect.{ContextShift, IO, Timer}
 import cats.implicits._
 import io.parapet.core.Event._
-import io.parapet.core.Parapet.{ioEffectInterpreter, ioFlowInterpreter}
+import io.parapet.instances.DslInterpreterInstances.dslInterpreterForCatsIO._
 import io.parapet.core.{Event, Process, ProcessRef, Queue, Scheduler}
 import io.parapet.core.Scheduler._
-import io.parapet.core.catsInstances.effect._
-import io.parapet.core.catsInstances.flow.{empty => emptyFlow, _}
+import io.parapet.instances.DslInstances.catsInstances.effect._
+import io.parapet.instances.DslInstances.catsInstances.flow._
 import io.parapet.core.intg.SchedulerSpec.TaskProcessingTime._
 import io.parapet.core.intg.SchedulerSpec._
 import io.parapet.implicits._
 import org.scalatest.{FunSuite, Ignore}
-import org.scalatest.Matchers._
+
+import org.scalatest.Matchers.{empty => _, _}
 
 import scala.annotation.tailrec
 import scala.collection.JavaConverters._
@@ -313,7 +314,7 @@ object SchedulerSpec {
 
   def dummyProcess: IOProcess = new Process[IO] {
     override val handle: Receive = {
-      case _ => emptyFlow
+      case _ => empty
     }
   }
 

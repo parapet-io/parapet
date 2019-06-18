@@ -1,17 +1,16 @@
 package io.parapet.core
 
-import io.parapet.core.Parapet._
+import io.parapet.core.Dsl.{Dsl, DslF, Effects, FlowOps}
 import io.parapet.core.Process._
 import io.parapet.syntax.flow._
 
 trait Process[F[_]] {
   self =>
-  type ProcessFlow = FlowF[F, Unit]
+  type Program = DslF[F, Unit]
   type Receive = ReceiveF[F]
 
-  // fixme why it's here ???
-  private[core] val flowOps = implicitly[Flow[F, FlowOpOrEffect[F, ?]]]
-  private[core] val effectOps = implicitly[Effects[F, FlowOpOrEffect[F, ?]]]
+  protected final val flowDsl = implicitly[FlowOps[F, Dsl[F, ?]]]
+  protected final val effectDsl = implicitly[Effects[F, Dsl[F, ?]]]
 
   val name: String = "default"
   val ref: ProcessRef = ProcessRef.jdkUUIDRef
@@ -19,7 +18,7 @@ trait Process[F[_]] {
   val handle: Receive
 
   def apply(e: Event,
-            ifUndefined: => ProcessFlow = flowOps.empty): ProcessFlow =
+            ifUndefined: => Program = flowDsl.empty): Program =
     if (handle.isDefinedAt(e)) handle(e)
     else ifUndefined
 
@@ -36,7 +35,7 @@ trait Process[F[_]] {
 
 object Process {
 
-  type ReceiveF[F[_]] = PartialFunction[Event, FlowF[F, Unit]]
+  type ReceiveF[F[_]] = PartialFunction[Event, DslF[F, Unit]]
 
   def apply[F[_]](receive: ProcessRef => ReceiveF[F]): Process[F] = new Process[F] {
     override val handle: Receive = receive(this.ref)

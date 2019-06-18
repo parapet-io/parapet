@@ -5,12 +5,12 @@ import java.util.concurrent.atomic.AtomicInteger
 import cats.effect.IO
 import io.parapet.core.Event._
 import io.parapet.core.{Event, Process, ProcessRef}
-import io.parapet.core.catsInstances.effect._
-import io.parapet.core.catsInstances.flow.{empty => emptyFlow, _}
+import io.parapet.instances.DslInstances.catsInstances.effect._
+import io.parapet.instances.DslInstances.catsInstances.flow._
 import io.parapet.core.intg.EventDeliverySpec._
 import io.parapet.implicits._
 import org.scalatest.FlatSpec
-import org.scalatest.Matchers._
+import org.scalatest.Matchers.{empty => _, _}
 
 class EventDeliverySpec extends FlatSpec with IntegrationSpec {
 
@@ -19,7 +19,7 @@ class EventDeliverySpec extends FlatSpec with IntegrationSpec {
     val numOfProcesses = 1000
     val processes =
       createProcesses(numOfProcesses, () => counter.incrementAndGet())
-    val program = processes.foldLeft(emptyFlow)((acc, p) => acc ++ QualifiedEvent(p.ref) ~> p)
+    val program = processes.foldLeft(empty)((acc, p) => acc ++ QualifiedEvent(p.ref) ~> p)
     run(program ++ terminate, processes: _*)
 
     counter.get() shouldBe numOfProcesses
@@ -27,7 +27,7 @@ class EventDeliverySpec extends FlatSpec with IntegrationSpec {
 
   "Unmatched event" should "be ignored" in {
     val p = Process[IO](_ => {
-      case Start => emptyFlow
+      case Start => empty
     })
 
     val program = UnknownEvent ~> p ++ terminate

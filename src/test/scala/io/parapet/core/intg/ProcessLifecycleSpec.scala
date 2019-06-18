@@ -3,7 +3,7 @@ package io.parapet.core.intg
 import cats.effect.IO
 import io.parapet.core.Event._
 import io.parapet.core.{Event, Process}
-import io.parapet.core.catsInstances.flow._
+import io.parapet.instances.DslInstances.catsInstances.flow._
 import io.parapet.core.intg.ProcessLifecycleSpec._
 import io.parapet.core.testutils.EventStoreProcess
 import io.parapet.implicits._

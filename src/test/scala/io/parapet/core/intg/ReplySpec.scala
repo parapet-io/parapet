@@ -5,11 +5,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 import cats.effect.IO
 import io.parapet.core.Event._
 import io.parapet.core.{Event, Process}
-import io.parapet.core.catsInstances.effect._
-import io.parapet.core.catsInstances.flow.{empty => emptyFlow, _}
+import io.parapet.instances.DslInstances.catsInstances.effect._
+import io.parapet.instances.DslInstances.catsInstances.flow._
 import io.parapet.implicits._
 import org.scalatest.FlatSpec
-import org.scalatest.Matchers._
+import org.scalatest.Matchers.{empty => _, _}
 
 class ReplySpec extends FlatSpec with IntegrationSpec {
 
@@ -34,7 +34,7 @@ class ReplySpec extends FlatSpec with IntegrationSpec {
     println(client)
     println(server)
 
-    run(emptyFlow, client, server)
+    run(empty, client, server)
 
     responseReceived.get() shouldBe true
 

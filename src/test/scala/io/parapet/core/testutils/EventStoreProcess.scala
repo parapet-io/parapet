@@ -4,8 +4,8 @@ import cats.effect.IO
 import io.parapet.core.Process
 import io.parapet.core.Event
 import io.parapet.core.Event._
-import io.parapet.core.catsInstances.effect._
-import io.parapet.core.catsInstances.flow._
+import io.parapet.instances.DslInstances.catsInstances.effect._
+import io.parapet.instances.DslInstances.catsInstances.flow._
 
 import scala.collection.mutable.ListBuffer
 

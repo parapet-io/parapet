@@ -7,16 +7,17 @@ import cats.effect.concurrent.{Deferred, MVar, Ref}
 import cats.effect.{Concurrent, ContextShift, Timer}
 import cats.implicits._
 import com.typesafe.scalalogging.Logger
+import io.parapet.core.Dsl.{Stop => _, _}
+import io.parapet.core.DslInterpreter.{FlowState, Interpreter, interpret_}
 import io.parapet.core.Event._
 import io.parapet.core.Logging._
-import io.parapet.core.Parapet.{Stop => _, _}
+import io.parapet.core.Parapet.ParapetPrefix
 import io.parapet.core.ProcessRef.{DeadLetterRef, SystemRef}
-import io.parapet.core.SchedulerV1._
 import io.parapet.core.Scheduler._
+import io.parapet.core.SchedulerV1._
 import io.parapet.core.exceptions._
 import io.parapet.syntax.effect._
 import org.slf4j.LoggerFactory
-
 
 import scala.collection.mutable
 import scala.collection.mutable.{Map => MutMap}
@@ -127,7 +128,7 @@ object SchedulerV1 {
     private val ce = implicitly[Concurrent[F]]
     private val timer = implicitly[Timer[F]]
     private val parallel = implicitly[Parallel[F]]
-    private val flowOps = implicitly[Flow[F, FlowOpOrEffect[F, ?]]]
+    private val flowOps = implicitly[FlowOps[F, Dsl[F, ?]]]
     private[this] val stopped = new AtomicBoolean()
     private val idle = new AtomicBoolean()
     private var stealingCounter = 0

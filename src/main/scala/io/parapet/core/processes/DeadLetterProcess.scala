@@ -19,6 +19,7 @@ trait DeadLetterProcess[F[_]] extends Process[F] {
 object DeadLetterProcess {
 
   class DeadLetterLoggingProcess[F[_]] extends DeadLetterProcess[F] {
+    import effectDsl._
     private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
     override val name: String = DeadLetterRef.ref + "-logging"
     override val handle: Receive = {
@@ -36,7 +37,7 @@ object DeadLetterProcess {
           "errorMsg" -> errorMsg,
           "stack_trace" -> getStackTrace(error))
 
-        effectOps.eval {
+        eval {
           logger.mdc(mdcFields) { args =>
             logger.debug(s"$name: process[id=$pRef] failed to process event[id=${event.id}], error=${args("errorMsg")}")
           }

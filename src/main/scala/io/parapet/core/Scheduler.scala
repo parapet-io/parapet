@@ -1,26 +1,12 @@
 package io.parapet.core
 
-import java.util.concurrent.atomic.AtomicBoolean
-
-import cats.data.OptionT
-import cats.effect.concurrent.{Deferred, MVar, Ref}
 import cats.effect.{Concurrent, ContextShift, Timer}
-import cats.implicits._
-import com.typesafe.scalalogging.Logger
+import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Event._
-import io.parapet.core.Logging._
-import io.parapet.core.Parapet.{Stop => _, _}
-import io.parapet.core.ProcessRef.{DeadLetterRef, SystemRef}
+//import io.parapet.core.Parapet.{Stop => _}
 import io.parapet.core.Scheduler._
-import io.parapet.core.exceptions._
-import io.parapet.syntax.effect._
-import org.slf4j.LoggerFactory
 
-
-import scala.collection.mutable
-import scala.collection.mutable.{Map => MutMap}
 import scala.concurrent.duration._
-import scala.util.Random
 
 trait Scheduler[F[_]] {
 

@@ -4,17 +4,17 @@ import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 import cats.effect.IO
 import io.parapet.core.Event._
-import io.parapet.core.Parapet.ParApp
+import io.parapet.ParApp
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.Process.ReceiveF
 import io.parapet.core.{Event, Process, ProcessRef}
-import io.parapet.core.catsInstances.effect._
-import io.parapet.core.catsInstances.flow.{empty => emptyFlow, _}
+import io.parapet.instances.DslInstances.catsInstances.effect._
+import io.parapet.instances.DslInstances.catsInstances.flow._
 import io.parapet.core.exceptions.{EventDeliveryException, EventRecoveryException}
 import io.parapet.core.intg.EventRecoverySpec._
 import io.parapet.core.testutils.EventStoreProcess
 import io.parapet.implicits._
-import org.scalatest.Matchers._
+import org.scalatest.Matchers.{empty => _, _}
 import org.scalatest.OptionValues._
 import org.scalatest.{FlatSpec, Inside}
 
@@ -46,7 +46,7 @@ class EventRecoverySpec extends FlatSpec with Inside with IntegrationSpec {
       case e: Failure =>
         eval(receivedFailedEvent.compareAndSet(None, Some(e))) ++ terminate
     })
-    run(emptyFlow, client, server)
+    run(empty, client, server)
 
     receivedFailedEvent.get() should matchPattern {
       case Some(Failure(server.ref, Request(), _: EventDeliveryException)) =>
@@ -65,7 +65,7 @@ class EventRecoverySpec extends FlatSpec with Inside with IntegrationSpec {
       case r @ Response(500) =>
         eval(clientReceivedResponse.compareAndSet(None, Some(r))) ++ terminate
     })
-    run(emptyFlow, client, server)
+    run(empty, client, server)
 
     clientReceivedResponse.get().value shouldBe Response(500)
   }
@@ -90,7 +90,7 @@ class EventRecoverySpec extends FlatSpec with Inside with IntegrationSpec {
         suspend(IO.raiseError(new RuntimeException("can't recover")))
     })
 
-    new SpecApp(emptyFlow, Array(client, server), Some(deadLetterProcess))
+    new SpecApp(empty, Array(client, server), Some(deadLetterProcess))
       .unsafeRun()
 
     inside(receivedDeadLetter.get()) {
@@ -128,7 +128,7 @@ class EventRecoverySpec extends FlatSpec with Inside with IntegrationSpec {
         suspend(IO.raiseError(new RuntimeException("process is unavailable")))
     })
 
-    new SpecApp(emptyFlow, Array(p), Some(deadLetterProcess)).unsafeRun()
+    new SpecApp(empty, Array(p), Some(deadLetterProcess)).unsafeRun()
 
     inside(receivedDeadLetter.get()) {
       case Some(DeadLetter(Failure(pRef, event, error))) =>
@@ -160,7 +160,7 @@ class EventRecoverySpec extends FlatSpec with Inside with IntegrationSpec {
       case Start => Request() ~> server
     })
 
-    new SpecApp(emptyFlow, Array(client, server), Some(deadLetterProcess))
+    new SpecApp(empty, Array(client, server), Some(deadLetterProcess))
       .unsafeRun()
 
     inside(receivedDeadLetter.get()) {
@@ -196,7 +196,7 @@ class EventRecoverySpec extends FlatSpec with Inside with IntegrationSpec {
         case DeadLetter(Failure(_, event, _)) =>
           eval(deadLetterEventsReceived.incrementAndGet()) ++ event ~> eventStore ++
             use(deadLetterEventsReceived) { r =>
-              if (r.get() == numberOfEvents) terminate else emptyFlow
+              if (r.get() == numberOfEvents) terminate else empty
             }
       }
     }
@@ -205,7 +205,7 @@ class EventRecoverySpec extends FlatSpec with Inside with IntegrationSpec {
       case _: Request => eval(throw new RuntimeException("server is unavailable"))
     })
 
-    val program = events.map(e => e ~> server).foldLeft(emptyFlow)(_ ++ _)
+    val program = events.map(e => e ~> server).foldLeft(empty)(_ ++ _)
 
     new SpecApp(program, Array(eventStore, server), Some(deadLetterProcess), Some(config))
       .unsafeRun()

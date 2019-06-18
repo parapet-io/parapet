@@ -11,8 +11,8 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.traverse._
 import com.typesafe.scalalogging.Logger
+import io.parapet.core.DslInterpreter._
 import io.parapet.core.Event.Envelope
-import io.parapet.core.Parapet.{FlowState, Interpreter, interpret_}
 import org.slf4j.LoggerFactory
 
 class SchedulerV2[F[_] : Concurrent : Timer : Parallel : ContextShift](

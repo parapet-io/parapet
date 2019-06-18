@@ -1,7 +1,9 @@
 package io.parapet.core.intg
 import cats.effect.IO
+import io.parapet.{CatsApp, ParApp}
+import io.parapet.core.Dsl.DslF
 import io.parapet.core.Parapet._
-import io.parapet.core.catsInstances.flow._
+import io.parapet.instances.DslInstances.catsInstances.flow._
 import io.parapet.core.intg.TaskBalancingSpec._
 import io.parapet.core.testutils.EventStoreProcess
 import io.parapet.core.{Event, Process}
@@ -50,12 +52,12 @@ class TaskBalancingSpec extends FlatSpec {
 //    10. Done
   }
 
-  def run(pProgram: FlowF[IO, Unit],
+  def run(pProgram: DslF[IO, Unit],
           pConfig: ParConfig,
           pProcesses: Process[IO]*): Unit = {
     val app = new CatsApp {
       override val config: ParConfig = pConfig
-      override val program: ProcessFlow = pProgram
+      override val program: Program = pProgram
       override val processes: Array[Process[IO]] = pProcesses.toArray
     }
     app.run.unsafeRunSync()
