@@ -1,9 +1,9 @@
-package io.parapet.core
+package io.parapet.syntax
 
 import com.typesafe.scalalogging.Logger
 import org.slf4j.MDC
 
-object Logging {
+trait LoggerSyntax {
 
   type MDCFields = Map[String, Any]
 

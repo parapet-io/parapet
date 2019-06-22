@@ -23,6 +23,7 @@ exports.createUser = function(req, res) {
 };
 
 exports.login = function(req, res) {
+    
     User.findOne({ email: req.body.email, password: req.body.password })
         .then(user => {
             if (user == null) res.status(404).json({ message: 'user not found' })

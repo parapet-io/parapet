@@ -4,8 +4,6 @@ import cats.effect.{ContextShift, IO, Timer}
 import io.parapet.core.ProcessRef._
 import io.parapet.core.Scheduler._
 import io.parapet.implicits._
-import io.parapet.instances.DslInstances.catsInstances.effect._
-import io.parapet.instances.DslInstances.catsInstances.flow._
 import io.parapet.instances.DslInterpreterInstances.dslInterpreterForCatsIO._
 import io.parapet.core.DslInterpreter.interpret_
 import org.scalatest.FlatSpec
@@ -19,8 +17,9 @@ import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
 
-class FlowSpec extends FlatSpec {
-
+class FlowSpec extends FlatSpec with  WithDsl [IO]{
+  import flowDsl._
+  import effectDsl._
 
   import FlowSpec._
   // m1 ~> p1
@@ -108,7 +107,10 @@ class FlowSpec extends FlatSpec {
 
 }
 
-object FlowSpec {
+object FlowSpec extends WithDsl [IO]{
+  import flowDsl._
+  import effectDsl._
+
   val ec: ExecutionContext = scala.concurrent.ExecutionContext.global
   implicit val contextShift: ContextShift[IO] = IO.contextShift(ec)
   implicit val ioTimer: Timer[IO] = IO.timer(ec)
@@ -150,9 +152,11 @@ object FlowSpec {
 
   case class TestEvent(body: String) extends Event
 
-  val blackhole = Process[IO](_ => {
-    case _ => empty
-  })
+  val blackhole = new Process[IO] {
+    val handle: Receive = {
+      case _ => empty
+    }
+  }
 
   implicit class TaskOps[F[_]](task: Task[F]) {
     def event: Event = task.asInstanceOf[Deliver[IO]].envelope.event

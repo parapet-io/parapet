@@ -3,17 +3,17 @@ package io.parapet.instances
 import cats.data.State
 import cats.effect.IO.{Delay, Suspend}
 import cats.effect.{ContextShift, IO, Timer}
+import cats.instances.list._
 import cats.syntax.flatMap._
+import cats.syntax.traverse._
 import cats.~>
 import io.parapet.core.Dsl._
-import io.parapet.core.Event.Envelope
 import io.parapet.core.DslInterpreter._
+import io.parapet.core.Event.Envelope
 import io.parapet.core.Parallel
-import io.parapet.instances.parallel._
-import cats.instances.list._
-import cats.syntax.traverse._
 import io.parapet.core.Queue.Enqueue
-import io.parapet.core.Scheduler.{Deliver, Task, Terminate}
+import io.parapet.core.Scheduler.{Deliver, Task}
+import io.parapet.instances.parallel._
 
 object DslInterpreterInstances {
 
@@ -34,7 +34,6 @@ object DslInterpreterInstances {
               val res = IO.delay(resource()) >>= (r => interpret(f(r).asInstanceOf[DslF[IO, A]], interpreter, s.copy(ops = List.empty)).toList.sequence)
               (s.addOps(List(res)), ())
             }
-            case Stop() => State[FlowState[IO], Unit] { s => (s.addOps(List(taskQueue.enqueue(Terminate()))), ()) }
             case Send(event, receivers) =>
               State[FlowState[IO], Unit] { s =>
                 val ops = receivers.map(receiver => taskQueue.enqueue(Deliver(Envelope(s.selfRef, event, receiver))))
@@ -62,6 +61,13 @@ object DslInterpreterInstances {
                   ()
                 )
               }
+            case Invoke(caller, body, callee) =>
+              State[FlowState[IO], Unit] { s =>
+                (
+                  s.addOps(List(interpret_(body.asInstanceOf[DslF[IO, A]], interpreter, FlowState(caller, callee)))),
+                  ()
+                )
+              }
           }
         }
       }
@@ -73,7 +79,5 @@ object DslInterpreterInstances {
       }
     }
   }
-
-
 
 }

@@ -1,38 +1,85 @@
 package io.parapet.core.intg
 
-import java.util.concurrent.atomic.AtomicInteger
-
 import cats.effect.IO
+import io.parapet.core.Dsl.WithDsl
 import io.parapet.core.Event._
+import io.parapet.core.exceptions.EventMatchException
 import io.parapet.core.{Event, Process, ProcessRef}
-import io.parapet.instances.DslInstances.catsInstances.effect._
-import io.parapet.instances.DslInstances.catsInstances.flow._
 import io.parapet.core.intg.EventDeliverySpec._
+import io.parapet.core.processes.DeadLetterProcess
+import io.parapet.core.testutils.{EventStore, IntegrationSpec}
 import io.parapet.implicits._
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers.{empty => _, _}
+import org.scalatest.OptionValues._
 
-class EventDeliverySpec extends FlatSpec with IntegrationSpec {
+class EventDeliverySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
 
-  "Event sent to each process" should "be eventually delivered" in {
-    val counter = new AtomicInteger()
-    val numOfProcesses = 1000
+  import flowDsl._
+  import effectDsl._
+
+  "Event" should "be sent to correct process" in {
+    val eventStore = new EventStore[QualifiedEvent]
+    val numOfProcesses = 10
     val processes =
-      createProcesses(numOfProcesses, () => counter.incrementAndGet())
-    val program = processes.foldLeft(empty)((acc, p) => acc ++ QualifiedEvent(p.ref) ~> p)
-    run(program ++ terminate, processes: _*)
+      createProcesses(numOfProcesses, eventStore)
 
-    counter.get() shouldBe numOfProcesses
+    val events = processes.map(p => p.selfRef -> QualifiedEvent(p.selfRef)).toMap
+
+    val sendEvents = events.foldLeft(empty) {
+      case (acc, (pRef, event)) => acc ++ event ~> pRef
+    }
+
+    val program = for {
+      fiber <- run(sendEvents, processes.toArray).start
+      _ <- eventStore.awaitSize(10).guaranteeCase(_ => fiber.cancel)
+    } yield ()
+
+    program.unsafeRunSync()
+
+    eventStore.size shouldBe events.size
+
+    events.foreach {
+      case (pRef, event) =>
+        eventStore.get(pRef).size shouldBe 1
+        eventStore.get(pRef).headOption.value shouldBe event
+    }
+
   }
 
-  "Unmatched event" should "be ignored" in {
-    val p = Process[IO](_ => {
-      case Start => empty
-    })
+  "Unmatched event" should "be sent to deadletter" in {
+    val deadLetterEventStore = new EventStore[DeadLetter]
+    val deadLetter = new DeadLetterProcess[IO] {
+      val handle: Receive = {
+        case f: DeadLetter => eval(deadLetterEventStore.add(selfRef, f))
+      }
+    }
 
-    val program = UnknownEvent ~> p ++ terminate
+    val server = new Process[IO] {
+      val handle: Receive = {
+        case Start => empty
+      }
+    }
 
-    run(program, p)
+    val client = new Process[IO] {
+      val handle: Receive = {
+        case Start => UnknownEvent ~> server
+      }
+    }
+
+    val processes = Array(client, server)
+
+    val program = for {
+      fiber <- run(empty, processes, Some(deadLetter)).start
+      _ <- deadLetterEventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+
+    } yield ()
+    program.unsafeRunSync()
+
+    deadLetterEventStore.size shouldBe 1
+    deadLetterEventStore.get(deadLetter.selfRef).headOption.value should matchPattern {
+      case DeadLetter(Envelope(client.selfRef, UnknownEvent, server.selfRef), _: EventMatchException) =>
+    }
   }
 
 }
@@ -43,15 +90,15 @@ object EventDeliverySpec {
 
   object UnknownEvent extends Event
 
-  def createProcesses(numOfProcesses: Int, cb: () => Unit): Seq[Process[IO]] = {
+  def createProcesses(numOfProcesses: Int, eventStore: EventStore[QualifiedEvent]): Seq[Process[IO]] = {
     (0 until numOfProcesses).map { i =>
       new Process[IO] {
+
+        import effectDsl._
+
         override val name: String = s"p-$i"
         override val handle: Receive = {
-          case QualifiedEvent(pRef) =>
-            if (pRef != ref)
-             eval(throw new RuntimeException(s"unexpected process ref. expected: $ref, actual: $pRef"))
-            else eval(cb())
+          case e: QualifiedEvent => eval(eventStore.add(selfRef, e))
         }
       }
     }

@@ -1,59 +1,66 @@
 package io.parapet.core.intg
 
 import cats.effect.IO
+import io.parapet.core.Dsl.WithDsl
 import io.parapet.core.Event._
-import io.parapet.core.{Event, Process}
-import io.parapet.instances.DslInstances.catsInstances.flow._
 import io.parapet.core.intg.ProcessLifecycleSpec._
-import io.parapet.core.testutils.EventStoreProcess
+import io.parapet.core.testutils.{EventStore, IntegrationSpec}
+import io.parapet.core.{Event, Process}
 import io.parapet.implicits._
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
-import org.scalatest.OptionValues._
 
-class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
+
+class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
+
+  import effectDsl._
 
   "Start event" should "be delivered before client events" in {
-    val p1EventStore = new EventStoreProcess(enableSystemEvents = true)
-    val p2EventStore = new EventStoreProcess(enableSystemEvents = true)
-    val p1 = Process[IO](_ => {
-      case e => p1EventStore(e)
-    })
-    val p2 = Process[IO](_ => {
-      case e => p2EventStore(e)
-    })
+    val expectedEventsCount = 2
+    val eventStore = new EventStore[Event]
+    val process = new Process[IO] {
+      val handle: Receive = {
+        case Start => eval(eventStore.add(selfRef, Start))
+        case TestEvent => eval(eventStore.add(selfRef, TestEvent))
+      }
+    }
 
-    val program = TestEvent ~> p1 ++ TestEvent ~> p2 ++ terminate
+    val sendEvent = TestEvent ~> process
+    val processes = Array(process)
+    val program = for {
+      fiber <- run(sendEvent, processes).start
+      _ <- eventStore.awaitSize(expectedEventsCount).guaranteeCase(_ => fiber.cancel)
+    } yield ()
 
-    run(program, p1, p2)
+    program.unsafeRunSync()
 
-    // start event must be delivered only once per each process
-    p1EventStore.events.count(e => e == Start) shouldBe 1
-    p2EventStore.events.count(e => e == Start) shouldBe 1
+    eventStore.size shouldBe expectedEventsCount
+    eventStore.get(process.selfRef) shouldBe Seq(Start, TestEvent)
 
-    p1EventStore.events.headOption.value shouldBe Start
-    p2EventStore.events.headOption.value shouldBe Start
   }
 
-  "Stop" should "be last delivered event" in  {
-    val p1EventStore = new EventStoreProcess(enableSystemEvents = true)
-    val p2EventStore = new EventStoreProcess(enableSystemEvents = true)
-    val p1 = Process[IO](_ => {
-      case e => p1EventStore(e)
-    })
-    val p2 = Process[IO](_ => {
-      case e => p2EventStore(e)
-    })
+  "Stop" should "be delivered last" in {
+    val domainEventsCount = 1
+    val totalEventsCount = 2 // domainEventsCount + Stop
+    val eventStore = new EventStore[Event]
+    val process = new Process[IO] {
+      val handle: Receive = {
+        case TestEvent => eval(eventStore.add(selfRef, TestEvent))
+        case Stop => eval(eventStore.add(selfRef, Stop))
+      }
+    }
 
-    val program = TestEvent ~> p1 ++ TestEvent ~> p2 ++ terminate
+    val sendEvent = TestEvent ~> process
+    val processes = Array(process)
+    val program = for {
+      fiber <- run(sendEvent, processes).start
+      _ <- eventStore.awaitSize(domainEventsCount).guaranteeCase(_ => fiber.cancel)
+    } yield ()
 
-    run(program, p1, p2)
+    program.unsafeRunSync()
 
-    p1EventStore.events.lastOption.value shouldBe Stop
-    p2EventStore.events.lastOption.value shouldBe Stop
-
-    p1EventStore.events.count(e => e == Stop) shouldBe 1
-    p2EventStore.events.count(e => e == Stop) shouldBe 1
+    eventStore.size shouldBe totalEventsCount
+    eventStore.get(process.selfRef) shouldBe Seq(TestEvent, Stop)
   }
 
 }

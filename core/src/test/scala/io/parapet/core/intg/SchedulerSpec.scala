@@ -1,305 +1,107 @@
 package io.parapet.core.intg
 
-import java.util.concurrent.{Executors, TimeUnit}
-import java.util.concurrent.atomic.AtomicInteger
-
-import cats.effect.{ContextShift, IO, Timer}
-import cats.implicits._
-import io.parapet.core.Event._
-import io.parapet.instances.DslInterpreterInstances.dslInterpreterForCatsIO._
-import io.parapet.core.{Event, Process, ProcessRef, Queue, Scheduler}
-import io.parapet.core.Scheduler._
-import io.parapet.instances.DslInstances.catsInstances.effect._
-import io.parapet.instances.DslInstances.catsInstances.flow._
-import io.parapet.core.intg.SchedulerSpec.TaskProcessingTime._
+import cats.effect.IO
+import io.parapet.core.Dsl.WithDsl
+import io.parapet.core.Event.{DeadLetter, Envelope, Start}
+import io.parapet.core.Parapet._
+import io.parapet.core.exceptions.{EventDeliveryException, UnknownProcessException}
 import io.parapet.core.intg.SchedulerSpec._
+import io.parapet.core.processes.DeadLetterProcess
+import io.parapet.core.testutils.{EventStore, IntegrationSpec}
+import io.parapet.core.{Event, Process}
 import io.parapet.implicits._
-import org.scalatest.{FunSuite, Ignore}
+import org.scalatest.Matchers.{matchPattern, empty => _, _}
+import org.scalatest.OptionValues._
+import org.scalatest.WordSpec
 
-import org.scalatest.Matchers.{empty => _, _}
+import scala.concurrent.duration._
 
-import scala.annotation.tailrec
-import scala.collection.JavaConverters._
-import scala.collection.mutable.ListBuffer
-import scala.concurrent.ExecutionContext
-import scala.concurrent.duration.{FiniteDuration, _}
-import scala.util.Random
+class SchedulerSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
 
-class SchedulerSpec extends FunSuite {
-
-  test("work stealing #1") {
-
-    val config = SchedulerConfig(
-      queueSize = 5,
-      numberOfWorkers = 2,
-      workerQueueSize = 5,
-      taskSubmissionTimeout = 1.second,
-      workerTaskDequeueTimeout = 1.second,
-      maxRedeliveryRetries = 0,
-      redeliveryInitialDelay = 0.seconds)
+  import effectDsl._
+  import flowDsl._
 
 
-    val eventStore = new EventStore[TestEvent]
-    val p1 = createProcess(eventStore, 5.seconds) // slowProcess
-    val p2 = createProcess(eventStore)
-    val p3 = createProcess(eventStore)
-    val p4 = createProcess(eventStore)
+  "Scheduler" when {
+    "received task for unknown process" should {
+      "send event to deadletter" in {
+        val deadLetterEventStore = new EventStore[DeadLetter]
+        val deadLetter = new DeadLetterProcess[IO] {
+          val handle: Receive = {
+            case f: DeadLetter => eval(deadLetterEventStore.add(selfRef, f))
+          }
+        }
 
-    // p1 and p2 assigned to w1
-    // p3 and p4 assigned to w2
+        val unknownProcess = new Process[IO] {
+          val handle: Receive = {
+            case _ => empty
+          }
+        }
 
-    val tasks: ListBuffer[IODeliver] = ListBuffer()
-    tasks += Deliver[IO](Envelope(ProcessRef.SystemRef, TestEvent(1), p1.ref))
-    (2 until 6).foreach { i =>
-      tasks += Deliver[IO](Envelope(ProcessRef.SystemRef, TestEvent(i), p2.ref))
+        val client = new Process[IO] {
+          val handle: Receive = {
+            case Start => Request ~> unknownProcess
+          }
+        }
+
+        val processes = Array(client)
+
+        val program = for {
+          fiber <- run(empty, processes, Some(deadLetter)).start
+          _ <- deadLetterEventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+
+        } yield ()
+        program.unsafeRunSync()
+
+        deadLetterEventStore.size shouldBe 1
+        deadLetterEventStore.get(deadLetter.selfRef).headOption.value should matchPattern {
+          case DeadLetter(Envelope(client.selfRef, Request, unknownProcess.selfRef), _: UnknownProcessException) =>
+        }
+      }
     }
 
-    run(config, Array(p1, p2, p3, p4), tasks, eventStore)
-
-    eventStore.print()
-
-    verifyEvents(tasks, eventStore)
   }
 
-  test("work stealing #2") {
+  "Scheduler" when {
+    "process event queue is full" should {
+      "send event to deadletter" in {
+        val processQueueSize = 1
+        val deadLetterEventStore = new EventStore[DeadLetter]
+        val deadLetter = new DeadLetterProcess[IO] {
+          val handle: Receive = {
+            case f: DeadLetter => eval(deadLetterEventStore.add(selfRef, f))
+          }
+        }
 
-    val config = SchedulerConfig(
-      queueSize = 5,
-      numberOfWorkers = 2,
-      workerQueueSize = 5,
-      taskSubmissionTimeout = 1.second,
-      workerTaskDequeueTimeout = 12.seconds, //  disable stealing
-      maxRedeliveryRetries = 0,
-      redeliveryInitialDelay = 0.seconds)
+        val slowServer = new Process[IO] {
+          override val handle: Receive = {
+            case _: NamedRequest => delay(1.minute)
+          }
+        }
 
-    val eventStore = new EventStore[TestEvent]
-    val p1 = createProcess(eventStore, 3.seconds) // slowProcess
+        val client = new Process[IO] {
+          override val handle: Receive = {
+            case Start => Seq(NamedRequest("1"), NamedRequest("2")) ~> slowServer
+          }
+        }
 
-    // p1 assigned w1
-    // w2 has no processes
+        val processes = Array(client, slowServer)
 
-    val tasks = (1 to 4).map(i => Deliver[IO](Envelope(ProcessRef.SystemRef, TestEvent(i), p1.ref))).toList
-    run(config, Array(p1), tasks, eventStore)
-    eventStore.print()
+        val updatedConfig = processQueueSizeLens.set(defaultConfig)(processQueueSize)
+        println(updatedConfig)
+        val program = for {
+          fiber <- run(empty, processes, Some(deadLetter), updatedConfig).start
+          _ <- deadLetterEventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
 
-    verifyEvents(tasks, eventStore)
+        } yield ()
+        program.unsafeRunSync()
 
-  }
+        deadLetterEventStore.size shouldBe 1
+        deadLetterEventStore.get(deadLetter.selfRef).headOption.value should matchPattern {
+          case DeadLetter(Envelope(client.selfRef, NamedRequest("2"), slowServer.selfRef), _: EventDeliveryException) =>
+        }
 
-  test("work stealing with single worker") {
-
-    val config = SchedulerConfig(
-      queueSize = 5,
-      numberOfWorkers = 1,
-      workerQueueSize = 5,
-      taskSubmissionTimeout = 1.second,
-      workerTaskDequeueTimeout = 1.second,
-      maxRedeliveryRetries = 0,
-      redeliveryInitialDelay = 0.seconds)
-
-    val eventStore = new EventStore[TestEvent]
-    val p1 = createProcess(eventStore)
-
-    // p1 assigned w1
-    // p2 assigned to w2
-
-    val tasks = List()
-
-    run(config, Array(p1), tasks, eventStore, 10.seconds)
-    eventStore.print()
-
-    verifyEvents(tasks, eventStore)
-  }
-
-  test("random spec 0.5, random workload gen") {
-    val config = SchedulerConfig(
-      queueSize = 1000,
-      numberOfWorkers = 5,
-      workerQueueSize = 20,
-      taskSubmissionTimeout = 1.second,
-      workerTaskDequeueTimeout = 1.second,
-      maxRedeliveryRetries = 0,
-      redeliveryInitialDelay = 0.seconds)
-
-    val numberOfEvents = 100
-    val numberOfProcesses = 10
-    val eventStore = new EventStore[TestEvent]
-    val processes = createProcesses(numberOfProcesses, instant, 0.5, range(500.millis, 1.seconds), eventStore)
-    val start = System.nanoTime()
-    randomSpec(config, numberOfEvents, processes, eventStore, WorkloadGen.Random)
-    val end = System.nanoTime()
-
-    val elapsedTime = TimeUnit.NANOSECONDS.toMillis(end - start)
-
-    println(s"time took: $elapsedTime")
-
-  }
-
-  test("random spec 0.75, random workload gen") {
-    val config = SchedulerConfig(
-      queueSize = 1000,
-      numberOfWorkers = 5,
-      workerQueueSize = 20,
-      taskSubmissionTimeout = 1.second,
-      workerTaskDequeueTimeout = 1.second,
-      maxRedeliveryRetries = 0,
-      redeliveryInitialDelay = 0.seconds)
-
-    val numberOfEvents = 100
-    val numberOfProcesses = 10
-    val eventStore = new EventStore[TestEvent]
-    val processes = createProcesses(numberOfProcesses, instant, 0.75, range(500.millis, 1.seconds), eventStore)
-    randomSpec(config, numberOfEvents, processes, eventStore, WorkloadGen.Random)
-  }
-
-  test("random spec 0.5, batch workload gen") {
-    val config = SchedulerConfig(
-      queueSize = 1000,
-      numberOfWorkers = 10,
-      workerQueueSize = 20,
-      taskSubmissionTimeout = 1.second,
-      workerTaskDequeueTimeout = 1.second,
-      maxRedeliveryRetries = 0,
-      redeliveryInitialDelay = 0.seconds)
-
-    val numberOfEvents = 50
-    val numberOfProcesses = 10
-    val eventStore = new EventStore[TestEvent]
-    val processes = createProcesses(numberOfProcesses, instant, 0.5, range(500.millis, 1.seconds), eventStore)
-    val start = System.nanoTime()
-    randomSpec(config, numberOfEvents, processes, eventStore, WorkloadGen.Batch)
-    val end = System.nanoTime()
-    val elapsedTime = TimeUnit.NANOSECONDS.toMillis(end - start)
-
-    println(s"time took: $elapsedTime")
-  }
-
-  test("random spec 0.75, batch workload gen") {
-    val config = SchedulerConfig(
-      queueSize = 1000,
-      numberOfWorkers = 10,
-      workerQueueSize = 20,
-      taskSubmissionTimeout = 1.second,
-      workerTaskDequeueTimeout = 1.second,
-      maxRedeliveryRetries = 0,
-      redeliveryInitialDelay = 0.seconds)
-
-    val numberOfEvents = 50
-    val numberOfProcesses = 10
-    val eventStore = new EventStore[TestEvent]
-    val processes = createProcesses(numberOfProcesses, instant, 0.75, range(500.millis, 1.seconds), eventStore)
-    randomSpec(config, numberOfEvents, processes, eventStore, WorkloadGen.Batch)
-  }
-
-  ignore("Random task gen") {
-    val numberOfEvents = 5
-    val numberOfProcesses = 5
-    val processes = (0 until numberOfProcesses).map(_ => dummyProcess).toArray
-    val actualTasks = WorkloadGen.Random.createTasks(numberOfEvents, processes)
-
-    actualTasks.size shouldBe numberOfEvents
-
-    val actualEvents = groupEventsByProcess(actualTasks).values.flatten.map(toTestEvent(_).seqNumber).toList.sorted
-    actualEvents shouldBe (1 to numberOfEvents)
-  }
-
-  ignore("Batch task gen") {
-    val batchSize = 5
-    val numberOfProcesses = 5
-    val totalTasks = batchSize * numberOfProcesses
-    val processes = (0 until numberOfProcesses).map(_ => dummyProcess).toArray
-    val actualTasks = WorkloadGen.Batch.createTasks(batchSize, processes)
-
-    actualTasks.size shouldBe totalTasks
-
-    val groupedByEvents = groupEventsByProcess(actualTasks)
-
-    groupedByEvents(processes(0).ref).map(e => toTestEvent(e).seqNumber) shouldBe (1 to 5)
-    groupedByEvents(processes(1).ref).map(e => toTestEvent(e).seqNumber) shouldBe (6 to 10)
-    groupedByEvents(processes(2).ref).map(e => toTestEvent(e).seqNumber) shouldBe (11 to 15)
-    groupedByEvents(processes(3).ref).map(e => toTestEvent(e).seqNumber) shouldBe (16 to 20)
-    groupedByEvents(processes(4).ref).map(e => toTestEvent(e).seqNumber) shouldBe (21 to 25)
-  }
-
-  ignore("create processes #1") {
-    val n = 5
-    val eventStore = new EventStore[TestEvent]
-    val processes = createProcesses(n, TaskProcessingTime.instant, 0.5, TaskProcessingTime.instant, eventStore)
-    processes.length shouldBe n
-  }
-
-  ignore("create processes #2") {
-    val n = 5
-    val eventStore = new EventStore[TestEvent]
-    val processes = createProcesses(n, TaskProcessingTime.instant, 0.25, TaskProcessingTime.instant, eventStore)
-    processes.length shouldBe n
-  }
-
-  ignore("create processes #3") {
-    val n = 5
-    val eventStore = new EventStore[TestEvent]
-    val processes = createProcesses(n, TaskProcessingTime.instant, 0.75, TaskProcessingTime.instant, eventStore)
-    processes.length shouldBe n
-  }
-
-  ignore("create processes #4") {
-    val n = 5
-    val eventStore = new EventStore[TestEvent]
-    val processes = createProcesses(n, TaskProcessingTime.instant, 0, TaskProcessingTime.instant, eventStore)
-    processes.length shouldBe n
-  }
-
-  ignore("create processes #5") {
-    val n = 5
-    val eventStore = new EventStore[TestEvent]
-    val processes = createProcesses(n, TaskProcessingTime.instant, 1, TaskProcessingTime.instant, eventStore)
-    processes.length shouldBe n
-  }
-
-  def run(config: SchedulerConfig,
-                      processes: Array[Process[IO]],
-                      tasks: Seq[IODeliver],
-                      eventStore: EventStore[TestEvent], shutdownDelay: FiniteDuration = 0.millis): Seq[IOTask] = {
-    val executor = Executors.newFixedThreadPool(10)
-    val ec: ExecutionContext = ExecutionContext.fromExecutor(executor)
-    implicit val ctx: ContextShift[IO] = IO.contextShift(ec)
-    implicit val timer: Timer[IO] = IO.timer(ec)
-    val program = for {
-      taskQueue <- Queue.bounded[IO, IOTask](config.queueSize)
-      interpreter <- IO.pure(ioFlowInterpreter(taskQueue)(ctx, timer) or ioEffectInterpreter)
-      scheduler <- Scheduler.apply2[IO](config, processes, taskQueue, interpreter)
-      fiber <- scheduler.run.start
-      _ <- submitAll(scheduler, tasks)
-      _ <- eventStore.awaitSize(tasks.size)
-      _ <- IO.sleep(shutdownDelay)
-      _ <- IO(println("stop scheduler"))  >> fiber.cancel
-    } yield tasks
-
-    val executedTasks = program.unsafeRunSync()
-    executor.shutdownNow()
-    executedTasks
-  }
-
-  ignore("events order assertion") {
-    assertEventsOrder(Seq(TestEvent(1), TestEvent(2), TestEvent(3)))
-    assertThrows[IllegalArgumentException] {
-      assertEventsOrder(Seq(TestEvent(2), TestEvent(1), TestEvent(3)))
-    }
-    assertThrows[IllegalArgumentException] {
-      assertEventsOrder(Seq(TestEvent(1), TestEvent(3), TestEvent(2)))
-    }
-  }
-
-  def randomSpec(config: SchedulerConfig, numberOfEvents: Int,
-                 processes: Array[Process[IO]], eventStore: EventStore[TestEvent], wt: WorkloadGen, samples: Int = 1): Unit = {
-    (0 until samples).foreach { i =>
-      println(s"random spec test #$i")
-      val tasks = wt.createTasks(numberOfEvents, processes)
-      println(tasks.size)
-      run(config, processes, tasks, eventStore)
-      eventStore.print()
-
-      verifyEvents(tasks, eventStore)
+      }
     }
   }
 
@@ -307,170 +109,8 @@ class SchedulerSpec extends FunSuite {
 
 object SchedulerSpec {
 
-  type IOTask = Task[IO]
-  type IODeliver = Deliver[IO]
-  type IOProcess = Process[IO]
-  type TaskId = Int // todo add id to the Task
+  object Request extends Event
 
-  def dummyProcess: IOProcess = new Process[IO] {
-    override val handle: Receive = {
-      case _ => empty
-    }
-  }
-
-  case class TestEvent(seqNumber: Int) extends Event
-
-  class EventStore[A <: Event] {
-    type EventList = ListBuffer[A]
-    private val eventMap: java.util.Map[ProcessRef, EventList] =
-      new java.util.concurrent.ConcurrentHashMap[ProcessRef, EventList]()
-
-    private val sizeRef = new AtomicInteger()
-
-    def add(pRef: ProcessRef, event: A): Unit = {
-      sizeRef.incrementAndGet()
-      eventMap.computeIfAbsent(pRef, _ => ListBuffer())
-      eventMap.computeIfPresent(pRef, (_: ProcessRef, events: EventList) => events += event)
-    }
-
-    def get(pRef: ProcessRef): Seq[A] = eventMap.getOrDefault(pRef, ListBuffer.empty)
-
-    def allEvents: Seq[A] = eventMap.values().asScala.flatten.toSeq
-
-    def print(): Unit = {
-      println("===== Event store ====")
-      eventMap.forEach { (ref: ProcessRef, events: EventList) =>
-        println(s"$ref  -> $events")
-      }
-    }
-
-    def size: Int = sizeRef.get()
-
-    def awaitSize(expectedSize: Int, delay: FiniteDuration = 100.millis)(implicit timer: Timer[IO]): IO[Unit] = {
-      if (size == expectedSize) IO.unit
-      else IO.sleep(delay) >> awaitSize(expectedSize, delay)
-    }
-  }
-
-
-  def createProcess(eventStore: EventStore[TestEvent],
-                    time: FiniteDuration = TaskProcessingTime.instant.time): IOProcess = {
-    Process[IO] { self => {
-      case e: TestEvent => delay(time) ++ eval(eventStore.add(self, e))
-    }
-    }
-  }
-
-  def submitAll(scheduler: Scheduler[IO], tasks: Seq[IOTask]): IO[Unit] = {
-    tasks.map(scheduler.submit).foldLeft(IO.unit)(_ >> _)
-  }
-
-  @tailrec
-  def assertEventsOrder(events: Seq[TestEvent]): Unit = {
-    events match {
-      case x :: y :: xs =>
-        require(x.seqNumber < y.seqNumber,
-          s"incorrect order of events: ${x.seqNumber} shouldBe < ${y.seqNumber}")
-        assertEventsOrder(y +: xs)
-      case _ =>
-    }
-  }
-
-  def verifyEvents(submittedTasks: Seq[IODeliver], eventStore: EventStore[TestEvent]): Unit = {
-    val groupedEventsByProcess = groupEventsByProcess(submittedTasks)
-
-    val actualEvents = eventStore.allEvents.map(_.seqNumber).toSet
-    actualEvents.size shouldBe submittedTasks.size
-
-    groupedEventsByProcess.foreach {
-      case (pRef, expectedEvents) =>
-        eventStore.get(pRef) shouldBe expectedEvents
-    }
-  }
-
-
-  def groupEventsByProcess(tasks: Seq[IODeliver]): Map[ProcessRef, Seq[Event]] = {
-    tasks.groupBy(t => t.envelope.receiver).mapValues(_.map(_.envelope.event))
-  }
-
-  def toTestEvent(e: Event): TestEvent = e.asInstanceOf[TestEvent]
-
-  trait TaskProcessingTime {
-    // returns time in milliseconds
-    def time: FiniteDuration
-  }
-
-  object TaskProcessingTime {
-
-    class Interval(value: FiniteDuration) extends TaskProcessingTime {
-      override def time: FiniteDuration = value.toMillis.millis
-    }
-
-    class Range(from: FiniteDuration, to: FiniteDuration) extends TaskProcessingTime {
-      private val rnd = new Random
-
-      override def time: FiniteDuration = {
-        val fromMillis = from.toMillis
-        val toMillis = to.toMillis
-
-        (fromMillis + rnd.nextInt((toMillis - fromMillis).toInt + 1)).millis
-      }
-    }
-
-    val instant: TaskProcessingTime = new TaskProcessingTime {
-      private val now = 0.millis
-
-      override def time: FiniteDuration = now
-    }
-
-    def range(from: FiniteDuration, to: FiniteDuration): TaskProcessingTime = new Range(from, to)
-
-    def interval(time: FiniteDuration): TaskProcessingTime = new Interval(time)
-
-  }
-
-  def createProcesses(n: Int, pta: TaskProcessingTime, ratio: Double, ptb: TaskProcessingTime, eventStore: EventStore[TestEvent]): Array[Process[IO]] = {
-    val processes = new Array[Process[IO]](n)
-    val aLne = (n * ratio).toInt
-    val bLen = n - aLne
-    (0 until aLne).foreach { i =>
-      processes(i) = createProcess(eventStore, pta.time)
-    }
-    (aLne until n).foreach { i =>
-      processes(i) = createProcess(eventStore, ptb.time)
-    }
-    processes
-  }
-
-  trait WorkloadGen {
-    def createTasks(n: Int, processes: Array[Process[IO]]): Seq[IODeliver]
-  }
-
-  object WorkloadGen {
-
-    object Random extends WorkloadGen {
-      override def createTasks(n: Int, processes: Array[Process[IO]]): Seq[IODeliver] = {
-        val rnd = scala.util.Random
-        (1 to n).map(i => Deliver[IO](Envelope(ProcessRef.SystemRef, TestEvent(i),
-          processes(rnd.nextInt(processes.length)).ref)))
-      }
-    }
-
-    object Batch extends WorkloadGen {
-      override def createTasks(n: Int, processes: Array[Process[IO]]): Seq[IODeliver] = {
-        def create(i: Int, offset: Int, n: Int, tasks: Seq[IODeliver]): Seq[IODeliver] = {
-          if (i < processes.length) {
-            create(i + 1, offset + n, n, tasks ++ (1 to n).map(j =>
-              Deliver[IO](Envelope(ProcessRef.SystemRef, TestEvent(offset + j), processes(i).ref))))
-          } else tasks
-        }
-
-        create(0, 0, n, Seq.empty)
-      }
-    }
-
-  }
-
-
+  case class NamedRequest(name: String) extends Event
 
 }

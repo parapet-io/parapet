@@ -26,15 +26,14 @@ object Dsl {
 
   case class Delay[F[_], G[_]](duration: FiniteDuration, flow: Option[Free[G, Unit]]) extends FlowOp[F, Unit]
 
-  case class Stop[F[_]]() extends FlowOp[F, Unit]
-
   case class Reply[F[_], G[_]](f: ProcessRef => Free[G, Unit]) extends FlowOp[F, Unit]
+
+  case class Invoke[F[_], G[_]](caller: ProcessRef, body: Free[G, Unit], callee: ProcessRef) extends FlowOp[F, Unit]
 
   // F - effect type
   // G - coproduct of FlowOp and other algebras
   class FlowOps[F[_], C[_]](implicit I: InjectK[FlowOp[F, ?], C]) {
     val empty: Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Empty())
-    val terminate: Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Stop())
 
     def use[A](resource: => A)(f: A => Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?],C](Use(() => resource, f))
 
@@ -52,6 +51,9 @@ object Dsl {
     def delay(duration: FiniteDuration): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Delay(duration, None))
 
     def reply(f: ProcessRef => Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Reply(f))
+
+    def invoke(caller: ProcessRef, body: Free[C, Unit], callee: ProcessRef) : Free[C, Unit] =
+      Free.inject[FlowOp[F, ?], C](Invoke(caller, body, callee))
   }
 
   object FlowOps {
@@ -80,4 +82,10 @@ object Dsl {
   object Effects {
     implicit def effects[F[_], G[_]](implicit I: InjectK[Effect[F, ?], G]): Effects[F, G] = new Effects[F, G]
   }
+
+  trait WithDsl[F[_]] {
+    val flowDsl: FlowOps[F, Dsl[F, ?]] = implicitly[FlowOps[F, Dsl[F, ?]]]
+    val effectDsl: Effects[F, Dsl[F, ?]] = implicitly[Effects[F, Dsl[F, ?]]]
+  }
+
 }

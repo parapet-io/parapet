@@ -2,18 +2,18 @@ package io.parapet.components.network
 
 import cats.effect.IO
 import io.parapet.CatsApp
-import io.parapet.components.network.ZmqTcpServer
 import io.parapet.components.network.ZmqTcpServer._
 import io.parapet.core.Process
 import io.parapet.implicits._
-import io.parapet.instances.DslInstances.catsInstances.effect._
-import io.parapet.instances.DslInstances.catsInstances.flow._
 
 object TcpServerApp extends CatsApp {
 
   val port = 5555
 
   class EchoProcess extends Process[IO] {
+
+    import effectDsl._
+    import flowDsl._
 
     override val handle: Receive = {
       case Req(data) =>

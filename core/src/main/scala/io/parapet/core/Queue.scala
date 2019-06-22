@@ -4,30 +4,14 @@ import cats.Monad
 import cats.effect.Concurrent
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import io.parapet.syntax.EffectOps
-import io.parapet.syntax.boolean._
+import io.parapet.core.Queue.{Dequeue, Enqueue}
 
-import scala.collection.mutable.ListBuffer
-import scala.concurrent.duration.FiniteDuration
-import io.parapet.core.Queue.{Enqueue, Dequeue}
-
-trait Queue[F[_], A] extends Enqueue[F, A] with Dequeue[F, A]{
+trait Queue[F[_], A] extends Enqueue[F, A] with Dequeue[F, A] {
 
   def size: F[Int]
 
-  def isEmpty(implicit M:Monad[F]): F[Boolean] = size.map(v => v == 0)
+  def isEmpty(implicit M: Monad[F]): F[Boolean] = size.map(v => v == 0)
 
-  // returns a tuple where Element 2 contains elements that match the given predicate
-  def partition(p: A => Boolean)(implicit M: Monad[F]): F[(Seq[A], Seq[A])] = {
-    def partition(left: Seq[A], right: Seq[A]): F[(Seq[A], Seq[A])] = {
-      tryDequeue >>= {
-        case Some(a) => if (p(a)) partition(left, right :+ a) else partition(left :+ a, right)
-        case None => M.pure((left, right))
-      }
-    }
-
-    partition(ListBuffer(), ListBuffer())
-  }
 }
 
 object Queue {
@@ -39,9 +23,6 @@ object Queue {
 
     def tryEnqueue(a: A): F[Boolean]
 
-    def tryEnqueue(a: A, duration: FiniteDuration)(implicit ct: Concurrent[F]): F[Boolean] = {
-      EffectOps.retryWithTimeout(tryEnqueue(a).map(_.toOption(())), duration.fromNow).map(_.isDefined)
-    }
   }
 
   trait Dequeue[F[_], A] {
@@ -49,12 +30,8 @@ object Queue {
 
     def tryDequeue: F[Option[A]]
 
-    def tryDequeue(duration: FiniteDuration)(implicit ct: Concurrent[F]): F[Option[A]] = {
-      EffectOps.retryWithTimeout(tryDequeue, duration.fromNow)
-    }
-
-    def dequeueThrough[F1[x] >: F[x] : Monad, B](f: A => F1[B]): F1[B] = {
-      implicitly[Monad[F1]].flatMap(dequeue)(a => f(a))
+    def dequeueThrough[B](f: A => F[B])(implicit M: Monad[F]): F[B] = {
+      implicitly[Monad[F]].flatMap(dequeue)(a => f(a))
     }
   }
 

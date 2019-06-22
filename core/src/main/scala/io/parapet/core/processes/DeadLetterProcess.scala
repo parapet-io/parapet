@@ -1,19 +1,16 @@
 package io.parapet.core.processes
 
-import java.io.{PrintWriter, StringWriter}
-
 import cats.effect.Concurrent
 import com.typesafe.scalalogging.Logger
-import io.parapet.core.Event.{DeadLetter, Failure}
-import io.parapet.core.Logging.{MDCFields, _}
+import io.parapet.core.Event.{DeadLetter, Envelope}
+import io.parapet.syntax.logger._
 import io.parapet.core.ProcessRef.DeadLetterRef
-import io.parapet.core.exceptions.{EventDeliveryException, EventRecoveryException}
 import io.parapet.core.{Process, ProcessRef}
 import org.slf4j.LoggerFactory
 
 trait DeadLetterProcess[F[_]] extends Process[F] {
   override val name: String = DeadLetterRef.ref
-  override final val ref: ProcessRef = DeadLetterRef
+  override final val selfRef: ProcessRef = DeadLetterRef
 }
 
 object DeadLetterProcess {
@@ -23,34 +20,22 @@ object DeadLetterProcess {
     private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
     override val name: String = DeadLetterRef.ref + "-logging"
     override val handle: Receive = {
-      case DeadLetter(Failure(pRef, event, error)) =>
-        val errorMsg = error match {
-          case e: EventDeliveryException => e.getCause.getMessage
-          case e: EventRecoveryException => e.getCause.getMessage
-        }
-
+      case DeadLetter(Envelope(sender, event, receiver), error) =>
         val mdcFields: MDCFields = Map(
-          "processId" -> ref,
+          "processRef" -> selfRef,
           "processName" -> name,
-          "failedProcessId" -> pRef,
+          "sender" -> sender,
+          "receiver" -> receiver,
           "eventId" -> event.id,
-          "errorMsg" -> errorMsg,
-          "stack_trace" -> getStackTrace(error))
+          "event" ->  event)
 
         eval {
-          logger.mdc(mdcFields) { args =>
-            logger.debug(s"$name: process[id=$pRef] failed to process event[id=${event.id}], error=${args("errorMsg")}")
+          logger.mdc(mdcFields) { _ =>
+            logger.error(s"event cannot be processed", error)
           }
         }
     }
 
-
-    private def getStackTrace(throwable: Throwable): String = {
-      val sw = new StringWriter
-      val pw = new PrintWriter(sw, true)
-      throwable.printStackTrace(pw)
-      sw.getBuffer.toString
-    }
   }
 
   def logging[F[_] : Concurrent]: DeadLetterProcess[F] = new DeadLetterLoggingProcess()

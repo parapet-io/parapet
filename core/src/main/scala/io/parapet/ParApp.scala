@@ -11,7 +11,7 @@ import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.ProcessRef.SystemRef
 import io.parapet.core.Scheduler.{SchedulerConfig, Task, TaskQueue}
 import io.parapet.core.processes.{DeadLetterProcess, SystemProcess}
-import io.parapet.core.{Parallel, Process, Queue, Scheduler}
+import io.parapet.core.{Parallel, Parapet, Process, Queue, Scheduler}
 import io.parapet.syntax.flow._
 
 import scala.concurrent.duration._
@@ -24,7 +24,7 @@ abstract class ParApp[F[_]] {
   type Flow[A] = io.parapet.core.DslInterpreter.Flow[F, A]
   type Program = DslF[F, Unit]
 
-  val config: ParConfig = ParApp.defaultConfig
+  val config: ParConfig = Parapet.defaultConfig
 
   implicit val parallel: Parallel[F]
   implicit val timer: Timer[F]
@@ -48,7 +48,7 @@ abstract class ParApp[F[_]] {
   def stop: F[Unit]
 
   private[parapet] final def initProcesses(implicit F: FlowOps[F, Dsl[F, ?]]): Program =
-    processes.map(p => F.send(Start, p.ref)).foldLeft(F.empty)(_ ++ _)
+    processes.map(p => F.send(Start, p.selfRef)).foldLeft(F.empty)(_ ++ _)
 
   def run: F[Unit] = {
     if (processes.isEmpty) {
@@ -57,9 +57,8 @@ abstract class ParApp[F[_]] {
       val systemProcesses = Array(systemProcess, deadLetter)
       for {
         taskQueue <- Queue.bounded[F, Task[F]](config.schedulerConfig.queueSize)
-        //context <- ct.pure(AppContext(taskQueue))
         interpreter <- ct.pure(flowInterpreter(taskQueue) or effectInterpreter)
-        scheduler <- Scheduler.apply2[F](config.schedulerConfig, systemProcesses ++ processes, taskQueue, interpreter)
+        scheduler <- Scheduler.apply[F](config.schedulerConfig, systemProcesses ++ processes, taskQueue, interpreter)
         _ <- parallel.par(
           Seq(interpret_(initProcesses ++ program, interpreter, FlowState(SystemRef, SystemRef)),
             scheduler.run))
@@ -71,17 +70,4 @@ abstract class ParApp[F[_]] {
   def main(args: Array[String]): Unit = {
     unsafeRun(run)
   }
-}
-
-
-object ParApp {
-  val defaultConfig: ParConfig = ParConfig(
-    schedulerConfig = SchedulerConfig(
-      queueSize = 1000,
-      numberOfWorkers = Runtime.getRuntime.availableProcessors(),
-      workerQueueSize = 100,
-      taskSubmissionTimeout = 5.seconds,
-      workerTaskDequeueTimeout = 5.minutes,
-      maxRedeliveryRetries = 5,
-      redeliveryInitialDelay = 0.seconds))
 }

@@ -1,42 +1,48 @@
 package io.parapet.core.intg
 
-import java.util.concurrent.atomic.AtomicBoolean
-
 import cats.effect.IO
+import io.parapet.core.Dsl.WithDsl
 import io.parapet.core.Event._
+import io.parapet.core.intg.ReplySpec._
+import io.parapet.core.testutils.{EventStore, IntegrationSpec}
 import io.parapet.core.{Event, Process}
-import io.parapet.instances.DslInstances.catsInstances.effect._
-import io.parapet.instances.DslInstances.catsInstances.flow._
 import io.parapet.implicits._
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers.{empty => _, _}
+import org.scalatest.OptionValues._
 
-class ReplySpec extends FlatSpec with IntegrationSpec {
+class ReplySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
 
-  import ReplySpec._
+  import effectDsl._
+  import flowDsl._
 
-  "Reply" should "send event back to sender" in {
-    val responseReceived = new AtomicBoolean(false)
-    val server = Process.named[IO]("server", _ => {
-      case Request => reply(sender => Response ~> sender)
-    })
+  "Reply" should "send send event to the sender" in {
+    val clientEventStore = new EventStore[Event]
+    val server = new Process[IO] {
+      val handle: Receive = {
+        case Request => reply(sender => Response ~> sender)
+      }
+    }
 
-    val client = Process.named[IO]("client", _ => {
-      case Start => Request ~> server
-      case Response =>
-        eval {
-          if (!responseReceived.compareAndSet(false, true)) {
-            throw new IllegalStateException("responseReceived must be false")
-          }
-        } ++ terminate
-    })
+    val client = new Process[IO] {
+      val handle: Receive = {
+        case Start => Request ~> server
+        case Response => eval(clientEventStore.add(selfRef, Response))
+      }
+    }
 
-    println(client)
-    println(server)
+    val processes = Array(client, server)
 
-    run(empty, client, server)
+    val program = for {
+      fiber <- run(empty, processes).start
+      _ <- clientEventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+    } yield ()
 
-    responseReceived.get() shouldBe true
+    program.unsafeRunSync()
+
+    clientEventStore.size shouldBe 1
+    clientEventStore.get(client.selfRef).headOption.value shouldBe Response
+
 
   }
 

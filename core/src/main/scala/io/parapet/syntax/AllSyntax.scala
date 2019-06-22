@@ -5,3 +5,4 @@ trait AllSyntax
     with ProcessSyntax
     with FlowSyntax
     with EffectSyntax
+    with LoggerSyntax
