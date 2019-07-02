@@ -9,12 +9,11 @@ import io.parapet.core.DslInterpreter._
 import io.parapet.core.Event.Start
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.ProcessRef.SystemRef
-import io.parapet.core.Scheduler.{SchedulerConfig, Task, TaskQueue}
+import io.parapet.core.Scheduler.Task
 import io.parapet.core.processes.{DeadLetterProcess, SystemProcess}
 import io.parapet.core.{EventDeliveryHooks, Parallel, Parapet, Process, Queue, Scheduler}
 import io.parapet.syntax.flow._
 
-import scala.concurrent.duration._
 import scala.language.{higherKinds, implicitConversions, reflectiveCalls}
 
 abstract class ParApp[F[_]] {
@@ -38,7 +37,7 @@ abstract class ParApp[F[_]] {
 
   private[parapet] lazy val systemProcess: Process[F] = new SystemProcess[F]
 
-  def flowInterpreter(taskQueue: TaskQueue[F], eventDeliveryHooks: EventDeliveryHooks[F]): FlowOp ~> Flow
+  def flowInterpreter(dependencies: Dependencies[F]): FlowOp ~> Flow
 
   def effectInterpreter: Effect ~> Flow
 
@@ -56,11 +55,12 @@ abstract class ParApp[F[_]] {
       ct.raiseError(new RuntimeException("Initialization error:  at least one process must be provided"))
     } else {
       val systemProcesses = Array(systemProcess, deadLetter)
+      val processMap = (processes ++ systemProcesses).map(p => p.selfRef -> p).toMap
       for {
         taskQueue <- Queue.bounded[F, Task[F]](config.schedulerConfig.queueSize)
-        interpreter <- ct.pure(flowInterpreter(taskQueue, eventDeliveryHooks) or effectInterpreter)
-        scheduler <- Scheduler.apply[F](config.schedulerConfig,
-          systemProcesses ++ processes, taskQueue, eventDeliveryHooks, interpreter)
+        dependencies <- ct.pure(new Dependencies[F](taskQueue, eventDeliveryHooks, processMap))
+        interpreter <- ct.pure(flowInterpreter(dependencies) or effectInterpreter)
+        scheduler <- Scheduler.apply[F](config.schedulerConfig, dependencies, interpreter)
         _ <- parallel.par(
           Seq(interpret_(initProcesses ++ program, interpreter, FlowState(SystemRef, SystemRef)),
             scheduler.run))

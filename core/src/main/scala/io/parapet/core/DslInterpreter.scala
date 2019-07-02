@@ -5,13 +5,20 @@ import cats.data.State
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.{Monad, ~>}
-import io.parapet.core.Dsl.{DslF, Dsl}
+import io.parapet.core.Dsl.{Dsl, DslF}
+import io.parapet.core.Scheduler.TaskQueue
 
 object DslInterpreter {
 
 
   type Flow[F[_], A] = State[FlowState[F], A]
   type Interpreter[F[_]] = Dsl[F, ?] ~> Flow[F, ?]
+
+  // maybe Context or System would be better names
+  case class Dependencies[F[_]](
+                                 taskQueue: TaskQueue[F],
+                                 eventDeliveryHooks: EventDeliveryHooks[F],
+                                 processes: Map[ProcessRef, Process[F]])
 
   case class FlowState[F[_]](senderRef: ProcessRef, selfRef: ProcessRef, ops: Seq[F[_]] = Seq.empty) {
     def addOps(that: Seq[F[_]]): FlowState[F] = this.copy(ops = ops ++ that)

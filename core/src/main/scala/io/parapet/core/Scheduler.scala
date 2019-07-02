@@ -40,11 +40,9 @@ object Scheduler {
 
 
   def apply[F[_] : Concurrent : Timer : Parallel : ContextShift](config: SchedulerConfig,
-                                                                 processes: Array[Process[F]],
-                                                                 queue: TaskQueue[F],
-                                                                 eventDeliveryHooks: EventDeliveryHooks[F],
+                                                                 dependencies: Dependencies[F],
                                                                  interpreter: Interpreter[F]): F[Scheduler[F]] = {
-    SchedulerImpl(config, processes, queue, eventDeliveryHooks, interpreter)
+    SchedulerImpl(config, dependencies, interpreter)
   }
 
   case class SchedulerConfig(queueSize: Int,
@@ -141,15 +139,21 @@ object Scheduler {
 
     def apply[F[_] : Concurrent : Parallel : Timer : ContextShift](
                                                                     config: SchedulerConfig,
-                                                                    processes: Array[Process[F]],
-                                                                    taskQueue: TaskQueue[F],
-                                                                    eventDeliveryHooks: EventDeliveryHooks[F],
+                                                                    dependencies: Dependencies[F],
                                                                     interpreter: Interpreter[F]): F[Scheduler[F]] =
       for {
         processRefQueue <- Queue.bounded[F, ProcessRef](config.queueSize)
-        processesMap <- processes.map(p => State(p, config.processQueueSize).map(s => p.selfRef -> s)).toList.sequence.map(_.toMap)
+        processesMap <- dependencies
+          .processes.values
+          .map(p => State(p, config.processQueueSize).map(s => p.selfRef -> s)).toList.sequence.map(_.toMap)
+
       } yield
-        new SchedulerImpl(config, taskQueue, processRefQueue, processesMap, eventDeliveryHooks, interpreter)
+        new SchedulerImpl(
+          config,
+          dependencies.taskQueue,
+          processRefQueue,
+          processesMap, dependencies.eventDeliveryHooks,
+          interpreter)
 
     class State[F[_] : Concurrent](
                                     queue: TaskQueue[F],

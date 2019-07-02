@@ -5,12 +5,11 @@ import io.parapet.core.ProcessRef._
 import io.parapet.core.Scheduler._
 import io.parapet.implicits._
 import io.parapet.instances.DslInterpreterInstances.dslInterpreterForCatsIO._
-import io.parapet.core.DslInterpreter.interpret_
+import io.parapet.core.DslInterpreter.{Dependencies, FlowState, interpret_}
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers.{empty => _, _}
 import org.scalatest.OptionValues._
 import io.parapet.core.Dsl._
-import io.parapet.core.DslInterpreter.FlowState
 
 import scala.collection.mutable.{ListBuffer, Queue => SQueue}
 import scala.concurrent.ExecutionContext
@@ -116,7 +115,7 @@ object FlowSpec extends WithDsl [IO]{
   implicit val ioTimer: Timer[IO] = IO.timer(ec)
 
   def run_(program: DslF[IO, Unit], taskQueue: IOQueue[Task[IO]]): IOQueue[Task[IO]]  = {
-    val interpreter = ioFlowInterpreter(taskQueue, new EventDeliveryHooks[IO]) or ioEffectInterpreter
+    val interpreter = ioFlowInterpreter(new Dependencies[IO](taskQueue, new EventDeliveryHooks[IO], Map.empty)) or ioEffectInterpreter
     interpret_(program, interpreter, FlowState(SystemRef, SystemRef))
       .map(_ => taskQueue).unsafeRunSync()
   }

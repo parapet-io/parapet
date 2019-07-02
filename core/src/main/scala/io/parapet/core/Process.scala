@@ -16,6 +16,7 @@ trait Process[F[_]] {
 
   val name: String = getClass.getSimpleName
 
+  // todo add function: ref
   val selfRef: ProcessRef = ProcessRef.jdkUUIDRef
 
   private var state = Option.empty[Receive]

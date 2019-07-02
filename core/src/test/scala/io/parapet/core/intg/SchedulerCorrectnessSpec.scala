@@ -6,6 +6,7 @@ import cats.effect.{ContextShift, IO, Timer}
 import cats.implicits._
 import com.typesafe.scalalogging.StrictLogging
 import io.parapet.core.Dsl.WithDsl
+import io.parapet.core.DslInterpreter.Dependencies
 import io.parapet.core.Event._
 import io.parapet.core.Scheduler._
 import io.parapet.core.intg.SchedulerCorrectnessSpec.TaskProcessingTime._
@@ -184,12 +185,16 @@ class SchedulerCorrectnessSpec extends FunSuite with WithDsl[IO] with StrictLogg
 
       require(tasks.size >= spec.numberOfEvents, "number of tasks must be gte number of events")
 
+      val processMap = processes.map(p => p.selfRef -> p).toMap
+
 
       val program = for {
         taskQueue <- Queue.bounded[IO, IOTask](spec.config.queueSize)
-        eventDeliveryHooks <- IO(new EventDeliveryHooks[IO])
-        interpreter <- IO.pure(ioFlowInterpreter(taskQueue, eventDeliveryHooks)(ctx, timer) or ioEffectInterpreter)
-        scheduler <- Scheduler[IO](spec.config, processes, taskQueue, eventDeliveryHooks, interpreter)
+        deps <- IO(new Dependencies[IO](taskQueue, new EventDeliveryHooks[IO], processMap))
+        interpreter <- IO.pure(ioFlowInterpreter(
+          new Dependencies[IO](taskQueue,
+            new EventDeliveryHooks[IO], processMap))(ctx, timer) or ioEffectInterpreter)
+        scheduler <- Scheduler[IO](spec.config, deps, interpreter)
         fiber <- scheduler.run.start
         _ <- submitAll(scheduler, tasks)
         _ <- eventStore.awaitSize(tasks.size).guaranteeCase(_ => fiber.cancel)

@@ -24,7 +24,7 @@ lazy val dependencies =
     val shapeless = "com.chuusai" %% "shapeless" % "2.3.3"
     // logging
     val scalaLogging = "com.typesafe.scala-logging" %% "scala-logging" % "3.9.2"
-    val logbackClassic = "ch.qos.logback" % "logback-classic" % "1.2.3"
+    val logbackClassic = "ch.qos.logback" % "logback-classic" % "1.2.3" % Test
     // test
     val scalaTest = "org.scalatest" %% "scalatest" % "3.0.7" % Test
     val pegdown = "org.pegdown" % "pegdown" % "1.6.0" % Test
@@ -53,7 +53,9 @@ lazy val global = project
 lazy val core = project
   .settings(
     name := "core",
-    libraryDependencies ++= (commonDependencies ++ catsDependencies)
+    libraryDependencies ++= (commonDependencies ++ catsDependencies),
+    libraryDependencies += "org.json4s" %% "json4s-native" % "3.6.7",
+    libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7"
   )
 
 
@@ -75,14 +77,20 @@ addCompilerPlugin("org.typelevel" % "kind-projector" % "0.10.0" cross CrossVersi
 
 
 testOptions in ThisBuild in Test += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports")
-testOptions in ThisBuild in Test += Tests.Argument("-l", "org.scalatest.tags.Slow")
+//todo
+//testOptions in ThisBuild in Test += Tests.Argument("-l", "org.scalatest.tags.Slow")
 
 def testUntilFailed = Command.args("testUntilFailed", "") { (state, args) =>
   val argsList = args.mkString(" ")
   s"testOnly $argsList" :: s"testUntilFailed $argsList" :: state
 }
 
+def testFast = Command.command("testFast") { state =>
+  "testOnly -- -l org.scalatest.tags.Slow" :: state
+}
+
 commands += testUntilFailed
+commands += testFast
 
 parallelExecution in Test := false
 concurrentRestrictions in Global += Tags.limit(Tags.Test, 1)

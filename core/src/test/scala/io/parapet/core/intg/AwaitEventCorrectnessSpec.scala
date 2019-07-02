@@ -21,8 +21,8 @@ class AwaitEventCorrectnessSpec extends FunSuite with WithDsl[IO] with Integrati
   import flowDsl._
 
   test("await event correctness") {
-    val requestAwaitTimeout = 2000.millis
-    val heartbeatAwaitTimeout = 2000.millis
+    val requestAwaitTimeout = 5000.millis
+    val heartbeatAwaitTimeout = 5000.millis
     val eventStore = new EventStore[Event]
 
     val okRequests = (0 until 100).map(_ => Request(genId, 0.millis))
