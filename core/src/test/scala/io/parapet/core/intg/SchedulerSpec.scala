@@ -27,19 +27,19 @@ class SchedulerSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
       "send event to deadletter" in {
         val deadLetterEventStore = new EventStore[DeadLetter]
         val deadLetter = new DeadLetterProcess[IO] {
-          val handle: Receive = {
+          def handle: Receive = {
             case f: DeadLetter => eval(deadLetterEventStore.add(selfRef, f))
           }
         }
 
         val unknownProcess = new Process[IO] {
-          val handle: Receive = {
+          def handle: Receive = {
             case _ => empty
           }
         }
 
         val client = new Process[IO] {
-          val handle: Receive = {
+          def handle: Receive = {
             case Start => Request ~> unknownProcess
           }
         }
@@ -68,19 +68,19 @@ class SchedulerSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val processQueueSize = 1
         val deadLetterEventStore = new EventStore[DeadLetter]
         val deadLetter = new DeadLetterProcess[IO] {
-          val handle: Receive = {
+          def handle: Receive = {
             case f: DeadLetter => eval(deadLetterEventStore.add(selfRef, f))
           }
         }
 
         val slowServer = new Process[IO] {
-          override val handle: Receive = {
+          override def handle: Receive = {
             case _: NamedRequest => delay(1.minute)
           }
         }
 
         val client = new Process[IO] {
-          override val handle: Receive = {
+          override def handle: Receive = {
             case Start => Seq(NamedRequest("1"), NamedRequest("2")) ~> slowServer
           }
         }

@@ -23,7 +23,7 @@ class ErrorHandlingSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
       "send Failure event to the sender" in {
         val clientEventStore = new EventStore[Failure]
         val client = new Process[IO] {
-          val handle: Receive = {
+          def handle: Receive = {
             case Start => Request ~> faultyServer
             case f: Failure => eval(clientEventStore.add(selfRef, f))
           }
@@ -51,17 +51,17 @@ class ErrorHandlingSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
       "send Failure event to dead letter" in {
         val deadLetterEventStore = new EventStore[DeadLetter]
         val deadLetter = new DeadLetterProcess[IO] {
-          val handle: Receive = {
+          def handle: Receive = {
             case f: DeadLetter => eval(deadLetterEventStore.add(selfRef, f))
           }
         }
         val server = new Process[IO] {
-          val handle: Receive = {
+          def handle: Receive = {
             case Request => eval(throw new RuntimeException("server is down"))
           }
         }
         val client = new Process[IO] {
-          val handle: Receive = {
+          def handle: Receive = {
             case Start => Request ~> server
           }
         }
@@ -89,17 +89,17 @@ class ErrorHandlingSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
       "send Failure event to dead letter" in {
         val deadLetterEventStore = new EventStore[DeadLetter]
         val deadLetter = new DeadLetterProcess[IO] {
-          val handle: Receive = {
+          def handle: Receive = {
             case f: DeadLetter => eval(deadLetterEventStore.add(selfRef, f))
           }
         }
         val server = new Process[IO] {
-          val handle: Receive = {
+          def handle: Receive = {
             case Request => eval(throw new RuntimeException("server is down"))
           }
         }
         val client = new Process[IO] {
-          val handle: Receive = {
+          def handle: Receive = {
             case Start => Request ~> server
             case _: Failure => eval(throw new RuntimeException("client failed to handle error"))
           }
@@ -130,7 +130,7 @@ object ErrorHandlingSpec {
 
     import effectDsl._
 
-    val handle: Receive = {
+    def handle: Receive = {
       case Request => eval(throw new RuntimeException("server is down"))
     }
   }

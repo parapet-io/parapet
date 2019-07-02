@@ -4,7 +4,7 @@ import cats.effect._
 import cats.syntax.flatMap._
 import cats.~>
 import com.typesafe.scalalogging.Logger
-import io.parapet.core.Parallel
+import io.parapet.core.{EventDeliveryHooks, Parallel}
 import io.parapet.core.Scheduler.TaskQueue
 import io.parapet.instances.DslInterpreterInstances.dslInterpreterForCatsIO
 import io.parapet.instances.parallel._
@@ -21,8 +21,8 @@ abstract class CatsApp extends ParApp[IO] {
   implicit val timer: Timer[IO] = IO.timer(global)
   override val ct: Concurrent[IO] = implicitly[Concurrent[IO]]
 
-  override def flowInterpreter(taskQueue: TaskQueue[IO]): FlowOp ~> Flow = {
-    dslInterpreterForCatsIO.ioFlowInterpreter(taskQueue)
+  override def flowInterpreter(taskQueue: TaskQueue[IO], eventDeliveryHooks: EventDeliveryHooks[IO]): FlowOp ~> Flow = {
+    dslInterpreterForCatsIO.ioFlowInterpreter(taskQueue, eventDeliveryHooks)
   }
 
   override def effectInterpreter: Effect ~> Flow = {

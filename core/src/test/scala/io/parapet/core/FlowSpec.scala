@@ -116,7 +116,7 @@ object FlowSpec extends WithDsl [IO]{
   implicit val ioTimer: Timer[IO] = IO.timer(ec)
 
   def run_(program: DslF[IO, Unit], taskQueue: IOQueue[Task[IO]]): IOQueue[Task[IO]]  = {
-    val interpreter = ioFlowInterpreter(taskQueue) or ioEffectInterpreter
+    val interpreter = ioFlowInterpreter(taskQueue, new EventDeliveryHooks[IO]) or ioEffectInterpreter
     interpret_(program, interpreter, FlowState(SystemRef, SystemRef))
       .map(_ => taskQueue).unsafeRunSync()
   }

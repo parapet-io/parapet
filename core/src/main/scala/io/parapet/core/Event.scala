@@ -1,10 +1,6 @@
 package io.parapet.core
 
-import java.util.UUID
-
-trait Event {
-  final val id: String = UUID.randomUUID().toString
-}
+trait Event
 
 object Event {
 

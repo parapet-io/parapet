@@ -18,7 +18,19 @@ trait Process[F[_]] {
 
   val selfRef: ProcessRef = ProcessRef.jdkUUIDRef
 
-  val handle: Receive
+  private var state = Option.empty[Receive]
+
+  private[core] def execute: Receive = {
+    state match {
+      case Some(s) => s
+      case None =>
+        val default = handle
+        state = Some(default)
+        default
+    }
+  }
+
+  def handle: this.Receive
 
   def apply(e: Event, caller: ProcessRef): Program = {
     if (handle.isDefinedAt(e)) {
@@ -30,6 +42,12 @@ trait Process[F[_]] {
   }
 
   def apply(e: Event): Program = handle(e)
+
+  def switch(newHandler: => Receive): Program = {
+    effectDsl.eval {
+      state = Some(newHandler)
+    }
+  }
 
   def and(that: Process[F]): Process[F] = new Process[F] {
     override val handle: Receive = new Receive {

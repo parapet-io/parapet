@@ -26,7 +26,7 @@ object DeadLetterProcess {
           "processName" -> name,
           "sender" -> sender,
           "receiver" -> receiver,
-          "eventId" -> event.id,
+         // "eventId" -> event.id, todo add WithId
           "event" ->  event)
 
         eval {

@@ -11,7 +11,7 @@ import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.ProcessRef.SystemRef
 import io.parapet.core.Scheduler.{SchedulerConfig, Task, TaskQueue}
 import io.parapet.core.processes.{DeadLetterProcess, SystemProcess}
-import io.parapet.core.{Parallel, Parapet, Process, Queue, Scheduler}
+import io.parapet.core.{EventDeliveryHooks, Parallel, Parapet, Process, Queue, Scheduler}
 import io.parapet.syntax.flow._
 
 import scala.concurrent.duration._
@@ -31,13 +31,14 @@ abstract class ParApp[F[_]] {
   implicit val ct: Concurrent[F]
   implicit val contextShift: ContextShift[F]
   val processes: Array[Process[F]]
+  private val eventDeliveryHooks = new EventDeliveryHooks[F]
 
   // system processes
   def deadLetter: DeadLetterProcess[F] = DeadLetterProcess.logging
 
   private[parapet] lazy val systemProcess: Process[F] = new SystemProcess[F]
 
-  def flowInterpreter(taskQueue: TaskQueue[F]): FlowOp ~> Flow
+  def flowInterpreter(taskQueue: TaskQueue[F], eventDeliveryHooks: EventDeliveryHooks[F]): FlowOp ~> Flow
 
   def effectInterpreter: Effect ~> Flow
 
@@ -57,8 +58,9 @@ abstract class ParApp[F[_]] {
       val systemProcesses = Array(systemProcess, deadLetter)
       for {
         taskQueue <- Queue.bounded[F, Task[F]](config.schedulerConfig.queueSize)
-        interpreter <- ct.pure(flowInterpreter(taskQueue) or effectInterpreter)
-        scheduler <- Scheduler.apply[F](config.schedulerConfig, systemProcesses ++ processes, taskQueue, interpreter)
+        interpreter <- ct.pure(flowInterpreter(taskQueue, eventDeliveryHooks) or effectInterpreter)
+        scheduler <- Scheduler.apply[F](config.schedulerConfig,
+          systemProcesses ++ processes, taskQueue, eventDeliveryHooks, interpreter)
         _ <- parallel.par(
           Seq(interpret_(initProcesses ++ program, interpreter, FlowState(SystemRef, SystemRef)),
             scheduler.run))

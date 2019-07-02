@@ -19,7 +19,7 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec with WithDsl[IO
     val expectedEventsCount = 2
     val eventStore = new EventStore[Event]
     val process = new Process[IO] {
-      val handle: Receive = {
+      def handle: Receive = {
         case Start => eval(eventStore.add(selfRef, Start))
         case TestEvent => eval(eventStore.add(selfRef, TestEvent))
       }
@@ -44,7 +44,7 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec with WithDsl[IO
     val totalEventsCount = 2 // domainEventsCount + Stop
     val eventStore = new EventStore[Event]
     val process = new Process[IO] {
-      val handle: Receive = {
+      def handle: Receive = {
         case TestEvent => eval(eventStore.add(selfRef, TestEvent))
         case Stop => eval(eventStore.add(selfRef, Stop))
       }

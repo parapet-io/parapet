@@ -42,8 +42,9 @@ object Scheduler {
   def apply[F[_] : Concurrent : Timer : Parallel : ContextShift](config: SchedulerConfig,
                                                                  processes: Array[Process[F]],
                                                                  queue: TaskQueue[F],
+                                                                 eventDeliveryHooks: EventDeliveryHooks[F],
                                                                  interpreter: Interpreter[F]): F[Scheduler[F]] = {
-    SchedulerImpl(config, processes, queue, interpreter)
+    SchedulerImpl(config, processes, queue, eventDeliveryHooks, interpreter)
   }
 
   case class SchedulerConfig(queueSize: Int,
@@ -57,6 +58,7 @@ object Scheduler {
                                                                             taskQueue: TaskQueue[F],
                                                                             processRefQueue: Queue[F, ProcessRef],
                                                                             processesStates: Map[ProcessRef, State[F]],
+                                                                            eventDeliveryHooks: EventDeliveryHooks[F],
                                                                             interpreter: Interpreter[F]) extends Scheduler[F] {
 
 
@@ -113,16 +115,16 @@ object Scheduler {
 
     private def createWorkers: List[Worker[F]] = {
       (1 to config.numberOfWorkers).map { i => {
-        new Worker[F](s"worker-$i", processRefQueue, processesStates, interpreter, ec)
+        new Worker[F](s"worker-$i", processRefQueue, processesStates, eventDeliveryHooks, interpreter, ec)
       }
       }.toList
     }
 
     private def deliverStopEvent(processes: Seq[Process[F]]): F[Unit] = {
       pa.par(processes.map { process =>
-        if (process.handle.isDefinedAt(Stop)) {
+        if (process.execute.isDefinedAt(Stop)) {
           ctxShift.evalOn(ec)(interpret_(
-            process.handle.apply(Stop),
+            process.execute.apply(Stop),
             interpreter, FlowState(senderRef = SystemRef, selfRef = process.selfRef)))
             .handleErrorWith(err => ct.delay(logger.error(s"An error occurred while stopping process $process", err)))
         } else {
@@ -141,12 +143,13 @@ object Scheduler {
                                                                     config: SchedulerConfig,
                                                                     processes: Array[Process[F]],
                                                                     taskQueue: TaskQueue[F],
+                                                                    eventDeliveryHooks: EventDeliveryHooks[F],
                                                                     interpreter: Interpreter[F]): F[Scheduler[F]] =
       for {
         processRefQueue <- Queue.bounded[F, ProcessRef](config.queueSize)
         processesMap <- processes.map(p => State(p, config.processQueueSize).map(s => p.selfRef -> s)).toList.sequence.map(_.toMap)
       } yield
-        new SchedulerImpl(config, taskQueue, processRefQueue, processesMap, interpreter)
+        new SchedulerImpl(config, taskQueue, processRefQueue, processesMap, eventDeliveryHooks, interpreter)
 
     class State[F[_] : Concurrent](
                                     queue: TaskQueue[F],
@@ -200,6 +203,7 @@ object Scheduler {
     class Worker[F[_] : Concurrent : ContextShift](name: String,
                                                    processRefQueue: Queue[F, ProcessRef],
                                                    processesMap: Map[ProcessRef, State[F]],
+                                                   eventDeliveryHooks: EventDeliveryHooks[F],
                                                    interpreter: Interpreter[F],
                                                    ec: ExecutionContext) {
 
@@ -242,8 +246,15 @@ object Scheduler {
         val sender = envelope.sender
         val receiver = envelope.receiver
 
-        val deliver = if (process.handle.isDefinedAt(event)) {
-          val program = process.handle.apply(event)
+        val completeAwaitOnDeliver = eventDeliveryHooks.removeFirstMatch(process.selfRef, event) match {
+          case Some(hook) =>
+            ct.delay(logger.debug(s"process $process complete delivery hook for event: $event")) >>
+              hook.d.complete(())
+          case None => ct.unit
+        }
+
+        val deliver = if (process.execute.isDefinedAt(event)) {
+          val program = process.execute.apply(event)
           interpret_(program, interpreter, FlowState(senderRef = sender, selfRef = receiver))
             .handleErrorWith(err => handleError(process, envelope, err))
         } else {
@@ -258,7 +269,7 @@ object Scheduler {
           ct.delay(logger.warn(errorMsg)) >> whenUndefined
         }
 
-        ct.delay(logger.debug(s"$name deliver $event to process $process")) >> deliver
+        completeAwaitOnDeliver >> ct.delay(logger.debug(s"$name deliver $event to process $process")) >> deliver
       }
 
       private def handleError(process: Process[F], envelope: Envelope, cause: Throwable): F[Unit] = {

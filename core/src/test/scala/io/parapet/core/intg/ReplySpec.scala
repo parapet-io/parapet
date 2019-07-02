@@ -19,13 +19,13 @@ class ReplySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
   "Reply" should "send send event to the sender" in {
     val clientEventStore = new EventStore[Event]
     val server = new Process[IO] {
-      val handle: Receive = {
+      def handle: Receive = {
         case Request => reply(sender => Response ~> sender)
       }
     }
 
     val client = new Process[IO] {
-      val handle: Receive = {
+      def handle: Receive = {
         case Start => Request ~> server
         case Response => eval(clientEventStore.add(selfRef, Response))
       }

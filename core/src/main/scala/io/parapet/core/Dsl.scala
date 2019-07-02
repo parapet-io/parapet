@@ -30,10 +30,20 @@ object Dsl {
 
   case class Invoke[F[_], G[_]](caller: ProcessRef, body: Free[G, Unit], callee: ProcessRef) extends FlowOp[F, Unit]
 
+  case class Fork[F[_], G[_]](f: Free[G, Unit]) extends FlowOp[F, Unit]
+
+  case class Await[F[_], G[_]](
+                                selector: PartialFunction[Event, Unit],
+                                onTimeout: Free[G, Unit],
+                                timeout: FiniteDuration
+                              ) extends FlowOp[F, Unit]
+
   // F - effect type
-  // G - coproduct of FlowOp and other algebras
+  // C - coproduct of FlowOp and other algebras
   class FlowOps[F[_], C[_]](implicit I: InjectK[FlowOp[F, ?], C]) {
     val empty: Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Empty())
+
+    def flow(f: => Free[C, Unit]): Free[C, Unit] = use(())(_ => f)
 
     def use[A](resource: => A)(f: A => Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?],C](Use(() => resource, f))
 
@@ -54,6 +64,20 @@ object Dsl {
 
     def invoke(caller: ProcessRef, body: Free[C, Unit], callee: ProcessRef) : Free[C, Unit] =
       Free.inject[FlowOp[F, ?], C](Invoke(caller, body, callee))
+
+    def fork(f: Free[C, Unit]): Free[C, Unit] =
+      Free.inject[FlowOp[F, ?], C](Fork(f))
+
+    def await[T <: Event](eventType: Class[T],
+                           onTimeout: Free[C, Unit], timeout: FiniteDuration): Free[C, Unit] =
+      await {
+        case e if e.getClass.isAssignableFrom(eventType) =>
+      }(onTimeout, timeout)
+
+    def await(selector: PartialFunction[Event, Unit])
+             (onTimeout: Free[C, Unit], timeout: FiniteDuration): Free[C, Unit] =
+      Free.inject[FlowOp[F, ?], C](Await(selector, onTimeout, timeout))
+
   }
 
   object FlowOps {
@@ -80,7 +104,7 @@ object Dsl {
   }
 
   object Effects {
-    implicit def effects[F[_], G[_]](implicit I: InjectK[Effect[F, ?], G]): Effects[F, G] = new Effects[F, G]
+    implicit def effects[F[_], C[_]](implicit I: InjectK[Effect[F, ?], C]): Effects[F, C] = new Effects[F, C]
   }
 
   trait WithDsl[F[_]] {

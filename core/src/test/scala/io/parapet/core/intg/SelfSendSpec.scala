@@ -19,7 +19,7 @@ class SelfSendSpec extends FlatSpec with IntegrationSpec with WithDsl[IO]{
     val count = 11000
 
     val process = new Process[IO] {
-      val handle: Receive = {
+      def handle: Receive = {
         case c@Counter(i) =>
           if (i == 0) empty
           else eval(eventStore.add(selfRef, c)) ++ Counter(i - 1) ~> selfRef

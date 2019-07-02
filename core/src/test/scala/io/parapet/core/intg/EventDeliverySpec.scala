@@ -50,19 +50,19 @@ class EventDeliverySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
   "Unmatched event" should "be sent to deadletter" in {
     val deadLetterEventStore = new EventStore[DeadLetter]
     val deadLetter = new DeadLetterProcess[IO] {
-      val handle: Receive = {
+      def handle: Receive = {
         case f: DeadLetter => eval(deadLetterEventStore.add(selfRef, f))
       }
     }
 
     val server = new Process[IO] {
-      val handle: Receive = {
+      def handle: Receive = {
         case Start => empty
       }
     }
 
     val client = new Process[IO] {
-      val handle: Receive = {
+      def handle: Receive = {
         case Start => UnknownEvent ~> server
       }
     }
@@ -97,7 +97,7 @@ object EventDeliverySpec {
         import effectDsl._
 
         override val name: String = s"p-$i"
-        override val handle: Receive = {
+        override def handle: Receive = {
           case e: QualifiedEvent => eval(eventStore.add(selfRef, e))
         }
       }

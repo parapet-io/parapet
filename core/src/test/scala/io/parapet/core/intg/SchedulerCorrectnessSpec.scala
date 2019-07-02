@@ -12,7 +12,7 @@ import io.parapet.core.intg.SchedulerCorrectnessSpec.TaskProcessingTime._
 import io.parapet.core.intg.SchedulerCorrectnessSpec._
 import io.parapet.core.testutils.EventStore
 import io.parapet.core.testutils.Tags.Correctness
-import io.parapet.core.{Event, Process, ProcessRef, Queue, Scheduler}
+import io.parapet.core.{Event, EventDeliveryHooks, Process, ProcessRef, Queue, Scheduler}
 import io.parapet.implicits._
 import io.parapet.instances.DslInterpreterInstances.dslInterpreterForCatsIO._
 import io.parapet.syntax.logger.MDCFields
@@ -187,8 +187,9 @@ class SchedulerCorrectnessSpec extends FunSuite with WithDsl[IO] with StrictLogg
 
       val program = for {
         taskQueue <- Queue.bounded[IO, IOTask](spec.config.queueSize)
-        interpreter <- IO.pure(ioFlowInterpreter(taskQueue)(ctx, timer) or ioEffectInterpreter)
-        scheduler <- Scheduler[IO](spec.config, processes, taskQueue, interpreter)
+        eventDeliveryHooks <- IO(new EventDeliveryHooks[IO])
+        interpreter <- IO.pure(ioFlowInterpreter(taskQueue, eventDeliveryHooks)(ctx, timer) or ioEffectInterpreter)
+        scheduler <- Scheduler[IO](spec.config, processes, taskQueue, eventDeliveryHooks, interpreter)
         fiber <- scheduler.run.start
         _ <- submitAll(scheduler, tasks)
         _ <- eventStore.awaitSize(tasks.size).guaranteeCase(_ => fiber.cancel)
