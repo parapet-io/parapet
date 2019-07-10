@@ -18,8 +18,8 @@ object Parapet extends StrictLogging {
 
   val defaultConfig: ParConfig = ParConfig(
     schedulerConfig = SchedulerConfig(
-      queueSize = 1000,
+      queueSize = 10000,
       numberOfWorkers = Runtime.getRuntime.availableProcessors(),
-      processQueueSize = 1000))
+      processQueueSize = 10000))
 
 }

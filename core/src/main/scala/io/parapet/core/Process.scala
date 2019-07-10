@@ -51,19 +51,25 @@ trait Process[F[_]] {
   }
 
   def and(that: Process[F]): Process[F] = new Process[F] {
+    override val selfRef: ProcessRef = _self.selfRef
+    override val name: String = _self.name
+
     override val handle: Receive = new Receive {
+
       override def isDefinedAt(x: Event): Boolean = {
-        _self.handle.isDefinedAt(x) && that.handle.isDefinedAt(x)
+        _self.execute.isDefinedAt(x) && that.execute.isDefinedAt(x)
       }
 
       override def apply(v1: Event): DslF[F, Unit] = {
-        _self(v1) ++ that(v1)
+        _self.execute(v1) ++ that.execute(v1)
       }
     }
   }
 
   def or(that: Process[F]): Process[F] = new Process[F] {
-    override val handle: Receive = _self.handle.orElse(that.handle)
+    override val selfRef: ProcessRef = _self.selfRef
+    override val name: String = _self.name
+    override val handle: Receive = _self.execute.orElse(that.execute)
   }
 
   override def toString: String = s"[name=$name, ref=$selfRef]"

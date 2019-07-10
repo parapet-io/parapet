@@ -37,7 +37,15 @@ object DslInterpreterInstances {
             }
             case Send(event, receivers) =>
               State[FlowState[IO], Unit] { s =>
-                val ops = receivers.map(receiver => dep.taskQueue.enqueue(Deliver(Envelope(s.selfRef, event, receiver))))
+                val ops = receivers.map(receiver =>
+                  dep.taskQueue.tryEnqueue(Deliver(Envelope(s.selfRef, event, receiver))).flatMap(r =>
+                    if(!r) IO.raiseError(new RuntimeException("queue is full")) else IO.unit)
+                )
+                (s.addOps(ops), ())
+              }
+            case Forward(event, receivers) =>
+              State[FlowState[IO], Unit] { s =>
+                val ops = receivers.map(receiver => dep.taskQueue.enqueue(Deliver(Envelope(s.senderRef, event, receiver))))
                 (s.addOps(ops), ())
               }
             case Par(flows) =>

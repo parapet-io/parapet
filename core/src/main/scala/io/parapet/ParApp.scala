@@ -61,9 +61,9 @@ abstract class ParApp[F[_]] {
         dependencies <- ct.pure(new Dependencies[F](taskQueue, eventDeliveryHooks, processMap))
         interpreter <- ct.pure(flowInterpreter(dependencies) or effectInterpreter)
         scheduler <- Scheduler.apply[F](config.schedulerConfig, dependencies, interpreter)
+        _ <- interpret_(initProcesses, interpreter, FlowState(SystemRef, SystemRef))
         _ <- parallel.par(
-          Seq(interpret_(initProcesses ++ program, interpreter, FlowState(SystemRef, SystemRef)),
-            scheduler.run))
+          Seq(interpret_(program, interpreter, FlowState(SystemRef, SystemRef)), scheduler.run))
         _ <- stop
       } yield ()
     }

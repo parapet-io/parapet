@@ -10,4 +10,6 @@ package object exceptions {
 
   case class EventMatchException(message: String) extends RuntimeException(message)
 
+  case class UninitializedProcessException(message: String) extends RuntimeException(message)
+
 }

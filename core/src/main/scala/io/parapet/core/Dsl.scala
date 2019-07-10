@@ -22,6 +22,8 @@ object Dsl {
 
   case class Send[F[_]](e: Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
 
+  case class Forward[F[_]](e: Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
+
   case class Par[F[_], G[_]](flow: Seq[Free[G, Unit]]) extends FlowOp[F, Unit]
 
   case class Delay[F[_], G[_]](duration: FiniteDuration, flow: Option[Free[G, Unit]]) extends FlowOp[F, Unit]
@@ -49,6 +51,8 @@ object Dsl {
 
     // sends event `e` to the list of receivers
     def send(e: Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Send(e, receiver +: other))
+
+    def forward(e: Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Forward(e, receiver +: other))
 
     // executes operations from the given flow in parallel
     def par(flow: Free[C, Unit], other: Free[C, Unit]*): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Par(flow +: other))
