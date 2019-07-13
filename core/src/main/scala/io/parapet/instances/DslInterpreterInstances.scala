@@ -9,9 +9,9 @@ import cats.syntax.flatMap._
 import cats.syntax.traverse._
 import cats.~>
 import io.parapet.core.Dsl._
+import io.parapet.core.{Context, Parallel, Process, ProcessRef}
 import io.parapet.core.DslInterpreter._
 import io.parapet.core.Event.Envelope
-import io.parapet.core.Parallel
 import io.parapet.core.Queue.Enqueue
 import io.parapet.core.Scheduler.{Deliver, Task}
 import io.parapet.instances.parallel._
@@ -21,14 +21,14 @@ object DslInterpreterInstances {
   private type TaskQueue[F[_]] = Enqueue[F, Task[F]]
 
   object dslInterpreterForCatsIO {
-    def ioFlowInterpreter(dep: Dependencies[IO])
+    def ioFlowInterpreter(context: Context[IO])
                          (implicit ctx: ContextShift[IO], timer: Timer[IO]): FlowOp[IO, ?] ~> Flow[IO, ?] =
       new (FlowOp[IO, ?] ~> Flow[IO, ?]) {
 
         override def apply[A](fa: FlowOp[IO, A]): Flow[IO, A] = {
 
           val parallel: Parallel[IO] = Parallel[IO]
-          val interpreter: Interpreter[IO] = ioFlowInterpreter(dep) or ioEffectInterpreter
+          val interpreter: Interpreter[IO] = ioFlowInterpreter(context) or ioEffectInterpreter
           fa match {
             case Empty() => State[FlowState[IO], Unit] { s => (s, ()) }
             case Use(resource, f) => State[FlowState[IO], Unit] { s =>
@@ -38,14 +38,14 @@ object DslInterpreterInstances {
             case Send(event, receivers) =>
               State[FlowState[IO], Unit] { s =>
                 val ops = receivers.map(receiver =>
-                  dep.taskQueue.tryEnqueue(Deliver(Envelope(s.selfRef, event, receiver))).flatMap(r =>
+                  context.taskQueue.tryEnqueue(Deliver(Envelope(s.selfRef, event, receiver))).flatMap(r =>
                     if(!r) IO.raiseError(new RuntimeException("queue is full")) else IO.unit)
                 )
                 (s.addOps(ops), ())
               }
             case Forward(event, receivers) =>
               State[FlowState[IO], Unit] { s =>
-                val ops = receivers.map(receiver => dep.taskQueue.enqueue(Deliver(Envelope(s.senderRef, event, receiver))))
+                val ops = receivers.map(receiver => context.taskQueue.enqueue(Deliver(Envelope(s.senderRef, event, receiver))))
                 (s.addOps(ops), ())
               }
             case Par(flows) =>
@@ -90,7 +90,7 @@ object DslInterpreterInstances {
 
                 val awaitHook = for {
                   awaitHook <- Deferred[IO, Unit]
-                  token <- IO(dep.eventDeliveryHooks.add(s.selfRef, selector, awaitHook))
+                  token <- IO(context.eventDeliveryHooks.add(s.selfRef, selector, awaitHook))
                 } yield (awaitHook, token)
 
                 def race(token: String, d: Deferred[IO, Unit]): IO[Unit] = {
@@ -99,7 +99,7 @@ object DslInterpreterInstances {
                     _ <- r match {
                       case Left(_) => IO.unit // process received expected event. cancel delay
                       case Right(_) =>
-                        dep.eventDeliveryHooks.remove(s.selfRef, token) match {
+                        context.eventDeliveryHooks.remove(s.selfRef, token) match {
                           case Some(hook) =>
                             interpret_(onTimeout.asInstanceOf[DslF[IO, A]], interpreter, s.copy(ops = List.empty))
                           case None => IO.unit // event was delivered after delay
@@ -113,6 +113,10 @@ object DslInterpreterInstances {
                 }
 
                 (s.addOps(List(p)), ())
+              }
+            case Register(process:Process[IO]) =>
+              State[FlowState[IO], ProcessRef] { s =>
+                (s.addOps(List(context.register(process))), process.selfRef)
               }
           }
         }

@@ -12,4 +12,6 @@ package object exceptions {
 
   case class UninitializedProcessException(message: String) extends RuntimeException(message)
 
+  case class ProcessTerminatedException(message: String) extends RuntimeException(message)
+
 }

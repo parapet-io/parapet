@@ -15,6 +15,7 @@ object DslInterpreter {
   type Interpreter[F[_]] = Dsl[F, ?] ~> Flow[F, ?]
 
   // maybe Context or System would be better names
+  @deprecated
   case class Dependencies[F[_]](
                                  taskQueue: TaskQueue[F],
                                  eventDeliveryHooks: EventDeliveryHooks[F],

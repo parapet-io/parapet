@@ -40,6 +40,8 @@ object Dsl {
                                 timeout: FiniteDuration
                               ) extends FlowOp[F, Unit]
 
+  case class Register[F[_]](process:Process[F]) extends FlowOp[F, ProcessRef]
+
   // F - effect type
   // C - coproduct of FlowOp and other algebras
   class FlowOps[F[_], C[_]](implicit I: InjectK[FlowOp[F, ?], C]) {
@@ -81,6 +83,8 @@ object Dsl {
     def await(selector: PartialFunction[Event, Unit])
              (onTimeout: Free[C, Unit], timeout: FiniteDuration): Free[C, Unit] =
       Free.inject[FlowOp[F, ?], C](Await(selector, onTimeout, timeout))
+
+    def register(process: Process[F]): Free[C, ProcessRef] = Free.inject[FlowOp[F, ?], C](Register(process))
 
   }
 

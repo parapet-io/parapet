@@ -75,13 +75,14 @@ class SchedulerSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
 
         val slowServer = new Process[IO] {
           override def handle: Receive = {
-            case _: NamedRequest => delay(1.minute)
+            case _: NamedRequest => eval(while (true){})
           }
         }
 
         val client = new Process[IO] {
           override def handle: Receive = {
-            case Start => Seq(NamedRequest("1"), NamedRequest("2")) ~> slowServer
+            case Start => NamedRequest("1") ~> slowServer ++
+              delay(5.second, Seq(NamedRequest("2"), NamedRequest("3")) ~> slowServer)
           }
         }
 
@@ -95,10 +96,10 @@ class SchedulerSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
 
         } yield ()
         program.unsafeRunSync()
-
+        deadLetterEventStore.print()
         deadLetterEventStore.size shouldBe 1
         deadLetterEventStore.get(deadLetter.selfRef).headOption.value should matchPattern {
-          case DeadLetter(Envelope(client.selfRef, NamedRequest("2"), slowServer.selfRef), _: EventDeliveryException) =>
+          case DeadLetter(Envelope(client.selfRef, NamedRequest("3"), slowServer.selfRef), _: EventDeliveryException) =>
         }
 
       }

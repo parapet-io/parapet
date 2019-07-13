@@ -9,6 +9,8 @@ object Event {
 
   case object Stop extends Event
 
+  case object Kill extends Event
+
   // System events
   case class Envelope(sender: ProcessRef, event: Event, receiver: ProcessRef) extends Event
 
