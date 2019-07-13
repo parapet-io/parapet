@@ -186,7 +186,8 @@ class SchedulerCorrectnessSpec extends FunSuite with WithDsl[IO] with StrictLogg
 
       val program = for {
         context <- Context[IO](Parapet.ParConfig(spec.config))
-        _ <- context.registerAll(processes.toList)
+        _ <- context.init
+        _ <- context.registerAll(ProcessRef.SystemRef, processes.toList)
         interpreter <- IO.pure(ioFlowInterpreter(context)(ctx, timer) or ioEffectInterpreter)
         scheduler <- Scheduler[IO](spec.config, context, interpreter)
         fiber <- scheduler.run.start

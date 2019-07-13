@@ -80,7 +80,7 @@ object DynamicProcessCreationSpec {
 
     override def handle: Receive = {
       case Start =>
-        (0 until workersCount).map(i => register(new Worker(i, db, tasksCount, eventStore)).void).fold(empty)(_ ++ _)
+        (0 until workersCount).map(i => register(selfRef, new Worker(i, db, tasksCount, eventStore)).void).fold(empty)(_ ++ _)
     }
   }
 

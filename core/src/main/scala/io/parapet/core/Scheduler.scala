@@ -85,6 +85,11 @@ object Scheduler {
                   case Kill =>
                     context.interrupt(pRef) >>
                     submit(Deliver(Envelope(sender, Stop, pRef)), ps)
+                  // interruption isn't instant operation since it's just a signal (e.g. Deferred)
+                  // i.e. interrupt may be completed although
+                  // the actual process is still performing some computations and will be interrupted latter
+                  // we need to submit Stop event here instead of direct call
+                  // to avoid race condition between interruption and process stop
                   case _ => submit(t, ps)
                 }) >> step
               }
@@ -94,7 +99,10 @@ object Scheduler {
 
       pa.par(workers.map(w => ctxShift.shift >> w.run) :+ (ctxShift.shift >> step))
         .guaranteeCase(_ => {
-          deliverStopEvent(context.getRunningProcesses) >>
+          ctxShift.evalOn(ec)(stopProcess(ProcessRef.SystemRef,
+            context, ProcessRef.SystemRef, interpreter,
+            (pRef, err) => ct.delay(logger.error(s"An error occurred while stopping process $pRef", err
+            )))) >>
             ct.delay(es.shutdownNow()).void.guaranteeCase(_ => ct.delay(logger.info("scheduler has been shut down")))
         })
     }
@@ -122,19 +130,8 @@ object Scheduler {
       }.toList
     }
 
-    private def deliverStopEvent(processes: Seq[Process[F]]): F[Unit] = {
-      pa.par(processes.map { process =>
-        if (process.execute.isDefinedAt(Stop)) {
-          ctxShift.evalOn(ec)(interpret_(
-            process.execute.apply(Stop),
-            interpreter, FlowState(senderRef = SystemRef, selfRef = process.selfRef)))
-            .handleErrorWith(err => ct.delay(logger.error(s"An error occurred while stopping process $process", err)))
-        } else {
-          ct.unit
-        }
 
-      })
-    }
+
 
   }
 
@@ -154,7 +151,7 @@ object Scheduler {
           processRefQueue,
           interpreter)
 
-    class Worker[F[_] : Concurrent : ContextShift](name: String,
+    class Worker[F[_] : Concurrent: Parallel: ContextShift](name: String,
                                                    context: Context[F],
                                                    processRefQueue: Queue[F, ProcessRef],
                                                    interpreter: Interpreter[F],
@@ -162,16 +159,16 @@ object Scheduler {
 
       private val logger = Logger(LoggerFactory.getLogger(s"parapet-$name"))
       private val ct = implicitly[Concurrent[F]]
-      private val ctx = implicitly[ContextShift[F]]
+      private val ctxShift = implicitly[ContextShift[F]]
 
       def run: F[Unit] = {
         def step: F[Unit] = {
-          ctx.evalOn(ec)(processRefQueue.dequeue) >>= { pRef =>
+          ctxShift.evalOn(ec)(processRefQueue.dequeue) >>= { pRef =>
             context.getProcessState(pRef) match {
               case Some(ps) =>
                 ps.acquire >>= {
                   case true => ct.delay(logger.debug(s"name acquired process ${ps.process} for processing")) >>
-                    ctx.evalOn(ec)(run(ps)) >> step
+                    ctxShift.evalOn(ec)(run(ps)) >> step
                   case false => step
                 }
               case None => step // process was terminated and removed from the system,
@@ -214,11 +211,12 @@ object Scheduler {
 
         event match {
           case Stop if processState.stop() =>
-            deliverStopEvent(process) >> context.remove(process.selfRef).void
+            stopProcess(sender, context, process.selfRef, interpreter,
+              (_, err) => handleError(process, envelope, err)) >> context.remove(process.selfRef).void
           case  _  if processState.stopped =>
             sendToDeadLetter(
               DeadLetter(envelope, new IllegalStateException(s"process: $process is stopped")), interpreter)
-          case _ if processState.interrupted => {
+          case _ if processState.interrupted => { // process was interrupted but not stopped yet
             sendToDeadLetter(
               DeadLetter(envelope, new IllegalStateException(s"process: $process is terminated")), interpreter)
           }
@@ -265,21 +263,10 @@ object Scheduler {
         send(SystemRef, Failure(envelope, err), envelope.sender, interpreter)
       }
 
-      private def deliverStopEvent(process: Process[F])(): F[Unit] = {
-        if (process.execute.isDefinedAt(Stop)) {
-          interpret_(
-            process.execute.apply(Stop),
-            interpreter, FlowState(senderRef = SystemRef, selfRef = process.selfRef))
-            .handleErrorWith(err =>
-              ct.delay(logger.error(s"An error occurred while stopping process $process", err)))
-          // todo send to deadletter or sender
-        } else {
-          ct.unit
-        }
-      }
     }
 
-    private def sendToDeadLetter[F[_] : Concurrent](dl: DeadLetter, interpreter: Interpreter[F])(implicit flowDsl: FlowOps[F, Dsl[F, ?]]): F[Unit] = {
+    private def sendToDeadLetter[F[_] : Concurrent](dl: DeadLetter, interpreter: Interpreter[F])
+                                                   (implicit flowDsl: FlowOps[F, Dsl[F, ?]]): F[Unit] = {
       send(SystemRef, dl, DeadLetterRef, interpreter)
     }
 
@@ -289,6 +276,38 @@ object Scheduler {
                                         interpreter: Interpreter[F])(implicit flowDsl: FlowOps[F, Dsl[F, ?]]): F[Unit] = {
       interpret_(flowDsl.send(event, receiver), interpreter,
         FlowState(senderRef = sender, selfRef = receiver))
+    }
+
+    private def deliverStopEvent[F[_] : Concurrent](sender: ProcessRef,
+                                                    process: Process[F],
+                                                    interpreter: Interpreter[F]): F[Unit] = {
+      val ct = implicitly[Concurrent[F]]
+      if (process.execute.isDefinedAt(Stop)) {
+        interpret_(
+          process.execute.apply(Stop),
+          interpreter,
+          FlowState(senderRef = sender, selfRef = process.selfRef))
+      } else {
+        ct.unit
+      }
+    }
+
+    private def stopProcess[F[_] : Concurrent : Parallel](parent: ProcessRef,
+                                                          context: Context[F],
+                                                          ref: ProcessRef,
+                                                          interpreter: Interpreter[F],
+                                                          onError: (ProcessRef, Throwable) => F[Unit]): F[Unit] = {
+      val ct = implicitly[Concurrent[F]]
+      val pa = implicitly[Parallel[F]]
+
+      val stopChildProcesses =
+        pa.par(context.child(ref).map(child => stopProcess(ref, context, child, interpreter, onError)))
+
+      stopChildProcesses >>
+        (context.getProcess(ref) match {
+          case Some(p) => deliverStopEvent(parent, p, interpreter).handleErrorWith(err => onError(ref, err))
+          case None => ct.unit
+        })
     }
 
   }

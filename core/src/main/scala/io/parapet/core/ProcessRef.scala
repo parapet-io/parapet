@@ -6,6 +6,7 @@ import io.parapet.core.Parapet.ParapetPrefix
 
 case class ProcessRef(private[core] val ref: String) {
   override def toString: String = ref
+
 }
 
 object ProcessRef {

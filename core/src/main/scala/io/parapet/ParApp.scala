@@ -9,9 +9,8 @@ import io.parapet.core.DslInterpreter._
 import io.parapet.core.Event.Start
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.ProcessRef.SystemRef
-import io.parapet.core.Scheduler.Task
 import io.parapet.core.processes.{DeadLetterProcess, SystemProcess}
-import io.parapet.core.{Context, EventDeliveryHooks, Parallel, Parapet, Process, Queue, Scheduler}
+import io.parapet.core.{Context, EventDeliveryHooks, Parallel, Parapet, Process, ProcessRef, Scheduler}
 import io.parapet.syntax.flow._
 
 import scala.language.{higherKinds, implicitConversions, reflectiveCalls}
@@ -54,13 +53,12 @@ abstract class ParApp[F[_]] {
     if (processes.isEmpty) {
       ct.raiseError(new RuntimeException("Initialization error:  at least one process must be provided"))
     } else {
-      val systemProcesses = List(systemProcess, deadLetter)
       for {
         context <- Context(config)
-        _ <- context.registerAll(processes.toList ++ systemProcesses)
+        _ <- context.init
+        _ <- context.registerAll(ProcessRef.SystemRef, processes.toList :+ deadLetter)
         interpreter <- ct.pure(flowInterpreter(context) or effectInterpreter)
         scheduler <- Scheduler.apply[F](config.schedulerConfig, context, interpreter)
-       // _ <- interpret_(initProcesses, interpreter, FlowState(SystemRef, SystemRef))
         _ <- parallel.par(
           Seq(interpret_(program, interpreter, FlowState(SystemRef, SystemRef)), scheduler.run))
         _ <- stop

@@ -1,5 +1,7 @@
 package io.parapet.core.intg
 
+import java.util.concurrent.atomic.AtomicBoolean
+
 import cats.effect.IO
 import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.Event._
@@ -11,6 +13,7 @@ import io.parapet.implicits._
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
+import cats.syntax.flatMap._
 
 import scala.concurrent.duration._
 
@@ -65,6 +68,54 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec with WithDsl[IO
 
     eventStore.size shouldBe totalEventsCount
     eventStore.get(process.selfRef) shouldBe Seq(TestEvent, Stop)
+  }
+
+  "System shutdown" should "stop child processes first" in {
+    val eventStore = new EventStore[Event]
+    val trace = ProcessRef("trace")
+
+    val lastProcessCreated = new AtomicBoolean()
+
+    val parent =  new Process[IO] {
+      override val selfRef: ProcessRef = ProcessRef("a")
+      override def handle: Receive = {
+        case Start => register(selfRef, new Process[IO] {
+          override val selfRef: ProcessRef = ProcessRef("b")
+          override def handle: Receive = {
+            case Start => register(selfRef, new Process[IO] {
+              override val selfRef: ProcessRef = ProcessRef("c")
+              override def handle: Receive = {
+                case Start => register(selfRef, new Process[IO] {
+                  override val selfRef: ProcessRef = ProcessRef("d")
+                  override def handle: Receive = {
+                    case Start => eval(lastProcessCreated.set(true))
+                    case Stop => eval(eventStore.add(trace, Stopped(selfRef.toString))) // ++
+                      //reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
+                  }
+                })
+                case Stop => eval(eventStore.add(trace, Stopped(selfRef.toString))) // ++
+                  //reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
+              }
+            })
+            case Stop => eval(eventStore.add(trace, Stopped(selfRef.toString))) // ++
+              //reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
+          }
+        })
+        case Stop => eval(eventStore.add(trace, Stopped(selfRef.toString))) // ++
+          //reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
+      }
+    }
+
+    val program = for {
+      fiber <- run(empty, Array(parent)).start
+      _ <- IO.delay(while (!lastProcessCreated.get()) {}) >> fiber.cancel
+
+    } yield ()
+    program.unsafeRunSync()
+
+
+    eventStore.get(trace) shouldBe Seq(Stopped("d"), Stopped("c"), Stopped("b"), Stopped("a"))
+
   }
 
   "Kill process" should "immediately terminates process and delivers Stop event" in {
@@ -177,5 +228,7 @@ object ProcessLifecycleSpec {
   object TestEvent extends Event
 
   object Pause extends Event
+
+  case class Stopped(name: String) extends Event
 
 }

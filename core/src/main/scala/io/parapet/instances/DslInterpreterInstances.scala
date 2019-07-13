@@ -114,9 +114,15 @@ object DslInterpreterInstances {
 
                 (s.addOps(List(p)), ())
               }
-            case Register(process:Process[IO]) =>
-              State[FlowState[IO], ProcessRef] { s =>
-                (s.addOps(List(context.register(process))), process.selfRef)
+            case Register(parent, process:Process[IO]) =>
+              State[FlowState[IO], Unit] { s =>
+                (s.addOps(List(context.register(parent, process))), ())
+              }
+            case Race(firstFlow, secondFlow) =>
+              State[FlowState[IO], Unit] { s =>
+                val first = interpret_(firstFlow.asInstanceOf[DslF[IO, A]], interpreter, s.copy(ops = List.empty))
+                val second = interpret_(secondFlow.asInstanceOf[DslF[IO, A]], interpreter, s.copy(ops = List.empty))
+                (s.addOps(List(IO.race(first, second))), ())
               }
           }
         }

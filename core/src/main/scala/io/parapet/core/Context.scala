@@ -11,6 +11,8 @@ import cats.syntax.traverse._
 import io.parapet.core.Context._
 import io.parapet.core.Event.{Envelope, Start}
 import io.parapet.core.Scheduler.{Deliver, Task, TaskQueue}
+import io.parapet.core.exceptions.UnknownProcessException
+import io.parapet.core.processes.SystemProcess
 
 import scala.collection.JavaConverters._
 
@@ -21,22 +23,45 @@ class Context[F[_]](
   private val processQueueSize = config.schedulerConfig.processQueueSize
 
   val eventDeliveryHooks: EventDeliveryHooks[F] = new EventDeliveryHooks[F]
+
   private val processes = new java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessState[F]]()
 
-  def register(process: Process[F])(implicit ct: Concurrent[F]): F[ProcessRef] = {
-    ProcessState(process, processQueueSize).flatMap { s =>
-      if (processes.putIfAbsent(process.selfRef, s) != null)
-        ct.raiseError(new RuntimeException(s"duplicated process. ref = ${process.selfRef}"))
-      else start(process.selfRef).map(_ => process.selfRef)
+  private val graph = new java.util.concurrent.ConcurrentHashMap[ProcessRef, List[ProcessRef]]
+
+
+  def init(implicit ct: Concurrent[F]): F[Unit] = {
+    ct.delay(new SystemProcess[F]()).flatMap { sysProcess =>
+      ProcessState(sysProcess, processQueueSize).flatMap { s =>
+        ct.delay(processes.put(sysProcess.selfRef, s)) >> start(sysProcess.selfRef)
+      }
     }
   }
+
+  def register(parent: ProcessRef, process: Process[F])(implicit ct: Concurrent[F]): F[ProcessRef] = {
+    if (!processes.containsKey(parent)) {
+      ct.raiseError(UnknownProcessException(
+        s"process cannot be registered because parent process with id=$parent doesn't exist"))
+    } else {
+      ProcessState(process, processQueueSize).flatMap { s =>
+        if (processes.putIfAbsent(process.selfRef, s) != null)
+          ct.raiseError(new RuntimeException(s"duplicated process. ref = ${process.selfRef}"))
+        else {
+          graph.computeIfAbsent(parent, _ => List())
+          graph.computeIfPresent(parent, (_, v) => v :+ process.selfRef)
+          start(process.selfRef).map(_ => process.selfRef)
+        }
+      }
+    }
+  }
+
+  def child(parent: ProcessRef): List[ProcessRef] = graph.getOrDefault(parent, List.empty)
 
   private def start(processRef: ProcessRef): F[Unit] = {
     taskQueue.enqueue(Deliver(Envelope(ProcessRef.SystemRef, Start, processRef)))
   }
 
-  def registerAll(processes: List[Process[F]])(implicit ct: Concurrent[F]): F[List[ProcessRef]] = {
-    processes.map(register).sequence
+  def registerAll(parent: ProcessRef, processes: List[Process[F]])(implicit ct: Concurrent[F]): F[List[ProcessRef]] = {
+    processes.map(p => register(parent, p)).sequence
   }
 
   def getProcesses: List[Process[F]] = processes.values().asScala.map(_.process).toList
