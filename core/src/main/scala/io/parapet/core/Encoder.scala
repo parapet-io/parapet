@@ -1,6 +1,7 @@
 package io.parapet.core
 
-import org.json4s.{DefaultFormats, Extraction, JValue}
+import org.json4s.native.{JsonMethods, Serialization}
+import org.json4s.{Formats, FullTypeHints, StringInput}
 
 // todo move to a separate module
 trait Encoder {
@@ -14,40 +15,25 @@ object Encoder {
 
   class JsonEncoder(typeHints: List[Class[_]]) extends Encoder {
 
-    import org.json4s.JsonDSL._
-    import org.json4s._
-    import org.json4s.jackson.JsonMethods._
-    import org.json4s.native.Serialization
+    private val typeRegistry: Map[String, Class[_]] =
+      typeHints.map(c => c.getName -> c).toMap
 
-
-    private val typeRegistry: Map[String, Class[_]] = typeHints.map(c => c.getCanonicalName -> c).toMap
-    private implicit val formats: Formats = Serialization.formats(FullTypeHints(typeHints))
+    private implicit val formats: Formats =
+      Serialization.formats(FullTypeHints(typeHints))
 
     override def write(e: Event): Array[Byte] = {
-      val json = ("eventType" -> e.getClass.getCanonicalName) ~ ("event" -> toJValue(e))
-      val jsonString = compact(render(json))
-      jsonString.getBytes()
+      Serialization.write(e).getBytes()
     }
 
     override def read(data: Array[Byte]): Event = {
-
-      val jsonString = new String(data)
-      val json = parse(StringInput(jsonString))
-      val eventClassName = (json \ "eventType").extract[String]
+      val json = JsonMethods.parse(StringInput(new String(data)))
+      val eventClassName = (json \ "jsonClass").extract[String]
       val eventType = typeRegistry(eventClassName)
-      val event: Event = (json \ "event").extract[Event](formats, Manifest.classType(eventType))
+      json.extract[Event](formats, Manifest.classType(eventType))
 
-      event.asInstanceOf[Event]
     }
+
   }
 
   def json(typeHints: List[Class[_]]): Encoder = new JsonEncoder(typeHints)
-
-
-  private def toJValue(obj: AnyRef): JValue = {
-    Extraction.decompose(obj)(DefaultFormats)
-  }
-
-  case class TestEvent(data: String) extends Event
-
 }

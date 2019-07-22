@@ -21,13 +21,15 @@ trait IntegrationSpec {
   }
 
   class SpecApp(override val program: DslF[IO, Unit],
-                val processes: Array[Process[IO]],
+                ps: Seq[Process[IO]],
                 deadLetterOpt: Option[DeadLetterProcess[IO]] = None,
                 parCfg: ParConfig = defaultConfig) extends CatsApp {
     override def deadLetter: DeadLetterProcess[IO] =
       deadLetterOpt.getOrElse(super.deadLetter)
 
     override val config: ParConfig = parCfg
+
+    override def processes: IO[Seq[Process[IO]]] = IO.pure(ps)
   }
 
 }

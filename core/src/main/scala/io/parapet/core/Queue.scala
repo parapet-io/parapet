@@ -8,6 +8,8 @@ import io.parapet.core.Queue.{Dequeue, Enqueue}
 
 trait Queue[F[_], A] extends Enqueue[F, A] with Dequeue[F, A] {
 
+  def peek: F[A]
+
   def size: F[Int]
 
   def isEmpty(implicit M: Monad[F]): F[Boolean] = size.map(v => v == 0)
@@ -54,6 +56,7 @@ object Queue {
       */
     override def size: F[Int] = q.getSize
 
+    override def peek: F[A] = q.peek1
   }
 
   def bounded[F[_] : Concurrent, A](capacity: Int): F[Queue[F, A]] = {

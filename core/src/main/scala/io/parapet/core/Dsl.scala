@@ -8,8 +8,8 @@ import scala.concurrent.duration.FiniteDuration
 
 object Dsl {
 
-  type <:<[F[_], G[_], A] = EitherK[F, G, A]
-  type FlowOpOrEffect[F[_], A] = <:<[FlowOp[F, ?], Effect[F, ?], A]
+  //type <:<[F[_], G[_], A] = EitherK[F, G, A]
+  type FlowOpOrEffect[F[_], A] = EitherK[FlowOp[F, ?], Effect[F, ?], A]
   type Dsl[F[_], A] = FlowOpOrEffect[F, A]
   type DslF[F[_], A] = Free[Dsl[F, ?], A]
 
@@ -17,6 +17,8 @@ object Dsl {
   sealed trait FlowOp[F[_], A]
 
   case class Empty[F[_]]() extends FlowOp[F, Unit]
+
+ // case class Suspend[F[_], G[_], A](thunk: () => Free[G, Unit]) extends FlowOp[F, Unit]
 
   case class Use[F[_], G[_], A](resource: () => A, flow: A => Free[G, Unit]) extends FlowOp[F, Unit]
 
@@ -51,6 +53,7 @@ object Dsl {
 
     def flow(f: => Free[C, Unit]): Free[C, Unit] = use(())(_ => f)
 
+    @deprecated("use `eval[A](thunk: => A, bind: A => Free[C, Unit]`", "")
     def use[A](resource: => A)(f: A => Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?],C](Use(() => resource, f))
 
     // sends event `e` to the list of receivers
@@ -101,18 +104,29 @@ object Dsl {
   // must be compatible with Flow `F`
   sealed trait Effect[F[_], A]
 
-  case class Suspend[F[_]](thunk: () => F[Unit]) extends Effect[F, Unit]
+  case class Suspend[F[_], A](thunk: () => F[A]) extends Effect[F, Unit]
 
-  case class Eval[F[_], A](thunk: () => A) extends Effect[F, Unit]
+  case class SuspendF[F[_], C[_], A](thunk: () => F[A], f: A => Free[C, Unit]) extends Effect[F, Unit]
+
+  // todo  remove Option, once merged with Flow DSL
+  case class Eval[F[_], C[_], A](thunk: () => A, bind: Option[A => Free[C, Unit]]) extends Effect[F, Unit]
 
   // F - Effect type
   // C - coproduct of Effect and other algebras
+  //  todo merge with Flow DSL
   class Effects[F[_], C[_]](implicit I: InjectK[Effect[F, ?], C]) {
     // suspends an effect which produces `F`
-    def suspend(thunk: => F[Unit]): Free[C, Unit] = Free.inject[Effect[F, ?], C](Suspend(() => thunk))
+    // todo better name
+    def suspend[A](thunk: => F[A]): Free[C, Unit] = Free.inject[Effect[F, ?], C](Suspend(() => thunk))
+
+    // todo doc
+    def suspendF[A](thunk: => F[A])(f: A => Free[C, Unit]): Free[C, Unit] = Free.inject[Effect[F, ?], C](SuspendF(() => thunk, f))
 
     // suspends a side effect in `F`
-    def eval[A](thunk: => A): Free[C, Unit] = Free.inject[Effect[F, ?], C](Eval(() => thunk))
+    def eval[A](thunk: => A): Free[C, Unit] = Free.inject[Effect[F, ?], C](Eval(() => thunk, Option.empty))
+
+    def evalWith[A](thunk: => A)(bind: A => Free[C, Unit]): Free[C, Unit] =
+      Free.inject[Effect[F, ?], C](Eval(() => thunk, Option(bind)))
   }
 
   object Effects {

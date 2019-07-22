@@ -28,7 +28,7 @@ abstract class ParApp[F[_]] {
   implicit val timer: Timer[F]
   implicit val ct: Concurrent[F]
   implicit val contextShift: ContextShift[F]
-  val processes: Array[Process[F]]
+  def processes: F[Seq[Process[F]]]
   private val eventDeliveryHooks = new EventDeliveryHooks[F]
 
   // system processes
@@ -38,7 +38,7 @@ abstract class ParApp[F[_]] {
 
   def flowInterpreter(context: Context[F]): FlowOp ~> Flow
 
-  def effectInterpreter: Effect ~> Flow
+  def effectInterpreter(context: Context[F]): Effect ~> Flow
 
   val program: Program = implicitly[FlowOps[F, Dsl[F, ?]]].empty
 
@@ -46,24 +46,22 @@ abstract class ParApp[F[_]] {
 
   def stop: F[Unit]
 
-  private[parapet] final def initProcesses(implicit F: FlowOps[F, Dsl[F, ?]]): Program =
-    processes.map(p => F.send(Start, p.selfRef)).foldLeft(F.empty)(_ ++ _)
-
   def run: F[Unit] = {
-    if (processes.isEmpty) {
-      ct.raiseError(new RuntimeException("Initialization error:  at least one process must be provided"))
-    } else {
       for {
+        ps <- processes
+        _ <- (if (ps.isEmpty) {
+          ct.raiseError(new RuntimeException("Initialization error:  at least one process must be provided"))
+        } else ct.unit)
         context <- Context(config)
         _ <- context.init
-        _ <- context.registerAll(ProcessRef.SystemRef, processes.toList :+ deadLetter)
-        interpreter <- ct.pure(flowInterpreter(context) or effectInterpreter)
+        _ <- context.registerAll(ProcessRef.SystemRef, ps.toList :+ deadLetter)
+        interpreter <- ct.pure(flowInterpreter(context) or effectInterpreter(context))
         scheduler <- Scheduler.apply[F](config.schedulerConfig, context, interpreter)
         _ <- parallel.par(
           Seq(interpret_(program, interpreter, FlowState(SystemRef, SystemRef)), scheduler.run))
         _ <- stop
       } yield ()
-    }
+
   }
 
   def main(args: Array[String]): Unit = {

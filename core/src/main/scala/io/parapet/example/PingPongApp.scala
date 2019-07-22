@@ -53,6 +53,6 @@ object PingPongApp extends CatsApp {
   val pongProcess = new PongProcess()
   val pingProcess = new PingProcess(pongProcess)
 
-  override val processes: Array[Process[IO]] = Array(pingProcess, pongProcess)
+  override def processes: IO[Seq[Process[IO]] ]= IO.pure(Seq(pingProcess, pongProcess))
   override val program: PingPongApp.Program = Start ~> pingProcess
 }

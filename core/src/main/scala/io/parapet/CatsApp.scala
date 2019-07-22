@@ -25,8 +25,8 @@ abstract class CatsApp extends ParApp[IO] {
     dslInterpreterForCatsIO.ioFlowInterpreter(context)
   }
 
-  override def effectInterpreter: Effect ~> Flow = {
-    dslInterpreterForCatsIO.ioEffectInterpreter
+  override def effectInterpreter(context: Context[IO]): Effect ~> Flow = {
+    dslInterpreterForCatsIO.ioEffectInterpreter(context)
   }
 
   override def unsafeRun(io: IO[Unit]): Unit = {
