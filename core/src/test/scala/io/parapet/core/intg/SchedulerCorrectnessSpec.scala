@@ -12,7 +12,7 @@ import io.parapet.core.intg.SchedulerCorrectnessSpec.TaskProcessingTime._
 import io.parapet.core.intg.SchedulerCorrectnessSpec._
 import io.parapet.core.testutils.EventStore
 import io.parapet.core.testutils.Tags.Correctness
-import io.parapet.core.{Context, Event, Parapet, Process, ProcessRef, Scheduler}
+import io.parapet.core.{Context, Event, EventLog, Parapet, Process, ProcessRef, Scheduler}
 import io.parapet.implicits._
 import io.parapet.instances.DslInterpreterInstances.dslInterpreterForCatsIO._
 import io.parapet.syntax.logger.MDCFields
@@ -185,14 +185,14 @@ class SchedulerCorrectnessSpec extends FunSuite with WithDsl[IO] with StrictLogg
       require(tasks.size >= spec.numberOfEvents, "number of tasks must be gte number of events")
 
       val program = for {
-        context <- Context[IO](Parapet.ParConfig(spec.config))
+        context <- Context[IO](Parapet.ParConfig(spec.config), EventLog.stub)
         _ <- context.init
         _ <- context.registerAll(ProcessRef.SystemRef, processes.toList)
-        interpreter <- IO.pure(ioFlowInterpreter(context)(ctx, timer) or ioEffectInterpreter(context)(ctx, timer))
+        interpreter <- IO.pure(ioFlowInterpreter(context)(ctx, timer))
         scheduler <- Scheduler[IO](spec.config, context, interpreter)
         fiber <- scheduler.run.start
         _ <- submitAll(scheduler, tasks)
-        _ <- eventStore.awaitSize(tasks.size).guaranteeCase(_ => fiber.cancel)
+        _ <- eventStore.awaitSizeOld(tasks.size).guaranteeCase(_ => fiber.cancel)
       } yield ()
 
       logger.mdc(mdcFields) { _ => {
@@ -235,7 +235,7 @@ object SchedulerCorrectnessSpec {
 
   def dummyProcess: IOProcess = new Process[IO] {
 
-    import flowDsl._
+    import dsl._
 
     override val handle: Receive = {
       case _ => empty
@@ -256,8 +256,7 @@ object SchedulerCorrectnessSpec {
                     time: FiniteDuration = TaskProcessingTime.instant.time): IOProcess = {
     new Process[IO] {
 
-      import effectDsl._
-      import flowDsl._
+      import dsl._
 
       val handle: Receive = {
         case e: TestEvent => delay(time) ++ eval(eventStore.add(selfRef, e))

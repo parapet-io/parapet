@@ -18,16 +18,14 @@ import scala.collection.JavaConverters._
 
 class Context[F[_]](
                      config: Parapet.ParConfig,
+                     val eventLog: EventLog[F],
                      val taskQueue: TaskQueue[F]) {
 
   private val processQueueSize = config.schedulerConfig.processQueueSize
 
-  val eventDeliveryHooks: EventDeliveryHooks[F] = new EventDeliveryHooks[F]
-
   private val processes = new java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessState[F]]()
 
   private val graph = new java.util.concurrent.ConcurrentHashMap[ProcessRef, List[ProcessRef]]
-
 
   def init(implicit ct: Concurrent[F]): F[Unit] = {
     ct.delay(new SystemProcess[F]()).flatMap { sysProcess =>
@@ -92,10 +90,11 @@ class Context[F[_]](
 
 object Context {
 
-  def apply[F[_]:Concurrent](config: Parapet.ParConfig): F[Context[F]] = {
+  def apply[F[_] : Concurrent](config: Parapet.ParConfig,
+                               eventLog: EventLog[F]): F[Context[F]] = {
     for {
       taskQueue <- Queue.bounded[F, Task[F]](config.schedulerConfig.queueSize)
-    } yield new Context[F](config, taskQueue)
+    } yield new Context[F](config, eventLog, taskQueue)
   }
 
   class ProcessState[F[_] : Concurrent](

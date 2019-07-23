@@ -2,19 +2,20 @@ package io.parapet.core.testutils
 
 import cats.effect.{ContextShift, IO, Timer}
 import io.parapet.CatsApp
-import io.parapet.core.Dsl.DslF
+import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.Parapet.{ParConfig, defaultConfig}
 import io.parapet.core.Process
 import io.parapet.core.processes.DeadLetterProcess
+import io.parapet.syntax.EventSyntax
 
 import scala.concurrent.ExecutionContext.global
 
-trait IntegrationSpec {
+trait IntegrationSpec extends WithDsl[IO] with EventSyntax[IO]{
 
   implicit val contextShift: ContextShift[IO] = IO.contextShift(global)
   implicit val timer: Timer[IO] = IO.timer(global)
 
-  def run(program: DslF[IO, Unit], processes: Array[Process[IO]],
+  def run(processes: Seq[Process[IO]], program: DslF[IO, Unit] = dsl.empty,
           deadLetterOpt: Option[DeadLetterProcess[IO]] = None,
           parCfg: ParConfig = defaultConfig): IO[Unit] = {
     new SpecApp(program, processes, deadLetterOpt, parCfg).run

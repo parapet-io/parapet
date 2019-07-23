@@ -15,8 +15,7 @@ import org.scalatest.OptionValues._
 
 class EventDeliverySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
 
-  import flowDsl._
-  import effectDsl._
+  import dsl._
 
   "Event" should "be sent to correct process" in {
     val eventStore = new EventStore[QualifiedEvent]
@@ -31,8 +30,8 @@ class EventDeliverySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
     }
 
     val program = for {
-      fiber <- run(sendEvents, processes.toArray).start
-      _ <- eventStore.awaitSize(10).guaranteeCase(_ => fiber.cancel)
+      fiber <- run(processes.toArray, sendEvents).start
+      _ <- eventStore.awaitSizeOld(10).guaranteeCase(_ => fiber.cancel)
     } yield ()
 
     program.unsafeRunSync()
@@ -70,8 +69,8 @@ class EventDeliverySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
     val processes = Array(client, server)
 
     val program = for {
-      fiber <- run(empty, processes, Some(deadLetter)).start
-      _ <- deadLetterEventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+      fiber <- run(processes, empty, Some(deadLetter)).start
+      _ <- deadLetterEventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
 
     } yield ()
     program.unsafeRunSync()
@@ -94,7 +93,7 @@ object EventDeliverySpec {
     (0 until numOfProcesses).map { i =>
       new Process[IO] {
 
-        import effectDsl._
+        import dsl._
 
         override val name: String = s"p-$i"
         override def handle: Receive = {

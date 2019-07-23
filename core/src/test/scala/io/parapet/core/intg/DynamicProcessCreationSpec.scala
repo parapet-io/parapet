@@ -13,7 +13,7 @@ import org.scalatest.Matchers._
 
 class DynamicProcessCreationSpec extends FunSuite with IntegrationSpec with WithDsl[IO] {
 
-  import flowDsl._
+  import dsl._
 
   test("create child process") {
 
@@ -25,8 +25,8 @@ class DynamicProcessCreationSpec extends FunSuite with IntegrationSpec with With
     val server = new Server(workersCount, db.selfRef, tasksCount, eventStore)
 
     val program = for {
-      fiber <- run(empty, Array[Process[IO]](db, server)).start
-      _ <- eventStore.awaitSize(workersCount * tasksCount).guaranteeCase(_ => fiber.cancel)
+      fiber <- run(Array[Process[IO]](db, server)).start
+      _ <- eventStore.awaitSizeOld(workersCount * tasksCount).guaranteeCase(_ => fiber.cancel)
     } yield ()
     program.unsafeRunSync()
 
@@ -49,8 +49,7 @@ object DynamicProcessCreationSpec {
                tasksCount: Int,
                eventStore: EventStore[Event]) extends Process[IO] {
 
-    import effectDsl._
-    import flowDsl._
+    import dsl._
 
     override val name: String = s"worker-$id"
     override val selfRef: ProcessRef = ProcessRef(s"worker-$id")
@@ -64,7 +63,7 @@ object DynamicProcessCreationSpec {
 
   class Database extends Process[IO] {
 
-    import flowDsl._
+    import dsl._
 
     override def handle: Receive = {
       case Persist(id) => reply(sender => Ack(id) ~> sender)
@@ -76,7 +75,7 @@ object DynamicProcessCreationSpec {
                tasksCount: Int,
                eventStore: EventStore[Event]) extends Process[IO] {
 
-    import flowDsl._
+    import dsl._
 
     override def handle: Receive = {
       case Start =>

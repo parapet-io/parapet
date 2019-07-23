@@ -15,8 +15,7 @@ import org.scalatest.WordSpec
 
 class ErrorHandlingSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
 
-  import effectDsl._
-  import flowDsl._
+  import dsl._
 
   "System" when {
     "process failed to handle event" should {
@@ -32,8 +31,8 @@ class ErrorHandlingSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val processes = Array(client, faultyServer)
 
         val program = for {
-          fiber <- run(empty, processes).start
-          _ <- clientEventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+          fiber <- run(processes).start
+          _ <- clientEventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
 
         } yield ()
         program.unsafeRunSync()
@@ -69,8 +68,8 @@ class ErrorHandlingSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val processes = Array(client, server)
 
         val program = for {
-          fiber <- run(empty, processes, Some(deadLetter)).start
-          _ <- deadLetterEventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+          fiber <- run(processes, empty, Some(deadLetter)).start
+          _ <- deadLetterEventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
 
         } yield ()
         program.unsafeRunSync()
@@ -108,8 +107,8 @@ class ErrorHandlingSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val processes = Array(client, server)
 
         val program = for {
-          fiber <- run(empty, processes, Some(deadLetter)).start
-          _ <- deadLetterEventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+          fiber <- run(processes, empty, Some(deadLetter)).start
+          _ <- deadLetterEventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
 
         } yield ()
         program.unsafeRunSync()
@@ -128,7 +127,7 @@ object ErrorHandlingSpec {
 
   val faultyServer: Process[IO] = new Process[IO] {
 
-    import effectDsl._
+    import dsl._
 
     def handle: Receive = {
       case Request => eval(throw new RuntimeException("server is down"))

@@ -1,18 +1,17 @@
 package io.parapet.core
 
-import io.parapet.core.Dsl.{Dsl, DslF, Effects, FlowOps}
+import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.Event.{Envelope, Failure}
 import io.parapet.core.Process._
 import io.parapet.core.exceptions.EventMatchException
+import io.parapet.syntax.EventSyntax
 import io.parapet.syntax.flow._
 
-trait Process[F[_]] {
+trait Process[F[_]] extends WithDsl[F] with EventSyntax[F]{
   _self =>
   type Program = DslF[F, Unit]
-  type Receive = ReceiveF[F]
-
-  protected val flowDsl: FlowOps[F, Dsl[F, ?]] = implicitly[FlowOps[F, Dsl[F, ?]]]
-  protected val effectDsl: Effects[F, Dsl[F, ?]] = implicitly[Effects[F, Dsl[F, ?]]]
+ // type ReceiveF[F[_]] = PartialFunction[Event, DslF[F, Unit]]
+  type Receive = PartialFunction[Event, DslF[F, Unit]]
 
   val name: String = getClass.getSimpleName
 
@@ -35,9 +34,9 @@ trait Process[F[_]] {
 
   def apply(e: Event, caller: ProcessRef): Program = {
     if (handle.isDefinedAt(e)) {
-      flowDsl.invoke(caller, handle(e), selfRef)
+      dsl.invoke(caller, handle(e), selfRef)
     } else {
-      flowDsl.send(Failure(Envelope(caller, e, selfRef),
+      dsl.send(Failure(Envelope(caller, e, selfRef),
         EventMatchException(s"process ${_self} handler is not defined for event: $e")), caller)
     }
   }
@@ -45,7 +44,7 @@ trait Process[F[_]] {
   def apply(e: Event): Program = handle(e)
 
   def switch(newHandler: => Receive): Program = {
-    effectDsl.eval {
+    dsl.eval {
       state = Some(newHandler)
     }
   }
@@ -77,6 +76,6 @@ trait Process[F[_]] {
 
 object Process {
 
-  type ReceiveF[F[_]] = PartialFunction[Event, DslF[F, Unit]]
+
 
 }

@@ -13,8 +13,7 @@ import org.scalatest.OptionValues._
 
 class ReplySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
 
-  import effectDsl._
-  import flowDsl._
+  import dsl._
 
   "Reply" should "send send event to the sender" in {
     val clientEventStore = new EventStore[Event]
@@ -34,8 +33,8 @@ class ReplySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
     val processes = Array(client, server)
 
     val program = for {
-      fiber <- run(empty, processes).start
-      _ <- clientEventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+      fiber <- run(processes).start
+      _ <- clientEventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
     } yield ()
 
     program.unsafeRunSync()

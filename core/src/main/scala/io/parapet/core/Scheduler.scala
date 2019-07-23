@@ -84,7 +84,7 @@ object Scheduler {
                 (event match {
                   case Kill =>
                     context.interrupt(pRef) >>
-                    submit(Deliver(Envelope(sender, Stop, pRef)), ps)
+                      submit(Deliver(Envelope(sender, Stop, pRef)), ps)
                   // interruption isn't instant operation since it's just a signal (e.g. Deferred)
                   // i.e. interrupt may be completed although
                   // the actual process is still performing some computations and will be interrupted latter
@@ -111,11 +111,11 @@ object Scheduler {
       ps.tryPut(task) >>= {
         case true => processRefQueue.enqueue(ps.process.selfRef)
         case false =>
-          ct.delay(println("queue is full"))>>
-          sendToDeadLetter(
-            DeadLetter(task.envelope,
-              EventDeliveryException(s"process ${ps.process} event queue is full")),
-            interpreter)
+          ct.delay(println("queue is full")) >>
+            sendToDeadLetter(
+              DeadLetter(task.envelope,
+                EventDeliveryException(s"process ${ps.process} event queue is full")),
+              interpreter)
       }
     }
 
@@ -129,8 +129,6 @@ object Scheduler {
       }
       }.toList
     }
-
-
 
 
   }
@@ -151,11 +149,11 @@ object Scheduler {
           processRefQueue,
           interpreter)
 
-    class Worker[F[_] : Concurrent: Parallel: ContextShift](name: String,
-                                                   context: Context[F],
-                                                   processRefQueue: Queue[F, ProcessRef],
-                                                   interpreter: Interpreter[F],
-                                                   ec: ExecutionContext) {
+    class Worker[F[_] : Concurrent : Parallel : ContextShift](name: String,
+                                                              context: Context[F],
+                                                              processRefQueue: Queue[F, ProcessRef],
+                                                              interpreter: Interpreter[F],
+                                                              ec: ExecutionContext) {
 
       private val logger = Logger(LoggerFactory.getLogger(s"parapet-$name"))
       private val ct = implicitly[Concurrent[F]]
@@ -202,18 +200,12 @@ object Scheduler {
         val sender = envelope.sender
         val receiver = envelope.receiver
 
-        val completeAwaitOnDeliver = context.eventDeliveryHooks.removeFirstMatch(process.selfRef, event) match {
-          case Some(hook) =>
-            ct.delay(logger.debug(s"process $process complete delivery hook for event: $event")) >>
-              hook.d.complete(())
-          case None => ct.unit
-        }
 
         event match {
           case Stop if processState.stop() =>
             stopProcess(sender, context, process.selfRef, interpreter,
               (_, err) => handleError(process, envelope, err)) >> context.remove(process.selfRef).void
-          case  _  if processState.stopped =>
+          case _ if processState.stopped =>
             sendToDeadLetter(
               DeadLetter(envelope, new IllegalStateException(s"process: $process is stopped")), interpreter)
           case _ if processState.interrupted => { // process was interrupted but not stopped yet
@@ -224,9 +216,8 @@ object Scheduler {
             if (process.execute.isDefinedAt(event)) {
               val program = process.execute.apply(event)
               ct.race(
-                completeAwaitOnDeliver >>
-                  interpret_(program, interpreter, FlowState(senderRef = sender, selfRef = receiver))
-                    .handleErrorWith(err => handleError(process, envelope, err)),
+                interpret_(program, interpreter, FlowState(senderRef = sender, selfRef = receiver))
+                  .handleErrorWith(err => handleError(process, envelope, err)),
                 processState.interruption).flatMap {
                 case Left(_) => ct.unit
                 case Right(_) => ct.delay(println("process has been interrupted")) // process has been interrupted. Stop event shall be delivered by scheduler

@@ -6,17 +6,15 @@ import cats.effect.{ContextShift, IO, Timer}
 import cats.instances.list._
 import cats.syntax.flatMap._
 import cats.syntax.traverse._
+import cats.syntax.functor._
 import cats.~>
 import io.parapet.core.Dsl._
 import io.parapet.core.DslInterpreter._
 import io.parapet.core.Event.Envelope
 import io.parapet.core.Queue.Enqueue
 import io.parapet.core.Scheduler.{Deliver, Task}
-import io.parapet.core.{Context, Parallel, Process}
+import io.parapet.core.{Context, Parallel, Process, ProcessRef}
 import io.parapet.instances.parallel._
-
-
-// todo refactor: replace IO.pure((s.addOps(ops), ())) with StateT.modify
 
 object DslInterpreterInstances {
 
@@ -27,133 +25,106 @@ object DslInterpreterInstances {
                          (implicit ctx: ContextShift[IO], timer: Timer[IO]): FlowOp[IO, ?] ~> Flow[IO, ?] =
       new (FlowOp[IO, ?] ~> Flow[IO, ?]) {
 
+        def send(e: Envelope): IO[Unit] = {
+          context.taskQueue.tryEnqueue(Deliver(e)).flatMap {
+            case false => context.eventLog.write(e)
+            case true => IO.unit
+          }
+        }
+
         override def apply[A](fa: FlowOp[IO, A]): Flow[IO, A] = {
 
           val parallel: Parallel[IO] = Parallel[IO]
-          val interpreter: Interpreter[IO] = ioFlowInterpreter(context) or ioEffectInterpreter(context)
+          val interpreter: Interpreter[IO] = ioFlowInterpreter(context)
+
           fa match {
-            case Empty() => StateT[IO, FlowState[IO], Unit] { s =>IO.pure((s, ())) }
-            case Use(resource, f) => StateT[IO, FlowState[IO], Unit] { s =>
-              val res = IO.delay(resource()) >>= (r => interpret(f(r).asInstanceOf[DslF[IO, A]], interpreter, s.copy(ops = List.empty)).flatMap(_.toList.sequence))
-              IO.pure((s.addOps(List(res)), ()))
-            }
+
+            case Empty() =>
+              StateT.set[IO, FlowState[IO]](FlowState(ProcessRef.UndefinedRef, ProcessRef.UndefinedRef))
+
             case Send(event, receivers) =>
-              StateT[IO, FlowState[IO], Unit] { s =>
-                val ops = receivers.map(receiver =>
-                  context.taskQueue.tryEnqueue(Deliver(Envelope(s.selfRef, event, receiver))).flatMap(r =>
-                    if(!r) IO.raiseError(new RuntimeException("queue is full")) else IO.unit)
-                )
-                IO.pure((s.addOps(ops), ()))
+              StateT.modify[IO, FlowState[IO]] { s =>
+
+                s.addOps(List(receivers.map(receiver => send(Envelope(s.selfRef, event, receiver))).toList.sequence))
               }
+
             case Forward(event, receivers) =>
-              StateT[IO, FlowState[IO], Unit] { s =>
-                val ops = receivers.map(receiver => context.taskQueue.enqueue(Deliver(Envelope(s.senderRef, event, receiver))))
-                IO.pure((s.addOps(ops), ()))
-              }
-            case Par(flows) =>
-              StateT[IO, FlowState[IO], Unit] { s =>
-                val res = parallel.par(
-                  flows.map(flow => interpret_(flow.asInstanceOf[DslF[IO, A]], interpreter, s.copy(ops = List.empty))))
-                IO.pure((s.addOps(List(res)), ()))
-              }
-            case io.parapet.core.Dsl.Delay(duration, Some(flow)) =>
-              StateT.modifyF[IO, FlowState[IO]]{s =>
-                val delayIO = IO.sleep(duration)
-               interpret(flow.asInstanceOf[DslF[IO, A]], interpreter, s.copy(ops = List.empty)).map(ops =>
-                  ops.map(op => delayIO >> op)).map(res => s.addOps(res))
-
-              }
-            case io.parapet.core.Dsl.Delay(duration, None) =>
-              StateT.modify[IO,FlowState[IO]](s => s.addOps(List(IO.sleep(duration))))
-
-            case Reply(f) =>
-              StateT.modifyF[IO, FlowState[IO]](s  =>
-                interpret(f(s.senderRef).asInstanceOf[DslF[IO, A]], interpreter, s.copy(ops = List.empty))
-                  .map(a => s.addOps(a)))
-
-
-            case Invoke(caller, body, callee) =>
               StateT.modify[IO, FlowState[IO]] { s =>
-                  s.addOps(List(interpret_(body.asInstanceOf[DslF[IO, A]], interpreter, FlowState(caller, callee))))
+                s.addOps(List(receivers.map(receiver => send(Envelope(s.senderRef, event, receiver))).toList.sequence))
               }
 
-            case Fork(flow) =>
-              StateT.modify[IO, FlowState[IO]] { s =>
-                val res = interpret_(flow.asInstanceOf[DslF[IO, A]], interpreter, s.copy(ops = List.empty))
 
+            case par: Par[IO, Dsl[IO, ?]]@unchecked =>
+              StateT.modify[IO, FlowState[IO]] { s =>
+                s.addOps(
+                  List(interpret(par.flow, interpreter, s.copy(ops = List.empty)).flatMap(parallel.par))
+                )
+              }
+
+            case delayOp: Delay[IO, Dsl[IO, ?]]@unchecked =>
+              StateT.modifyF[IO, FlowState[IO]] { s =>
+                val delayIO = IO.sleep(delayOp.duration)
+                delayOp.flow match {
+                  case Some(flow) =>
+
+                    val res = interpret(flow, interpreter, s.copy(ops = List.empty))
+                      .map(ops => ops.map(op => delayIO >> op)).flatMap(_.toList.sequence)
+                    IO.pure(s.addOps(List(res)))
+                  case None => IO.pure(s.addOps(List(delayIO)))
+                }
+              }
+
+            case reply: Reply[IO, Dsl[IO, ?]]@unchecked =>
+              StateT.modify[IO, FlowState[IO]] { s =>
+                s.addOps(List(interpret_(reply.f(s.senderRef), interpreter, s.copy(ops = List.empty))))
+              }
+
+            case invoke: Invoke[IO, Dsl[IO, ?]]@unchecked =>
+              StateT.modify[IO, FlowState[IO]] { s =>
+                s.addOps(List(interpret_(invoke.body, interpreter, FlowState(invoke.caller, invoke.callee))))
+              }
+
+            case fork: Fork[IO, Dsl[IO, ?]]@unchecked =>
+              StateT.modify[IO, FlowState[IO]] { s =>
+                val res = interpret_(fork.flow, interpreter, s.copy(ops = List.empty))
                 s.addOps(List(res.start))
               }
 
-            case Await(selector, onTimeout, timeout) =>
+            case Register(parent, process: Process[IO]) =>
               StateT.modify[IO, FlowState[IO]] { s =>
-
-                val awaitHook = for {
-                  awaitHook <- Deferred[IO, Unit]
-                  token <- IO(context.eventDeliveryHooks.add(s.selfRef, selector, awaitHook))
-                } yield (awaitHook, token)
-
-                def race(token: String, d: Deferred[IO, Unit]): IO[Unit] = {
-                  for {
-                    r <- IO.race(d.get, IO.sleep(timeout))
-                    _ <- r match {
-                      case Left(_) => IO.unit // process received expected event. cancel delay
-                      case Right(_) =>
-                        context.eventDeliveryHooks.remove(s.selfRef, token) match {
-                          case Some(hook) =>
-                            interpret_(onTimeout.asInstanceOf[DslF[IO, A]], interpreter, s.copy(ops = List.empty))
-                          case None => IO.unit // event was delivered after delay
-                        }
-
-                    }} yield ()
-                }
-
-                val p = awaitHook.flatMap {
-                  case (d, token) => race(token, d).start
-                }
-
-                s.addOps(List(p))
+                s.addOps(List(context.register(parent, process)))
               }
-            case Register(parent, process:Process[IO]) =>
-              StateT[IO, FlowState[IO], Unit] { s =>
-                IO.pure((s.addOps(List(context.register(parent, process))), ()))
-              }
+
             case Race(firstFlow, secondFlow) =>
-              StateT[IO, FlowState[IO], Unit] { s =>
+              StateT.modify[IO, FlowState[IO]] { s =>
                 val first = interpret_(firstFlow.asInstanceOf[DslF[IO, A]], interpreter, s.copy(ops = List.empty))
                 val second = interpret_(secondFlow.asInstanceOf[DslF[IO, A]], interpreter, s.copy(ops = List.empty))
-                IO.pure((s.addOps(List(IO.race(first, second))), ()))
+                s.addOps(List(IO.race(first, second)))
+              }
+
+            case suspend: Suspend[IO, Dsl[IO, ?], A]@unchecked =>
+              StateT.modify[IO, FlowState[IO]] { s =>
+                val res = IO.suspend(suspend.thunk()).flatMap { a =>
+                  suspend.bind.map(f => (b: A) => interpret_(f(b), interpreter, s.copy(ops = List.empty)))
+                    .getOrElse((_: A) => IO.unit)(a)
+                }
+                s.addOps(List(res))
+
+              }
+
+            case eval: Eval[IO, Dsl[IO, ?], A]@unchecked =>
+              StateT.modify[IO, FlowState[IO]] { s =>
+                val res = IO(eval.thunk()).flatMap { a =>
+                  eval.bind.map(f => (b: A) => interpret_(f(b), interpreter, s.copy(ops = List.empty)))
+                    .getOrElse((_: A) => IO.unit)(a)
+                }
+                s.addOps(List(res))
               }
           }
         }
       }
 
-    def ioEffectInterpreter(context: Context[IO])
-                           (implicit ctx: ContextShift[IO], timer: Timer[IO]): Effect[IO, ?] ~> Flow[IO, ?] = new (Effect[IO, ?] ~> Flow[IO, ?]) {
-      override def apply[A](fa: Effect[IO, A]): Flow[IO, A] = {
-        val interpreter: Interpreter[IO] = ioFlowInterpreter(context) or ioEffectInterpreter(context)
-        fa match {
 
-          case Suspend(thunk) => StateT.modify[IO, FlowState[IO]](s => s.addOps(List(thunk())))
-
-          case suspend: SuspendF[IO, Dsl[IO, ?], A] => StateT.modify[IO, FlowState[IO]] { s =>
-            val res = suspend.thunk().flatMap { a =>
-              interpret_(suspend.f(a),
-                interpreter, s.copy(ops = List.empty))
-            }
-            s.addOps(List(res))
-
-          }
-          case eval: Eval[IO, Dsl[IO, ?], A] => StateT.modify[IO, FlowState[IO]] { s =>
-            val res = IO(eval.thunk()).flatMap { a =>
-              eval.bind.map(f => (b: A) => interpret_(f(b), interpreter, s.copy(ops = List.empty)))
-                .getOrElse((_: A) => IO.unit)(a)
-            }
-            s.addOps(List(res))
-          }
-        }
-
-      }
-    }
   }
 
 }

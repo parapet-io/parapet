@@ -5,7 +5,6 @@ import io.parapet.core.ProcessRef._
 import io.parapet.core.Scheduler._
 import io.parapet.implicits._
 import io.parapet.instances.DslInterpreterInstances.dslInterpreterForCatsIO._
-import io.parapet.core.DslInterpreter.{Dependencies, FlowState, interpret_}
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers.{empty => _, _}
 import org.scalatest.OptionValues._

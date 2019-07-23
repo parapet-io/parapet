@@ -5,16 +5,16 @@ import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.Event.{Start, Stop}
 import io.parapet.core.intg.ChannelSpec.{Request, Response}
 import io.parapet.core.testutils.{EventStore, IntegrationSpec}
-import io.parapet.core.{Channel, Event, Process}
+import io.parapet.core.{Channel, Event, Process, ProcessRef}
 import io.parapet.implicits._
 import org.scalatest.FunSuite
 import org.scalatest.Matchers._
-import scala.util.{Failure => SFailure, Success}
+
+import scala.util.{Success, Failure => SFailure}
 
 class ChannelSpec extends FunSuite with IntegrationSpec with WithDsl[IO] {
 
-  import effectDsl._
-  import flowDsl._
+  import dsl._
 
 
   test("channel") {
@@ -24,12 +24,18 @@ class ChannelSpec extends FunSuite with IntegrationSpec with WithDsl[IO] {
     val numOfRequests = 5
 
     val server = new Process[IO] {
+
+      override val selfRef = ProcessRef("server")
+
       override def handle: Receive = {
         case Request(seq) => reply(sender => Response(seq) ~> sender)
       }
     }
 
     val client: Process[IO] = new Process[IO] {
+
+      override val selfRef = ProcessRef("client")
+
       var seq = 0
 
       val ch = new Channel[IO]()
@@ -41,19 +47,16 @@ class ChannelSpec extends FunSuite with IntegrationSpec with WithDsl[IO] {
         })
 
       override def handle: Receive = {
-        case Start => register(selfRef, ch) ++
-          (0 until numOfRequests).map(i => Request(i)) ~> selfRef
+        case Start =>
+          eval(println(ch.selfRef)) ++
+            register(selfRef, ch) ++
+            (0 until numOfRequests).map(i => Request(i)) ~> selfRef
         case Stop => empty
         case req: Request => sendRequest(req)
       }
     }
 
-    val program = for {
-      fiber <- run(empty, Array(client, server)).start
-      _ <- eventStore.awaitSize(numOfRequests).guaranteeCase(_ => fiber.cancel)
-
-    } yield ()
-    program.unsafeRunSync()
+    eventStore.awaitSize(numOfRequests, run(Seq(client, server))).unsafeRunSync()
     eventStore.get(client.selfRef) shouldBe Seq(Response(0), Response(1), Response(2), Response(3), Response(4))
 
   }

@@ -11,8 +11,7 @@ import org.scalatest.Matchers._
 
 class SelfSendSpec extends FlatSpec with IntegrationSpec with WithDsl[IO]{
 
-  import effectDsl._
-  import flowDsl._
+  import dsl._
 
   "Process" should "be able to send event to itself" in {
     val eventStore = new EventStore[Counter]
@@ -29,8 +28,8 @@ class SelfSendSpec extends FlatSpec with IntegrationSpec with WithDsl[IO]{
    val processes = Array(process)
 
     val program = for {
-      fiber <- run(Counter(count) ~> process, processes).start
-      _ <- eventStore.awaitSize(count).guaranteeCase(_ => fiber.cancel)
+      fiber <- run(processes, Counter(count) ~> process).start
+      _ <- eventStore.awaitSizeOld(count).guaranteeCase(_ => fiber.cancel)
     } yield ()
 
     program.unsafeRunSync()

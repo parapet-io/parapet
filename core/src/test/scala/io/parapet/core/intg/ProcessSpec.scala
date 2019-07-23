@@ -16,8 +16,7 @@ import org.scalatest.WordSpec
 
 class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
 
-  import effectDsl._
-  import flowDsl._
+  import dsl._
 
   "A process" when {
     "invoking other process" should {
@@ -33,8 +32,8 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         }
         val processes = Array(process)
         val program = for {
-          fiber <- run(empty, processes).start
-          _ <- eventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+          fiber <- run(processes).start
+          _ <- eventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
         } yield ()
 
         program.unsafeRunSync()
@@ -62,8 +61,8 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         }
         val processes = Array(process)
         val program = for {
-          fiber <- run(empty, processes).start
-          _ <- eventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+          fiber <- run(processes).start
+          _ <- eventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
         } yield ()
 
         program.unsafeRunSync()
@@ -95,8 +94,8 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val processes = Array(composed)
 
         val program = for {
-          fiber <- run(Result(42) ~> composed, processes).start
-          _ <- eventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+          fiber <- run(processes, Result(42) ~> composed).start
+          _ <- eventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
         } yield ()
 
         program.unsafeRunSync()
@@ -128,8 +127,8 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val processes = Array(composed)
 
         val program = for {
-          fiber <- run(Result(42) ~> composed, processes).start
-          _ <- eventStore.awaitSize(2).guaranteeCase(_ => fiber.cancel)
+          fiber <- run(processes, Result(42) ~> composed).start
+          _ <- eventStore.awaitSizeOld(2).guaranteeCase(_ => fiber.cancel)
         } yield ()
 
         program.unsafeRunSync()
@@ -167,8 +166,8 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val composed = p1.and(p2)
         val processes = Array(composed)
         val program = for {
-          fiber <- run(Result(42) ~> composed, processes, Some(deadLetter)).start
-          _ <- eventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+          fiber <- run(processes, Result(42) ~> composed, Some(deadLetter)).start
+          _ <- eventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
         } yield ()
 
         program.unsafeRunSync()
@@ -187,7 +186,7 @@ object ProcessSpec {
 
   class Multiplier extends Process[IO] {
 
-    import flowDsl._
+    import dsl._
 
     override val selfRef: ProcessRef = Multiplier.ref
 

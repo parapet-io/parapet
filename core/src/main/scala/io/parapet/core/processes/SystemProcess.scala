@@ -9,6 +9,6 @@ class SystemProcess[F[_]] extends Process[F] {
   override val name: String = SystemRef.ref
   override val selfRef: ProcessRef = SystemRef
   override val handle: Receive = {
-    case f: Failure => flowDsl.send(DeadLetter(f), DeadLetterRef)
+    case f: Failure => dsl.send(DeadLetter(f), DeadLetterRef)
   }
 }

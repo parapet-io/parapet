@@ -11,8 +11,7 @@ import org.scalatest.Matchers._
 
 class ProcessBehaviourSpec extends FunSuite with WithDsl[IO] with IntegrationSpec {
 
-  import flowDsl._
-  import effectDsl._
+  import dsl._
 
 
   test("switch behaviour") {
@@ -36,8 +35,8 @@ class ProcessBehaviourSpec extends FunSuite with WithDsl[IO] with IntegrationSpe
     val init: DslF[IO, Unit] = Seq(Init, Run, Run) ~> p.selfRef
 
     val program = for {
-      fiber <- run(init, processes).start
-      _ <- eventStore.awaitSize(3).guaranteeCase(_ => fiber.cancel)
+      fiber <- run(processes, init).start
+      _ <- eventStore.awaitSizeOld(3).guaranteeCase(_ => fiber.cancel)
 
     } yield ()
     program.unsafeRunSync()

@@ -6,7 +6,7 @@ package object syntax {
 
   object process extends ProcessSyntax
   
-  object event extends EventSyntax
+  //object event extends EventSyntax
 
   object flow extends FlowSyntax
 

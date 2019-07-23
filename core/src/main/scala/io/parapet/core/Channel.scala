@@ -6,13 +6,13 @@ import io.parapet.core.Channel.Request
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Failure, Start, Stop}
 import io.parapet.implicits._
+import io.parapet.syntax.EventSyntax
 
 import scala.util.{Success, Try, Failure => SFailure}
 
-class Channel[F[_] : Concurrent] extends Process[F] {
+class Channel[F[_] : Concurrent] extends Process[F] with EventSyntax[F]{
 
-  import effectDsl._
-  import flowDsl._
+  import dsl._
 
   private var callback: Deferred[F, Try[Event]] = _
 
@@ -32,15 +32,15 @@ class Channel[F[_] : Concurrent] extends Process[F] {
     case Failure(_, err) => suspend(callback.complete(SFailure(err))) // receiver has failed to process request
     case e =>
       suspend(callback.complete(Success(e))) ++
-      eval(callback = null) ++
-      switch(waitForRequest)
+        eval(callback = null) ++
+        switch(waitForRequest)
   }
 
   def handle: Receive = waitForRequest
 
   def send(e: Event, receiver: ProcessRef, cb: Try[Event] => DslF[F, Unit]): DslF[F, Unit] = {
-    suspendF(Deferred[F, Try[Event]]) { d =>
-      Request(e, d, receiver) ~> selfRef ++ suspendF(d.get)(cb)
+    suspendWith(Deferred[F, Try[Event]]) { d =>
+      Request(e, d, receiver) ~> selfRef ++ suspendWith(d.get)(cb)
     }
   }
 

@@ -5,18 +5,18 @@ import io.parapet.CatsApp
 import io.parapet.core.Event.{Start, Stop}
 import io.parapet.core.{Event, Process}
 import io.parapet.implicits._
+import io.parapet.syntax.EventSyntax
 
 import scala.concurrent.duration._
 
-object PingPongApp extends CatsApp {
+object PingPongApp extends CatsApp with EventSyntax[IO]{
 
   import PingProcess._
   import PongProcess._
 
   class PingProcess(pongProcess: Process[IO]) extends Process[IO] {
 
-    import effectDsl._
-    import flowDsl._
+    import dsl._
 
     override val name: String = "pingProcess"
     override val handle: Receive = {
@@ -34,8 +34,7 @@ object PingPongApp extends CatsApp {
 
   class PongProcess extends Process[IO] {
 
-    import effectDsl._
-    import flowDsl._
+    import dsl._
 
     override val name: String = "pongProcess"
     override val handle: Receive = {

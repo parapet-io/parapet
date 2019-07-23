@@ -16,7 +16,7 @@ trait DeadLetterProcess[F[_]] extends Process[F] {
 object DeadLetterProcess {
 
   class DeadLetterLoggingProcess[F[_]] extends DeadLetterProcess[F] {
-    import effectDsl._
+    import dsl._
     private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
     override val name: String = DeadLetterRef.ref + "-logging"
     override val handle: Receive = {

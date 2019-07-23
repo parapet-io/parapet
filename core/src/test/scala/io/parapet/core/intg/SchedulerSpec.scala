@@ -18,9 +18,7 @@ import scala.concurrent.duration._
 
 class SchedulerSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
 
-  import effectDsl._
-  import flowDsl._
-
+  import dsl._
 
   "Scheduler" when {
     "received task for unknown process" should {
@@ -47,8 +45,8 @@ class SchedulerSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val processes = Array(client)
 
         val program = for {
-          fiber <- run(empty, processes, Some(deadLetter)).start
-          _ <- deadLetterEventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+          fiber <- run(processes, empty, Some(deadLetter)).start
+          _ <- deadLetterEventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
 
         } yield ()
         program.unsafeRunSync()
@@ -91,8 +89,8 @@ class SchedulerSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val updatedConfig = processQueueSizeLens.set(defaultConfig)(processQueueSize)
         println(updatedConfig)
         val program = for {
-          fiber <- run(empty, processes, Some(deadLetter), updatedConfig).start
-          _ <- deadLetterEventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+          fiber <- run(processes, empty, Some(deadLetter), updatedConfig).start
+          _ <- deadLetterEventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
 
         } yield ()
         program.unsafeRunSync()

@@ -4,7 +4,6 @@ import cats.effect._
 import cats.syntax.flatMap._
 import cats.~>
 import com.typesafe.scalalogging.Logger
-import io.parapet.core.DslInterpreter.Dependencies
 import io.parapet.core.{Context, Parallel}
 import io.parapet.instances.DslInterpreterInstances.dslInterpreterForCatsIO
 import io.parapet.instances.parallel._
@@ -25,9 +24,7 @@ abstract class CatsApp extends ParApp[IO] {
     dslInterpreterForCatsIO.ioFlowInterpreter(context)
   }
 
-  override def effectInterpreter(context: Context[IO]): Effect ~> Flow = {
-    dslInterpreterForCatsIO.ioEffectInterpreter(context)
-  }
+
 
   override def unsafeRun(io: IO[Unit]): Unit = {
     io.start.flatMap { fiber =>

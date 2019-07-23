@@ -17,10 +17,9 @@ import cats.syntax.flatMap._
 
 import scala.concurrent.duration._
 
-class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
+class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
 
-  import effectDsl._
-  import flowDsl._
+  import dsl._
 
   "Start event" should "be delivered before client events" in {
     val expectedEventsCount = 2
@@ -35,8 +34,8 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec with WithDsl[IO
     val sendEvent = TestEvent ~> process
     val processes = Array(process)
     val program = for {
-      fiber <- run(sendEvent, processes).start
-      _ <- eventStore.awaitSize(expectedEventsCount).guaranteeCase(_ => fiber.cancel)
+      fiber <- run(processes, sendEvent).start
+      _ <- eventStore.awaitSizeOld(expectedEventsCount).guaranteeCase(_ => fiber.cancel)
     } yield ()
 
     program.unsafeRunSync()
@@ -60,8 +59,8 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec with WithDsl[IO
     val sendEvent = TestEvent ~> process
     val processes = Array(process)
     val program = for {
-      fiber <- run(sendEvent, processes).start
-      _ <- eventStore.awaitSize(domainEventsCount).guaranteeCase(_ => fiber.cancel)
+      fiber <- run(processes, sendEvent).start
+      _ <- eventStore.awaitSizeOld(domainEventsCount).guaranteeCase(_ => fiber.cancel)
     } yield ()
 
     program.unsafeRunSync()
@@ -107,7 +106,7 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec with WithDsl[IO
     }
 
     val program = for {
-      fiber <- run(empty, Array(parent)).start
+      fiber <- run(Array(parent), empty).start
       _ <- IO.delay(while (!lastProcessCreated.get()) {}) >> fiber.cancel
 
     } yield ()
@@ -133,8 +132,8 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec with WithDsl[IO
         delay(1.second, Kill ~> longRunningProcess.selfRef)
 
     val program = for {
-      fiber <- run(flow, Array(longRunningProcess)).start
-      _ <- eventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+      fiber <- run(Array(longRunningProcess), flow).start
+      _ <- eventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
     } yield ()
     program.unsafeRunSync()
     eventStore.print()
@@ -154,8 +153,8 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec with WithDsl[IO
     val flow: DslF[IO, Unit] = Seq(TestEvent, TestEvent, Stop) ~> process.selfRef
 
     val program = for {
-      fiber <- run(flow, Array(process)).start
-      _ <- eventStore.awaitSize(3).guaranteeCase(_ => fiber.cancel)
+      fiber <- run(Array(process), flow).start
+      _ <- eventStore.awaitSizeOld(3).guaranteeCase(_ => fiber.cancel)
     } yield ()
 
     program.unsafeRunSync()
@@ -181,8 +180,8 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec with WithDsl[IO
     val flow: DslF[IO, Unit] = delay(1.second, Kill ~> process) ++ Kill ~> process
 
     val program = for {
-      fiber <- run(flow, Array(process), Some(deadLetter)).start
-      _ <- deadLetterEventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+      fiber <- run(Array(process), flow, Some(deadLetter)).start
+      _ <- deadLetterEventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
     } yield ()
 
     program.unsafeRunSync()
@@ -210,8 +209,8 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec with WithDsl[IO
     val flow: DslF[IO, Unit] = Seq(Stop, Stop) ~> process
 
     val program = for {
-      fiber <- run(flow, Array(process), Some(deadLetter)).start
-      _ <- deadLetterEventStore.awaitSize(1).guaranteeCase(_ => fiber.cancel)
+      fiber <- run(Array(process),flow, Some(deadLetter)).start
+      _ <- deadLetterEventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
     } yield ()
 
     program.unsafeRunSync()
