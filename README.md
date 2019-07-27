@@ -41,13 +41,9 @@ object Printer {
 }
 ```
 
-Let's walk through this code. You start writing your processes by extending `Process` trait and parameterizing it with an effect type. In this example we left so called hole `F[_]` in our `Printer` type which can be any type constructor with a single argument, e.g. `F[_]` is a generic type constructor, cats effect `IO` is a specific type constructor and `IO[Unit]` is a concrete type. Starting from this moment it should become clear what it means for a process to be generic. Simply speaking it means that a process doesn't depend on any specific effect type e.g. `IO`. Thus we can claim that our `Printer` process is surely a generic process. The next step is to define a process API or contract that defines set of events that it can send and recieve. Process contract is an important part of any process specification that should be taken seriously. API defines a protocol that other processes will use in order to communicate with your process. Please remember that it's very important aspect of any process definition and take it seriously. The next step would importing `DSL`, Parapet DSL is a small set of operations that we will consider in details in the next chapters, in this example we need only `eval` operator that  suspends a side effect in `F`, in our Printer process we suspend `println` effectful computation. Finally every process should override `handle` function defined in `Process` trait. `handle` function is a partial function that matches input events and produces an executable `flows`. If you ever tried Akka framework you may find this approach familiar. In our Printer process we match on `Print` event using well known pattern-matching feature in Scala language. If you are new in functional programming I'd strongly recommend to read about pattern-matching, it's a very powerfull feature. 
+Let's walk through this code. You start writing your processes by extending `Process` trait and parameterizing it with an effect type. In this example we left so called hole `F[_]` in our `Printer` type which can be any type constructor with a single argument, e.g. `F[_]` is a generic type constructor, cats effect `IO` is a specific type constructor and `IO[Unit]` is a concrete type. Starting from this moment it should become clear what it means for a process to be generic. Simply speaking it means that a process doesn't depend on any specific effect type e.g. `IO`. Thus we can claim that our `Printer` process is surely a generic process. The next step is to define a process API or contract that defines set of events that it can send and recieve. Process contract is an important part of any process specification that should be taken seriously. API defines a protocol that other processes will use in order to communicate with your process. Please remember that it's very important aspect of any process definition and take it seriously. The next step would importing `DSL`, Parapet DSL is a small set of operations that we will consider in details in the next chapters, in this example we need only `eval` operator that  suspends a side effect in `F`, in our Printer process we suspend `println` effectful computation. Finally every process should override `handle` function defined in `Process` trait. `handle` function is a partial function that matches input events and produces an executable `flows`. If you ever tried Akka framework you may find this approach familiar (for the curious, `Receive` is simply a type alias for `PartialFunction[Event, DslF[F, Unit]]`). In our Printer process we match on `Print` event using well known pattern-matching feature in Scala language. If you are new in functional programming I'd strongly recommend to read about pattern-matching, it's a very powerfull feature. 
 That's basically it, we consider every important  aspect of our Printer process, let's move forward and write a simple client process that will talk to out Printer.
 
-
-
-
-Now let's write a client that will send `Print` events to the printer process:
 
 ```scala
 import io.parapet.core.Event.Start
@@ -61,6 +57,45 @@ class PrinterClient[F[_]](printer: ProcessRef) extends Process[F] {
   }
 }
 ```
+
+As you already might noticed we are repeating the same steps we made when were writing our `Printer` process: 
+* Create a new Process with a  _hole_ `F[_]` in it's type definition
+* Extend `io.parapet.core.Process` trait and parametrizing it with generic effect type `F`
+* Implement `handle` partial function
+
+Let's consider some new types and operators we have used to write our client: `ProcessRef`, `Start` lifecycle event and `~>` (send) infix operator. Let's start from  `ProcessRef`. `ProcessRef` is a unique process identifier (UUID by default), it represents a process address in Parapet system and *must* be unique, it's recommended to use `ProcessRef` instead of a `Process` object directly unless you are sure you want otherwise. It's not prohibited to use `Process` object directly, however using a process reference may be useful in some scenarios. Let's consider one such case. Imagine we want to dynamically change current `Printer` process in our client so that it will store data in file on disk instead of printing it to the console. We can add a new event `ChangePrinter`:
+
+```scala
+case class ChangePrinter(printer: ProcessRef) extends Event
+```
+
+Then our client will look like this:
+
+```scala
+class PrinterClient[F[_]](private var printer: ProcessRef) extends Process[F] {
+
+  import PrinterClient._
+  import dsl._
+
+
+  override def handle: Receive = {
+    case Start => Print("hello world") ~> printer
+    case ChangePrinter(newPrinter) => eval(printer = newPrinter)
+  }
+}
+
+object PrinterClient {
+
+  case class ChangePrinter(printer: ProcessRef) extends Event
+
+}
+```
+
+This design cannot be achieved when using direct processes b/c it's not possible to send `Process`  objects,  processes are not serializable in general. One more thing, you can override a `Process#ref` field, only make sure it's unique otherwise Parapet system will return an error during the startup. 
+
+
+
+
 
 You probably already noticed a new type `ProcessRef`. 
 
