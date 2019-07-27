@@ -43,6 +43,7 @@ class ZmqSyncServer[F[_] : Concurrent]
   private lazy val ch = Channel[F] // req-rep channel to talk to `receiver`
 
   private val init = eval {
+    println(address)
     socket.bind(address)
   } ++ register(ref, ch)
 
@@ -53,7 +54,8 @@ class ZmqSyncServer[F[_] : Concurrent]
   }
 
   private def ready: Receive = {
-    case Stop => Utils.close(zmqContext)
+    case Stop =>
+      eval(Try(socket.close())) ++ Utils.close(zmqContext)
     case Await =>
       evalWith {
         Try {

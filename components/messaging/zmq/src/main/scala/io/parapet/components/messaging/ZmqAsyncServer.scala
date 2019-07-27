@@ -32,12 +32,13 @@ class ZmqAsyncServer[F[_]](address: String,
   import dsl._
 
   private lazy val zmqContext = new ZContext(numOfWorkers)
+  private lazy val frontend = zmqContext.createSocket(SocketType.ROUTER)
 
   override def handle: Receive = {
     case Start =>
       createWorkers ++
         eval {
-          val frontend = zmqContext.createSocket(SocketType.ROUTER)
+        //  val frontend = zmqContext.createSocket(SocketType.ROUTER)
           if (identity != "") {
             frontend.setIdentity(identity.getBytes())
           }
@@ -46,7 +47,8 @@ class ZmqAsyncServer[F[_]](address: String,
           backend.bind("inproc://backend")
           Try(ZMQ.proxy(frontend, backend, null)) // blocking call. can be interrupted
         }
-    case Stop => Utils.close(zmqContext)
+    case Stop =>
+      eval(Try(frontend.close())) ++ Utils.close(zmqContext)
   }
 
   def createWorkers: DslF[F, Unit] = {
