@@ -1,19 +1,17 @@
 package io.parapet.core.intg
 
 import cats.effect.IO
-import io.parapet.core.Dsl.WithDsl
 import io.parapet.core.Event._
 import io.parapet.core.exceptions.EventHandlingException
 import io.parapet.core.intg.ErrorHandlingSpec._
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.testutils.{EventStore, IntegrationSpec}
 import io.parapet.core.{Event, Process}
-import io.parapet.implicits._
 import org.scalatest.Matchers.{matchPattern, empty => _, _}
 import org.scalatest.OptionValues._
 import org.scalatest.WordSpec
 
-class ErrorHandlingSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
+class ErrorHandlingSpec extends WordSpec with IntegrationSpec {
 
   import dsl._
 
@@ -24,7 +22,7 @@ class ErrorHandlingSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val client = new Process[IO] {
           def handle: Receive = {
             case Start => Request ~> faultyServer
-            case f: Failure => eval(clientEventStore.add(selfRef, f))
+            case f: Failure => eval(clientEventStore.add(ref, f))
           }
         }
 
@@ -38,8 +36,8 @@ class ErrorHandlingSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         program.unsafeRunSync()
 
         clientEventStore.size shouldBe 1
-        clientEventStore.get(client.selfRef).headOption.value should matchPattern {
-          case Failure(Envelope(client.selfRef, Request, faultyServer.selfRef), _: EventHandlingException) =>
+        clientEventStore.get(client.ref).headOption.value should matchPattern {
+          case Failure(Envelope(client.`ref`, Request, faultyServer.`ref`), _: EventHandlingException) =>
         }
       }
     }
@@ -51,7 +49,7 @@ class ErrorHandlingSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val deadLetterEventStore = new EventStore[DeadLetter]
         val deadLetter = new DeadLetterProcess[IO] {
           def handle: Receive = {
-            case f: DeadLetter => eval(deadLetterEventStore.add(selfRef, f))
+            case f: DeadLetter => eval(deadLetterEventStore.add(ref, f))
           }
         }
         val server = new Process[IO] {
@@ -68,15 +66,15 @@ class ErrorHandlingSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val processes = Array(client, server)
 
         val program = for {
-          fiber <- run(processes, empty, Some(deadLetter)).start
+          fiber <- run(processes, unit, Some(deadLetter)).start
           _ <- deadLetterEventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
 
         } yield ()
         program.unsafeRunSync()
 
         deadLetterEventStore.size shouldBe 1
-        deadLetterEventStore.get(deadLetter.selfRef).headOption.value should matchPattern {
-          case DeadLetter(Envelope(client.selfRef, Request, server.selfRef), _: EventHandlingException) =>
+        deadLetterEventStore.get(deadLetter.ref).headOption.value should matchPattern {
+          case DeadLetter(Envelope(client.`ref`, Request, server.`ref`), _: EventHandlingException) =>
         }
 
       }
@@ -89,7 +87,7 @@ class ErrorHandlingSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val deadLetterEventStore = new EventStore[DeadLetter]
         val deadLetter = new DeadLetterProcess[IO] {
           def handle: Receive = {
-            case f: DeadLetter => eval(deadLetterEventStore.add(selfRef, f))
+            case f: DeadLetter => eval(deadLetterEventStore.add(ref, f))
           }
         }
         val server = new Process[IO] {
@@ -107,15 +105,15 @@ class ErrorHandlingSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val processes = Array(client, server)
 
         val program = for {
-          fiber <- run(processes, empty, Some(deadLetter)).start
+          fiber <- run(processes, unit, Some(deadLetter)).start
           _ <- deadLetterEventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
 
         } yield ()
         program.unsafeRunSync()
 
         deadLetterEventStore.size shouldBe 1
-        deadLetterEventStore.get(deadLetter.selfRef).headOption.value should matchPattern {
-          case DeadLetter(Envelope(client.selfRef, Request, server.selfRef), _: EventHandlingException) =>
+        deadLetterEventStore.get(deadLetter.ref).headOption.value should matchPattern {
+          case DeadLetter(Envelope(client.`ref`, Request, server.`ref`), _: EventHandlingException) =>
         }
       }
     }

@@ -3,17 +3,16 @@ package io.parapet.core.intg
 import java.util.concurrent.atomic.AtomicBoolean
 
 import cats.effect.IO
-import io.parapet.core.Dsl.{DslF, WithDsl}
+import cats.syntax.flatMap._
+import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event._
 import io.parapet.core.intg.ProcessLifecycleSpec._
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.testutils.{EventStore, IntegrationSpec}
 import io.parapet.core.{Event, Process, ProcessRef}
-import io.parapet.implicits._
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
-import cats.syntax.flatMap._
 
 import scala.concurrent.duration._
 
@@ -26,8 +25,8 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
     val eventStore = new EventStore[Event]
     val process = new Process[IO] {
       def handle: Receive = {
-        case Start => eval(eventStore.add(selfRef, Start))
-        case TestEvent => eval(eventStore.add(selfRef, TestEvent))
+        case Start => eval(eventStore.add(ref, Start))
+        case TestEvent => eval(eventStore.add(ref, TestEvent))
       }
     }
 
@@ -41,7 +40,7 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
     program.unsafeRunSync()
 
     eventStore.size shouldBe expectedEventsCount
-    eventStore.get(process.selfRef) shouldBe Seq(Start, TestEvent)
+    eventStore.get(process.ref) shouldBe Seq(Start, TestEvent)
 
   }
 
@@ -51,8 +50,8 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
     val eventStore = new EventStore[Event]
     val process = new Process[IO] {
       def handle: Receive = {
-        case TestEvent => eval(eventStore.add(selfRef, TestEvent))
-        case Stop => eval(eventStore.add(selfRef, Stop))
+        case TestEvent => eval(eventStore.add(ref, TestEvent))
+        case Stop => eval(eventStore.add(ref, Stop))
       }
     }
 
@@ -66,7 +65,7 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
     program.unsafeRunSync()
 
     eventStore.size shouldBe totalEventsCount
-    eventStore.get(process.selfRef) shouldBe Seq(TestEvent, Stop)
+    eventStore.get(process.ref) shouldBe Seq(TestEvent, Stop)
   }
 
   "System shutdown" should "stop child processes first" in {
@@ -76,37 +75,37 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
     val lastProcessCreated = new AtomicBoolean()
 
     val parent =  new Process[IO] {
-      override val selfRef: ProcessRef = ProcessRef("a")
+      override val ref: ProcessRef = ProcessRef("a")
       override def handle: Receive = {
-        case Start => register(selfRef, new Process[IO] {
-          override val selfRef: ProcessRef = ProcessRef("b")
+        case Start => register(ref, new Process[IO] {
+          override val ref: ProcessRef = ProcessRef("b")
           override def handle: Receive = {
-            case Start => register(selfRef, new Process[IO] {
-              override val selfRef: ProcessRef = ProcessRef("c")
+            case Start => register(ref, new Process[IO] {
+              override val ref: ProcessRef = ProcessRef("c")
               override def handle: Receive = {
-                case Start => register(selfRef, new Process[IO] {
-                  override val selfRef: ProcessRef = ProcessRef("d")
+                case Start => register(ref, new Process[IO] {
+                  override val ref: ProcessRef = ProcessRef("d")
                   override def handle: Receive = {
                     case Start => eval(lastProcessCreated.set(true))
-                    case Stop => eval(eventStore.add(trace, Stopped(selfRef.toString))) // ++
+                    case Stop => eval(eventStore.add(trace, Stopped(ref.toString))) // ++
                       //reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
                   }
                 })
-                case Stop => eval(eventStore.add(trace, Stopped(selfRef.toString))) // ++
+                case Stop => eval(eventStore.add(trace, Stopped(ref.toString))) // ++
                   //reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
               }
             })
-            case Stop => eval(eventStore.add(trace, Stopped(selfRef.toString))) // ++
+            case Stop => eval(eventStore.add(trace, Stopped(ref.toString))) // ++
               //reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
           }
         })
-        case Stop => eval(eventStore.add(trace, Stopped(selfRef.toString))) // ++
+        case Stop => eval(eventStore.add(trace, Stopped(ref.toString))) // ++
           //reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
       }
     }
 
     val program = for {
-      fiber <- run(Array(parent), empty).start
+      fiber <- run(Array(parent), unit).start
       _ <- IO.delay(while (!lastProcessCreated.get()) {}) >> fiber.cancel
 
     } yield ()
@@ -121,15 +120,15 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
     val eventStore = new EventStore[Event]
     val longRunningProcess: Process[IO] = new Process[IO] {
       override def handle: Receive = {
-        case Start => empty
+        case Start => unit
         case Pause => eval(while (true) {})
-        case e => eval(eventStore.add(selfRef, e))
+        case e => eval(eventStore.add(ref, e))
       }
     }
 
     val flow: DslF[IO, Unit] =
-      Seq(Pause, TestEvent, TestEvent, TestEvent) ~> longRunningProcess.selfRef ++
-        delay(1.second, Kill ~> longRunningProcess.selfRef)
+      Seq(Pause, TestEvent, TestEvent, TestEvent) ~> longRunningProcess.ref ++
+        delay(1.second, Kill ~> longRunningProcess.ref)
 
     val program = for {
       fiber <- run(Array(longRunningProcess), flow).start
@@ -138,19 +137,19 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
     program.unsafeRunSync()
     eventStore.print()
     eventStore.size shouldBe 1
-    eventStore.get(longRunningProcess.selfRef) shouldBe Seq(Stop)
+    eventStore.get(longRunningProcess.ref) shouldBe Seq(Stop)
   }
 
   "Stop" should "deliver Stop event and remove process" in {
     val eventStore = new EventStore[Event]
     val process: Process[IO] = new Process[IO] {
       override def handle: Receive = {
-        case Start => empty // ignore
-        case e => eval(eventStore.add(selfRef, e))
+        case Start => unit // ignore
+        case e => eval(eventStore.add(ref, e))
       }
     }
 
-    val flow: DslF[IO, Unit] = Seq(TestEvent, TestEvent, Stop) ~> process.selfRef
+    val flow: DslF[IO, Unit] = Seq(TestEvent, TestEvent, Stop) ~> process.ref
 
     val program = for {
       fiber <- run(Array(process), flow).start
@@ -159,7 +158,7 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
 
     program.unsafeRunSync()
     eventStore.size shouldBe 3
-    eventStore.get(process.selfRef) shouldBe Seq(TestEvent, TestEvent, Stop)
+    eventStore.get(process.ref) shouldBe Seq(TestEvent, TestEvent, Stop)
 
   }
 
@@ -167,13 +166,13 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
     val deadLetterEventStore = new EventStore[DeadLetter]
     val deadLetter = new DeadLetterProcess[IO] {
       def handle: Receive = {
-        case f: DeadLetter => eval(deadLetterEventStore.add(selfRef, f))
+        case f: DeadLetter => eval(deadLetterEventStore.add(ref, f))
       }
     }
 
     val process: Process[IO] = new Process[IO] {
       override def handle: Receive = {
-        case _ => empty
+        case _ => unit
       }
     }
 
@@ -186,8 +185,8 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
 
     program.unsafeRunSync()
 
-    deadLetterEventStore.get(deadLetter.selfRef).headOption.value should matchPattern {
-      case DeadLetter(Envelope(ProcessRef.SystemRef, Stop, process.selfRef), _) =>
+    deadLetterEventStore.get(deadLetter.ref).headOption.value should matchPattern {
+      case DeadLetter(Envelope(ProcessRef.SystemRef, Stop, process.`ref`), _) =>
     }
 
   }
@@ -196,13 +195,13 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
     val deadLetterEventStore = new EventStore[DeadLetter]
     val deadLetter = new DeadLetterProcess[IO] {
       def handle: Receive = {
-        case f: DeadLetter => eval(deadLetterEventStore.add(selfRef, f))
+        case f: DeadLetter => eval(deadLetterEventStore.add(ref, f))
       }
     }
 
     val process: Process[IO] = new Process[IO] {
       override def handle: Receive = {
-        case _ => empty
+        case _ => unit
       }
     }
 
@@ -215,8 +214,8 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
 
     program.unsafeRunSync()
 
-    deadLetterEventStore.get(deadLetter.selfRef).headOption.value should matchPattern {
-      case DeadLetter(Envelope(ProcessRef.SystemRef, Stop, process.selfRef), _) =>
+    deadLetterEventStore.get(deadLetter.ref).headOption.value should matchPattern {
+      case DeadLetter(Envelope(ProcessRef.SystemRef, Stop, process.`ref`), _) =>
     }
   }
 

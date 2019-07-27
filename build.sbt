@@ -2,8 +2,6 @@ name := "parapet"
 
 organization in ThisBuild := "io.parapet"
 
-version in ThisBuild := "0.0.1-DONOTUSE"
-
 scalaVersion := "2.12.8"
 
 scalacOptions in ThisBuild ++= Seq(
@@ -12,7 +10,6 @@ scalacOptions in ThisBuild ++= Seq(
   "-feature",
   "-deprecation"
 )
-
 
 lazy val dependencies =
   new {
@@ -46,7 +43,7 @@ libraryDependencies in ThisBuild ++= (scalaBinaryVersion.value match {
 lazy val global = project
   .in(file("."))
   .aggregate(
-    core
+    core, testUtils
   )
 
 
@@ -58,6 +55,10 @@ lazy val core = project
     libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7"
   )
 
+lazy val testUtils = project.settings(
+  name := "test-utils",
+  libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.7"
+).dependsOn(core)
 
 lazy val catsDependencies = Seq(dependencies.catsEffect, dependencies.catsFree, dependencies.fs2Core)
 lazy val commonDependencies = Seq(

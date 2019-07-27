@@ -1,22 +1,19 @@
 package io.parapet.core
 
 import cats.InjectK
-import cats.data.EitherK
 import cats.free.Free
 
 import scala.concurrent.duration.FiniteDuration
 
 object Dsl {
 
-  //type <:<[F[_], G[_], A] = EitherK[F, G, A]
-  //type FlowOpOrEffect[F[_], A] = EitherK[FlowOp[F, ?], Effect[F, ?], A]
   type Dsl[F[_], A] = FlowOp[F, A]
   type DslF[F[_], A] = Free[Dsl[F, ?], A]
 
   // <----------- Flow ADT ----------->
   sealed trait FlowOp[F[_], A]
 
-  case class Empty[F[_]]() extends FlowOp[F, Unit]
+  case class UnitFlow[F[_]]() extends FlowOp[F, Unit]
 
   case class Send[F[_]](e: Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
 
@@ -26,7 +23,7 @@ object Dsl {
 
   case class Delay[F[_], G[_]](duration: FiniteDuration, flow: Option[Free[G, Unit]]) extends FlowOp[F, Unit]
 
-  case class Reply[F[_], G[_]](f: ProcessRef => Free[G, Unit]) extends FlowOp[F, Unit]
+  case class WithSender[F[_], G[_]](f: ProcessRef => Free[G, Unit]) extends FlowOp[F, Unit]
 
   case class Invoke[F[_], G[_]](caller: ProcessRef, body: Free[G, Unit], callee: ProcessRef) extends FlowOp[F, Unit]
 
@@ -40,16 +37,71 @@ object Dsl {
 
   case class Eval[F[_], C[_], A](thunk: () => A, bind: Option[A => Free[C, Unit]]) extends FlowOp[F, Unit]
 
-  // F - effect type
-  // C - coproduct of FlowOp and other algebras
+  /**
+    * Smart constructors for FlowOp[F, _].
+    *
+    * @param I an injection from type constructor `F` into type constructor `C`
+    * @tparam F an effect type
+    * @tparam C a coproduct of FlowOp and other algebras
+    */
   class FlowOps[F[_], C[_]](implicit I: InjectK[FlowOp[F, ?], C]) {
-    val empty: Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Empty())
+
+    /**
+      * Semantically this operator is equivalent with `Monad.unit`.
+      *
+      * The following expressions are equivalent:
+      * {{{
+      *   event ~> process <-> unit ++ event ~> process
+      *   event ~> process <-> event ~> process ++ unit
+      * }}}
+      */
+    val unit: Free[C, Unit] = Free.inject[FlowOp[F, ?], C](UnitFlow())
+
 
     /**
       * Semantically this operator is equivalent with `flatMap` or `bind` operator.
+      * This is useful for recursive flows.
       *
-      * @param f
-      * @return
+      * Recursive flow example:
+      *
+      * {{{
+      *  def times(n: Int) = {
+      *    def step(remaining: Int): DslF[IO, Unit] = flow {
+      *      if (remaining == 0) empty
+      *      else eval(print(remaining)) ++ step(remaining - 1)
+      *    }
+      *
+      *    step(n)
+      *  }
+      *
+      *  val process = Process[IO](_ => {
+      *    case Start => times(5)
+      *  })
+      *
+      * }}}
+      *
+      * The code above will print {{{ 12345 }}}
+      *
+      * Note: it's strongly not recommended to perform any side effects within `flow` operator:
+      *
+      * NOT RECOMMENDED:
+      *
+      * {{{
+      * def print(str: String) = flow {
+      *   println(str)
+      *   empty
+      * }
+      * }}}
+      *
+      * RECOMMENDED:
+      * {{{
+      * def print(str: String) = flow {
+      *   eval(println(str))
+      * }
+      * }}}
+      *
+      * @param f a flow to suspend
+      * @return Unit
       */
     def flow(f: => Free[C, Unit]): Free[C, Unit] = evalWith(())(_ => f)
 
@@ -58,13 +110,40 @@ object Dsl {
       * Event must be delivered to all receivers in specified order.
       *
       * @param e        event to send
-      * @param receiver the first receiver
-      * @param other    the other receivers
+      * @param receiver the receiver
+      * @param other    optional receivers
       * @return Unit
       */
     def send(e: Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
       Free.inject[FlowOp[F, ?], C](Send(e, receiver +: other))
 
+    /**
+      * Sends an event to the receiver using original sender reference.
+      * This is useful for implementing a proxy process.
+      *
+      * Proxy example:
+      *
+      * {{{
+      * val server: Process[IO] = Process[IO](ref => {
+      *   case Request(body) => withSender(sender => eval(println(s"$sender-$body")))
+      * })
+      *
+      * val proxy: Process[IO] = Process[IO](_ => {
+      *   case Request(body) => forward(Request(s"proxy-$body"), server.ref)
+      * })
+      *
+      * val client: Process[IO] = Process.builder[IO](_ => {
+      *   case Start => Request("ping") ~> proxy
+      * }).ref(ProcessRef("client")).build
+      * }}}
+      *
+      * The code above will print {{{client-proxy-ping}}}
+      *
+      * @param e        the event to send
+      * @param receiver the receiver
+      * @param other    optional receivers
+      * @return Unit
+      */
     def forward(e: Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
       Free.inject[FlowOp[F, ?], C](Forward(e, receiver +: other))
 
@@ -81,7 +160,7 @@ object Dsl {
       *
       * {{{ par(delay(duration) ++ eval(print(1))) }}}
       *
-      * Instead  use {{{ par(delay(duration, eval(print(1)))) }}}
+      * Instead use {{{ par(delay(duration, eval(print(1)))) }}}
       *
       * @param flow the flow which operations should be executed in parallel.
       * @return Unit
@@ -107,7 +186,8 @@ object Dsl {
       * @param flow     the flow which operations should be delayed
       * @return Unit
       */
-    def delay(duration: FiniteDuration, flow: Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Delay(duration, Some(flow)))
+    def delay(duration: FiniteDuration, flow: Free[C, Unit]): Free[C, Unit] =
+      Free.inject[FlowOp[F, ?], C](Delay(duration, Some(flow)))
 
     /**
       * Delays any operation that follows this operation.
@@ -126,47 +206,132 @@ object Dsl {
     /**
       * Accepts a callback function that takes a sender reference and produces a new flow.
       *
-      * The code below will print `echo-hello` :
+      * The code below will print `client says hello` :
       * {{{
       *
-      * val server: Process[IO] = new Process[IO] {
-      *   override def handle: Receive = {
-      *     case Request(data) => reply(sender => Response(s"echo-$data") ~> sender)
-      *   }
-      * }
+      * val server = Process[IO](_ => {
+      *   case Request(data) => withSender(sender => eval(print(s"$sender says $data")))
+      * })
       *
-      * val client: Process[IO] = new Process[IO] {
-      *   override def handle: Receive = {
-      *     case Start => Request("hello") ~> server
-      *     case res: Response => eval(eventStore.add(selfRef, res))
-      *   }
-      * }
+      * val client = Process.builder[IO](_ => {
+      *   case Start => Request("hello") ~> server
+      * }).ref(ProcessRef("client")).build
       *
       * }}}
       *
       * @param f a callback function
       * @return Unit
       */
-    def reply(f: ProcessRef => Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Reply(f))
+    def withSender(f: ProcessRef => Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](WithSender(f))
 
-    def invoke(caller: ProcessRef, body: Free[C, Unit], callee: ProcessRef): Free[C, Unit] =
+    /**
+      * Internal operator that allows to invoke processes explicitly.
+      * See [[Process.apply(event, caller)]].
+      *
+      * Example:
+      *
+      * {{{
+      * val server: Process[IO] = Process[IO](_ => {
+      *   case Request(data) => withSender(sender => Response(s"echo-$data") ~> sender)
+      * })
+      *
+      * val client = Process[IO](ref => {
+      *   case Start => server(ref, Request("hello"))
+      *   case res: Response => eval(println(res))
+      * })
+      * }}}
+      *
+      * The code above will print: {{{ echo-hello }}}
+      *
+      * @param caller the caller process
+      * @param body   the flow that is produced by callee process
+      * @param callee the callee process
+      * @return Unit
+      */
+    private[core] def invoke(caller: ProcessRef, body: Free[C, Unit], callee: ProcessRef): Free[C, Unit] =
       Free.inject[FlowOp[F, ?], C](Invoke(caller, body, callee))
 
-    def fork(f: Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Fork(f))
+    /**
+      * Executes the given flow concurrently.
+      *
+      * Example:
+      *
+      * {{{
+      * val process = Process[IO](_ => {
+      *   case Start => fork(eval(print(1))) ++ fork(eval(print(2)))
+      * })
+      * }}}
+      *
+      * Possible outputs: {{{  12 or 21  }}}
+      *
+      * @param flow the flow to run concurrently
+      * @return Unit
+      */
+    def fork(flow: Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Fork(flow))
 
-    def register(parent: ProcessRef, child: Process[F]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Register(parent, child))
+    /**
+      * Registers a child process in the parapet context.
+      *
+      * @param parent the parent process
+      * @param child  the child process
+      * @return Unit
+      */
+    def register(parent: ProcessRef, child: Process[F]): Free[C, Unit] =
+      Free.inject[FlowOp[F, ?], C](Register(parent, child))
 
-    def race(first: Free[C, Unit], second: Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Race(first, second))
+    /**
+      * Runs two flows concurrently. The loser of the race is canceled.
+      *
+      * @param first  the first flow
+      * @param second the second flow
+      * @return Unit
+      */
+    def race(first: Free[C, Unit], second: Free[C, Unit]): Free[C, Unit] =
+      Free.inject[FlowOp[F, ?], C](Race(first, second))
 
-    // adds an effect which produces `F` to this flow
+    /**
+      * Adds an effect which produces `F` to the current flow.
+      *
+      * {{{ suspend(IO(print("hi"))) }}}
+      *
+      * @param thunk an effect
+      * @tparam A value type
+      * @return Unit
+      */
     def suspend[A](thunk: => F[A]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Suspend(() => thunk, Option.empty))
 
-    def suspendWith[A](thunk: => F[A])(f: A => Free[C, Unit]): Free[C, Unit] =
-      Free.inject[FlowOp[F, ?], C](Suspend(() => thunk, Option(f)))
+    /**
+      * Suspends an effect which produces `F` and then feeds that into a function that takes
+      * normal value and returns a new flow. All operations from a produced flow added to the current flow.
+      *
+      * {{{ suspend(IO.pure(1))) { i => eval(print(i)) } }}}
+      *
+      * @param thunk an effect which produces `F`
+      * @param bind  a function that takes a value of type `A` and produces a new flow
+      * @tparam A value type
+      * @return Unit
+      */
+    def suspendWith[A](thunk: => F[A])(bind: A => Free[C, Unit]): Free[C, Unit] =
+      Free.inject[FlowOp[F, ?], C](Suspend(() => thunk, Option(bind)))
 
-    // suspends a side effect in `F`
+    /**
+      * Suspends a side effect in `F` and then adds that to the current flow.
+      *
+      * @param thunk a side effect
+      * @tparam A value type
+      * @return Unit
+      */
     def eval[A](thunk: => A): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Eval(() => thunk, Option.empty))
 
+    /**
+      * Suspends a side effect in `F` and then feeds that into a function that takes
+      * normal value and returns a new flow. All operations from a produced flow added to the current flow.
+      *
+      * @param thunk a side effect
+      * @param bind a function that takes a value of type `A` and produces a new flow
+      * @tparam A value type
+      * @return Unit
+      */
     def evalWith[A](thunk: => A)(bind: A => Free[C, Unit]): Free[C, Unit] =
       Free.inject[FlowOp[F, ?], C](Eval(() => thunk, Option(bind)))
 
@@ -175,11 +340,6 @@ object Dsl {
   object FlowOps {
     implicit def flowOps[F[_], G[_]](implicit I: InjectK[FlowOp[F, ?], G]): FlowOps[F, G] = new FlowOps[F, G]
   }
-
-  // <----------- Effect ADT ----------->
-  // Allows to use some other effect directly outside of Flow ADT, e.g. cats IO, Future, Task and etc.
-  // must be compatible with Flow `F`
-  //sealed trait Effect[F[_], A]
 
   trait WithDsl[F[_]] {
     protected val dsl: FlowOps[F, Dsl[F, ?]] = implicitly[FlowOps[F, Dsl[F, ?]]]

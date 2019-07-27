@@ -109,7 +109,7 @@ object Scheduler {
 
     private def submit(task: Deliver[F], ps: ProcessState[F]): F[Unit] = {
       ps.tryPut(task) >>= {
-        case true => processRefQueue.enqueue(ps.process.selfRef)
+        case true => processRefQueue.enqueue(ps.process.ref)
         case false =>
           ct.delay(println("queue is full")) >>
             sendToDeadLetter(
@@ -203,8 +203,8 @@ object Scheduler {
 
         event match {
           case Stop if processState.stop() =>
-            stopProcess(sender, context, process.selfRef, interpreter,
-              (_, err) => handleError(process, envelope, err)) >> context.remove(process.selfRef).void
+            stopProcess(sender, context, process.ref, interpreter,
+              (_, err) => handleError(process, envelope, err)) >> context.remove(process.ref).void
           case _ if processState.stopped =>
             sendToDeadLetter(
               DeadLetter(envelope, new IllegalStateException(s"process: $process is stopped")), interpreter)
@@ -277,7 +277,7 @@ object Scheduler {
         interpret_(
           process.execute.apply(Stop),
           interpreter,
-          FlowState(senderRef = sender, selfRef = process.selfRef))
+          FlowState(senderRef = sender, selfRef = process.ref))
       } else {
         ct.unit
       }

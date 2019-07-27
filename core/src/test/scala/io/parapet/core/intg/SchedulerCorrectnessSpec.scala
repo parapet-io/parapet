@@ -114,11 +114,11 @@ class SchedulerCorrectnessSpec extends FunSuite with WithDsl[IO] with StrictLogg
 
     val groupedByEvents = groupEventsByProcess(actualTasks)
 
-    groupedByEvents(processes(0).selfRef).map(e => toTestEvent(e).seqNumber) shouldBe (1 to 5)
-    groupedByEvents(processes(1).selfRef).map(e => toTestEvent(e).seqNumber) shouldBe (6 to 10)
-    groupedByEvents(processes(2).selfRef).map(e => toTestEvent(e).seqNumber) shouldBe (11 to 15)
-    groupedByEvents(processes(3).selfRef).map(e => toTestEvent(e).seqNumber) shouldBe (16 to 20)
-    groupedByEvents(processes(4).selfRef).map(e => toTestEvent(e).seqNumber) shouldBe (21 to 25)
+    groupedByEvents(processes(0).ref).map(e => toTestEvent(e).seqNumber) shouldBe (1 to 5)
+    groupedByEvents(processes(1).ref).map(e => toTestEvent(e).seqNumber) shouldBe (6 to 10)
+    groupedByEvents(processes(2).ref).map(e => toTestEvent(e).seqNumber) shouldBe (11 to 15)
+    groupedByEvents(processes(3).ref).map(e => toTestEvent(e).seqNumber) shouldBe (16 to 20)
+    groupedByEvents(processes(4).ref).map(e => toTestEvent(e).seqNumber) shouldBe (21 to 25)
   }
 
   test("create processes #1") {
@@ -238,7 +238,7 @@ object SchedulerCorrectnessSpec {
     import dsl._
 
     override val handle: Receive = {
-      case _ => empty
+      case _ => unit
     }
   }
 
@@ -259,7 +259,7 @@ object SchedulerCorrectnessSpec {
       import dsl._
 
       val handle: Receive = {
-        case e: TestEvent => delay(time) ++ eval(eventStore.add(selfRef, e))
+        case e: TestEvent => delay(time) ++ eval(eventStore.add(ref, e))
       }
     }
   }
@@ -378,7 +378,7 @@ object SchedulerCorrectnessSpec {
       override def createTasks(n: Int, processes: Array[Process[IO]]): Seq[IODeliver] = {
         val rnd = scala.util.Random
         (1 to n).map(i => Deliver[IO](Envelope(ProcessRef.SystemRef, TestEvent(i),
-          processes(rnd.nextInt(processes.length)).selfRef)))
+          processes(rnd.nextInt(processes.length)).ref)))
       }
     }
 
@@ -390,7 +390,7 @@ object SchedulerCorrectnessSpec {
         def create(i: Int, offset: Int, n: Int, tasks: Seq[IODeliver]): Seq[IODeliver] = {
           if (i < processes.length) {
             create(i + 1, offset + n, n, tasks ++ (1 to n).map(j =>
-              Deliver[IO](Envelope(ProcessRef.SystemRef, TestEvent(offset + j), processes(i).selfRef))))
+              Deliver[IO](Envelope(ProcessRef.SystemRef, TestEvent(offset + j), processes(i).ref))))
           } else tasks
         }
 

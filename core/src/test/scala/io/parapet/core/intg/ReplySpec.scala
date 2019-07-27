@@ -1,17 +1,15 @@
 package io.parapet.core.intg
 
 import cats.effect.IO
-import io.parapet.core.Dsl.WithDsl
 import io.parapet.core.Event._
 import io.parapet.core.intg.ReplySpec._
 import io.parapet.core.testutils.{EventStore, IntegrationSpec}
 import io.parapet.core.{Event, Process}
-import io.parapet.implicits._
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers.{empty => _, _}
 import org.scalatest.OptionValues._
 
-class ReplySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
+class ReplySpec extends FlatSpec with IntegrationSpec {
 
   import dsl._
 
@@ -19,14 +17,14 @@ class ReplySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
     val clientEventStore = new EventStore[Event]
     val server = new Process[IO] {
       def handle: Receive = {
-        case Request => reply(sender => Response ~> sender)
+        case Request => withSender(sender => Response ~> sender)
       }
     }
 
     val client = new Process[IO] {
       def handle: Receive = {
         case Start => Request ~> server
-        case Response => eval(clientEventStore.add(selfRef, Response))
+        case Response => eval(clientEventStore.add(ref, Response))
       }
     }
 
@@ -40,7 +38,7 @@ class ReplySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
     program.unsafeRunSync()
 
     clientEventStore.size shouldBe 1
-    clientEventStore.get(client.selfRef).headOption.value shouldBe Response
+    clientEventStore.get(client.ref).headOption.value shouldBe Response
 
 
   }

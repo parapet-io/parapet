@@ -13,7 +13,8 @@ object DslInterpreter {
   type Interpreter[F[_]] = Dsl[F, ?] ~> Flow[F, ?]
 
   case class FlowState[F[_]](senderRef: ProcessRef, selfRef: ProcessRef, ops: Seq[F[_]] = Seq.empty) {
-    def addOps(that: Seq[F[_]]): FlowState[F] = this.copy(ops = ops ++ that)
+    def addAll(that: Seq[F[_]]): FlowState[F] = this.copy(ops = ops ++ that)
+    def add(op: F[_]): FlowState[F] = this.copy(ops = ops :+ op)
   }
 
   private[parapet] def interpret[F[_] : Monad, A](program: DslF[F, A],

@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory
 
 trait DeadLetterProcess[F[_]] extends Process[F] {
   override val name: String = DeadLetterRef.ref
-  override final val selfRef: ProcessRef = DeadLetterRef
+  override final val ref: ProcessRef = DeadLetterRef
 }
 
 object DeadLetterProcess {
@@ -22,7 +22,7 @@ object DeadLetterProcess {
     override val handle: Receive = {
       case DeadLetter(Envelope(sender, event, receiver), error) =>
         val mdcFields: MDCFields = Map(
-          "processRef" -> selfRef,
+          "processRef" -> ref,
           "processName" -> name,
           "sender" -> sender,
           "receiver" -> receiver,

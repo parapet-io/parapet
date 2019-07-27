@@ -11,7 +11,7 @@ scalacOptions in ThisBuild ++= Seq(
   "-feature",
   "-deprecation"
 )
-libraryDependencies in ThisBuild += "io.parapet" %% "core" % "0.0.1-DONOTUSE"
+libraryDependencies in ThisBuild += "io.parapet" %% "core" % "0.0.1-RC1"
 libraryDependencies in ThisBuild += "com.chuusai" %% "shapeless" % "2.3.3"
 libraryDependencies in ThisBuild += compilerPlugin("org.typelevel" %% "kind-projector" % "0.10.0")
 // if your project uses multiple Scala versions, use this for cross building
@@ -27,29 +27,17 @@ libraryDependencies in ThisBuild ++= (scalaBinaryVersion.value match {
 lazy val global = project
   .in(file("."))
   .aggregate(
-    heartbeat,
-    zmqTcpClient, zmqTcpServer
+    api,
+    zmq
   )
 
-lazy val common = project.in(file("common"))
+// Messaging components
+lazy val api = project.in(file("./messaging/api"))
   .settings(
-    name := "common"
+    name := "messaging-api"
   )
 
-// Monitoring
-lazy val heartbeat = project.in(file("./monitoring/heartbeat"))
+lazy val zmq = project.in(file("./messaging/zmq"))
   .settings(
-    name := "heartbeat"
-  ).dependsOn(common)
-
-
-// Network components
-lazy val zmqTcpClient = project.in(file("./network/zmq-tcp-client"))
-  .settings(
-    name := "zmq-tcp-client"
-  ).dependsOn(common)
-
-lazy val zmqTcpServer = project.in(file("./network/zmq-tcp-server"))
-  .settings(
-    name := "zmq-tcp-server"
-  ).dependsOn(common)
+    name := "messaging-zmq"
+  ).dependsOn(api)

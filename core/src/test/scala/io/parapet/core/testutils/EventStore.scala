@@ -2,14 +2,14 @@ package io.parapet.core.testutils
 
 import java.util.concurrent.atomic.AtomicInteger
 
-import cats.effect.{ContextShift, Fiber, IO, Timer}
-import io.parapet.core.{Event, ProcessRef}
-
-import scala.collection.mutable.ListBuffer
-import scala.collection.JavaConverters._
-import scala.concurrent.duration.{FiniteDuration, _}
+import cats.effect.{ContextShift, IO, Timer}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+import io.parapet.core.{Event, ProcessRef}
+
+import scala.collection.JavaConverters._
+import scala.collection.mutable.ListBuffer
+import scala.concurrent.duration.{FiniteDuration, _}
 
 class EventStore[A <: Event] {
   type EventList = ListBuffer[A]

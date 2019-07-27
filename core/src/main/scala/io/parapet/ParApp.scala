@@ -39,7 +39,7 @@ abstract class ParApp[F[_]] {
 
   def flowInterpreter(context: Context[F]): FlowOp ~> Flow
 
-  val program: Program = implicitly[FlowOps[F, Dsl[F, ?]]].empty
+  val program: Program = implicitly[FlowOps[F, Dsl[F, ?]]].unit
 
   def unsafeRun(f: F[Unit]): Unit
 

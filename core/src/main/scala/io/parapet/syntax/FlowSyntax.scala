@@ -1,12 +1,12 @@
 package io.parapet.syntax
 
-import cats.free.Free
+import io.parapet.core.Dsl.DslF
 
-trait FlowSyntax {
+trait FlowSyntax[F[_]] extends EventSyntax[F] {
 
-  implicit class FreeOps[F[_], A](fa: Free[F, A]) {
+  implicit class FreeOps[A](fa: DslF[F, A]) {
     // alias for Free flatMap
-    def ++[B](fb: Free[F, B]): Free[F, B] = fa.flatMap(_ => fb)
+    def ++[B](fb: DslF[F, B]): DslF[F, B] = fa.flatMap(_ => fb)
   }
 
 }

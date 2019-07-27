@@ -9,7 +9,6 @@ import io.parapet.core.intg.ProcessSpec._
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.testutils.{EventStore, IntegrationSpec}
 import io.parapet.core.{Event, Process, ProcessRef}
-import io.parapet.implicits._
 import org.scalatest.Matchers.{empty => _, _}
 import org.scalatest.OptionValues._
 import org.scalatest.WordSpec
@@ -26,8 +25,8 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val process: Process[IO] = new Process[IO] {
           val multiplier = new Multiplier
           override val handle: Receive = {
-            case Start => multiplier(Multiply(2, 3), selfRef)
-            case r: Result => eval(eventStore.add(selfRef, r))
+            case Start => multiplier(ref, Multiply(2, 3))
+            case r: Result => eval(eventStore.add(ref, r))
           }
         }
         val processes = Array(process)
@@ -38,7 +37,7 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
 
         program.unsafeRunSync()
         eventStore.size shouldBe 1
-        eventStore.get(process.selfRef).headOption.value should matchPattern {
+        eventStore.get(process.ref).headOption.value should matchPattern {
           case Result(6) =>
         }
 
@@ -54,9 +53,9 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val process: Process[IO] = new Process[IO] {
           val multiplier = new Multiplier
           override val handle: Receive = {
-            case Start => multiplier(Result(42), selfRef)
-            case r: Result => eval(eventStore.add(selfRef, r))
-            case f: Failure => eval(eventStore.add(selfRef, f))
+            case Start => multiplier(ref, Result(42))
+            case r: Result => eval(eventStore.add(ref, r))
+            case f: Failure => eval(eventStore.add(ref, f))
           }
         }
         val processes = Array(process)
@@ -67,8 +66,8 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
 
         program.unsafeRunSync()
         eventStore.size shouldBe 1
-        eventStore.get(process.selfRef).headOption.value should matchPattern {
-          case Failure(Envelope(process.selfRef, Result(42), Multiplier.ref), _: EventMatchException) =>
+        eventStore.get(process.ref).headOption.value should matchPattern {
+          case Failure(Envelope(process.`ref`, Result(42), Multiplier.ref), _: EventMatchException) =>
         }
 
       }
@@ -81,12 +80,12 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val eventStore = new EventStore[Event]
         val p1 = new Process[IO] {
           override val handle: Receive = {
-            case Start => empty
+            case Start => unit
           }
         }
         val p2 = new Process[IO] {
           override val handle: Receive = {
-            case r: Result => eval(eventStore.add(selfRef, r))
+            case r: Result => eval(eventStore.add(ref, r))
           }
         }
 
@@ -100,7 +99,7 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
 
         program.unsafeRunSync()
         eventStore.size shouldBe 1
-        eventStore.get(p2.selfRef).headOption.value should matchPattern {
+        eventStore.get(p2.ref).headOption.value should matchPattern {
           case Result(42) =>
         }
 
@@ -114,12 +113,12 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         val eventStore = new EventStore[Event]
         val p1 = new Process[IO] {
           override val handle: Receive = {
-            case r: Result => eval(eventStore.add(selfRef, r))
+            case r: Result => eval(eventStore.add(ref, r))
           }
         }
         val p2 = new Process[IO] {
           override val handle: Receive = {
-            case r: Result => eval(eventStore.add(selfRef, r))
+            case r: Result => eval(eventStore.add(ref, r))
           }
         }
 
@@ -133,10 +132,10 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
 
         program.unsafeRunSync()
         eventStore.size shouldBe 2
-        eventStore.get(p1.selfRef).headOption.value should matchPattern {
+        eventStore.get(p1.ref).headOption.value should matchPattern {
           case Result(42) =>
         }
-        eventStore.get(p2.selfRef).headOption.value should matchPattern {
+        eventStore.get(p2.ref).headOption.value should matchPattern {
           case Result(42) =>
         }
       }
@@ -147,19 +146,20 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
     "one isn't defined for event X" should {
       "neither receives event" in {
         val eventStore = new EventStore[DeadLetter]
+
         val deadLetter = new DeadLetterProcess[IO] {
           val handle: Receive = {
-            case f: DeadLetter => eval(eventStore.add(selfRef, f))
+            case f: DeadLetter => eval(eventStore.add(ref, f))
           }
         }
         val p1 = new Process[IO] {
           override val handle: Receive = {
-            case Start => empty
+            case Start => unit
           }
         }
         val p2 = new Process[IO] {
           override val handle: Receive = {
-            case Start => empty
+            case Start => unit
           }
         }
 
@@ -173,8 +173,8 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         program.unsafeRunSync()
         eventStore.size shouldBe 1
 
-        eventStore.get(deadLetter.selfRef).headOption.value should matchPattern {
-          case DeadLetter(Envelope(SystemRef, Result(42), composed.selfRef), _: EventMatchException) =>
+        eventStore.get(deadLetter.ref).headOption.value should matchPattern {
+          case DeadLetter(Envelope(SystemRef, Result(42), composed.`ref`), _: EventMatchException) =>
         }
 
       }
@@ -188,10 +188,10 @@ object ProcessSpec {
 
     import dsl._
 
-    override val selfRef: ProcessRef = Multiplier.ref
+    override val ref: ProcessRef = Multiplier.ref
 
     override val handle: Receive = {
-      case Multiply(a, b) => reply(sender => Result(a * b) ~> sender)
+      case Multiply(a, b) => withSender(sender => Result(a * b) ~> sender)
     }
   }
 

@@ -30,7 +30,7 @@ class Context[F[_]](
   def init(implicit ct: Concurrent[F]): F[Unit] = {
     ct.delay(new SystemProcess[F]()).flatMap { sysProcess =>
       ProcessState(sysProcess, processQueueSize).flatMap { s =>
-        ct.delay(processes.put(sysProcess.selfRef, s)) >> start(sysProcess.selfRef)
+        ct.delay(processes.put(sysProcess.ref, s)) >> start(sysProcess.ref)
       }
     }
   }
@@ -41,12 +41,12 @@ class Context[F[_]](
         s"process cannot be registered because parent process with id=$parent doesn't exist"))
     } else {
       ProcessState(process, processQueueSize).flatMap { s =>
-        if (processes.putIfAbsent(process.selfRef, s) != null)
-          ct.raiseError(new RuntimeException(s"duplicated process. ref = ${process.selfRef}"))
+        if (processes.putIfAbsent(process.ref, s) != null)
+          ct.raiseError(new RuntimeException(s"duplicated process. ref = ${process.ref}"))
         else {
           graph.computeIfAbsent(parent, _ => List())
-          graph.computeIfPresent(parent, (_, v) => v :+ process.selfRef)
-          start(process.selfRef).map(_ => process.selfRef)
+          graph.computeIfPresent(parent, (_, v) => v :+ process.ref)
+          start(process.ref).map(_ => process.ref)
         }
       }
     }

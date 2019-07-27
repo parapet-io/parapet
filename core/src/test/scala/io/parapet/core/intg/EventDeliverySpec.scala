@@ -1,19 +1,17 @@
 package io.parapet.core.intg
 
 import cats.effect.IO
-import io.parapet.core.Dsl.WithDsl
 import io.parapet.core.Event._
 import io.parapet.core.exceptions.EventMatchException
-import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.core.intg.EventDeliverySpec._
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.testutils.{EventStore, IntegrationSpec}
-import io.parapet.implicits._
+import io.parapet.core.{Event, Process, ProcessRef}
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers.{empty => _, _}
 import org.scalatest.OptionValues._
 
-class EventDeliverySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
+class EventDeliverySpec extends FlatSpec with IntegrationSpec {
 
   import dsl._
 
@@ -23,9 +21,9 @@ class EventDeliverySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
     val processes =
       createProcesses(numOfProcesses, eventStore)
 
-    val events = processes.map(p => p.selfRef -> QualifiedEvent(p.selfRef)).toMap
+    val events = processes.map(p => p.ref -> QualifiedEvent(p.ref)).toMap
 
-    val sendEvents = events.foldLeft(empty) {
+    val sendEvents = events.foldLeft(unit) {
       case (acc, (pRef, event)) => acc ++ event ~> pRef
     }
 
@@ -50,13 +48,13 @@ class EventDeliverySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
     val deadLetterEventStore = new EventStore[DeadLetter]
     val deadLetter = new DeadLetterProcess[IO] {
       def handle: Receive = {
-        case f: DeadLetter => eval(deadLetterEventStore.add(selfRef, f))
+        case f: DeadLetter => eval(deadLetterEventStore.add(ref, f))
       }
     }
 
     val server = new Process[IO] {
       def handle: Receive = {
-        case Start => empty
+        case Start => unit
       }
     }
 
@@ -69,15 +67,15 @@ class EventDeliverySpec extends FlatSpec with IntegrationSpec with WithDsl[IO] {
     val processes = Array(client, server)
 
     val program = for {
-      fiber <- run(processes, empty, Some(deadLetter)).start
+      fiber <- run(processes, unit, Some(deadLetter)).start
       _ <- deadLetterEventStore.awaitSizeOld(1).guaranteeCase(_ => fiber.cancel)
 
     } yield ()
     program.unsafeRunSync()
 
     deadLetterEventStore.size shouldBe 1
-    deadLetterEventStore.get(deadLetter.selfRef).headOption.value should matchPattern {
-      case DeadLetter(Envelope(client.selfRef, UnknownEvent, server.selfRef), _: EventMatchException) =>
+    deadLetterEventStore.get(deadLetter.ref).headOption.value should matchPattern {
+      case DeadLetter(Envelope(client.`ref`, UnknownEvent, server.`ref`), _: EventMatchException) =>
     }
   }
 
@@ -97,7 +95,7 @@ object EventDeliverySpec {
 
         override val name: String = s"p-$i"
         override def handle: Receive = {
-          case e: QualifiedEvent => eval(eventStore.add(selfRef, e))
+          case e: QualifiedEvent => eval(eventStore.add(ref, e))
         }
       }
     }
