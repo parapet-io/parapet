@@ -497,7 +497,8 @@ Example for some `F[_]`:
 
 There are some scenarions when a process may receive a `Failure` event:
 
-* When a target process failed to handle an event sent by another process. 
+* When a target process failed to handle an event sent by another process.
+
 Example: 
 
 ```scala
@@ -532,6 +533,7 @@ cause: server is down
 `EventHandlingException` indicates that a receiver process failed to handle an event.
 
 * When a process event queue is full. It's possible when a process experiencing performance degradation due to heavy load.
+
 Example:
 
 For this example we need to tweak SchedulerConfig: 
@@ -542,13 +544,14 @@ processQueueSize = 100
 ```
 
 ```scala
-  val slowServer = Process.builder[IO](_ => {
+  // for some effect F[_]
+  val slowServer = Process.builder[F](_ => {
     case Request(_) => eval(while (true) {}) // very slow process...
   }).ref(ProcessRef("server")).build
 
-  val client = Process.builder[IO](_ => {
+  val client = Process.builder[F](_ => {
     case Start =>
-      generateRequests(1000) ~> slowServer ++ eval(println("client sent events"))
+      generateRequests(1000) ~> slowServer
     case Failure(Envelope(me, event, receiver), EventDeliveryException(errMsg, cause)) => eval {
       println(s"self: $me")
       println(s"event: $event")
@@ -557,7 +560,6 @@ processQueueSize = 100
       println(s"cause: ${cause.getMessage}")
       println("=====================================================")
     }
-    case f: Failure => eval(println(f))
   }).ref(ProcessRef("client")).build
 
   def generateRequests(n: Int): Seq[Event] = {
@@ -589,7 +591,79 @@ cause: process [name=undefined, ref=server] event queue is full
 =====================================================
 ```
 
-`EventDeliveryException` indicates that system failed to deliver an event. Handling such types of errors may be useful for runtime analysis, e.g. a sender process might consider to lower event send rate or even stop sending events to let a target process to finish processing pending events. It's worth noting that you should avoid any long running computations when processing `Failure` events because it could lead to cascade failures.
+`EventDeliveryException` indicates that system failed to deliver an event. Handling such types of errors may be useful for runtime analysis, e.g. a sender process might consider to lower event send rate or even stop sending events to let a target process to finish processing pending events. It's worth noting that you should avoid any long running computations when processing `Failure` events because it could lead to *cascading failures*.
+
+* A process event handler isn't defind for some events.
+
+Example:
+
+```scala
+  // for some effect F[_]
+  val uselessService = Process.builder[F](_ => {
+    case Start => unit
+    case Stop => unit
+  }).ref(ProcessRef("server")).build
+
+  val client = Process.builder[F](_ => {
+    case Start =>
+      Request("PING") ~> uselessService
+    case Failure(Envelope(me, event, receiver), EventMatchException(errMsg)) => eval {
+      println(s"self: $me")
+      println(s"event: $event")
+      println(s"receiver: $receiver")
+      println(s"errMsg: $errMsg")
+    }
+  }).ref(ProcessRef("client")).build
+```
+
+The code above will print:
+
+```
+self: client
+event: Request(PING)
+receiver: server
+errMsg: process [name=undefined, ref=server] handler is not defined for event: Request(PING)
+```
+
+* A process doesn't exist in Parapet system.
+
+Example:
+
+```scala
+  // for some effect F[_]
+  val unknownService = Process.builder[F](_ => {
+    case Start => unit
+    case Stop => unit
+  }).ref(ProcessRef("server")).build
+
+  val client = Process.builder[F](_ => {
+    case Start =>
+      Request("PING") ~> unknownService
+    case Failure(Envelope(me, event, receiver), UnknownProcessException(errMsg)) => eval {
+      println(s"self: $me")
+      println(s"event: $event")
+      println(s"receiver: $receiver")
+      println(s"errMsg: $errMsg")
+    }
+  }).ref(ProcessRef("client")).build
+```
+
+The code above will print:
+
+```
+self: client
+event: Request(PING)
+receiver: server
+errMsg: there is no such process with id=server registered in the system
+```
+
+Final notes regarding error handling:
+
+* All `Failure` events sent by `parapet-system` process (if you are curious you can check it by yourself using `withSender`).
+* If a process has no error handling then `Failure` event  will be send to `DeadLetterProcess`. More about `DeadLetterProcess` you will  find below
+
+### DeadLetterProcess
+
 
 
 ## Configuration
