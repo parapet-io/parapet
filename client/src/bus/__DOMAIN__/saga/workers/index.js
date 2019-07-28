@@ -1,1 +1,0 @@
-export { worker } from "./worker";
