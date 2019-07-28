@@ -589,7 +589,7 @@ cause: process [name=undefined, ref=server] event queue is full
 =====================================================
 ```
 
-`EventDeliveryException` indicates that system failed to deliver an event.
+`EventDeliveryException` indicates that system failed to deliver an event. Handling such types of errors may be useful for runtime analysis, e.g. a sender process might consider to lower event send rate or even stop sending events to let a target process to finish processing pending events. It's worth noting that you should avoid any long running computations when processing `Failure` events because it could lead to cascade failures.
 
 
 ## Configuration
