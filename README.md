@@ -125,8 +125,101 @@ object PrinterApp extends CatsApp {
 ```
 
 This is Cats Effect specific application, meaning it uses Cats IO type under the hood. If you run your program you should see `hello world` printed to the console. Also notice that we are using concrete effect type IO to fill the hole in our `Printer` type, e.g.: `new Printer[IO]` in practice it can be any other effect type like `Task`, although it requires some extra work in the library.
+In our example we created `PrinterClient` which does noting but sending `Print` event at the sturtup. In my opinion it doesn't deserve to be a standalone process would be better if we create a process in place:
+
+```scala
+object PrinterApp extends CatsApp {
+  override def processes: IO[Seq[Process[IO]]] = IO {
+    val printer = new Printer[IO]
+    val start = Process[IO](_ => {
+      case Start => Printer.Print("hello world") ~> printer.ref
+    })
+    Seq(start, printer)
+  }
+}
+```
+Although it's a matter of taste, there is no hard rule.
 
 ## DSL
+
+In this chapter I will descibe each dsl operator in details. Let's get started.
+
+### unit
+
+`unit` -  semantically this operator is equivalent with `Monad.unit` and obeys the same lows. Having said that the following expressions are equivalent:
+
+```scala
+event ~> process <-> unit ++ event ~> process
+event ~> process <-> event ~> process ++ unit
+```
+
+This operator can be used in `fold` operator to combine multiple flows. Example:
+
+```scala
+processes.map(event ~> _).fold(unit)(_ ++ _)
+```
+
+It also can be used to represent an empty flow:
+
+```scala
+{
+  case Start => unit // do nothing
+  case Stop => unit // do nothing
+}
+```
+
+### flow
+
+`flow` - suspends the thunk that produces a flow. Semantically this operator is equivalent with `suspend` for effects however it's strongly not recommended to perform any side effects within `flow`.
+
+Not recommended:
+
+```scala
+def print(str: String) = flow {
+  println(str)
+  unit
+}
+```
+
+Recommended:
+
+```scala
+def print(str: String) = flow {
+  eval(println(str))
+}
+```
+
+`flow` may be useful to implement recursive flows. Example:
+
+```scala
+def times[F[_]](n: Int) = {
+  def step(remaining: Int): DslF[F, Unit] = flow {
+    if (remaining == 0) unit
+    else eval(print(remaining)) ++ step(remaining - 1)
+  }
+
+  step(n)
+}
+```
+
+If you try to remove `flow` you will get `StackOverflowError`
+
+Another useful application is using lazy values inside `flow`. Example:
+
+```scala
+  lazy val lazyValue: String = {
+    println("evaluated")
+    "hello"
+  }
+
+  val useLazyValue = flow {
+    val tmp = lazyValue + " world"
+    eval(println(tmp))
+  }
+```
+
+
+
 
 TODO
 
