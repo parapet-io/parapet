@@ -218,7 +218,157 @@ Another useful application is using lazy values inside `flow`. Example:
   }
 ```
 
+### send
 
+`send` - sends an event to one or more receivers. Event will be delivered to all receivers in the specified order.
+Parapet provides a symbolic name for this operator `~>` although in current implentation it doesn't allow to send an event to multiple receivers. It will added in the future releases.
+
+Examples:
+
+```scala
+send(Ping, processA, processB, processC)
+```
+
+`Ping` event will be sent to the `processA` then `processB` and finaly `processC`. It's not guaranteed that `processA` will receive `Ping` event before `processC` as it depends on it's  processing speed and current workload.
+
+
+```scala
+Ping ~> processA
+```
+
+Not supported: 
+
+```scala
+Ping ~> Seq(processA, processB, processC)
+```
+
+Possible workaround:
+
+```scala
+ Seq(processA, processB, processC).map(Ping ~> _).fold(unit)(_ ++ _)
+```
+
+Send multiple events to a process:
+
+```scala
+Seq(e1, e2, e3) ~> process
+```
+
+###  forward
+
+`forward` - sends an event to the receiver using original sender reference. This may be useful for implementing a proxy process.
+Example:
+
+```scala
+val server = Process[IO](_ => {
+  case Request(body) => withSender(sender => eval(println(s"$sender-$body")))
+})
+
+val proxy = Process[IO](_ => {
+  case Request(body) => forward(Request(s"proxy-$body"), server.ref)
+})
+
+val client = Process.builder[IO](_ => {
+    case Start => Request("ping") ~> proxy
+  }).ref(ProcessRef("client")).build
+```
+
+The code above will print: `client-proxy-ping`
+
+### par
+
+`par` - executes operations from the given flow in parallel. Example:
+
+```scala
+par(eval(print(1)) ++ eval(print(2))) 
+```
+
+Possible outputs: `12 or 21`
+
+### delay
+
+`delay` - delays every operation in the given flow for the given duration.
+For sequential flows the flowing expressions are semantically equivalent:
+
+```scala
+ delay(duration, x~>p ++ y~>p) <-> delay(duration, x~>p) ++ delay(duration, y~>p)
+ delay(duration, x~>p ++ y~>p) <-> delay(duration) ++ x~>p ++ delay(duration) ++ y~>p
+```
+
+For parallel flows:
+
+```scala
+delay(duration, par(x~>p ++ y~>p)) <-> delay(duration) ++ par(x~>p ++ y~>p)
+```
+
+Note: since the following flow will be executed in parallel the second operation won't be delayed:
+
+```scala
+par(delay(duration) ++ eval(print(1)))
+```
+
+instead use
+
+```scala
+par(delay(duration, eval(print(1))))
+```
+
+### withSender
+
+`withSender` - accepts a callback function that takes a sender reference and produces a new flow. Example:
+
+```scala
+val server = Process[IO](_ => {
+  case Request(data) => withSender(sender => eval(print(s"$sender says $data")))
+})
+
+val client = Process.builder[IO](_ => {
+  case Start => Request("hello") ~> server
+}).ref(ProcessRef("client")).build
+```
+
+The code above will print: `client says hello`
+
+### fork
+
+`fork` - does what exactly the name says, executes the given flow concurrently. Example:
+
+```scala
+val process = Process[IO](_ => {
+  case Start => fork(eval(print(1))) ++ fork(eval(print(2)))
+})
+```
+
+Possible outputs: `12 or 21`
+
+### register
+
+`register` - registers a child process in the Parapet context. It's guaranted that a child process will receive `Stop` event before it's parent. Example: 
+
+```scala
+  val server = Process[IO](ref => {
+    case Start => register(ref, Process[IO](_ => {
+      case Stop => eval(println("stop worker"))
+    }))
+    case Stop => eval(println("stop server"))
+  })
+```
+The code above will print: 
+
+```
+stop worker
+stop server
+```
+
+### race
+
+`race` - runs two flows concurrently. The loser of the race is canceled. 
+
+Example:
+
+```scala
+
+```
 
 
 TODO
