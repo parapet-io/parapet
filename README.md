@@ -476,6 +476,66 @@ Parapet has a `SystemProcess` that cannot be overriden by users. `SystemProcess`
 
 ### Switching process behaviour
 
+Sometimes it might be useful to dynamically switch a process behaviour, e.g.: from `uninitialized` to `ready` state. Thankfully `Process` provides `switch` method that does exactly that.
+
+Example:
+
+Lazy server:
+
+```scala
+  // for some effect `F[_]`
+  val server = new Process[F] {
+
+    val init = eval(println("acquire resources: create socket and etc."))
+
+    def ready: Receive = {
+      case Request(data) => withSender(Success(data) ~> _)
+      case Stop => eval(println("release resources: close socket and etc."))
+    }
+
+    def uninitialized: Receive = {
+      case Start => unit // ignore Start event, wait for Init
+      case Stop => unit // process is not initialized, do nothing
+      case Init => init ++ switch(ready)
+      case _ => withSender(Failure("process is not initialized", ErrorCodes.ProcessUninitialized) ~> _)
+    }
+
+    override def handle: Receive = uninitialized
+  }
+
+  // API
+
+  object Init extends Event
+
+  case class Request(data: Any) extends Event
+
+  sealed trait Response extends Event
+  case class Success(data: Any) extends Event
+  case class Failure(data: Any, errorCode: Int) extends Event
+
+  object ErrorCodes {
+    val ProcessUninitialized  = 0
+  }
+```
+
+A client which sends `Request` event w/o sending `Init`:
+
+```scala
+  val impatientClient = Process[F](_ => {
+    case Start => Request("PING") ~> server
+    case Success(_) => eval(println("it's not going to happen"))
+    case f:Failure => eval(println(f))
+  })
+```
+
+The client above will print: `Failure(process is not initialized,0)`
+
+A client which sends `Init` first and then `Request`:
+
+
+
+
+
 ### Direct process call
 
 ### Process combinators
