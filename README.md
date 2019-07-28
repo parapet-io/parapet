@@ -41,8 +41,8 @@ object Printer {
 }
 ```
 
-Let's walk through this code. You start writing your processes by extending `Process` trait and parameterizing it with an effect type. In this example we left so called hole `F[_]` in our `Printer` type which can be any type constructor with a single argument, e.g. `F[_]` is a generic type constructor, cats effect `IO` is a specific type constructor and `IO[Unit]` is a concrete type. Starting from this moment it should become clear what it means for a process to be generic. Simply speaking it means that a process doesn't depend on any specific effect type e.g. `IO`. Thus we can claim that our `Printer` process is surely a generic process. The next step is to define a process API or contract that defines set of events that it can send and recieve. Process contract is an important part of any process specification that should be taken seriously. API defines a protocol that other processes will use in order to communicate with your process. Please remember that it's very important aspect of any process definition and take it seriously. The next step would importing `DSL`, Parapet DSL is a small set of operations that we will consider in details in the next chapters, in this example we need only `eval` operator that  suspends a side effect in `F`, in our Printer process we suspend `println` effectful computation. Finally every process should override `handle` function defined in `Process` trait. `handle` function is a partial function that matches input events and produces an executable `flows`. If you ever tried Akka framework you may find this approach familiar (for the curious, `Receive` is simply a type alias for `PartialFunction[Event, DslF[F, Unit]]`). In our Printer process we match on `Print` event using well known pattern-matching feature in Scala language. If you are new in functional programming I'd strongly recommend to read about pattern-matching, it's a very powerfull feature. 
-That's basically it, we consider every important  aspect of our Printer process, let's move forward and write a simple client process that will talk to out Printer.
+Let's walk through this code. You start writing your processes by extending `Process` trait and parameterizing it with an effect type. In this example we left so called hole `F[_]` in our `Printer` type which can be any type constructor with a single argument, e.g. `F[_]` is a generic type constructor, cats effect `IO` is a specific type constructor and `IO[Unit]` is a concrete type. Starting from this moment it should become clear what it means for a process to be generic. Simply speaking it means that a process doesn't depend on any specific effect type e.g. `IO`. Thus we can claim that our `Printer` process is surely a generic process. The next step is to define a process API or contract that defines set of events that it can send and recieve. Process contract is an important part of any process specification that should be taken seriously. API defines a protocol that other processes will use in order to communicate with your process. Please remember that it's very important aspect of any process definition and take it seriously. The next step would importing `DSL`, Parapet DSL is a small set of operations that we will consider in details in the next chapters, in this example we need only `eval` operator that  suspends a side effect in `F`, in our Printer process we suspend `println` effectful computation. Finally every process should override `handle` function defined in `Process` trait. `handle` function is a partial function that matches input events and produces an executable `flows`. If you ever tried Akka framework you may find this approach familiar (for the curious, `Receive` is simply a type alias for `PartialFunction[Event, DslF[F, Unit]]`). In our Printer process we match on `Print` event using well known pattern-matching feature in Scala language. If you are new in functional programming I'd strongly recommend to read about pattern-matching, it's a very powerfull instrument. 
+That's basically it, we consider every important  aspect of our Printer process, let's move forward and write a simple client process that will talk to our Printer.
 
 
 ```scala
@@ -142,7 +142,24 @@ Although it's a matter of taste, there is no hard rule.
 
 ## DSL
 
-In this chapter I will descibe each dsl operator in details. Let's get started.
+This chapter descibes each DSL operator in details. Let's get started.
+
+*Contents* 
+
+* [unit](#unit)
+* [flow](#flow)
+* [send](#send)
+* [forward](#forward)
+* [par](#par)
+* [delay](#delay)
+* [withSender](#withSender)
+* [fork](#fork)
+* [register](#register)
+* [race](#race)
+* [suspend](#suspend)
+* [suspendWith](#suspendWith)
+* [eval](#eval)
+* [evalWith](#evalWith)
 
 ### unit
 
@@ -254,7 +271,7 @@ Send multiple events to a process:
 Seq(e1, e2, e3) ~> process
 ```
 
-###  forward
+### forward
 
 `forward` - sends an event to the receiver using original sender reference. This may be useful for implementing a proxy process.
 Example:
@@ -312,6 +329,7 @@ instead use
 ```scala
 par(delay(duration, eval(print(1))))
 ```
+
 
 ### withSender
 
