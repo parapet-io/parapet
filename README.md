@@ -1,6 +1,15 @@
 # Parapet - purely functional library to develop distributed and event driven systems
 
-##  Key features:
+
+*Contents*
+
+* [Key Features](#key-features)
+* [DSL](#dsl)
+* [Process](#process)
+* [Channel](#channel)
+* [Error Handling and DeadLetterProcess](#error-handling-and-deadletterprocess)
+
+## Key Features
 
 * Purely functional library written in scala using Tagless-Final Style and Free Monads thoughtfully designed for people who prefer functional style over imperative
 * Rich DSL that allows to write composable and reusable code
@@ -163,7 +172,7 @@ This chapter descibes each DSL operator in details. Let's get started.
 
 ### unit
 
-`unit` -  semantically this operator is equivalent with `Monad.unit` and obeys the same lows. Having said that the following expressions are equivalent:
+`unit` -  semantically this operator is equivalent with `Monad.unit` and obeys the same laws. Having said that the following expressions are equivalent:
 
 ```scala
 event ~> process <-> unit ++ event ~> process
@@ -443,6 +452,9 @@ evalWith("hello world")(a => eval(println(a)))
 
 Output: `hello world`
 
+## Process
+
+TODO
 
 ## Channel
 
@@ -477,6 +489,9 @@ Example for some `F[_]`:
   case class Response(data: Any) extends Event
 ```
 
+## Error Handling and DeadLetterProcess
+
+TODO
 
 
 ## ParConfig
