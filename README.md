@@ -113,7 +113,7 @@ Ok, we almost done! There are few more things left we need to cover: `Start` lif
 
 Finally `~>` is most frequently used operator that is defined for any type that extends `io.parapet.core.Event` trait. `~>` is just a symbolic name for `send(event, processRef)` operator.
 
-By this moment we have two processes: `Printer` and `PrinterClient`, nice! But wait. We need to run them somehow, right ?
+By this moment we have two processes: `Printer` and `PrinterClient`, nice! But wait. We need to run them somehow, right?
 Fortunately it's extremely easy to do, all we need is to create `PrinterApp` object which represents our application and extend it from `CatsApp` abstract class. `CatsApp` extends ParApp by specifying concrete effect type `IO`:
 
 ```scala
@@ -664,6 +664,64 @@ Final notes regarding error handling:
 
 ### DeadLetterProcess
 
+The library by default provides an implementation of `DeadLetterProcess` which just logs failures. Although it might be not very practical, for instance you may prefer to store failures into a database for further analyses. The library allows to provide a custom implementation of `DeadLetterProcess`.
+
+Example using `CatsApp`:
+
+```scala
+import cats.effect.IO
+import io.parapet.CatsApp
+import io.parapet.core.Event.{DeadLetter, Start}
+import io.parapet.core.processes.DeadLetterProcess
+import io.parapet.core.{Event, Process, ProcessRef}
+
+
+object CustomDeadLetterProcessDemo extends CatsApp {
+
+  import dsl._
+
+  override def deadLetter: IO[DeadLetterProcess[IO]] = IO.pure {
+    new DeadLetterProcess[IO] {
+      override def handle: Receive = {
+        // can be stored in database
+        case DeadLetter(envelope, error) => eval {
+          println(s"sender: ${envelope.sender}")
+          println(s"receiver: ${envelope.receiver}")
+          println(s"event: ${envelope.event}")
+          println(s"errorType: ${error.getClass.getSimpleName}")
+          println(s"errorMsg: ${error.getMessage}")
+        }
+      }
+    }
+  }
+
+  val faultyServer = Process.builder[IO](_ => {
+    case Request(_) => eval(throw new RuntimeException("server is down"))
+  }).ref(ProcessRef("server")).build
+
+  val client = Process.builder[IO](_ => {
+    case Start => Request("PING") ~> faultyServer
+    // no error handling
+  }).ref(ProcessRef("client")).build
+
+  override def processes: IO[Seq[Process[IO]]] = IO {
+    Seq(client, faultyServer)
+  }
+
+  case class Request(data: Any) extends Event
+
+}
+```
+
+The code above will print:
+
+```
+sender: client
+receiver: server
+event: Request(PING)
+errorType: EventHandlingException
+errorMsg: process [name=undefined, ref=server] has failed to handle event: Request(PING)
+```
 
 
 ## Configuration
