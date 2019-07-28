@@ -3,17 +3,17 @@ package io.parapet
 import cats.effect.{Concurrent, ContextShift, Timer}
 import cats.implicits._
 import cats.~>
-import io.parapet.core.Dsl.FlowOps._
-import io.parapet.core.Dsl.{Dsl, DslF, FlowOps}
+import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.DslInterpreter._
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.ProcessRef.SystemRef
 import io.parapet.core.processes.{DeadLetterProcess, SystemProcess}
 import io.parapet.core.{Context, EventLog, Parallel, Parapet, Process, ProcessRef, Scheduler}
+import io.parapet.syntax.FlowSyntax
 
 import scala.language.{higherKinds, implicitConversions, reflectiveCalls}
 
-abstract class ParApp[F[_]] {
+abstract class ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
 
   type FlowOp[A] = io.parapet.core.Dsl.FlowOp[F, A]
@@ -31,7 +31,6 @@ abstract class ParApp[F[_]] {
 
   def processes: F[Seq[Process[F]]]
 
-
   // system processes
   def deadLetter: DeadLetterProcess[F] = DeadLetterProcess.logging
 
@@ -39,7 +38,8 @@ abstract class ParApp[F[_]] {
 
   def flowInterpreter(context: Context[F]): FlowOp ~> Flow
 
-  val program: Program = implicitly[FlowOps[F, Dsl[F, ?]]].unit
+  // todo remove
+  val program: Program = dsl.unit
 
   def unsafeRun(f: F[Unit]): Unit
 

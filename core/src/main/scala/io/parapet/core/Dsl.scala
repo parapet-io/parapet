@@ -47,7 +47,7 @@ object Dsl {
   class FlowOps[F[_], C[_]](implicit I: InjectK[FlowOp[F, ?], C]) {
 
     /**
-      * Semantically this operator is equivalent with `Monad.unit`.
+      * Semantically this operator is equivalent with `Monad.unit` and obeys the same laws.
       *
       * The following expressions are equivalent:
       * {{{
@@ -57,24 +57,23 @@ object Dsl {
       */
     val unit: Free[C, Unit] = Free.inject[FlowOp[F, ?], C](UnitFlow())
 
-
     /**
-      * Semantically this operator is equivalent with `flatMap` or `bind` operator.
+      * Suspends the given flow. Semantically this operator is equivalent with `suspend` for effects.
       * This is useful for recursive flows.
       *
-      * Recursive flow example:
+      * Recursive flow example for some `F[_]`:
       *
       * {{{
-      *  def times(n: Int) = {
-      *    def step(remaining: Int): DslF[IO, Unit] = flow {
-      *      if (remaining == 0) empty
+      *  def times[F[_]](n: Int) = {
+      *    def step(remaining: Int): DslF[F, Unit] = flow {
+      *      if (remaining == 0) unit
       *      else eval(print(remaining)) ++ step(remaining - 1)
       *    }
       *
       *    step(n)
       *  }
       *
-      *  val process = Process[IO](_ => {
+      *  val process = Process[F](_ => {
       *    case Start => times(5)
       *  })
       *
@@ -89,7 +88,7 @@ object Dsl {
       * {{{
       * def print(str: String) = flow {
       *   println(str)
-      *   empty
+      *   unit
       * }
       * }}}
       *
@@ -107,7 +106,17 @@ object Dsl {
 
     /**
       * Sends an event to one or more receivers.
-      * Event must be delivered to all receivers in specified order.
+      * Event must be delivered to all receivers in the specified order.
+      *
+      * Example:
+      *
+      * {{{
+      *   send(Ping, processA, processB, processC)
+      * }}}
+      *
+      * `Ping` event will be sent to the `processA` then `processB` and finally `processC`.
+      * It's not guaranteed that `processA` will receive `Ping` event before `processC`
+      * as it depends on it's processing speed and current workload.
       *
       * @param e        event to send
       * @param receiver the receiver
@@ -121,23 +130,23 @@ object Dsl {
       * Sends an event to the receiver using original sender reference.
       * This is useful for implementing a proxy process.
       *
-      * Proxy example:
+      * Proxy example for some `F[_]`:
       *
       * {{{
-      * val server: Process[IO] = Process[IO](ref => {
+      * val server = Process[F](_ => {
       *   case Request(body) => withSender(sender => eval(println(s"$sender-$body")))
       * })
       *
-      * val proxy: Process[IO] = Process[IO](_ => {
+      * val proxy = Process[F](_ => {
       *   case Request(body) => forward(Request(s"proxy-$body"), server.ref)
       * })
       *
-      * val client: Process[IO] = Process.builder[IO](_ => {
+      * val client = Process.builder[F](_ => {
       *   case Start => Request("ping") ~> proxy
       * }).ref(ProcessRef("client")).build
       * }}}
       *
-      * The code above will print {{{client-proxy-ping}}}
+      * The code above will print: `client-proxy-ping`
       *
       * @param e        the event to send
       * @param receiver the receiver
@@ -155,12 +164,6 @@ object Dsl {
       * {{{ par(eval(print(1)) ++ eval(print(2))) }}}
       *
       * possible outputs: {{{ 12 or 21 }}}
-      *
-      * Note: since the following flow will be executed in parallel the second operation won't be delayed
-      *
-      * {{{ par(delay(duration) ++ eval(print(1))) }}}
-      *
-      * Instead use {{{ par(delay(duration, eval(print(1)))) }}}
       *
       * @param flow the flow which operations should be executed in parallel.
       * @return Unit
@@ -181,6 +184,14 @@ object Dsl {
       * {{{
       *    delay(duration, par(x~>p ++ y~>p)) <-> delay(duration) ++ par(x~>p ++ y~>p)
       * }}}
+      *
+      * Note: since the following flow will be executed in parallel the second operation won't be delayed
+      *
+      * {{{
+      *    par(delay(duration) ++ eval(print(1)))
+      * }}}
+      *
+      * Instead use {{{ par(delay(duration, eval(print(1)))) }}}
       *
       * @param duration is the time span to wait before executing flow operations
       * @param flow     the flow which operations should be delayed
@@ -209,11 +220,11 @@ object Dsl {
       * The code below will print `client says hello` :
       * {{{
       *
-      * val server = Process[IO](_ => {
+      * val server = Process[F](_ => {
       *   case Request(data) => withSender(sender => eval(print(s"$sender says $data")))
       * })
       *
-      * val client = Process.builder[IO](_ => {
+      * val client = Process.builder[F](_ => {
       *   case Start => Request("hello") ~> server
       * }).ref(ProcessRef("client")).build
       *
@@ -231,11 +242,11 @@ object Dsl {
       * Example:
       *
       * {{{
-      * val server: Process[IO] = Process[IO](_ => {
+      * val server = Process[F](_ => {
       *   case Request(data) => withSender(sender => Response(s"echo-$data") ~> sender)
       * })
       *
-      * val client = Process[IO](ref => {
+      * val client = Process[F](ref => {
       *   case Start => server(ref, Request("hello"))
       *   case res: Response => eval(println(res))
       * })
@@ -257,7 +268,7 @@ object Dsl {
       * Example:
       *
       * {{{
-      * val process = Process[IO](_ => {
+      * val process = Process[F](_ => {
       *   case Start => fork(eval(print(1))) ++ fork(eval(print(2)))
       * })
       * }}}
@@ -281,6 +292,18 @@ object Dsl {
 
     /**
       * Runs two flows concurrently. The loser of the race is canceled.
+      *
+      * Example:
+      *
+      * {{{
+      * val forever = eval(while (true) {})
+      *
+      * val process: Process[F] = Process[F](_ => {
+      *   case Start => race(forever, eval(println("winner")))
+      * })
+      * }}}
+      *
+      * Output: `winner`
       *
       * @param first  the first flow
       * @param second the second flow
@@ -328,7 +351,7 @@ object Dsl {
       * normal value and returns a new flow. All operations from a produced flow added to the current flow.
       *
       * @param thunk a side effect
-      * @param bind a function that takes a value of type `A` and produces a new flow
+      * @param bind  a function that takes a value of type `A` and produces a new flow
       * @tparam A value type
       * @return Unit
       */
