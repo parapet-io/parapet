@@ -523,7 +523,7 @@ A client which sends `Request` event w/o sending `Init`:
 ```scala
   val impatientClient = Process[F](_ => {
     case Start => Request("PING") ~> server
-    case Success(_) => eval(println("it's not going to happen"))
+    case Success(_) => eval(println("that is not going to happen"))
     case f:Failure => eval(println(f))
   })
 ```
@@ -536,7 +536,7 @@ A client which sends `Init` first and then `Request`:
   val humbleClient = Process[F](_ => {
     case Start => Seq(Init, Request("PING")) ~> server
     case Success(data) => eval(println(s"client receive response from server: $data"))
-    case _:Failure => eval(println("it's not going to happen"))
+    case _:Failure => eval(println("that is not going to happen"))
   })
 ```
 
