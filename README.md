@@ -367,8 +367,63 @@ stop server
 Example:
 
 ```scala
+  val forever = eval(while (true) {})
 
+  val process: Process[IO] = Process[IO](_ => {
+    case Start => race(forever, eval(println("winner")))
+  })
 ```
+
+Output: `winner`
+
+### suspend
+
+`suspend` - adds an effect which produces `F` to the current flow. Example:
+
+```scala
+suspend(IO(print("hello world")))
+```
+
+Output: `hello world`
+
+Not recommended:
+
+```scala
+suspend {
+ println("hello world")
+ IO.unit
+}
+```
+
+### suspendWith
+
+`suspendWith` - suspends an effect which produces `F` and then feeds that into a function that takes a normal value and returns a new flow. All operations from produced flow added to the current flow. Example:
+
+```scala
+suspend(IO.pure(1))) { i => eval(print(i)) } 
+```
+
+Output: `1`
+
+### eval
+
+`eval` - suspends a side effect in `F` and then adds that to the current flow. Example:
+
+```scala
+eval(println("hello world"))
+```
+
+Output: `hello world`
+
+### evalWith
+
+`evalWith` - Suspends a side effect in `F` and then feeds that into a function that takes a normal value and returns a new flow. All operations from a produced flow will be added to the current flow. Example:
+
+```scala
+evalWith("hello world")(a => eval(println(a)))
+```
+
+Output: `hello world`
 
 
 TODO
