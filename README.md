@@ -564,7 +564,7 @@ DO NOT do this:
 
 ```
 
-If you need to switch a behaviour from a concurrent flow just send an event e.g. `Swith(State.Ready)` to itself:
+If you need to switch a behaviour from a concurrent flow just send an event e.g. `Swith(State.Ready)` to itself. Process will *eventually* switch it's behaviour:
 
 ```scala
   val process = new Process[F] {
@@ -573,7 +573,7 @@ If you need to switch a behaviour from a concurrent flow just send an event e.g.
     override def handle: Receive = {
       case Init => fork {
         eval(println("do some work in parallel"))
-        Switch(Ready) ~> ref // notify process that it's time to switch behaviour
+        Switch(Ready) ~> ref // notify the process that it's time to switch it's behaviour
       }
       case Switch(Ready) =>  switch(ready)
     }
@@ -588,7 +588,36 @@ If you need to switch a behaviour from a concurrent flow just send an event e.g.
 
 ### Direct process call
 
+Sometimes it may be useful to call a process directly. Especially it's a common case for short living processes. For instance you may want to create a process, call it and then abandon, garbage collector will do it's job. However if you try to send an enent to a process that doesn't exist in system you will receive `Failure` event with `UnknownProcessException`. This is where `direct  call` comes to rescue.
 
+Example:
+
+```scala
+  // API
+  case class Sum(a: Int, b: Int) extends Event
+  case class Result(value: Int) extends Event
+
+  class Calculator[F[_]] extends Process[F] {
+    override def handle: Receive = {
+      case Sum(a, b) => withSender(Result(a + b - 1) ~> _) // yes, very poor calculator
+    }
+  }
+
+  val student = Process[F](ref => {
+    case Start => new Calculator().apply(ref, Sum(2, 2))
+    case Result(value) => eval(println(s"2 + 2 = $value"))
+  })
+
+```
+
+Output: `2 + 2 = 3`
+
+Note that `apply` method doesn't return a normal value rather it returns a *program* which will be executed as a normal flow. 
+In other words the following expressions are equivalent:
+
+```
+Sum(2, 2) ~> calculator <-> new Calculator().apply(ref, Sum(2, 2)) // where ref belongs to the same process in both cases
+```
 
 ### Process combinators
 
