@@ -1,13 +1,17 @@
 # Parapet - purely functional library to develop distributed and event driven systems
 
 
-*Contents*
+**Contents**
 
 * [Key Features](#key-features)
 * [DSL](#dsl)
 * [Process](#process)
 * [Channel](#channel)
 * [Error Handling and DeadLetterProcess](#error-handling-and-deadletterprocess)
+* [Configuration](#configuration)
+* [Correctness Properties](#correctness-properties)
+* [Distributed Algorithms in Parapet](#distributed-algorithms-in-parapet)
+* [Performance Analysis](#performance-analysis)
 
 ## Key Features
 
@@ -153,7 +157,7 @@ Although it's a matter of taste, there is no hard rule.
 
 This chapter descibes each DSL operator in details. Let's get started.
 
-*Contents* 
+**Contents** 
 
 * [unit](#unit)
 * [flow](#flow)
@@ -493,8 +497,16 @@ Example for some `F[_]`:
 
 TODO
 
-
-## ParConfig
+## Configuration
 
 TODO
 
+## Correctness Properties
+
+TODO
+
+## Distributed Algorithms in Parapet
+
+TODO
+
+## Performance Analysis
