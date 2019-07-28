@@ -469,7 +469,7 @@ Output: `hello world`
 
 ### Predefined processes and reserved references
 
-Parapet has some reserved process references, e.g.: `KernelRef(parapet-kernel), `SystemRef(parapet-system)`, `DeadLetterRef(parapet-deadletter)`, `UndefinedRef(parapet-undefined)`. The general rule is that any reference that starts with `parapet-` prefix can be used by the platform code for any purpose.
+Parapet has some reserved process references, e.g.: `KernelRef(parapet-kernel)`, `SystemRef(parapet-system)`, `DeadLetterRef(parapet-deadletter)`, `UndefinedRef(parapet-undefined)`. The general rule is that any reference that starts with `parapet-` prefix can be used by the platform code for any purpose.
 Parapet has a `SystemProcess` that cannot be overriden by users. `SystemProcess` is a starting point, i.e. it's created before any other process. Lifecycle event `Start` is sent by `SystemProcess`. Any event sent to the `SystemProcess` will be ignored and dropped. Don't try to send any events to `SystemProcess` b/c it can lead to unpredictable errors, there are  more instersting things to do, believe me.
 
 `DeadLetterProcess` is another process that is created by default, although in can be overriden,  for more details check  `DeadLetterProcess` section under `Event Handling` 
@@ -528,15 +528,67 @@ A client which sends `Request` event w/o sending `Init`:
   })
 ```
 
-The client above will print: `Failure(process is not initialized,0)`
+The code above will print: `Failure(process is not initialized,0)`
 
 A client which sends `Init` first and then `Request`:
 
+```scala
+  val humbleClient = Process[F](_ => {
+    case Start => Seq(Init, Request("PING")) ~> server
+    case Success(data) => eval(println(s"client receive response from server: $data"))
+    case _:Failure => eval(println("it's not going to happen"))
+  })
+```
 
 
+The code above will print: 
+
+```
+acquire resources: create socket and etc.
+client receive response from server: PING
+release resources: close socket and etc.
+```
+
+`switch` is **NOT** thread safe, avoid using `switch` in concurrent flows.
+
+DO NOT do this:
+
+```scala
+  val process = new Process[F] {
+    def ready: Receive = _
+
+    override def handle: Receive = {
+      case Init => fork(switch(ready)) // bad, may lead to inconsistent behaviour
+    }
+  }
+
+```
+
+If you need to switch a behaviour from a concurrent flow just send an event e.g. `Swith(State.Ready)` to itself:
+
+```scala
+  val process = new Process[F] {
+    def ready: Receive = _
+
+    override def handle: Receive = {
+      case Init => fork {
+        eval(println("do some work in parallel"))
+        Switch(Ready) ~> ref // notify process that it's time to switch behaviour
+      }
+      case Switch(Ready) =>  switch(ready)
+    }
+  }
+
+  sealed trait State
+  object Ready extends State
+
+  case class Switch(next: State) extends Event
+```
 
 
 ### Direct process call
+
+
 
 ### Process combinators
 
