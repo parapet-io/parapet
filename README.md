@@ -495,7 +495,102 @@ Example for some `F[_]`:
 
 ## Error Handling and DeadLetterProcess
 
-TODO
+There are some scenarions when a process may receive a `Failure` event:
+
+* When a target process failed to handle an event sent by another process. 
+Example: 
+
+```scala
+
+  // for some effect F[_]
+  val faultyServer = Process.builder[F](_ => {
+    case Request(_) => eval(throw new RuntimeException("server is down"))
+  }).ref(ProcessRef("server")).build
+
+  val client = Process.builder[F](_ => {
+    case Start => Request("PING") ~> faultyServer
+    case Failure(Envelope(me, event, receiver), EventHandlingException(errMsg, cause)) => eval {
+      println(s"self: $me")
+      println(s"event: $event")
+      println(s"receiver: $receiver")
+      println(s"errMsg: $errMsg")
+      println(s"cause: ${cause.getMessage}")
+    }
+  }).ref(ProcessRef("client")).build
+```
+
+The code above will output: 
+
+```
+self: client
+event: Request(PING)
+receiver: server
+errMsg: process [name=undefined, ref=server] has failed to handle event: Request(PING)
+cause: server is down
+```
+
+`EventHandlingException` indicates that a receiver process failed to handle an event.
+
+* When a process event queue is full. It's possible when a process experiencing performance degradation due to heavy load.
+Example:
+
+For this example we need to tweak SchedulerConfig: 
+
+```
+queueSize = 10000
+processQueueSize = 100
+```
+
+```scala
+  val slowServer = Process.builder[IO](_ => {
+    case Request(_) => eval(while (true) {}) // very slow process...
+  }).ref(ProcessRef("server")).build
+
+  val client = Process.builder[IO](_ => {
+    case Start =>
+      generateRequests(1000) ~> slowServer ++ eval(println("client sent events"))
+    case Failure(Envelope(me, event, receiver), EventDeliveryException(errMsg, cause)) => eval {
+      println(s"self: $me")
+      println(s"event: $event")
+      println(s"receiver: $receiver")
+      println(s"errMsg: $errMsg")
+      println(s"cause: ${cause.getMessage}")
+      println("=====================================================")
+    }
+    case f: Failure => eval(println(f))
+  }).ref(ProcessRef("client")).build
+
+  def generateRequests(n: Int): Seq[Event] = {
+    (0 until n).map(Request)
+  }
+```
+
+The code above will print a dozens of lines, four lines per `Failure` event:
+
+```
+client sent events
+self: client
+event: Request(101)
+receiver: server
+errMsg: System failed to deliver an event to process [name=undefined, ref=server]
+cause: process [name=undefined, ref=server] event queue is full
+=====================================================
+self: client
+event: Request(102)
+receiver: server
+errMsg: System failed to deliver an event to process [name=undefined, ref=server]
+cause: process [name=undefined, ref=server] event queue is full
+=====================================================
+self: client
+event: Request(103)
+receiver: server
+errMsg: System failed to deliver an event to process [name=undefined, ref=server]
+cause: process [name=undefined, ref=server] event queue is full
+=====================================================
+```
+
+`EventDeliveryException` indicates that system failed to deliver an event.
+
 
 ## Configuration
 
@@ -510,3 +605,6 @@ TODO
 TODO
 
 ## Performance Analysis
+
+
+`∏åRÂπ∑†`
