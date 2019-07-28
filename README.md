@@ -426,11 +426,40 @@ evalWith("hello world")(a => eval(println(a)))
 Output: `hello world`
 
 
-TODO
-
 ## Channel
 
-TODO
+Channel is a process that implements strictly synchronous request-reply dialog. The channel sends an event to a receiver and then waits for a response in one step, i.e. it blocks asynchronously until it receives a response. Doing any other sequence, e.g., sending two request or reply events in a row will result in a failure returned to the sender.
+
+Example for some `F[_]`: 
+
+```scala
+  val server = new Process[F] {
+    override def handle: Receive = {
+      case Request(data) => withSender(sender => Response(s"echo: $data") ~> sender)
+    }
+  }
+
+  val client = new Process[F] {
+
+    lazy val ch = Channel[F]
+
+    override def handle: Receive = {
+      case Start => register(ref, ch) ++
+        ch.send(Request("PING"), server.ref, {
+          case scala.util.Success(Response(data)) => eval(println(data))
+          case scala.util.Failure(err) => eval(println(s"server failed to process request. err: ${err.getMessage}"))
+        })
+
+    }
+  }
+
+
+  case class Request(data: Any) extends Event
+
+  case class Response(data: Any) extends Event
+```
+
+
 
 ## ParConfig
 
