@@ -93,13 +93,22 @@ object PrinterClient {
 
 This design cannot be achieved when using direct processes b/c it's not possible to send `Process`  objects,  processes are not serializable in general. One more thing, you can override a `Process#ref` field, only make sure it's unique otherwise Parapet system will return an error during the startup. 
 
+Ok, we almost done! There are few more things left we need to cover: `Start` lifecycle event and `~>` operator. Actually there is nothing special about these two. Parapet has two lifecycle events: 
 
+* `io.parapet.core.Event.Start` is sent to a process once it's created in Parapet system
+* `io.parapet.core.Event.Stop` is sent to a process when an application is interrupted with `Ctrl-C` or when some other process sent `Stop` or `Kill` event to that process. The main difference between `Stop` and `Kill` is that in the former case a process can finish processing all pending events before it will receive `Stop` event, whereas `Kill` will interrupt a process and then deliver `Stop` event, all pending events will be discarded. If you familiar with Java `ExecutorService` then you can think of `Stop` as `shutdown` and `Kill` as `shutdownNow`. 
 
+Finally `~>` is most frequently used operator that is defined for any type that extends `io.parapet.core.Event` trait. `~>` is just a symbolic name for `send(event, processRef)` operator.
 
+By this moment we have two processes: `Printer` and `PrinterClient`, nice! But wait. We need to run them somehow, right ?
+Fortunately it's extremely easy to do, all we need is to create `PrinterApp` object which represents our application and extend it from `CatsApp` abstract class. `CatsApp` extends ParApp by specifying concrete effect type `IO`:
 
-You probably already noticed a new type `ProcessRef`. 
+```scala
+abstract class CatsApp extends ParApp[IO]
+```
 
-And finally we need to write our application that will run our processes:
+`CatsApp` is provided by the library.
+
 
 ```scala
 import cats.effect.IO
@@ -115,6 +124,17 @@ object PrinterApp extends CatsApp {
 }
 ```
 
-This is Cats Effect specific application, meaning it uses  Cats IO type under the hood
+This is Cats Effect specific application, meaning it uses Cats IO type under the hood. If you run your program you should see `hello world` printed to the console. Also notice that we are using concrete effect type IO to fill the hole in our `Printer` type, e.g.: `new Printer[IO]` in practice it can be any other effect type like `Task`, although it requires some extra work in the library.
 
+## DSL
+
+TODO
+
+## Channel
+
+TODO
+
+## ParConfig
+
+TODO
 
