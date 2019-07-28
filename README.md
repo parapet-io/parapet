@@ -458,6 +458,34 @@ Output: `hello world`
 
 ## Process
 
+`Process` is key abstraction in parapet, any application must have a least one process. If you try to run an application w/o processes you will get an error saying that at least one process required. This section covers some useful features that we haven't seen yet, below you will find a short list of features:
+
+* Predefined processes and reserved references
+* Switching process behaviour
+* Direct process call
+* Process combinators: `and` and `or`
+* Testing your processes
+* Basic patterns and tips: implementing timeouts, designing API
+
+### Predefined processes and reserved references
+
+Parapet has some reserved process references, e.g.: `KernelRef(parapet-kernel), `SystemRef(parapet-system)`, `DeadLetterRef(parapet-deadletter)`, `UndefinedRef(parapet-undefined)`. The general rule is that any reference that starts with `parapet-` prefix can be used by the platform code for any purpose.
+Parapet has a `SystemProcess` that cannot be overriden by users. `SystemProcess` is a starting point, i.e. it's created before any other process. Lifecycle event `Start` is sent by `SystemProcess`. Any event sent to the `SystemProcess` will be ignored and dropped. Don't try to send any events to `SystemProcess` b/c it can lead to unpredictable errors, there are  more instersting things to do, believe me.
+
+`DeadLetterProcess` is another process that is created by default, although in can be overriden,  for more details check  `DeadLetterProcess` section under `Event Handling` 
+
+### Switching process behaviour
+
+### Direct process call
+
+### Process combinators
+
+### Testing your processes
+
+### Basic patterns and tips
+
+
+
 TODO
 
 ## Channel
