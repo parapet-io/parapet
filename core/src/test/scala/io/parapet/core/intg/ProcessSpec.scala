@@ -3,7 +3,6 @@ package io.parapet.core.intg
 import cats.effect.IO
 import io.parapet.core.Dsl.WithDsl
 import io.parapet.core.Event.{DeadLetter, Envelope, Failure, Start}
-import io.parapet.core.ProcessRef.SystemRef
 import io.parapet.core.exceptions.EventMatchException
 import io.parapet.core.intg.ProcessSpec._
 import io.parapet.core.processes.DeadLetterProcess
@@ -174,7 +173,7 @@ class ProcessSpec extends WordSpec with IntegrationSpec with WithDsl[IO] {
         eventStore.size shouldBe 1
 
         eventStore.get(deadLetter.ref).headOption.value should matchPattern {
-          case DeadLetter(Envelope(SystemRef, Result(42), composed.`ref`), _: EventMatchException) =>
+          case DeadLetter(Envelope(TestSystemRef, Result(42), composed.`ref`), _: EventMatchException) =>
         }
 
       }

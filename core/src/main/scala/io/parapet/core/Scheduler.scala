@@ -78,8 +78,10 @@ object Scheduler {
         ctxShift.evalOn(ec)(context.taskQueue.dequeue) >>= {
           case t@Deliver(e@Envelope(sender, event, pRef)) =>
             context.getProcessState(pRef)
-              .fold(sendToDeadLetter(DeadLetter(e,
-                UnknownProcessException(s"there is no such process with id=$pRef registered in the system")),
+              .fold(send(
+                SystemRef,
+                Failure(e, UnknownProcessException(s"there is no such process with id=$pRef registered in the system")),
+                sender,
                 interpreter) >> step) { ps =>
                 (event match {
                   case Kill =>
@@ -111,11 +113,14 @@ object Scheduler {
       ps.tryPut(task) >>= {
         case true => processRefQueue.enqueue(ps.process.ref)
         case false =>
-          ct.delay(println("queue is full")) >>
-            sendToDeadLetter(
-              DeadLetter(task.envelope,
-                EventDeliveryException(s"process ${ps.process} event queue is full")),
-              interpreter)
+          send(ProcessRef.SystemRef, Failure(task.envelope,
+            EventDeliveryException(s"System failed to deliver an event to process ${ps.process}",
+              EventQueueIsFullException(s"process ${ps.process} event queue is full"))),
+            task.envelope.sender, interpreter)
+        //  sendToDeadLetter(
+        //    DeadLetter(task.envelope,
+        //      EventDeliveryException(s"process ${ps.process} event queue is full")),
+        //    interpreter)
       }
     }
 
@@ -220,7 +225,7 @@ object Scheduler {
                   .handleErrorWith(err => handleError(process, envelope, err)),
                 processState.interruption).flatMap {
                 case Left(_) => ct.unit
-                case Right(_) => ct.delay(println("process has been interrupted")) // process has been interrupted. Stop event shall be delivered by scheduler
+                case Right(_) => ct.unit // process has been interrupted. Stop event shall be delivered by scheduler
               }
             } else {
               val errorMsg = s"process $process handler is not defined for event: $event"
@@ -229,7 +234,10 @@ object Scheduler {
                   // no error handling, send to dead letter
                   sendToDeadLetter(DeadLetter(f), interpreter)
                 case Start => ct.unit // ignore lifecycle events
-                case _ => sendToDeadLetter(DeadLetter(envelope, EventMatchException(errorMsg)), interpreter)
+                case _ =>
+                  send(ProcessRef.SystemRef,
+                    Failure(envelope, EventMatchException(errorMsg)), envelope.sender, interpreter)
+                // sendToDeadLetter(DeadLetter(envelope, EventMatchException(errorMsg)), interpreter)
               }
               ct.delay(logger.warn(errorMsg)) >> whenUndefined
             }

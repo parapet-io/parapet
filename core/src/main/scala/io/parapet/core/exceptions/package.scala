@@ -8,6 +8,8 @@ package object exceptions {
 
   case class EventDeliveryException(message: String = "", cause: Throwable = null) extends RuntimeException(message, cause)
 
+  case class EventQueueIsFullException(message: String) extends RuntimeException(message)
+
   case class EventMatchException(message: String) extends RuntimeException(message)
 
   case class UninitializedProcessException(message: String) extends RuntimeException(message)

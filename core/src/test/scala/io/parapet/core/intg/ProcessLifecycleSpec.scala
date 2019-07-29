@@ -186,7 +186,7 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
     program.unsafeRunSync()
 
     deadLetterEventStore.get(deadLetter.ref).headOption.value should matchPattern {
-      case DeadLetter(Envelope(ProcessRef.SystemRef, Stop, process.`ref`), _) =>
+      case DeadLetter(Envelope(TestSystemRef, Stop, process.`ref`), _) =>
     }
 
   }
@@ -215,7 +215,7 @@ class ProcessLifecycleSpec extends FlatSpec with IntegrationSpec {
     program.unsafeRunSync()
 
     deadLetterEventStore.get(deadLetter.ref).headOption.value should matchPattern {
-      case DeadLetter(Envelope(ProcessRef.SystemRef, Stop, process.`ref`), _) =>
+      case DeadLetter(Envelope(TestSystemRef, Stop, process.`ref`), _) =>
     }
   }
 

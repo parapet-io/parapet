@@ -1,7 +1,6 @@
 package io.parapet
 
 import cats.effect._
-import cats.syntax.flatMap._
 import cats.~>
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.{Context, Parallel}
@@ -25,17 +24,10 @@ abstract class CatsApp extends ParApp[IO] {
   }
 
 
-
   override def unsafeRun(io: IO[Unit]): Unit = {
     io.start.flatMap { fiber =>
       installHook(fiber).map(_ => fiber)
     }.flatMap(_.join).unsafeRunSync()
-  }
-
-  override def stop: IO[Unit] = IO(logger.info("shutdown")) >> IO(unsafeStop)
-
-  def unsafeStop: Unit = {
-    //executorService.shutdownNow()
   }
 
   private def installHook(fiber: Fiber[IO, Unit]): IO[Unit] =

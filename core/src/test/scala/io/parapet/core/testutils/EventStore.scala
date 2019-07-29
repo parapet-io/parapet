@@ -37,6 +37,7 @@ class EventStore[A <: Event] {
 
   def size: Int = sizeRef.get()
 
+  @deprecated("use awaitSize")
   def awaitSizeOld(expectedSize: Int, delay: FiniteDuration = 100.millis,
                    timeout: FiniteDuration = 3.minutes)
                   (implicit timer: Timer[IO], ctx: ContextShift[IO]): IO[Unit] = {

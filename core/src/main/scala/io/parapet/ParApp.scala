@@ -1,12 +1,11 @@
 package io.parapet
 
 import cats.effect.{Concurrent, ContextShift, Timer}
-import cats.implicits._
+import cats.syntax.flatMap._
+import cats.syntax.functor._
 import cats.~>
 import io.parapet.core.Dsl.{DslF, WithDsl}
-import io.parapet.core.DslInterpreter._
 import io.parapet.core.Parapet.ParConfig
-import io.parapet.core.ProcessRef.SystemRef
 import io.parapet.core.processes.{DeadLetterProcess, SystemProcess}
 import io.parapet.core.{Context, EventLog, Parallel, Parapet, Process, ProcessRef, Scheduler}
 import io.parapet.syntax.FlowSyntax
@@ -32,34 +31,27 @@ abstract class ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
   def processes: F[Seq[Process[F]]]
 
   // system processes
-  def deadLetter: DeadLetterProcess[F] = DeadLetterProcess.logging
+  def deadLetter: F[DeadLetterProcess[F]] = ct.pure(DeadLetterProcess.logging)
 
   private[parapet] lazy val systemProcess: Process[F] = new SystemProcess[F]
 
   def flowInterpreter(context: Context[F]): FlowOp ~> Flow
 
-  // todo remove
-  val program: Program = dsl.unit
-
   def unsafeRun(f: F[Unit]): Unit
-
-  //  todo remove
-  def stop: F[Unit]
 
   def run: F[Unit] = {
       for {
         ps <- processes
-        _ <- (if (ps.isEmpty) {
-          ct.raiseError(new RuntimeException("Initialization error:  at least one process must be provided"))
-        } else ct.unit)
+        _ <- if (ps.isEmpty) {
+          ct.raiseError[Unit](new RuntimeException("Initialization error:  at least one process must be provided"))
+        } else ct.unit
         context <- Context(config, eventLog)
         _ <- context.init
-        _ <- context.registerAll(ProcessRef.SystemRef, ps.toList :+ deadLetter)
+        dlProcess <- deadLetter
+        _ <- context.registerAll(ProcessRef.SystemRef, ps.toList :+ dlProcess)
         interpreter <- ct.pure(flowInterpreter(context))
         scheduler <- Scheduler.apply[F](config.schedulerConfig, context, interpreter)
-        _ <- parallel.par(
-          Seq(interpret_(program, interpreter, FlowState(SystemRef, SystemRef)), scheduler.run))
-        _ <- stop
+        _ <- scheduler.run
       } yield ()
 
   }

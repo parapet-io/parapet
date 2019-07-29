@@ -11,13 +11,13 @@ trait EventSyntax[F[_]] {
   implicit class EventOps(e: Event) {
     def ~>(process: ProcessRef): Free[Dsl[F, ?], Unit] = send(List(e), process)
 
-    private[parapet] def ~>(process: Process[F]): DslF[F, Unit] = send(List(e), process.ref)
+    def ~>(process: Process[F]): DslF[F, Unit] = send(List(e), process.ref)
   }
 
   implicit class EventSeqOps(events: Seq[Event]) {
     def ~>(process: ProcessRef): Free[Dsl[F, ?], Unit] = send(events, process)
 
-    private[parapet] def ~>(process: Process[F]): DslF[F, Unit] = send(events, process.ref)
+    def ~>(process: Process[F]): DslF[F, Unit] = send(events, process.ref)
   }
 
 }
