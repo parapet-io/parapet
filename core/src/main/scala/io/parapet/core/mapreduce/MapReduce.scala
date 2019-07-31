@@ -21,9 +21,8 @@ import scala.collection.mutable.ListBuffer
   *                        instead workers stealing tasks from the task queue
   * @param reducerFunction a function that takes a key and values associated with this key
   *                        and produces a single value
-  * @param nReducerWorkers the number of reducer workers. Records assigned to a worker using the following formula:
-  *                        `workerIndex = hash(key) % nReducerWorkers`
-  *                        where if `key1 < key2` then `hash(key1) < hash(key2)`
+  * @param nReducerWorkers the number of reducer workers. Records assigned to a worker using a partition function:
+  *                        `key.hashCode() % nReducerWorkers`
   * @tparam F  an effect type
   * @tparam K  initial key type
   * @tparam V  initial value type
@@ -38,24 +37,28 @@ class MapReduce[F[_], K, V, K1: Ordering, V1](
 
   import dsl._
 
-  // fixme: get rid of this variable
-  private var client: ProcessRef = _
 
   override def handle: Receive = {
     case in: Input[K, V] => withSender { sender =>
       val chunks = in.chunks
       val queue = new ConcurrentLinkedQueue[Chunk[K, V]]
       queue.addAll(chunks.asJava)
-      eval(client = sender) ++
-        evalWith(new Shuffle(ref, chunks.size)) { shuffle =>
-          register(ref, shuffle) ++
-            (0 until nMapperWorkers).map(i => new MapWorker(i, shuffle.ref, queue))
-              .map(worker => register(ref, worker)).fold(unit)(_ ++ _)
-        }
+      evalWith(new Shuffle(sender, chunks.size)) { shuffle =>
+        register(ref, shuffle) ++
+          (0 until nMapperWorkers).map(i => new MapWorker(i, shuffle.ref, queue))
+            .map(worker => register(ref, worker)).fold(unit)(_ ++ _)
+      }
     }
-    case out: Output[K1, V1] => out ~> client
   }
 
+  /**
+    * Mapper worker reads chucks from the shared queue.
+    * Once the queue is empty the worker stops itself.
+    *
+    * @param id     worker numeric id
+    * @param master the master process to send an output
+    * @param queue  the chunk queue
+    */
   class MapWorker(id: Int, master: ProcessRef, queue: JQueue[Chunk[K, V]]) extends Process[F] {
 
     def loop(result: ListBuffer[Record[K1, V1]]): DslF[F, Unit] = {
@@ -77,20 +80,21 @@ class MapReduce[F[_], K, V, K1: Ordering, V1](
     }
   }
 
-  implicit def tupleSort[S[_] <: Seq[_]]: Ordering[(K1, S[V1])] = new Ordering[(K1, S[V1])] {
-    override def compare(x: (K1, S[V1]), y: (K1, S[V1])): Int = {
-      implicitly[Ordering[K1]].compare(x._1, y._1)
-    }
-  }
+  /**
+    * This process waits for all mappers to finish then groups values by key, sorts, shuffles and sends to the reducers.
+    * It waits for reducers to finish then combines outputs and sends final output to the master process.
+    *
+    * @param master             the process to send an output
+    * @param mapOutputsExpected number of mappers to wait
+    */
+  private class Shuffle(master: ProcessRef, mapOutputsExpected: Int) extends Process[F] {
+    private val mapped = ListBuffer[Record[K1, V1]]()
+    private val reduced = ListBuffer[Record[K1, V1]]()
+    private var mapOutputsReceived = 0
+    private var reduceOutputsReceived = 0
+    private var reduceOutputsExpected = 0
 
-  // sink for Mapper phase
-  class Shuffle(master: ProcessRef, mapOutputsExpected: Int) extends Process[F] {
-    val mapped = ListBuffer[Record[K1, V1]]()
-    val reduced = ListBuffer[Record[K1, V1]]()
-    var mapOutputsReceived = 0
-    var reduceOutputsReceived = 0
-    var reduceOutputsExpected = 0
-
+    // groups by key and sorts
     def shuffle(): Seq[(K1, Seq[V1])] = {
       mapped.groupBy(_.key).mapValues(_.map(_.value)).toSeq.sorted
     }
@@ -103,7 +107,6 @@ class MapReduce[F[_], K, V, K1: Ordering, V1](
             mapOutputsReceived = mapOutputsReceived + 1
           } ++ flow {
           if (mapOutputsReceived == mapOutputsExpected) {
-            // reduce
             evalWith {
               val records = shuffle()
               reduceOutputsExpected = records.size
@@ -116,7 +119,7 @@ class MapReduce[F[_], K, V, K1: Ordering, V1](
                   par {
                     records.map {
                       case (key, values) =>
-                        ReduceInput(key, values) ~> workers(key.hashCode() % nReducerWorkers)
+                        ReduceInput(key, values) ~> workers(partition(key, nReducerWorkers))
                     }.fold(unit)(_ ++ _)
                   }
               }
@@ -130,7 +133,8 @@ class MapReduce[F[_], K, V, K1: Ordering, V1](
             reduced ++= out.records
             reduceOutputsReceived = reduceOutputsReceived + 1
           } ++ flow {
-          if (reduceOutputsReceived == reduceOutputsExpected) Output(reduced) ~> master ++ Stop ~> ref
+          if (reduceOutputsReceived == reduceOutputsExpected) Output(reduced) ~> master ++
+            Stop ~> ref // it will also stop all reducer workers
           else unit
         }
 
@@ -146,11 +150,21 @@ class MapReduce[F[_], K, V, K1: Ordering, V1](
     }
   }
 
+  private def partition(key: Any, numReduceTasks: Int): Int = {
+    (key.hashCode() & Integer.MAX_VALUE) % numReduceTasks
+  }
+
 }
 
 object MapReduce {
 
   case class Record[K, V](key: K, value: V)
+
+  implicit def tupleOrdering[K: Ordering, V]: Ordering[(K, V)] = new Ordering[(K, V)] {
+    override def compare(x: (K, V), y: (K, V)): Int = {
+      implicitly[Ordering[K]].compare(x._1, y._1)
+    }
+  }
 
   implicit def recordOrder[K: Ordering, V]: Ordering[Record[K, V]] =
     (x: Record[K, V], y: Record[K, V]) => implicitly[Ordering[K]].compare(x.key, y.key)
