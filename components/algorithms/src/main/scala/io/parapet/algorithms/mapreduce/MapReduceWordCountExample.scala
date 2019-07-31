@@ -1,9 +1,9 @@
-package io.parapet.core.mapreduce
+package io.parapet.algorithms.mapreduce
 
 import cats.effect.IO
 import io.parapet.core.Event.Start
 import io.parapet.core.Process
-import io.parapet.core.mapreduce.MapReduce._
+import io.parapet.algorithms.mapreduce.MapReduce._
 import io.parapet.{CatsApp, core}
 
 object MapReduceWordCountExample extends CatsApp {
@@ -49,4 +49,14 @@ object MapReduceWordCountExample extends CatsApp {
 
     Seq(client, mapreduce)
   }
+
+  // Output:
+  //  Result:
+  //  key: Bye, value: 1
+  //  key: Goodbye, value: 1
+  //  key: Hello, value: 2
+  //  key: Map, value: 2
+  //  key: Reduce, value: 2
+  //  key: World, value: 2
+
 }

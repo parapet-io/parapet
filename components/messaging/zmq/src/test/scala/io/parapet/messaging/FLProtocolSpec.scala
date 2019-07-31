@@ -1,12 +1,12 @@
-package io.parapet.components.messaging
+package io.parapet.messaging
 
 import java.net.ServerSocket
 
 import cats.effect.{Concurrent, IO}
 import com.typesafe.scalalogging.StrictLogging
-import io.parapet.components.messaging.FLProtocolSpec.{FLTestClient, TestRequest, TestResponse}
-import io.parapet.components.messaging.api.MessagingApi.Success
-import io.parapet.components.messaging.api.{FLProtocolApi, HeartbeatAPI, MessagingApi, ServerAPI}
+import io.parapet.messaging.FLProtocolSpec.{FLTestClient, TestRequest, TestResponse}
+import io.parapet.messaging.api.MessagingApi.Success
+import io.parapet.messaging.api.{FLProtocolApi, HeartbeatAPI, MessagingApi, ServerAPI}
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Start, Stop}
 import io.parapet.core.{Channel, Encoder, Event, Process, ProcessRef}

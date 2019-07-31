@@ -1,4 +1,4 @@
-package io.parapet.core.mapreduce
+package io.parapet.algorithms.mapreduce
 
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.{Queue => JQueue}
@@ -6,7 +6,7 @@ import java.util.{Queue => JQueue}
 import com.typesafe.scalalogging.StrictLogging
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Start, Stop}
-import io.parapet.core.mapreduce.MapReduce._
+import io.parapet.algorithms.mapreduce.MapReduce._
 import io.parapet.core.{Event, Process, ProcessRef}
 
 import scala.collection.JavaConverters._

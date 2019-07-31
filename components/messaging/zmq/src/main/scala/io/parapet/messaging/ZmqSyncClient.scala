@@ -1,7 +1,7 @@
-package io.parapet.components.messaging
+package io.parapet.messaging
 
-import io.parapet.components.messaging.Utils._
-import io.parapet.components.messaging.api.MessagingApi._
+import io.parapet.messaging.Utils._
+import io.parapet.messaging.api.MessagingApi._
 import io.parapet.core.Event.{Start, Stop}
 import io.parapet.core.exceptions.UninitializedProcessException
 import io.parapet.core.{Encoder, Process}

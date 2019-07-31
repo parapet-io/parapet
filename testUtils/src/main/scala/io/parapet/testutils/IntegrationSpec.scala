@@ -25,8 +25,8 @@ trait IntegrationSpec extends WithDsl[IO] with FlowSyntax[IO]{
                 ps: Seq[Process[IO]],
                 deadLetterOpt: Option[DeadLetterProcess[IO]] = None,
                 parCfg: ParConfig = defaultConfig) extends CatsApp {
-    override def deadLetter: DeadLetterProcess[IO] =
-      deadLetterOpt.getOrElse(super.deadLetter)
+    override def deadLetter: IO[DeadLetterProcess[IO]] =
+      deadLetterOpt.map(IO.pure).getOrElse(super.deadLetter)
 
     override val config: ParConfig = parCfg
 

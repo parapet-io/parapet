@@ -1,12 +1,12 @@
-package io.parapet.components.messaging
+package io.parapet.messaging
 
 import java.net.ServerSocket
 
 import cats.effect.IO
 import com.typesafe.scalalogging.StrictLogging
-import io.parapet.components.messaging.AsyncClientsAsyncServerSpec._
-import io.parapet.components.messaging.api.MessagingApi.{Failure, Request, Response, Success}
-import io.parapet.components.messaging.api.ServerAPI.Envelope
+import io.parapet.messaging.AsyncClientsAsyncServerSpec._
+import io.parapet.messaging.api.MessagingApi.{Failure, Request, Response, Success}
+import io.parapet.messaging.api.ServerAPI.Envelope
 import io.parapet.core.Event.Start
 import io.parapet.core.{Encoder, Event, Process, ProcessRef}
 import io.parapet.testutils.{EventStore, IntegrationSpec}

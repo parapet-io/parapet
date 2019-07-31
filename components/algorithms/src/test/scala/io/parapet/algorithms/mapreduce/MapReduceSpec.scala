@@ -1,14 +1,14 @@
-package io.parapet.core.intg
+package io.parapet.algorithms.mapreduce
 
 import cats.effect.IO
+import io.parapet.algorithms.mapreduce.MapReduce._
 import io.parapet.core.Event.Start
 import io.parapet.core.Process
-import io.parapet.core.mapreduce.MapReduce
-import io.parapet.core.mapreduce.MapReduce._
-import io.parapet.core.testutils.{EventStore, IntegrationSpec}
+import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.FunSuite
 import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
+
 
 class MapReduceSpec extends FunSuite with IntegrationSpec {
 
