@@ -15,21 +15,28 @@ object MapReduceWordCountExample extends CatsApp {
   // number of reducerWorkers
   val nReducerWorkers = 2
 
+  // source data
   val data = Seq(
     "Hello World Bye World",
     "Hello Map Reduce Goodbye Map Reduce"
   )
 
+  // Mapper function
   val mapper: Record[Unit, String] => Seq[Record[String, Int]] = record => {
     record.value.split(" ").map(word => Record(word.trim, 1))
   }
 
+  // Reducer function
   val reducer: (String, Seq[Int]) => Int = (_, values) => values.sum
 
   override def processes: IO[Seq[core.Process[IO]]] = IO {
+    // MapReduce process
     val mapreduce = new MapReduce[IO, Unit, String, String, Int](mapper, nMapperWorkers, reducer, nReducerWorkers)
+
+    // client process
     val client = Process[IO](ref => {
       case Start =>
+        // split the source data in chunks
         val input = Input(data.map(line => Chunk(Seq(Record[Unit, String]((), line)))))
         input ~> mapreduce
       case out: Output[String, Int] => eval {

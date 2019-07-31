@@ -12,6 +12,24 @@ import io.parapet.core.{Event, Process, ProcessRef}
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
 
+/**
+  * In-memory implementation of MapReduce algorithm:
+  *
+  * @param mapperFunction  a function that takes a [[Record[K, V]] - pair of (key, value)
+  *                        and produces a sequence of [[Record[K1, V1]]
+  * @param nMapperWorkers  the number of mapper workers. Tasks aren't assigned to workers,
+  *                        instead workers stealing tasks from the task queue
+  * @param reducerFunction a function that takes a key and values associated with this key
+  *                        and produces a single value
+  * @param nReducerWorkers the number of reducer workers. Records assigned to a worker using the following formula:
+  *                        `workerIndex = hash(key) % nReducerWorkers`
+  *                        where if `key1 < key2` then `hash(key1) < hash(key2)`
+  * @tparam F  an effect type
+  * @tparam K  initial key type
+  * @tparam V  initial value type
+  * @tparam K1 key type produced by mapper
+  * @tparam V1 value type produced by mapper
+  */
 class MapReduce[F[_], K, V, K1: Ordering, V1](
                                                mapperFunction: Record[K, V] => Seq[Record[K1, V1]],
                                                nMapperWorkers: Int,
