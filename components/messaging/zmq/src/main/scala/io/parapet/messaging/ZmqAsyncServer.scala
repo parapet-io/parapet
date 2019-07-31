@@ -1,11 +1,11 @@
-package io.parapet.components.messaging
+package io.parapet.messaging
 
 import com.typesafe.scalalogging.StrictLogging
-import io.parapet.components.messaging.Utils._
-import io.parapet.components.messaging.ZmqAsyncServer.Worker
-import io.parapet.components.messaging.api.MessagingApi._
-import io.parapet.components.messaging.api.ServerAPI.Envelope
-import io.parapet.components.messaging.api.{ErrorCodes, HeartbeatAPI}
+import io.parapet.messaging.Utils._
+import io.parapet.messaging.ZmqAsyncServer.Worker
+import io.parapet.messaging.api.MessagingApi._
+import io.parapet.messaging.api.ServerAPI.Envelope
+import io.parapet.messaging.api.{ErrorCodes, HeartbeatAPI}
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Start, Stop}
 import io.parapet.core.{Encoder, Event, Process, ProcessRef}

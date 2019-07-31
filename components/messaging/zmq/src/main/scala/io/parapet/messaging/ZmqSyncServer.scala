@@ -1,10 +1,10 @@
-package io.parapet.components.messaging
+package io.parapet.messaging
 
 import cats.effect.Concurrent
 import com.typesafe.scalalogging.StrictLogging
-import io.parapet.components.messaging.ZmqSyncServer._
-import io.parapet.components.messaging.api.ErrorCodes
-import io.parapet.components.messaging.api.MessagingApi.{Failure, Request, Response, Success}
+import io.parapet.messaging.ZmqSyncServer._
+import io.parapet.messaging.api.ErrorCodes
+import io.parapet.messaging.api.MessagingApi.{Failure, Request, Response, Success}
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Encoder.EncodingException
 import io.parapet.core.Event.{Start, Stop}

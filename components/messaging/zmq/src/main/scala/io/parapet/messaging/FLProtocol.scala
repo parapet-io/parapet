@@ -1,14 +1,14 @@
-package io.parapet.components.messaging
+package io.parapet.messaging
 
 import java.util.UUID
 
 import com.typesafe.scalalogging.StrictLogging
-import io.parapet.components.messaging.FLProtocol._
-import io.parapet.components.messaging.api.ErrorCodes
-import io.parapet.components.messaging.api.FLProtocolApi._
-import io.parapet.components.messaging.Utils._
-import io.parapet.components.messaging.api.MessagingApi._
-import io.parapet.components.messaging.api.HeartbeatAPI.{Ping, Pong}
+import io.parapet.messaging.FLProtocol._
+import io.parapet.messaging.api.ErrorCodes
+import io.parapet.messaging.api.FLProtocolApi._
+import io.parapet.messaging.Utils._
+import io.parapet.messaging.api.MessagingApi._
+import io.parapet.messaging.api.HeartbeatAPI.{Ping, Pong}
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Start, Stop}
 import io.parapet.core.{Encoder, Event, Process, ProcessRef}

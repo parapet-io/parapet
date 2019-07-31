@@ -1,4 +1,4 @@
-package io.parapet.components.messaging.api
+package io.parapet.messaging.api
 
 object ErrorCodes {
 

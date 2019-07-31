@@ -1,10 +1,10 @@
-package io.parapet.components.messaging
+package io.parapet.messaging
 
 import java.net.ServerSocket
 
 import cats.effect.IO
-import io.parapet.components.messaging.SyncClientSyncServerSpec._
-import io.parapet.components.messaging.api.MessagingApi.{Failure, Request, Response, Success, WithId}
+import io.parapet.messaging.SyncClientSyncServerSpec._
+import io.parapet.messaging.api.MessagingApi.{Failure, Request, Response, Success, WithId}
 import io.parapet.core.Dsl.WithDsl
 import io.parapet.core.Event.Start
 import io.parapet.core.{Encoder, Event, Process, ProcessRef}

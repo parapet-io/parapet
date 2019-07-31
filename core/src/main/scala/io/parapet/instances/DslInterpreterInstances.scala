@@ -105,10 +105,6 @@ object DslInterpreterInstances {
 
             case eval: Eval[IO, Dsl[IO, ?], A]@unchecked =>
               StateT.modify[IO, FlowState[IO]] { s =>
-                val res = IO(eval.thunk()).flatMap { a =>
-                  eval.bind.map(f => (b: A) => interpret_(f(b), interpreter, s.copy(ops = List.empty)))
-                    .getOrElse((_: A) => IO.unit)(a)
-                }
                 s.add(IO(eval.thunk()).flatMap { a =>
                   eval.bind.map(f => (b: A) => interpret_(f(b), interpreter, s.copy(ops = List.empty)))
                     .getOrElse((_: A) => IO.unit)(a)

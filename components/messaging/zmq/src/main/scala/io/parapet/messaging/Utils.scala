@@ -1,7 +1,7 @@
-package io.parapet.components.messaging
+package io.parapet.messaging
 
-import io.parapet.components.messaging.api.ErrorCodes
-import io.parapet.components.messaging.api.MessagingApi.{Failure, Response}
+import io.parapet.messaging.api.ErrorCodes
+import io.parapet.messaging.api.MessagingApi.{Failure, Response}
 import io.parapet.core.Dsl.{Dsl, DslF, FlowOps}
 import io.parapet.core.Encoder.EncodingException
 import io.parapet.core.ProcessRef
