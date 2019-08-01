@@ -4,7 +4,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{ExecutorService, Executors, ThreadFactory}
 
 import cats.effect.syntax.bracket._
-import cats.effect.{Concurrent, ContextShift, Timer}
+import cats.effect.{Concurrent, ContextShift}
 import cats.syntax.applicativeError._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -35,7 +35,7 @@ object Scheduler {
 
   type TaskQueue[F[_]] = Queue[F, Task[F]]
 
-  def apply[F[_] : Concurrent : Timer : Parallel : ContextShift](config: SchedulerConfig,
+  def apply[F[_] : Concurrent : Parallel : ContextShift](config: SchedulerConfig,
                                                                  context: Context[F],
                                                                  interpreter: Interpreter[F]): F[Scheduler[F]] = {
     SchedulerImpl(config, context, interpreter)
@@ -47,7 +47,7 @@ object Scheduler {
 
   import SchedulerImpl._
 
-  class SchedulerImpl[F[_] : Concurrent : Timer : Parallel : ContextShift](
+  class SchedulerImpl[F[_] : Concurrent : Parallel : ContextShift](
                                                                             config: SchedulerConfig,
                                                                             context: Context[F],
                                                                             processRefQueue: Queue[F, ProcessRef],
@@ -100,13 +100,12 @@ object Scheduler {
       }
 
       pa.par(workers.map(w => ctxShift.shift >> w.run) :+ (ctxShift.shift >> step))
-        .guaranteeCase(_ => {
+        .guarantee(
           ctxShift.evalOn(ec)(stopProcess(ProcessRef.SystemRef,
             context, ProcessRef.SystemRef, interpreter,
-            (pRef, err) => ct.delay(logger.error(s"An error occurred while stopping process $pRef", err
-            )))) >>
-            ct.delay(es.shutdownNow()).void.guaranteeCase(_ => ct.delay(logger.info("scheduler has been shut down")))
-        })
+            (pRef, err) => ct.delay(logger.error(s"An error occurred while stopping process $pRef", err)))) >>
+            ct.delay(es.shutdownNow()).void.guarantee(ct.delay(logger.info("scheduler has been shut down")))
+        )
     }
 
     private def submit(task: Deliver[F], ps: ProcessState[F]): F[Unit] = {
@@ -141,7 +140,7 @@ object Scheduler {
 
   object SchedulerImpl {
 
-    def apply[F[_] : Concurrent : Parallel : Timer : ContextShift](
+    def apply[F[_] : Concurrent : Parallel : ContextShift](
                                                                     config: SchedulerConfig,
                                                                     context: Context[F],
                                                                     interpreter: Interpreter[F]): F[Scheduler[F]] =

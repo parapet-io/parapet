@@ -21,8 +21,8 @@ lazy val dependencies =
     val shapeless = "com.chuusai" %% "shapeless" % "2.3.3"
     // logging
     val scalaLogging = "com.typesafe.scala-logging" %% "scala-logging" % "3.9.2"
-    val logbackClassic = "ch.qos.logback" % "logback-classic" % "1.2.3" % Test
     // test
+    val logbackClassic = "ch.qos.logback" % "logback-classic" % "1.2.3" % Test
     val scalaTest = "org.scalatest" %% "scalatest" % "3.0.7" % Test
     val pegdown = "org.pegdown" % "pegdown" % "1.6.0" % Test
     val logstashLogbackEncoder = "net.logstash.logback" % "logstash-logback-encoder" % "5.3" % Test
@@ -43,9 +43,14 @@ libraryDependencies in ThisBuild ++= (scalaBinaryVersion.value match {
 lazy val global = project
   .in(file("."))
   .aggregate(
-    core, testUtils
+    core,
+    testUtils,
+    interopCats,
+    intgTests,
+    intgTestsCats,
+    interopScalazZio,
+    intgTestsScalazZio
   )
-
 
 lazy val core = project
   .settings(
@@ -55,10 +60,52 @@ lazy val core = project
     libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7"
   )
 
-lazy val testUtils = project.settings(
-  name := "test-utils",
-  libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.7"
-).dependsOn(core)
+lazy val testUtils = project
+  .in(file("test-utils"))
+  .settings(
+    name := "test-utils",
+    libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.7"
+  ).dependsOn(core)
+
+lazy val intgTests = project
+  .in(file("intg-tests"))
+  .settings(
+    name := "intg-tests",
+    libraryDependencies ++= Seq(
+      "ch.qos.logback" % "logback-classic" % "1.2.3",
+      "org.scalatest" %% "scalatest" % "3.0.7",
+      "org.pegdown" % "pegdown" % "1.6.0",
+      "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
+    ),
+  ).dependsOn(core, testUtils)
+
+// Cats Effect interop
+lazy val intgTestsCats = project
+  .in(file("intg-tests-cats"))
+  .settings(
+    name := "intg-tests-cats",
+    scalacOptions += "-Xcheckinit"
+  ).dependsOn(intgTests, interopCats)
+
+lazy val interopCats = project
+  .in(file("interop-cats"))
+  .settings(
+    name := "interop-cats"
+  ).dependsOn(core)
+
+lazy val interopScalazZio = project
+  .in(file("interop-scalaz-zio"))
+  .settings(
+    name := "interop-scalaz-zio",
+    libraryDependencies ++= Seq("org.scalaz" %% "scalaz-zio-interop-cats" % "1.0-RC5")
+  ).dependsOn(core)
+
+lazy val intgTestsScalazZio = project
+  .in(file("intg-tests-scalaz-zio"))
+  .settings(
+    name := "intg-tests-scalaz-zio",
+    scalacOptions += "-Xcheckinit"
+  ).dependsOn(intgTests, interopScalazZio)
 
 lazy val catsDependencies = Seq(dependencies.catsEffect, dependencies.catsFree, dependencies.fs2Core)
 lazy val commonDependencies = Seq(
