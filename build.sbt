@@ -63,7 +63,7 @@ lazy val testUtils = project
   .settings(
     name := "test-utils",
     libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.7"
-  ).dependsOn(core, interopCats, interopScalazZio)
+  ).dependsOn(core, interopCats, interopScalazZio, interopMonix)
 
 lazy val interopCats = project
   .in(file("interop-cats"))
@@ -83,7 +83,7 @@ lazy val interopMonix = project
   .settings(
     name := "interop-monix",
     libraryDependencies ++= Seq(
-      "io.monix" %% "monix-eval" % "2.3.3", "io.monix" %% "monix-cats" % "2.3.3")
+      "io.monix" %% "monix-eval" % "3.0.0-RC3")
   ).dependsOn(core)
 
 lazy val intgTests = project

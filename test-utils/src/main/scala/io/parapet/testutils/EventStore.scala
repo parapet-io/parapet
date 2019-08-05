@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import cats.effect.{Concurrent, Timer}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+import com.typesafe.scalalogging.StrictLogging
 import io.parapet.core.{Event, ProcessRef}
 
 import scala.collection.JavaConverters._
@@ -12,7 +13,7 @@ import scala.collection.mutable.ListBuffer
 import scala.concurrent.TimeoutException
 import scala.concurrent.duration.{FiniteDuration, _}
 
-class EventStore[F[_], A <: Event] {
+class EventStore[F[_], A <: Event] extends StrictLogging {
 
   type EventList = ListBuffer[A]
 
@@ -54,7 +55,7 @@ class EventStore[F[_], A <: Event] {
       _ <- ct.race(
         ct.guarantee(
           Concurrent.timeoutTo[F, Unit](step, timeout, ct.raiseError(new TimeoutException(timeout.toString))))
-        (ct.race(fiber.cancel, timer.sleep(5.seconds) >> ct.delay(println("cancellation took too long"))).void),
+        (ct.race(fiber.cancel, timer.sleep(5.seconds) >> ct.delay(logger.debug("cancellation took too long"))).void),
         fiber.join)
     } yield ()
 

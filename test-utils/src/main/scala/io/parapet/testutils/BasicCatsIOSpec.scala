@@ -5,10 +5,14 @@ import io.parapet.{CatsApp, ParApp, core}
 import io.parapet.core.Parapet
 import io.parapet.core.processes.DeadLetterProcess
 
-trait BasicCatsIOSpec extends IntegrationSpec[IO] with CatsApp {
+import scala.concurrent.ExecutionContext
+
+trait BasicCatsIOSpec extends IntegrationSpec[IO] with CatsApp { self =>
   override def createApp(processes0: IO[Seq[core.Process[IO]]],
                          deadLetter0: Option[IO[DeadLetterProcess[IO]]],
                          config0: Parapet.ParConfig): ParApp[IO] = new CatsApp {
+
+    override lazy val ec: ExecutionContext = self.ec
 
     override val config: Parapet.ParConfig = config0
 
