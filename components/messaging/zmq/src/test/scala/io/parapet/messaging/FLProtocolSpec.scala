@@ -3,26 +3,25 @@ package io.parapet.messaging
 import java.net.ServerSocket
 
 import cats.effect.{Concurrent, IO}
-import com.typesafe.scalalogging.StrictLogging
-import io.parapet.messaging.FLProtocolSpec.{FLTestClient, TestRequest, TestResponse}
-import io.parapet.messaging.api.MessagingApi.Success
-import io.parapet.messaging.api.{FLProtocolApi, HeartbeatAPI, MessagingApi, ServerAPI}
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Start, Stop}
 import io.parapet.core.{Channel, Encoder, Event, Process, ProcessRef}
-import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.messaging.FLProtocolSpec.{FLTestClient, TestRequest, TestResponse}
+import io.parapet.messaging.api.MessagingApi.Success
+import io.parapet.messaging.api.{FLProtocolApi, HeartbeatAPI, MessagingApi, ServerAPI}
+import io.parapet.testutils.{BasicCatsIOSpec, EventStore}
 import org.scalatest.FunSuite
 import org.scalatest.Matchers._
 
 import scala.concurrent.duration._
 
-class FLProtocolSpec extends FunSuite with IntegrationSpec with StrictLogging {
+class FLProtocolSpec extends FunSuite with BasicCatsIOSpec {
 
   import dsl._
 
   test("freelance pattern") {
 
-    val eventStore = new EventStore[Event]
+    val eventStore = new EventStore[IO, Event]
 
     val encoder = Encoder.json(List(
 
@@ -68,7 +67,7 @@ class FLProtocolSpec extends FunSuite with IntegrationSpec with StrictLogging {
     val processes: Seq[Process[IO]] = Seq(flprotocol, client, service, server)
 
 
-    eventStore.awaitSize(5, run(processes)).unsafeRunSync()
+    unsafeRun(eventStore.await(5, createApp(ct.pure(processes)).run))
 
     // at least two last request must be successfuly delivered
     eventStore.get(client.ref).slice(3, 5) shouldBe
@@ -87,7 +86,7 @@ object FLProtocolSpec {
 
   class FLTestClient[F[_] : Concurrent](flprotocol: ProcessRef,
                                         servers: List[String],
-                                        eventStore: EventStore[Event]) extends Process[F] {
+                                        eventStore: EventStore[IO, Event]) extends Process[F] {
 
     import dsl._
 

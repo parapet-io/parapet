@@ -4,19 +4,19 @@ import cats.effect.IO
 import io.parapet.algorithms.mapreduce.MapReduce._
 import io.parapet.core.Event.Start
 import io.parapet.core.Process
-import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.testutils.{BasicCatsIOSpec, EventStore}
 import org.scalatest.FunSuite
 import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
 
 
-class MapReduceSpec extends FunSuite with IntegrationSpec {
+class MapReduceSpec extends FunSuite with BasicCatsIOSpec {
 
   import dsl._
 
   test("map reduce") {
 
-    val eventStore = new EventStore[Output[String, Int]]()
+    val eventStore = new EventStore[IO, Output[String, Int]]()
 
     val mapper: Record[Unit, String] => Seq[Record[String, Int]] = record => {
       record.value.split(" ").map(word => Record(word.trim, 1))
@@ -39,7 +39,7 @@ class MapReduceSpec extends FunSuite with IntegrationSpec {
     })
 
 
-    eventStore.awaitSize(1, run(Seq(client, mapreduce))).unsafeRunSync()
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(client, mapreduce))).run))
 
     eventStore.get(client.ref).headOption.value.records.sorted shouldBe
       Seq(Record("Bye", 1),

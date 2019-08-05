@@ -12,6 +12,7 @@ scalacOptions in ThisBuild ++= Seq(
   "-deprecation"
 )
 libraryDependencies in ThisBuild += "io.parapet" %% "core" % coreVersion
+libraryDependencies in ThisBuild += "io.parapet" %% "interop-cats" % coreVersion
 libraryDependencies in ThisBuild += "com.chuusai" %% "shapeless" % "2.3.3"
 libraryDependencies in ThisBuild += "io.parapet" %% "test-utils" % coreVersion % Test
 libraryDependencies in ThisBuild += "org.scalatest" %% "scalatest" % "3.0.7" % Test
