@@ -28,7 +28,7 @@ abstract class ErrorHandlingSpec[F[_]] extends WordSpec with IntegrationSpec[F] 
           }
         }
 
-        clientEventStore.await(1, run(ct.pure(Seq(client, faultyServer)))).unsafeRunSync()
+        unsafeRun(clientEventStore.await(1, createApp(ct.pure(Seq(client, faultyServer))).run))
 
         clientEventStore.size shouldBe 1
         clientEventStore.get(client.ref).headOption.value should matchPattern {
@@ -41,10 +41,10 @@ abstract class ErrorHandlingSpec[F[_]] extends WordSpec with IntegrationSpec[F] 
   "System" when {
     "process doesn't have error handling" should {
       "send Failure event to dead letter" in {
-        val deadLetterEventStore = new EventStore[F, DeadLetter]
+        val eventStore = new EventStore[F, DeadLetter]
         val deadLetter = new DeadLetterProcess[F] {
           def handle: Receive = {
-            case f: DeadLetter => eval(deadLetterEventStore.add(ref, f))
+            case f: DeadLetter => eval(eventStore.add(ref, f))
           }
         }
         val server = new Process[F] {
@@ -58,10 +58,10 @@ abstract class ErrorHandlingSpec[F[_]] extends WordSpec with IntegrationSpec[F] 
           }
         }
 
-        deadLetterEventStore.await(1, run(ct.pure(Seq(client, server)), Some(ct.pure(deadLetter)))).unsafeRunSync()
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(client, server)), Some(ct.pure(deadLetter))).run))
 
-        deadLetterEventStore.size shouldBe 1
-        deadLetterEventStore.get(deadLetter.ref).headOption.value should matchPattern {
+        eventStore.size shouldBe 1
+        eventStore.get(deadLetter.ref).headOption.value should matchPattern {
           case DeadLetter(Envelope(client.`ref`, Request, server.`ref`), _: EventHandlingException) =>
         }
 
@@ -72,10 +72,10 @@ abstract class ErrorHandlingSpec[F[_]] extends WordSpec with IntegrationSpec[F] 
   "System" when {
     "process failed to handle Failure event" should {
       "send Failure event to dead letter" in {
-        val deadLetterEventStore = new EventStore[F, DeadLetter]
+        val eventStore = new EventStore[F, DeadLetter]
         val deadLetter = new DeadLetterProcess[F] {
           def handle: Receive = {
-            case f: DeadLetter => eval(deadLetterEventStore.add(ref, f))
+            case f: DeadLetter => eval(eventStore.add(ref, f))
           }
         }
         val server = new Process[F] {
@@ -90,10 +90,10 @@ abstract class ErrorHandlingSpec[F[_]] extends WordSpec with IntegrationSpec[F] 
           }
         }
 
-        deadLetterEventStore.await(1, run(ct.pure(Seq(client, server)), Some(ct.pure(deadLetter)))).unsafeRunSync()
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(client, server)), Some(ct.pure(deadLetter))).run))
 
-        deadLetterEventStore.size shouldBe 1
-        deadLetterEventStore.get(deadLetter.ref).headOption.value should matchPattern {
+        eventStore.size shouldBe 1
+        eventStore.get(deadLetter.ref).headOption.value should matchPattern {
           case DeadLetter(Envelope(client.`ref`, Request, server.`ref`), _: EventHandlingException) =>
         }
       }

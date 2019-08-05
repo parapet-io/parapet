@@ -2,26 +2,22 @@ package io.parapet.tests.intg
 
 import java.util.concurrent.atomic.AtomicBoolean
 
-import cats.effect.{Concurrent, Timer}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import io.parapet.core.Event._
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.tests.intg.ProcessLifecycleSpec._
-import io.parapet.testutils.{EventStore, IntegrationSpec, TestApp}
+import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
 
 import scala.concurrent.duration._
 
-abstract class ProcessLifecycleSpec[F[_] : Concurrent : Timer : TestApp]
-  extends FlatSpec with IntegrationSpec[F] {
+abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[F] {
 
   import dsl._
-
-  val ct: Concurrent[F] = implicitly[Concurrent[F]]
 
   "Start event" should "be delivered before client events" in {
     val expectedEventsCount = 2
@@ -35,7 +31,7 @@ abstract class ProcessLifecycleSpec[F[_] : Concurrent : Timer : TestApp]
 
     val init = onStart(TestEvent ~> process)
 
-    eventStore.await(expectedEventsCount, run(ct.pure(Seq(init, process)))).unsafeRunSync()
+    unsafeRun(eventStore.await(expectedEventsCount, createApp(ct.pure(Seq(init, process))).run))
 
 
     eventStore.size shouldBe expectedEventsCount
@@ -56,7 +52,7 @@ abstract class ProcessLifecycleSpec[F[_] : Concurrent : Timer : TestApp]
 
     val init = onStart(TestEvent ~> process)
 
-    eventStore.await(domainEventsCount, run(ct.pure(Seq(init, process)))).unsafeRunSync()
+    unsafeRun(eventStore.await(domainEventsCount, createApp(ct.pure(Seq(init, process))).run))
 
     eventStore.size shouldBe totalEventsCount
     eventStore.get(process.ref) shouldBe Seq(TestEvent, Stop)
@@ -103,12 +99,12 @@ abstract class ProcessLifecycleSpec[F[_] : Concurrent : Timer : TestApp]
     }
 
     val program = for {
-      fiber <- ct.start(run(ct.pure(Seq(parent))))
+      fiber <- ct.start(createApp(ct.pure(Seq(parent))).run)
       _ <- ct.delay(while (!lastProcessCreated.get()) {}) >> fiber.cancel
 
     } yield ()
-    program.unsafeRunSync()
-
+    unsafeRun(program)
+    eventStore.print()
 
     eventStore.get(trace) shouldBe Seq(Stopped("d"), Stopped("c"), Stopped("b"), Stopped("a"))
 
@@ -128,7 +124,7 @@ abstract class ProcessLifecycleSpec[F[_] : Concurrent : Timer : TestApp]
       delay(1.second, Kill ~> longRunningProcess.ref))
 
 
-    eventStore.await(1, run(ct.pure(Seq(init, longRunningProcess)))).unsafeRunSync()
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, longRunningProcess))).run))
 
     eventStore.size shouldBe 1
     eventStore.get(longRunningProcess.ref) shouldBe Seq(Stop)
@@ -145,7 +141,7 @@ abstract class ProcessLifecycleSpec[F[_] : Concurrent : Timer : TestApp]
 
     val init = onStart(Seq(TestEvent, TestEvent, Stop) ~> process.ref)
 
-    eventStore.await(3, run(ct.pure(Seq(init, process)))).unsafeRunSync()
+    unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(init, process))).run))
 
 
     eventStore.size shouldBe 3
@@ -154,10 +150,10 @@ abstract class ProcessLifecycleSpec[F[_] : Concurrent : Timer : TestApp]
   }
 
   "An attempt to kill a process more than once" should "return error" in {
-    val deadLetterEventStore = new EventStore[F, DeadLetter]
+    val eventStore = new EventStore[F, DeadLetter]
     val deadLetter = new DeadLetterProcess[F] {
       def handle: Receive = {
-        case f: DeadLetter => eval(deadLetterEventStore.add(ref, f))
+        case f: DeadLetter => eval(println("-----")) ++ eval(eventStore.add(ref, f))
       }
     }
 
@@ -168,19 +164,19 @@ abstract class ProcessLifecycleSpec[F[_] : Concurrent : Timer : TestApp]
     }
 
     val init = onStart(delay(1.second, Kill ~> process) ++ Kill ~> process)
-    deadLetterEventStore.await(1, run(ct.pure(Seq(init, process)), Some(ct.pure(deadLetter)))).unsafeRunSync()
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, process)), Some(ct.pure(deadLetter))).run))
 
-    deadLetterEventStore.get(deadLetter.ref).headOption.value should matchPattern {
+    eventStore.get(deadLetter.ref).headOption.value should matchPattern {
       case DeadLetter(Envelope(TestSystemRef, Stop, process.`ref`), _) =>
     }
 
   }
 
   "An attempt to send Stop event more than once" should "return error" in {
-    val deadLetterEventStore = new EventStore[F, DeadLetter]
+    val eventStore = new EventStore[F, DeadLetter]
     val deadLetter = new DeadLetterProcess[F] {
       def handle: Receive = {
-        case f: DeadLetter => eval(deadLetterEventStore.add(ref, f))
+        case f: DeadLetter => eval(eventStore.add(ref, f))
       }
     }
 
@@ -192,10 +188,9 @@ abstract class ProcessLifecycleSpec[F[_] : Concurrent : Timer : TestApp]
 
     val init = onStart(Seq(Stop, Stop) ~> process)
 
-    deadLetterEventStore.await(1,
-      run(ct.pure(Seq(init, process)), Some(ct.pure(deadLetter)))).unsafeRunSync()
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, process)), Some(ct.pure(deadLetter))).run))
 
-    deadLetterEventStore.get(deadLetter.ref).headOption.value should matchPattern {
+    eventStore.get(deadLetter.ref).headOption.value should matchPattern {
       case DeadLetter(Envelope(TestSystemRef, Stop, process.`ref`), _) =>
     }
   }

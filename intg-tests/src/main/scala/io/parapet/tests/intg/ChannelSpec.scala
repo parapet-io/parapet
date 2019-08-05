@@ -1,21 +1,18 @@
 package io.parapet.tests.intg
 
-import cats.effect.{Concurrent, Timer}
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Start, Stop}
 import io.parapet.core.{Channel, Event, Process}
 import io.parapet.tests.intg.ChannelSpec._
-import io.parapet.testutils.{EventStore, IntegrationSpec, TestApp}
+import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.FunSuite
 import org.scalatest.Matchers._
 
 import scala.util.{Success, Failure => SFailure}
 
-abstract class ChannelSpec[F[_] : Concurrent : Timer : TestApp] extends FunSuite with IntegrationSpec[F] {
+abstract class ChannelSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
 
   import dsl._
-
-  val ct: Concurrent[F] = implicitly[Concurrent[F]]
 
   test("channel") {
 
@@ -47,7 +44,7 @@ abstract class ChannelSpec[F[_] : Concurrent : Timer : TestApp] extends FunSuite
       }
     }
 
-    runSync(eventStore.await(numOfRequests, run(ct.pure(Seq(client, server)))))
+    unsafeRun(eventStore.await(numOfRequests, createApp(ct.pure(Seq(client, server))).run))
     eventStore.get(client.ref) shouldBe Seq(Response(0), Response(1), Response(2), Response(3), Response(4))
 
   }

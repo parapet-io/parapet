@@ -47,9 +47,7 @@ lazy val global = project
     testUtils,
     interopCats,
     intgTests,
-    intgTestsCats,
-    interopScalazZio,
-    intgTestsScalazZio
+    interopScalazZio
   )
 
 lazy val core = project
@@ -67,26 +65,6 @@ lazy val testUtils = project
     libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.7"
   ).dependsOn(core)
 
-lazy val intgTests = project
-  .in(file("intg-tests"))
-  .settings(
-    name := "intg-tests",
-    libraryDependencies ++= Seq(
-      "ch.qos.logback" % "logback-classic" % "1.2.3",
-      "org.scalatest" %% "scalatest" % "3.0.7",
-      "org.pegdown" % "pegdown" % "1.6.0",
-      "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
-    ),
-  ).dependsOn(core, testUtils)
-
-// Cats Effect interop
-lazy val intgTestsCats = project
-  .in(file("intg-tests-cats"))
-  .settings(
-    name := "intg-tests-cats",
-    scalacOptions += "-Xcheckinit"
-  ).dependsOn(intgTests, interopCats)
-
 lazy val interopCats = project
   .in(file("interop-cats"))
   .settings(
@@ -100,12 +78,42 @@ lazy val interopScalazZio = project
     libraryDependencies ++= Seq("org.scalaz" %% "scalaz-zio-interop-cats" % "1.0-RC5")
   ).dependsOn(core)
 
-lazy val intgTestsScalazZio = project
-  .in(file("intg-tests-scalaz-zio"))
+lazy val interopMonix = project
+  .in(file("interop-monix"))
   .settings(
-    name := "intg-tests-scalaz-zio",
-    scalacOptions += "-Xcheckinit"
-  ).dependsOn(intgTests, interopScalazZio)
+    name := "interop-monix",
+    libraryDependencies ++= Seq(
+      "io.monix" %% "monix-eval" % "2.3.3", "io.monix" %% "monix-cats" % "2.3.3")
+  ).dependsOn(core)
+
+lazy val intgTests = project
+  .in(file("intg-tests"))
+  .settings(
+    name := "intg-tests",
+    libraryDependencies ++= Seq(
+      "ch.qos.logback" % "logback-classic" % "1.2.3",
+      "org.scalatest" %% "scalatest" % "3.0.7",
+      "org.pegdown" % "pegdown" % "1.6.0",
+      "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
+    ),
+  ).dependsOn(core, testUtils, interopCats, interopScalazZio)
+
+// Cats Effect interop
+//lazy val intgTestsCats = project
+//  .in(file("intg-tests-cats"))
+//  .settings(
+//    name := "intg-tests-cats",
+//    scalacOptions += "-Xcheckinit"
+//  ).dependsOn(intgTests, interopCats)
+
+
+
+//lazy val intgTestsScalazZio = project
+//  .in(file("intg-tests-scalaz-zio"))
+//  .settings(
+//    name := "intg-tests-scalaz-zio",
+//    scalacOptions += "-Xcheckinit"
+//  ).dependsOn(intgTests, interopScalazZio)
 
 lazy val catsDependencies = Seq(dependencies.catsEffect, dependencies.catsFree, dependencies.fs2Core)
 lazy val commonDependencies = Seq(

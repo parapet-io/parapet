@@ -1,22 +1,19 @@
 package io.parapet.tests.intg
 
-import cats.effect.{Concurrent, Timer}
 import io.parapet.core.Event._
 import io.parapet.core.exceptions.EventMatchException
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.tests.intg.EventDeliverySpec._
-import io.parapet.testutils.{EventStore, IntegrationSpec, TestApp}
+import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
 
-abstract class EventDeliverySpec[F[_] : Concurrent : Timer : TestApp]
+abstract class EventDeliverySpec[F[_]]
   extends FlatSpec with IntegrationSpec[F] {
 
   import dsl._
-
-  val ct: Concurrent[F] = implicitly[Concurrent[F]]
 
   "Event" should "be sent to correct process" in {
     val eventStore = new EventStore[F, QualifiedEvent]
@@ -30,7 +27,7 @@ abstract class EventDeliverySpec[F[_] : Concurrent : Timer : TestApp]
       case (acc, (pRef, event)) => acc ++ event ~> pRef
     })
 
-    eventStore.await(10, run(ct.pure(processes :+ init))).unsafeRunSync()
+    unsafeRun(eventStore.await(10, createApp(ct.pure(processes :+ init)).run))
 
     eventStore.size shouldBe events.size
 
@@ -43,10 +40,10 @@ abstract class EventDeliverySpec[F[_] : Concurrent : Timer : TestApp]
   }
 
   "Unmatched event" should "be sent to deadletter" in {
-    val deadLetterEventStore = new EventStore[F, DeadLetter]
+    val eventStore = new EventStore[F, DeadLetter]
     val deadLetter = new DeadLetterProcess[F] {
       def handle: Receive = {
-        case f: DeadLetter => eval(deadLetterEventStore.add(ref, f))
+        case f: DeadLetter => eval(eventStore.add(ref, f))
       }
     }
 
@@ -62,10 +59,10 @@ abstract class EventDeliverySpec[F[_] : Concurrent : Timer : TestApp]
       }
     }
 
-    deadLetterEventStore.await(1, run(ct.pure(Seq(client, server)), Some(ct.pure(deadLetter)))).unsafeRunSync()
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(client, server)), Some(ct.pure(deadLetter))).run))
 
-    deadLetterEventStore.size shouldBe 1
-    deadLetterEventStore.get(deadLetter.ref).headOption.value should matchPattern {
+    eventStore.size shouldBe 1
+    eventStore.get(deadLetter.ref).headOption.value should matchPattern {
       case DeadLetter(Envelope(client.`ref`, UnknownEvent, server.`ref`), _: EventMatchException) =>
     }
   }

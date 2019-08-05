@@ -1,22 +1,18 @@
 package io.parapet.tests.intg
 
-import cats.effect.{Concurrent, Timer}
 import io.parapet.core.Event.{DeadLetter, Envelope, Failure, Start}
 import io.parapet.core.exceptions.EventMatchException
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.tests.intg.ProcessSpec._
-import io.parapet.testutils.{EventStore, IntegrationSpec, TestApp}
+import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
 import org.scalatest.WordSpec
 
-abstract class ProcessSpec[F[_] : Concurrent : Timer : TestApp]
-  extends WordSpec with IntegrationSpec[F] {
+abstract class ProcessSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
 
   import dsl._
-
-  val ct: Concurrent[F] = implicitly[Concurrent[F]]
 
   "A process" when {
     "invoking other process" should {
@@ -30,7 +26,8 @@ abstract class ProcessSpec[F[_] : Concurrent : Timer : TestApp]
             case r: Result => eval(eventStore.add(ref, r))
           }
         }
-        eventStore.await(1, ct.pure(Seq(process))).unsafeRunSync()
+
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
 
         eventStore.size shouldBe 1
         eventStore.get(process.ref).headOption.value should matchPattern {
@@ -55,7 +52,7 @@ abstract class ProcessSpec[F[_] : Concurrent : Timer : TestApp]
           }
         }
 
-        eventStore.await(1, ct.pure(Seq(process))).unsafeRunSync()
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
 
         eventStore.size shouldBe 1
         eventStore.get(process.ref).headOption.value should matchPattern {
@@ -82,9 +79,9 @@ abstract class ProcessSpec[F[_] : Concurrent : Timer : TestApp]
         }
 
         val composed = p1.or(p2)
-        val init = Result(42) ~> composed
+        val init = onStart(Result(42) ~> composed)
 
-        eventStore.await(1, ct.pure(Seq(init, composed))).unsafeRunSync()
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, composed))).run))
 
         eventStore.size shouldBe 1
         eventStore.get(p2.ref).headOption.value should matchPattern {
@@ -112,9 +109,9 @@ abstract class ProcessSpec[F[_] : Concurrent : Timer : TestApp]
 
         val composed = p1.and(p2)
 
-        val init = Result(42) ~> composed
+        val init = onStart(Result(42) ~> composed)
 
-        eventStore.await(1, ct.pure(Seq(init, composed))).unsafeRunSync()
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, composed))).run))
         eventStore.size shouldBe 2
         eventStore.get(p1.ref).headOption.value should matchPattern {
           case Result(42) =>
@@ -150,7 +147,7 @@ abstract class ProcessSpec[F[_] : Concurrent : Timer : TestApp]
         val composed = p1.and(p2)
         val init = onStart(Result(42) ~> composed)
 
-        eventStore.await(1, run(ct.pure(Seq(init, composed)), Some(ct.pure(deadLetter)))).unsafeRunSync()
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, composed)), Some(ct.pure(deadLetter))).run))
 
         eventStore.size shouldBe 1
 

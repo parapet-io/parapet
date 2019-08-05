@@ -29,7 +29,7 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
           case Start => Request("data") ~> consumer.ref
         })
 
-        runSync(eventStore.await(1, run(ct.pure(Seq(consumer, producer)))))
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(consumer, producer))).run))
         eventStore.get(consumer.ref).headOption.value shouldBe Request("data")
 
       }
@@ -52,7 +52,7 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
               Request("2") ~> consumer.ref ++
               Request("3") ~> consumer.ref
         })
-        runSync(eventStore.await(3, run(ct.pure(Seq(consumer, producer)))))
+        unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(consumer, producer))).run))
         eventStore.get(consumer.ref) shouldBe Seq(Request("1"), Request("2"), Request("3"))
 
       }
@@ -74,7 +74,7 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
 
         val init = onStart(send(Request("ping"), serverA.ref, serverB.ref, serverC.ref))
 
-        runSync(eventStore.await(3, run(ct.pure(Seq(init, serverA, serverB, serverC)))))
+        unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(init, serverA, serverB, serverC))).run))
         eventStore.get(serverA.ref).headOption.value shouldBe Request("A-ping")
         eventStore.get(serverB.ref).headOption.value shouldBe Request("B-ping")
         eventStore.get(serverC.ref).headOption.value shouldBe Request("C-ping")
@@ -98,7 +98,7 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
           case res: Response => eval(eventStore.add(ref, res))
         })
 
-        runSync(eventStore.await(1, run(ct.pure(Seq(server, client)))))
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(server, client))).run))
         eventStore.get(client.ref).headOption.value shouldBe Response("echo-hello")
 
       }
@@ -122,7 +122,7 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
           }
         })
 
-        runSync(eventStore.await(3, run(ct.pure(Seq(consumer, producer)))))
+        unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(consumer, producer))).run))
         eventStore.get(consumer.ref) shouldBe Seq(Request("3"), Request("2"), Request("1"))
 
       }
@@ -141,7 +141,7 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
         })
 
         val start = System.currentTimeMillis()
-        runSync(eventStore.await(1, run(ct.pure(Seq(process)))))
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
         eventStore.get(process.ref).headOption.value.ts shouldBe >=(start + durationInMillis)
 
       }
@@ -162,7 +162,7 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
         })
 
         val start = System.currentTimeMillis()
-        runSync(eventStore.await(3, run(ct.pure(Seq(process)))))
+        unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(process))).run))
         eventStore.get(process.ref).foreach { e =>
           e.ts shouldBe >=(start + durationInMillis)
         }
@@ -187,7 +187,7 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
           case Start => Request("ping") ~> proxy
         }).ref(ProcessRef("client")).build
 
-        runSync(eventStore.await(1, run(ct.pure(Seq(client, server, proxy)))))
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(client, server, proxy))).run))
 
         eventStore.get(server.ref).headOption.value shouldBe Request(s"client-proxy-ping")
       }
@@ -215,7 +215,7 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
             case Start => times(5)
           }
         })
-        runSync(eventStore.await(5, run(ct.pure(Seq(process)))))
+        unsafeRun(eventStore.await(5, createApp(ct.pure(Seq(process))).run))
 
         eventStore.get(process.ref) shouldBe (5 to 1 by -1).map(IntEvent)
 
@@ -236,7 +236,7 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
           case Start => server(ref, Request("hello"))
           case res: Response => eval(eventStore.add(ref, res))
         })
-        eventStore.await(1, run(ct.pure(Seq(client, server)))).unsafeRunSync()
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(client, server))).run))
         eventStore.get(client.ref).headOption.value shouldBe Response("echo-hello")
       }
     }
@@ -254,7 +254,7 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
           case Start => fork(forever) ++ eval(eventStore.add(ref, Request("end")))
         })
 
-        eventStore.await(1, run(ct.pure(Seq(process)))).unsafeRunSync()
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
 
       }
     }
@@ -271,7 +271,7 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
         val process: Process[F] = Process[F](ref => {
           case Start => race(forever, eval(eventStore.add(ref, Request("end"))))
         })
-        eventStore.await(1, run(ct.pure(Seq(process)))).unsafeRunSync()
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
       }
     }
   }

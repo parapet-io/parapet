@@ -1,20 +1,16 @@
 package io.parapet.tests.intg
 
-import cats.effect.{Concurrent, Timer}
 import io.parapet.core.Event._
 import io.parapet.core.{Event, Process}
 import io.parapet.tests.intg.ReplySpec._
-import io.parapet.testutils.{EventStore, IntegrationSpec, TestApp}
+import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
 
-abstract class ReplySpec[F[_] : Concurrent : Timer : TestApp]
-  extends FlatSpec with IntegrationSpec[F] {
+abstract class ReplySpec[F[_]] extends FlatSpec with IntegrationSpec[F] {
 
   import dsl._
-
-  val ct: Concurrent[F] = implicitly[Concurrent[F]]
 
   "Reply" should "send send event to the sender" in {
     val clientEventStore = new EventStore[F, Event]
@@ -31,7 +27,7 @@ abstract class ReplySpec[F[_] : Concurrent : Timer : TestApp]
       }
     }
 
-    clientEventStore.await(1, run(ct.pure(Seq(client, server)))).unsafeRunSync()
+    unsafeRun(clientEventStore.await(1, createApp(ct.pure(Seq(client, server))).run))
 
 
     clientEventStore.size shouldBe 1

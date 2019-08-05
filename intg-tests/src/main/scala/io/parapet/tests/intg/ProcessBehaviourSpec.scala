@@ -1,18 +1,15 @@
 package io.parapet.tests.intg
 
-import cats.effect.{Concurrent, Timer}
 import io.parapet.core.{Event, Process}
 import io.parapet.tests.intg.ProcessBehaviourSpec._
-import io.parapet.testutils.{EventStore, IntegrationSpec, TestApp}
+import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.FunSuite
 import org.scalatest.Matchers._
 
-abstract class ProcessBehaviourSpec[F[_] : Concurrent : Timer : TestApp]
+abstract class ProcessBehaviourSpec[F[_]]
   extends FunSuite with IntegrationSpec[F] {
 
   import dsl._
-
-  val ct: Concurrent[F] = implicitly[Concurrent[F]]
 
   test("switch behaviour") {
     val eventStore = new EventStore[F, Event]
@@ -33,7 +30,7 @@ abstract class ProcessBehaviourSpec[F[_] : Concurrent : Timer : TestApp]
 
     val init = onStart(Seq(Init, Run, Run) ~> process.ref)
 
-    eventStore.await(3, run(ct.pure(Seq(init, process)))).unsafeRunSync()
+    unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(init, process))).run))
 
 
     eventStore.get(process.ref) shouldBe Seq(Init, Run, Run)

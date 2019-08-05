@@ -2,16 +2,12 @@ package io.parapet
 
 import cats.effect._
 import cats.~>
-import com.typesafe.scalalogging.Logger
-import io.parapet.core.{Context, DslInterpreter, Parallel}
-import org.slf4j.LoggerFactory
 import io.parapet.catsnstances.parallel._
+import io.parapet.core.{Context, DslInterpreter, Parallel}
 
 import scala.concurrent.ExecutionContext
 
-abstract class CatsApp extends ParApp[IO] {
-
-  lazy val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
+trait CatsApp extends ParApp[IO] {
 
   lazy val ec: ExecutionContext = scala.concurrent.ExecutionContext.global
 

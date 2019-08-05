@@ -4,7 +4,6 @@ import java.util.concurrent.TimeUnit
 
 import cats.effect.Concurrent
 import cats.implicits._
-import com.typesafe.scalalogging.StrictLogging
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Event._
 import io.parapet.core.Scheduler._
@@ -24,8 +23,7 @@ import scala.concurrent.duration.{FiniteDuration, _}
 import scala.util.Random
 
 
-abstract class SchedulerCorrectnessSpec[F[_]]
-  extends FunSuite with IntegrationSpec[F] with StrictLogging {
+abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
 
   def interpreter(context: Context[F]): F[Interpreter[F]]
 
@@ -197,7 +195,7 @@ abstract class SchedulerCorrectnessSpec[F[_]]
       }
       }
       val start = System.nanoTime()
-      runSync(program)
+      unsafeRun(program)
       val end = System.nanoTime()
       val elapsedTime = TimeUnit.NANOSECONDS.toMillis(end - start)
       logger.mdc(mdcFields) { _ => {

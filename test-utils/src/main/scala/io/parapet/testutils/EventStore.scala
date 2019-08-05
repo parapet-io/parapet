@@ -2,7 +2,7 @@ package io.parapet.testutils
 
 import java.util.concurrent.atomic.AtomicInteger
 
-import cats.effect.{Concurrent, ContextShift, Timer}
+import cats.effect.{Concurrent, Timer}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import io.parapet.core.{Event, ProcessRef}
@@ -12,11 +12,9 @@ import scala.collection.mutable.ListBuffer
 import scala.concurrent.TimeoutException
 import scala.concurrent.duration.{FiniteDuration, _}
 
-class EventStore[F[_] : Concurrent, A <: Event] {
+class EventStore[F[_], A <: Event] {
 
   type EventList = ListBuffer[A]
-
-  private val ct = implicitly[Concurrent[F]]
 
   private val eventMap: java.util.Map[ProcessRef, EventList] =
     new java.util.concurrent.ConcurrentHashMap[ProcessRef, EventList]()
@@ -44,7 +42,7 @@ class EventStore[F[_] : Concurrent, A <: Event] {
 
   def await(expectedSize: Int, op: F[_], delay: FiniteDuration = 100.millis,
             timeout: FiniteDuration = 1.minutes)
-           (implicit timer: Timer[F]): F[Unit] = {
+           (implicit ct: Concurrent[F], timer: Timer[F]): F[Unit] = {
 
     def step: F[Unit] = {
       if (size >= expectedSize) ct.unit
@@ -56,7 +54,7 @@ class EventStore[F[_] : Concurrent, A <: Event] {
       _ <- ct.race(
         ct.guarantee(
           Concurrent.timeoutTo[F, Unit](step, timeout, ct.raiseError(new TimeoutException(timeout.toString))))
-        (fiber.cancel),
+        (ct.race(fiber.cancel, timer.sleep(5.seconds) >> ct.delay(println("cancellation took too long"))).void),
         fiber.join)
     } yield ()
 

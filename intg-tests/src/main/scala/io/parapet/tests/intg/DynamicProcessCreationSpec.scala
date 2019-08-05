@@ -1,18 +1,14 @@
 package io.parapet.tests.intg
 
-import cats.effect.{Concurrent, Timer}
 import cats.implicits._
 import io.parapet.core.Event.Start
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.tests.intg.DynamicProcessCreationSpec._
-import io.parapet.testutils.{EventStore, IntegrationSpec, TestApp}
+import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.FunSuite
 import org.scalatest.Matchers._
 
-abstract class DynamicProcessCreationSpec[F[_] : Concurrent : Timer : TestApp]
-  extends FunSuite with IntegrationSpec[F] {
-
-  val ct: Concurrent[F] = implicitly[Concurrent[F]]
+abstract class DynamicProcessCreationSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
 
   test("create child process") {
 
@@ -23,7 +19,7 @@ abstract class DynamicProcessCreationSpec[F[_] : Concurrent : Timer : TestApp]
     val db = new Database[F]
     val server = new Server[F](workersCount, db.ref, tasksCount, eventStore)
 
-    eventStore.await(workersCount * tasksCount, run(ct.pure(Seq(db, server)))).unsafeRunSync()
+    unsafeRun(eventStore.await(workersCount * tasksCount, createApp(ct.pure(Seq(db, server))).run))
 
 
     val expectedEvents = (tasksCount to 1 by -1).map(i => Ack(i))

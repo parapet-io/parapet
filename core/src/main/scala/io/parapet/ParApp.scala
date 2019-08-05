@@ -4,19 +4,23 @@ import cats.effect.{Concurrent, ContextShift, Timer}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.~>
+import com.typesafe.scalalogging.Logger
 import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.{Context, EventLog, Parallel, Parapet, Process, ProcessRef, Scheduler}
 import io.parapet.syntax.FlowSyntax
+import org.slf4j.LoggerFactory
 
 import scala.language.{higherKinds, implicitConversions, reflectiveCalls}
 
-abstract class ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
+trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
   type FlowOp[A] = io.parapet.core.Dsl.FlowOp[F, A]
   type Flow[A] = io.parapet.core.DslInterpreter.Flow[F, A]
   type Program = DslF[F, Unit]
+
+  lazy val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
 
   val config: ParConfig = Parapet.defaultConfig
 

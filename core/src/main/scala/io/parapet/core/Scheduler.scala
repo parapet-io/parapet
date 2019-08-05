@@ -298,14 +298,16 @@ object Scheduler {
       val ct = implicitly[Concurrent[F]]
       val pa = implicitly[Parallel[F]]
 
-      val stopChildProcesses =
-        pa.par(context.child(ref).map(child => stopProcess(ref, context, child, interpreter, onError)))
+      ct.suspend {
+        val stopChildProcesses =
+          pa.par(context.child(ref).map(child => stopProcess(ref, context, child, interpreter, onError)))
 
-      stopChildProcesses >>
-        (context.getProcess(ref) match {
-          case Some(p) => deliverStopEvent(parent, p, interpreter).handleErrorWith(err => onError(ref, err))
-          case None => ct.unit
-        })
+        stopChildProcesses >>
+          (context.getProcess(ref) match {
+            case Some(p) => deliverStopEvent(parent, p, interpreter).handleErrorWith(err => onError(ref, err))
+            case None => ct.unit
+          })
+      }
     }
 
   }
