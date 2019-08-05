@@ -1,10 +1,9 @@
-package io.parapet.tests.intg.catsio
+package io.parapet.testutils
 
 import cats.effect.IO
+import io.parapet.{CatsApp, ParApp, core}
 import io.parapet.core.Parapet
 import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.testutils.IntegrationSpec
-import io.parapet.{CatsApp, ParApp, core}
 
 trait BasicCatsIOSpec extends IntegrationSpec[IO] with CatsApp {
   override def createApp(processes0: IO[Seq[core.Process[IO]]],

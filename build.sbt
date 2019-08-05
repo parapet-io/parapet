@@ -63,7 +63,7 @@ lazy val testUtils = project
   .settings(
     name := "test-utils",
     libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.7"
-  ).dependsOn(core)
+  ).dependsOn(core, interopCats, interopScalazZio)
 
 lazy val interopCats = project
   .in(file("interop-cats"))
@@ -96,7 +96,7 @@ lazy val intgTests = project
       "org.pegdown" % "pegdown" % "1.6.0",
       "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
     ),
-  ).dependsOn(core, testUtils, interopCats, interopScalazZio)
+  ).dependsOn(core, testUtils)
 
 // Cats Effect interop
 //lazy val intgTestsCats = project

@@ -43,7 +43,6 @@ class ZmqSyncServer[F[_] : Concurrent]
   private lazy val ch = Channel[F] // req-rep channel to talk to `receiver`
 
   private val init = eval {
-    println(address)
     socket.bind(address)
   } ++ register(ref, ch)
 

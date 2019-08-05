@@ -3,17 +3,15 @@ package io.parapet.messaging
 import java.net.ServerSocket
 
 import cats.effect.IO
-import io.parapet.messaging.SyncClientSyncServerSpec._
-import io.parapet.messaging.api.MessagingApi.{Failure, Request, Response, Success, WithId}
-import io.parapet.core.Dsl.WithDsl
 import io.parapet.core.Event.Start
 import io.parapet.core.{Encoder, Event, Process, ProcessRef}
-import io.parapet.syntax.FlowSyntax
-import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.messaging.SyncClientSyncServerSpec._
+import io.parapet.messaging.api.MessagingApi.{Failure, Request, Response, Success}
+import io.parapet.testutils.{BasicCatsIOSpec, EventStore}
 import org.scalatest.FunSuite
 import org.scalatest.Matchers.{empty => _, _}
 
-class SyncClientSyncServerSpec extends FunSuite with IntegrationSpec with WithDsl[IO] with FlowSyntax[IO] {
+class SyncClientSyncServerSpec extends FunSuite with BasicCatsIOSpec {
 
   import dsl._
 
@@ -34,7 +32,7 @@ class SyncClientSyncServerSpec extends FunSuite with IntegrationSpec with WithDs
 
     val numberOfClients = 5
     val numberOfEventsPerClient = 10
-    val eventStore = new EventStore[Response]
+    val eventStore = new EventStore[IO, Response]
 
     val port = new ServerSocket(0).getLocalPort
 
@@ -57,7 +55,7 @@ class SyncClientSyncServerSpec extends FunSuite with IntegrationSpec with WithDs
     }.toMap
 
     val processes: Seq[Process[IO]] = Seq(zmqClient, server, worker) ++ clients.keys.toSeq
-    eventStore.awaitSize(numberOfClients * numberOfEventsPerClient, run(processes)).unsafeRunSync()
+    unsafeRun(eventStore.await(numberOfClients * numberOfEventsPerClient, createApp(ct.pure(processes)).run))
 
 
     eventStore.size shouldBe numberOfClients * numberOfEventsPerClient
@@ -70,7 +68,7 @@ class SyncClientSyncServerSpec extends FunSuite with IntegrationSpec with WithDs
 
   }
 
-  def createClient(eventStore: EventStore[Response], _ref: ProcessRef, events: Seq[TestRequest], zmqClient: ProcessRef): Process[IO] = new Process[IO] {
+  def createClient(eventStore: EventStore[IO, Response], _ref: ProcessRef, events: Seq[TestRequest], zmqClient: ProcessRef): Process[IO] = new Process[IO] {
     override val ref: ProcessRef = _ref
 
     override def handle: Receive = {

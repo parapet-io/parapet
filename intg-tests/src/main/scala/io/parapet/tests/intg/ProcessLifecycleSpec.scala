@@ -153,7 +153,7 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
     val eventStore = new EventStore[F, DeadLetter]
     val deadLetter = new DeadLetterProcess[F] {
       def handle: Receive = {
-        case f: DeadLetter => eval(println("-----")) ++ eval(eventStore.add(ref, f))
+        case f: DeadLetter => eval(eventStore.add(ref, f))
       }
     }
 

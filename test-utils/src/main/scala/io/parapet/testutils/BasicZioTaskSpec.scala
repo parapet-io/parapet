@@ -1,8 +1,7 @@
-package io.parapet.tests.intg.ziotask
+package io.parapet.testutils
 
 import io.parapet.core.Parapet
 import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.testutils.IntegrationSpec
 import io.parapet.{ParApp, ZioApp, core}
 import scalaz.zio.Task
 

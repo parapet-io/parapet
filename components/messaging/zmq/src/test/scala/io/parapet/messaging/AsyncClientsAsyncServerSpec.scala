@@ -3,17 +3,16 @@ package io.parapet.messaging
 import java.net.ServerSocket
 
 import cats.effect.IO
-import com.typesafe.scalalogging.StrictLogging
+import io.parapet.core.Event.Start
+import io.parapet.core.{Encoder, Event, Process, ProcessRef}
 import io.parapet.messaging.AsyncClientsAsyncServerSpec._
 import io.parapet.messaging.api.MessagingApi.{Failure, Request, Response, Success}
 import io.parapet.messaging.api.ServerAPI.Envelope
-import io.parapet.core.Event.Start
-import io.parapet.core.{Encoder, Event, Process, ProcessRef}
-import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.testutils.{BasicCatsIOSpec, EventStore}
 import org.scalatest.FunSuite
-import org.scalatest.Matchers.{empty => _, _}
+import org.scalatest.Matchers._
 
-class AsyncClientsAsyncServerSpec extends FunSuite with IntegrationSpec with StrictLogging {
+class AsyncClientsAsyncServerSpec extends FunSuite with BasicCatsIOSpec {
 
   import dsl._
 
@@ -62,7 +61,7 @@ class AsyncClientsAsyncServerSpec extends FunSuite with IntegrationSpec with Str
   def runSpec(spec: Spec): Unit = {
 
     logger.info(s"run spec: $spec")
-    val eventStore = new EventStore[Response]
+    val eventStore = new EventStore[IO, Response]
 
 
     val port = new ServerSocket(0).getLocalPort
@@ -77,7 +76,7 @@ class AsyncClientsAsyncServerSpec extends FunSuite with IntegrationSpec with Str
     }.toMap
 
     val processes: Seq[Process[IO]] = (clients.keys ++ Seq(server, spec.service)).toSeq
-    eventStore.awaitSize(spec.numberOfClients * spec.numberOfEventsPerClient, run(processes)).unsafeRunSync
+    unsafeRun(eventStore.await(spec.numberOfClients * spec.numberOfEventsPerClient, createApp(ct.pure(processes)).run))
     eventStore.print()
     eventStore.size shouldBe spec.numberOfClients * spec.numberOfEventsPerClient
 
@@ -91,7 +90,7 @@ class AsyncClientsAsyncServerSpec extends FunSuite with IntegrationSpec with Str
 
   def createSyncClient(
                         port: Int,
-                        eventStore: EventStore[Response],
+                        eventStore: EventStore[IO, Response],
                         cltName: String,
                         events: Seq[Event]): Process[IO] = new Process[IO] {
     override val name: String = cltName
