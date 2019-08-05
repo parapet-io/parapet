@@ -1,5 +1,6 @@
 # Parapet - purely functional library to develop distributed and event-driven systems
 
+[![Build Status](https://travis-ci.org/parapet-io/parapet.svg?branch=master)](https://travis-ci.org/parapet-io/parapet)
 
 **Contents**
 
