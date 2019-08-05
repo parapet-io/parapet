@@ -37,11 +37,11 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
           numberOfWorkers = 5,
           processQueueSize = 100),
         wds = WorkDistributionStrategy.Random,
-        numberOfEvents = 100,
-        numberOfProcesses = 10,
+        numberOfEvents = 50,
+        numberOfProcesses = 5,
         pta = instant,
         ratio = 0.5,
-        ptb = range(500.millis, 1.seconds)),
+        ptb = range(100.millis, 500.millis)),
 
       StabilitySpec(
         name = "test-2",
@@ -50,11 +50,11 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
           numberOfWorkers = 10,
           processQueueSize = 100),
         wds = WorkDistributionStrategy.Random,
-        numberOfEvents = 100,
-        numberOfProcesses = 10,
+        numberOfEvents = 50,
+        numberOfProcesses = 5,
         pta = instant,
         ratio = 0.75,
-        ptb = range(500.millis, 1.seconds)),
+        ptb = range(100.millis, 500.millis)),
 
       // batch work distribution
       StabilitySpec(
@@ -64,11 +64,11 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
           numberOfWorkers = 10,
           processQueueSize = 100),
         wds = WorkDistributionStrategy.Batch,
-        numberOfEvents = 50,
-        numberOfProcesses = 10,
+        numberOfEvents = 10,
+        numberOfProcesses = 5,
         pta = instant,
         ratio = 0.5,
-        ptb = range(500.millis, 1.seconds)),
+        ptb = range(100.millis, 500.millis)),
       StabilitySpec(
         name = "test-3",
         config = SchedulerConfig(
@@ -76,11 +76,11 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
           numberOfWorkers = 10,
           processQueueSize = 100),
         wds = WorkDistributionStrategy.Batch,
-        numberOfEvents = 50,
-        numberOfProcesses = 10,
+        numberOfEvents = 10,
+        numberOfProcesses = 5,
         pta = instant,
         ratio = 0.75,
-        ptb = range(500.millis, 1.seconds))
+        ptb = range(100.millis, 500.millis))
     )
 
     run(specs)

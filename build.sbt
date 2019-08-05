@@ -40,8 +40,13 @@ libraryDependencies in ThisBuild ++= (scalaBinaryVersion.value match {
   case _ =>
     Nil
 })
+
+lazy val Slow = config("slow").extend(Test)
+
 lazy val global = project
   .in(file("."))
+  .configs(Slow).settings(
+  inConfig(Slow)(Defaults.testTasks))
   .aggregate(
     core,
     testUtils,
@@ -133,20 +138,18 @@ addCompilerPlugin("org.typelevel" % "kind-projector" % "0.10.0" cross CrossVersi
 
 
 testOptions in ThisBuild in Test += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports")
-//todo
-//testOptions in ThisBuild in Test += Tests.Argument("-l", "org.scalatest.tags.Slow")
+testOptions in ThisBuild in Test += Tests.Argument(TestFrameworks.ScalaTest, "-l", "org.scalatest.tags.Slow")
+
+testOptions in ThisBuild in Slow -= Tests.Argument("-l", "org.scalatest.tags.Slow")
+testOptions in ThisBuild in Slow += Tests.Argument("-n", "org.scalatest.tags.Slow")
 
 def testUntilFailed = Command.args("testUntilFailed", "") { (state, args) =>
   val argsList = args.mkString(" ")
   s"testOnly $argsList" :: s"testUntilFailed $argsList" :: state
 }
 
-def testFast = Command.command("testFast") { state =>
-  "testOnly -- -l org.scalatest.tags.Slow" :: state
-}
-
 commands += testUntilFailed
-commands += testFast
 
 parallelExecution in Test := false
+parallelExecution in Slow := false
 concurrentRestrictions in Global += Tags.limit(Tags.Test, 1)
