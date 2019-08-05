@@ -238,7 +238,11 @@ object Scheduler {
                     Failure(envelope, EventMatchException(errorMsg)), envelope.sender, interpreter)
                 // sendToDeadLetter(DeadLetter(envelope, EventMatchException(errorMsg)), interpreter)
               }
-              ct.delay(logger.warn(errorMsg)) >> whenUndefined
+              val logMsg = event match {
+                case Start | Stop => ct.unit
+                case _ => ct.delay(logger.warn(errorMsg))
+              }
+              logMsg >> whenUndefined
             }
         }
       }
