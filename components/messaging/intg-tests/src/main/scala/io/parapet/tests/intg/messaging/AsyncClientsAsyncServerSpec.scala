@@ -1,18 +1,18 @@
-package io.parapet.messaging
+package io.parapet.tests.intg.messaging
 
 import java.net.ServerSocket
 
-import cats.effect.IO
 import io.parapet.core.Event.Start
 import io.parapet.core.{Encoder, Event, Process, ProcessRef}
-import io.parapet.messaging.AsyncClientsAsyncServerSpec._
 import io.parapet.messaging.api.MessagingApi.{Failure, Request, Response, Success}
 import io.parapet.messaging.api.ServerAPI.Envelope
-import io.parapet.testutils.{BasicCatsIOSpec, EventStore}
+import io.parapet.messaging.{ZmqAsyncClient, ZmqAsyncServer}
+import io.parapet.tests.intg.messaging.AsyncClientsAsyncServerSpec._
+import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.FunSuite
 import org.scalatest.Matchers._
 
-class AsyncClientsAsyncServerSpec extends FunSuite with BasicCatsIOSpec {
+abstract class AsyncClientsAsyncServerSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
 
   import dsl._
 
@@ -29,7 +29,7 @@ class AsyncClientsAsyncServerSpec extends FunSuite with BasicCatsIOSpec {
 
   test("many sync clients with async server") {
 
-    val asyncService: Process[IO] = new Process[IO] {
+    val asyncService: Process[F] = new Process[F] {
       override val name = "worker"
       override val ref = ProcessRef("worker")
 
@@ -56,26 +56,26 @@ class AsyncClientsAsyncServerSpec extends FunSuite with BasicCatsIOSpec {
                    numOfWorkers: Int,
                    numberOfClients: Int,
                    numberOfEventsPerClient: Int,
-                   service: Process[IO])
+                   service: Process[F])
 
   def runSpec(spec: Spec): Unit = {
 
     logger.info(s"run spec: $spec")
-    val eventStore = new EventStore[IO, Response]
+    val eventStore = new EventStore[F, Response]
 
 
     val port = new ServerSocket(0).getLocalPort
 
-    val server: Process[IO] = ZmqAsyncServer(s"tcp://*:$port", spec.service.ref, encoder, spec.numOfWorkers)
+    val server: Process[F] = ZmqAsyncServer(s"tcp://*:$port", spec.service.ref, encoder, spec.numOfWorkers)
 
 
-    val clients: Map[Process[IO], Seq[TestRequest]] = (0 until spec.numberOfClients).map { i =>
+    val clients: Map[Process[F], Seq[TestRequest]] = (0 until spec.numberOfClients).map { i =>
       val clientName = s"client-$i"
       val requests = (0 until spec.numberOfEventsPerClient).map(i => TestRequest(s"$clientName-$i"))
       createSyncClient(port, eventStore, clientName, requests) -> requests
     }.toMap
 
-    val processes: Seq[Process[IO]] = (clients.keys ++ Seq(server, spec.service)).toSeq
+    val processes: Seq[Process[F]] = (clients.keys ++ Seq(server, spec.service)).toSeq
     unsafeRun(eventStore.await(spec.numberOfClients * spec.numberOfEventsPerClient, createApp(ct.pure(processes)).run))
     eventStore.print()
     eventStore.size shouldBe spec.numberOfClients * spec.numberOfEventsPerClient
@@ -90,15 +90,15 @@ class AsyncClientsAsyncServerSpec extends FunSuite with BasicCatsIOSpec {
 
   def createSyncClient(
                         port: Int,
-                        eventStore: EventStore[IO, Response],
+                        eventStore: EventStore[F, Response],
                         cltName: String,
-                        events: Seq[Event]): Process[IO] = new Process[IO] {
+                        events: Seq[Event]): Process[F] = new Process[F] {
     override val name: String = cltName
     override val ref: ProcessRef = ProcessRef(cltName)
 
     override def handle: Receive = {
       case Start =>
-        evalWith(ZmqAsyncClient[IO](s"tcp://localhost:$port", encoder)) { zmqClient =>
+        evalWith(ZmqAsyncClient[F](s"tcp://localhost:$port", encoder)) { zmqClient =>
           register(ref, zmqClient) ++ events.map(Request) ~> zmqClient.ref
         }
 

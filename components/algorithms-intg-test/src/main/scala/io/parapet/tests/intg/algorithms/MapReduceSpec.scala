@@ -1,22 +1,21 @@
-package io.parapet.algorithms.mapreduce
+package io.parapet.tests.intg.algorithms
 
-import cats.effect.IO
+import io.parapet.algorithms.mapreduce.MapReduce
 import io.parapet.algorithms.mapreduce.MapReduce._
 import io.parapet.core.Event.Start
 import io.parapet.core.Process
-import io.parapet.testutils.{BasicCatsIOSpec, EventStore}
+import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.FunSuite
 import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
 
-
-class MapReduceSpec extends FunSuite with BasicCatsIOSpec {
+abstract class MapReduceSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
 
   import dsl._
 
   test("map reduce") {
 
-    val eventStore = new EventStore[IO, Output[String, Int]]()
+    val eventStore = new EventStore[F, Output[String, Int]]()
 
     val mapper: Record[Unit, String] => Seq[Record[String, Int]] = record => {
       record.value.split(" ").map(word => Record(word.trim, 1))
@@ -24,7 +23,7 @@ class MapReduceSpec extends FunSuite with BasicCatsIOSpec {
 
     val reducer: (String, Seq[Int]) => Int = (_, values) => values.sum
 
-    val mapreduce = new MapReduce[IO, Unit, String, String, Int](mapper, 2, reducer, 1)
+    val mapreduce = new MapReduce[F, Unit, String, String, Int](mapper, 2, reducer, 1)
 
     val lines = Seq(
       "Hello World Bye World",
@@ -33,7 +32,7 @@ class MapReduceSpec extends FunSuite with BasicCatsIOSpec {
 
     val input = Input(lines.map(line => Chunk(Seq(Record[Unit, String]((), line)))))
 
-    val client = Process[IO](ref => {
+    val client = Process[F](ref => {
       case Start => input ~> mapreduce
       case out: Output[String, Int] => eval(eventStore.add(ref, out))
     })

@@ -12,7 +12,6 @@ scalacOptions in ThisBuild ++= Seq(
   "-deprecation"
 )
 libraryDependencies in ThisBuild += "io.parapet" %% "core" % coreVersion
-libraryDependencies in ThisBuild += "io.parapet" %% "interop-cats" % coreVersion
 libraryDependencies in ThisBuild += "com.chuusai" %% "shapeless" % "2.3.3"
 libraryDependencies in ThisBuild += "io.parapet" %% "test-utils" % coreVersion % Test
 libraryDependencies in ThisBuild += "org.scalatest" %% "scalatest" % "3.0.7" % Test
@@ -34,7 +33,9 @@ lazy val global = project
   .aggregate(
     algorithms,
     msgApi,
-    msgZmq
+    msgZmq,
+    msgIntgTests,
+    algorithmsIntgTest
   )
 
 // Algorithms
@@ -42,6 +43,16 @@ lazy val algorithms = project.in(file("./algorithms"))
   .settings(
     name := "algorithms"
   )
+
+lazy val algorithmsIntgTest = project.in(file("./algorithms-intg-test"))
+  .settings(
+    name := "algorithms-intg-test",
+    libraryDependencies ++= Seq(
+      "io.parapet" %% "interop-cats" % coreVersion,
+      "io.parapet" %% "interop-scalaz-zio" % coreVersion,
+      "io.parapet" %% "test-utils" % coreVersion
+    )
+  ).dependsOn(algorithms)
 
 // Messaging components
 lazy val msgApi = project.in(file("./messaging/api"))
@@ -53,3 +64,13 @@ lazy val msgZmq = project.in(file("./messaging/zmq"))
   .settings(
     name := "messaging-zmq"
   ).dependsOn(msgApi)
+
+lazy val msgIntgTests = project.in(file("./messaging/intg-tests"))
+  .settings(
+    name := "messaging-intg-tests",
+    libraryDependencies ++= Seq(
+      "io.parapet" %% "interop-cats" % coreVersion,
+      "io.parapet" %% "interop-scalaz-zio" % coreVersion,
+      "io.parapet" %% "test-utils" % coreVersion
+    )
+  ).dependsOn(msgApi, msgZmq)
