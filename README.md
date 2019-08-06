@@ -2,6 +2,11 @@
 
 [![Build Status](https://travis-ci.org/parapet-io/parapet.svg?branch=master)](https://travis-ci.org/parapet-io/parapet)
 
+**Motivation**
+
+It's not a secret that writing distributed systems is a challenging task that can be logically broken into two main aspects: implementing distributed algorithms and running them. Parapet plays a role of execution framework for distributed algorithms, it can be viewed as an intermediate layer between a low-level effect library and high-level operations exposed in the form of DSL. Distributed engineers who mainly focused on designing and implementing distributed algorithms don't need to be worried about low-level abstractions such as `IO` or have a piece of deep knowledge in certain computer since subjects, for instance, _Concurrency_. All they need to know is what _properties_ the library satisfies and what _guarantees_ it provides. On the other hand, engineers who are specializing in writing low-level libraries can concentrate on implementing core abstractions such as `IO` or `Task`, working on performance optimizations and implementing new features. 
+Parapet is the modular library where almost any component can be replaced with a custom implementation. Distributed engineers unite!
+
 **Contents**
 
 * [Key Features](#key-features)
@@ -13,22 +18,29 @@
 * [Correctness Properties](#correctness-properties)
 * [Distributed Algorithms in Parapet](#distributed-algorithms-in-parapet)
 * [Performance Analysis](#performance-analysis)
+* Contribution 
 
 ## Key Features
 
 * Purely functional library written in scala using Tagless-Final Style and Free Monads thoughtfully designed for people who prefer functional style over imperative
-* Rich DSL that allows writing composable and reusable code
+* Modular - almost any component can be replaced with a custom implementation.
+* DSL with a set of operations sufficient to write distributed algorithms
 * Lightweight and Performant. The library utilizes resources (CPU and Memory) smartly, the code is optimized to reduce CPU consumption when your application in idle state
-* Built-in support for Cats Effect library
-* Extendable. The library can be easily extended to support other Effect System libraries such as Scalaz Task, Monix, etc.
+* Built-in support for the following effect libraries: [Cats Effect](https://typelevel.org/cats-effect/), [Monix](https://monix.io/), and [Scalaz ZIO](https://zio.dev/). The library can be extended to support more effect libraries.
 
 ## Getting started
 
-The first thing you need to do is to add *parapet-core* library into your project. You can find  the latest version in maven central:
+The first thing you need to do is to add two dependencies into your project: `parapet-core` and `interop-{effect_library}` for a specific effect library. You can find the latest version in maven central.
 
 ```scala
 libraryDependencies += "io.parapet" %% "core" % "0.0.1-RC1"
 ```
+
+For Cats Effect add `libraryDependencies += "io.parapet" %% "interop-cats" % "0.0.1-RC1"`
+
+For Monix add `libraryDependencies += "io.parapet" %% "interop-monix" % "0.0.1-RC1"`
+
+For Scalaz ZIO add `libraryDependencies += "io.parapet" %% "interop-scalaz-zio" % "0.0.1-RC1"`
 
 Once you added the library you can start writing your first program, however, it's worth taking a few minutes and getting familiar with two main approaches to write processes: generic and effect specific, I'll describe both in a minute. For those who aren't familiar with effect systems like Cats Effect, I'd strongly recommend you to read some articles about IO monad. Fortunately, you don't need to be an expert in Cats Effect to use Parapet.
 
