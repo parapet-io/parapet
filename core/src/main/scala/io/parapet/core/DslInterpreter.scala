@@ -18,7 +18,7 @@ object DslInterpreter {
   type Flow[F[_], A] = StateT[F, FlowState[F], A]
   type Interpreter[F[_]] = Dsl[F, ?] ~> Flow[F, ?]
 
-  case class FlowState[F[_]](senderRef: ProcessRef, selfRef: ProcessRef, ops: Seq[F[_]] = Seq.empty) {
+  case class FlowState[F[_]](senderRef: ProcessRef, selfRef: ProcessRef, ops: Vector[F[_]] = Vector.empty) {
     def addAll(that: Seq[F[_]]): FlowState[F] = this.copy(ops = ops ++ that)
 
     def add(op: F[_]): FlowState[F] = this.copy(ops = ops :+ op)
@@ -70,7 +70,7 @@ object DslInterpreter {
 
         case par: Par[F, Dsl[F, ?]]@unchecked =>
           StateT.modify[F, FlowState[F]] { s =>
-            s.add(interpret(par.flow, interpreter, s.copy(ops = List.empty)).flatMap(pa.par))
+            s.add(interpret(par.flow, interpreter, FlowState[F](s.senderRef, s.selfRef)).flatMap(pa.par))
           }
 
         case delayOp: Delay[F, Dsl[F, ?]]@unchecked =>
@@ -83,7 +83,7 @@ object DslInterpreter {
                 // found   : F[_] <:< F[_]
                 // required: F[_] <:< F[Any]
                 // .map(ops => ops.map(op => (delayIO >> op))).flatMap(_.toList.sequence)
-                val res = interpret(flow, interpreter, s.copy(ops = List.empty))
+                val res = interpret(flow, interpreter, FlowState[F](s.senderRef, s.selfRef))
                   .map(ops => ops.map(op => (delayIO >> op).void)).flatMap(_.toList.sequence)
                 s.add(res)
               case None => s.add(delayIO)
@@ -92,17 +92,17 @@ object DslInterpreter {
 
         case reply: WithSender[F, Dsl[F, ?]]@unchecked =>
           StateT.modify[F, FlowState[F]] { s =>
-            s.add(interpret_(reply.f(s.senderRef), interpreter, s.copy(ops = List.empty)))
+            s.add(interpret_(reply.f(s.senderRef), interpreter, FlowState[F](s.senderRef, s.selfRef)))
           }
 
         case invoke: Invoke[F, Dsl[F, ?]]@unchecked =>
           StateT.modify[F, FlowState[F]] { s =>
-            s.add(interpret_(invoke.body, interpreter, FlowState(invoke.caller, invoke.callee)))
+            s.add(interpret_(invoke.body, interpreter, FlowState[F](invoke.caller, invoke.callee)))
           }
 
         case fork: Fork[F, Dsl[F, ?]]@unchecked =>
           StateT.modify[F, FlowState[F]] { s =>
-            s.add(ct.start(interpret_(fork.flow, interpreter, s.copy(ops = List.empty))))
+            s.add(ct.start(interpret_(fork.flow, interpreter, FlowState[F](s.senderRef, s.selfRef))))
           }
 
         case Register(parent, process: Process[F]) =>
@@ -112,15 +112,15 @@ object DslInterpreter {
 
         case Race(firstFlow, secondFlow) =>
           StateT.modify[F, FlowState[F]] { s =>
-            val first = interpret_(firstFlow.asInstanceOf[DslF[F, A]], interpreter, s.copy(ops = List.empty))
-            val second = interpret_(secondFlow.asInstanceOf[DslF[F, A]], interpreter, s.copy(ops = List.empty))
+            val first = interpret_(firstFlow.asInstanceOf[DslF[F, A]], interpreter, FlowState[F](s.senderRef, s.selfRef))
+            val second = interpret_(secondFlow.asInstanceOf[DslF[F, A]], interpreter, FlowState[F](s.senderRef, s.selfRef))
             s.add(ct.race(first, second))
           }
 
         case suspend: Suspend[F, Dsl[F, ?], A]@unchecked =>
           StateT.modify[F, FlowState[F]] { s =>
             s.add(ct.suspend(suspend.thunk()).flatMap { a =>
-              suspend.bind.map(f => (b: A) => interpret_(f(b), interpreter, s.copy(ops = List.empty)))
+              suspend.bind.map(f => (b: A) => interpret_(f(b), interpreter, FlowState[F](s.senderRef, s.selfRef)))
                 .getOrElse((_: A) => ct.unit)(a)
             })
           }
@@ -128,7 +128,7 @@ object DslInterpreter {
         case eval: Eval[F, Dsl[F, ?], A]@unchecked =>
           StateT.modify[F, FlowState[F]] { s =>
             s.add(ct.delay(eval.thunk()).flatMap { a =>
-              eval.bind.map(f => (b: A) => interpret_(f(b), interpreter, s.copy(ops = List.empty)))
+              eval.bind.map(f => (b: A) => interpret_(f(b), interpreter, FlowState[F](s.senderRef, s.selfRef)))
                 .getOrElse((_: A) => ct.unit)(a)
             })
           }

@@ -220,7 +220,7 @@ object Scheduler {
             if (process.execute.isDefinedAt(event)) {
               val program = process.execute.apply(event)
               ct.race(
-                interpret_(program, interpreter, FlowState(senderRef = sender, selfRef = receiver))
+                interpret_(program, interpreter, FlowState[F](senderRef = sender, selfRef = receiver))
                   .handleErrorWith(err => handleError(process, envelope, err)),
                 processState.interruption).flatMap {
                 case Left(_) => ct.unit
@@ -277,7 +277,7 @@ object Scheduler {
                                         receiver: ProcessRef,
                                         interpreter: Interpreter[F])(implicit flowDsl: FlowOps[F, Dsl[F, ?]]): F[Unit] = {
       interpret_(flowDsl.send(event, receiver), interpreter,
-        FlowState(senderRef = sender, selfRef = receiver))
+        FlowState[F](senderRef = sender, selfRef = receiver))
     }
 
     private def deliverStopEvent[F[_] : Concurrent](sender: ProcessRef,
@@ -288,7 +288,7 @@ object Scheduler {
         interpret_(
           process.execute.apply(Stop),
           interpreter,
-          FlowState(senderRef = sender, selfRef = process.ref))
+          FlowState[F](senderRef = sender, selfRef = process.ref))
       } else {
         ct.unit
       }

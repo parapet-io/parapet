@@ -244,7 +244,7 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
 
   "A flow" when {
     "forked" should {
-      "should be executed concurrently" ignore {
+      "should be executed concurrently" in {
 
         val eventStore = new EventStore[F, Request]
 
