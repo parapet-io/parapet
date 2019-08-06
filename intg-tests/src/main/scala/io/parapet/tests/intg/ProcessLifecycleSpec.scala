@@ -104,7 +104,6 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
 
     } yield ()
     unsafeRun(program)
-    eventStore.print()
 
     eventStore.get(trace) shouldBe Seq(Stopped("d"), Stopped("c"), Stopped("b"), Stopped("a"))
 
@@ -115,7 +114,7 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
     val longRunningProcess: Process[F] = new Process[F] {
       override def handle: Receive = {
         case Start => unit
-        case Pause => eval(while (true) {})
+        case Pause => delay(1.minute)
         case e => eval(eventStore.add(ref, e))
       }
     }
@@ -153,7 +152,10 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
     val eventStore = new EventStore[F, DeadLetter]
     val deadLetter = new DeadLetterProcess[F] {
       def handle: Receive = {
-        case f: DeadLetter => eval(eventStore.add(ref, f))
+        case DeadLetter(Envelope(_, Start, _), _) => unit // Start event can be interrupted, ignore
+        case DeadLetter(Envelope(_, Kill, _), _) => unit // in case if the process was removed
+        // from the system before second Kill event added to it's queue
+        case f@DeadLetter(Envelope(_, Stop, _), _) => eval(eventStore.add(ref, f))
       }
     }
 
@@ -163,11 +165,11 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
       }
     }
 
-    val init = onStart(delay(1.second, Kill ~> process) ++ Kill ~> process)
+    val init = onStart(Seq(Kill, Kill) ~> process)
     unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, process)), Some(ct.pure(deadLetter))).run))
 
     eventStore.get(deadLetter.ref).headOption.value should matchPattern {
-      case DeadLetter(Envelope(TestSystemRef, Stop, process.`ref`), _) =>
+      case DeadLetter(Envelope(TestSystemRef, Stop, process.ref), _) =>
     }
 
   }
