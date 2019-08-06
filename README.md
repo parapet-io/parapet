@@ -5,7 +5,9 @@
 **Motivation**
 
 It's not a secret that writing distributed systems is a challenging task that can be logically broken into two main aspects: implementing distributed algorithms and running them. Parapet plays a role of execution framework for distributed algorithms, it can be viewed as an intermediate layer between a low-level effect library and high-level operations exposed in the form of DSL. Distributed engineers who mainly focused on designing and implementing distributed algorithms don't need to be worried about low-level abstractions such as `IO` or have a piece of deep knowledge in certain computer since subjects, for instance, _Concurrency_. All they need to know is what _properties_ the library satisfies and what _guarantees_ it provides. On the other hand, engineers who are specializing in writing low-level libraries can concentrate on implementing core abstractions such as `IO` or `Task`, working on performance optimizations and implementing new features. 
-Parapet is the modular library where almost any component can be replaced with a custom implementation. Distributed engineers unite!
+Parapet is the modular library where almost any component can be replaced with a custom implementation. 
+
+Distributed engineers unite!
 
 **Contents**
 
@@ -23,10 +25,10 @@ Parapet is the modular library where almost any component can be replaced with a
 ## Key Features
 
 * Purely functional library written in scala using Tagless-Final Style and Free Monads thoughtfully designed for people who prefer functional style over imperative
-* Modular - almost any component can be replaced with a custom implementation.
-* DSL with a set of operations sufficient to write distributed algorithms
+* Modular - almost any component can be replaced with a custom implementation
+* DSL provides a set of operations sufficient to write distributed algorithms
 * Lightweight and Performant. The library utilizes resources (CPU and Memory) smartly, the code is optimized to reduce CPU consumption when your application in idle state
-* Built-in support for the following effect libraries: [Cats Effect](https://typelevel.org/cats-effect/), [Monix](https://monix.io/), and [Scalaz ZIO](https://zio.dev/). The library can be extended to support more effect libraries.
+* Built-in support for the following effect libraries: [Cats Effect](https://typelevel.org/cats-effect/), [Monix](https://monix.io/), and [Scalaz ZIO](https://zio.dev/). The library can be extended to support other effect libraries
 
 ## Getting started
 
