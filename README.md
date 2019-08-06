@@ -1,26 +1,28 @@
+
 # Parapet - purely functional library to develop distributed and event-driven systems
 
 [![Build Status](https://travis-ci.org/parapet-io/parapet.svg?branch=master)](https://travis-ci.org/parapet-io/parapet)
 
-**Motivation**
+## Motivation
 
 It's not a secret that writing distributed systems is a challenging task that can be logically broken into two main aspects: implementing distributed algorithms and running them. Parapet plays a role of execution framework for distributed algorithms, it can be viewed as an intermediate layer between a low-level effect library and high-level operations exposed in the form of DSL. Distributed engineers who mainly focused on designing and implementing distributed algorithms don't need to be worried about low-level abstractions such as `IO` or have a piece of deep knowledge in certain computer since subjects, for instance, _Concurrency_. All they need to know is what _properties_ the library satisfies and what _guarantees_ it provides. On the other hand, engineers who are specializing in writing low-level libraries can concentrate on implementing core abstractions such as `IO` or `Task`, working on performance optimizations and implementing new features. 
 Parapet is the modular library where almost any component can be replaced with a custom implementation. 
 
 Distributed engineers unite!
 
-**Contents**
+## Contents
 
 * [Key Features](#key-features)
 * [DSL](#dsl)
 * [Process](#process)
 * [Channel](#channel)
 * [Error Handling and DeadLetterProcess](#error-handling-and-deadletterprocess)
+* [EventLog](#eventlog)
 * [Configuration](#configuration)
 * [Correctness Properties](#correctness-properties)
 * [Distributed Algorithms in Parapet](#distributed-algorithms-in-parapet)
 * [Performance Analysis](#performance-analysis)
-* Contribution 
+* [Contribution](#contribution)
 
 ## Key Features
 
@@ -564,16 +566,16 @@ client receive response from server: PING
 release resources: close socket and etc.
 ```
 
-`switch` is **NOT** thread safe, avoid using `switch` in concurrent flows.
+`switch` is **NOT** an atomic operation, avoid using `switch` in concurrent flows because it may result in an error or lead to unpredictable behavior.
 
-DO NOT do this:
+Bad:
 
 ```scala
   val process = new Process[F] {
     def ready: Receive = _
 
     override def handle: Receive = {
-      case Init => fork(switch(ready)) // bad, may lead to inconsistent behaviour
+      case Init => fork(switch(ready)) // bad, may lead to unpredictable behaviour
     }
   }
 
@@ -907,20 +909,48 @@ errorType: EventHandlingException
 errorMsg: process [name=undefined, ref=server] has failed to handle event: Request(PING)
 ```
 
-
 ## Configuration
 
-TODO
+`ParConfig` :
+* schedulerConfig: 
+  * queueSize - size  of event queue shared  by workers
+  * numberOfWorkers - number of workers; default = availableProcessors
+  * processQueueSize -  size  of event queue  per individual  process
+
+You should set `queueSize` to a value that would match the expected workload. For example, if you are going to send 1M events within the same flow it's recommended to set  `queueSize` to 1M. However, it depends on how fast your consumer processes and amount of available memory, if that's possible to keep some amount of events in memory -  go for it, if not - you will probably need to reconsider your design decisions. 
+In a case the event queue is full all events will be redirected to `EventLog` (see the corresponding section).
+
+`processQueueSize` can be calculated using simple formula: `queueSize / numberOfWorkers` 
+
+## EventLog
+
+`EventLog` can be used to store events on disk. Latter, events can be retrieved and resubmitted.
+In a case, the event queue is full unsubmitted events will be redirected to `EventLog`.   The default implementation just logs such events. In future releases, more practical implementation will be provided.
 
 ## Correctness Properties
 
-TODO
+Safty properties: 
+* It's guaranteed that events will be delivered to a process in a strictly synchronous request-reply dialog, i.e. a process will receive a new event iff it completed processing the current one. 
+* All events  delivered in send order
+
+Liveness  properties:
+
+* Sent events  eventually delivered
+* A sender  eventually receives  a response
+
 
 ## Distributed Algorithms in Parapet
 
-TODO
+Please refer to [components/algorithms](https://github.com/parapet-io/parapet/tree/master/components/algorithms/) subproject
 
 ## Performance Analysis
+
+in progress
+
+##  Contribution
+
+The project in its early stage and many things are subject to change. Now is a good time to join!
+If you want to become a contributor please send me [email](mailto:dmgcodevil@gmail.com) or text in [gitter](https://gitter.im/io-parapet/parapet) channel.
 
 ## License
 
