@@ -218,10 +218,11 @@ object Scheduler {
           }
           case _ =>
             if (process.execute.isDefinedAt(event)) {
-              val program = process.execute.apply(event)
               ct.race(
-                interpret_(program, interpreter, FlowState[F](senderRef = sender, selfRef = receiver))
-                  .handleErrorWith(err => handleError(process, envelope, err)),
+                (for {
+                  flow <- ct.delay(process.execute.apply(event))
+                  _ <- interpret_(flow, interpreter, FlowState[F](senderRef = sender, selfRef = receiver))
+                } yield ()).handleErrorWith(err => handleError(process, envelope, err)),
                 processState.interruption).flatMap {
                 case Left(_) => ct.unit
                 case Right(_) => ct.unit // process has been interrupted. Stop event shall be delivered by scheduler
