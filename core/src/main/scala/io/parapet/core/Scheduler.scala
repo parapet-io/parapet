@@ -1,8 +1,5 @@
 package io.parapet.core
 
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.{ExecutorService, Executors, ThreadFactory}
-
 import cats.effect.syntax.bracket._
 import cats.effect.{Concurrent, ContextShift}
 import cats.syntax.applicativeError._
@@ -13,13 +10,10 @@ import io.parapet.core.Context.ProcessState
 import io.parapet.core.Dsl.{Dsl, FlowOps}
 import io.parapet.core.DslInterpreter._
 import io.parapet.core.Event._
-import io.parapet.core.Parapet.ParapetPrefix
 import io.parapet.core.ProcessRef._
 import io.parapet.core.Scheduler._
 import io.parapet.core.exceptions._
 import org.slf4j.LoggerFactory
-
-import scala.concurrent.ExecutionContext
 
 trait Scheduler[F[_]] {
   def run: F[Unit]
@@ -36,8 +30,8 @@ object Scheduler {
   type TaskQueue[F[_]] = Queue[F, Task[F]]
 
   def apply[F[_] : Concurrent : Parallel : ContextShift](config: SchedulerConfig,
-                                                                 context: Context[F],
-                                                                 interpreter: Interpreter[F]): F[Scheduler[F]] = {
+                                                         context: Context[F],
+                                                         interpreter: Interpreter[F]): F[Scheduler[F]] = {
     SchedulerImpl(config, context, interpreter)
   }
 
@@ -48,34 +42,23 @@ object Scheduler {
   import SchedulerImpl._
 
   class SchedulerImpl[F[_] : Concurrent : Parallel : ContextShift](
-                                                                            config: SchedulerConfig,
-                                                                            context: Context[F],
-                                                                            processRefQueue: Queue[F, ProcessRef],
-                                                                            interpreter: Interpreter[F]) extends Scheduler[F] {
+                                                                    config: SchedulerConfig,
+                                                                    context: Context[F],
+                                                                    processRefQueue: Queue[F, ProcessRef],
+                                                                    interpreter: Interpreter[F]) extends Scheduler[F] {
 
 
     private val ct = Concurrent[F]
     private val pa = implicitly[Parallel[F]]
     private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
 
-
-    private val es: ExecutorService =
-      Executors.newFixedThreadPool(
-        config.numberOfWorkers, new ThreadFactory {
-          val threadNumber = new AtomicInteger(1)
-
-          override def newThread(r: Runnable): Thread =
-            new Thread(r, s"$ParapetPrefix-scheduler-thread-pool-${threadNumber.getAndIncrement()}")
-        })
-
-    private val ec: ExecutionContext = ExecutionContext.fromExecutor(es)
     private val ctxShift = implicitly[ContextShift[F]]
 
     override def run: F[Unit] = {
       val workers = createWorkers
 
       def step: F[Unit] = {
-        ctxShift.evalOn(ec)(context.taskQueue.dequeue) >>= {
+        context.taskQueue.dequeue >>= {
           case t@Deliver(e@Envelope(sender, event, pRef)) =>
             context.getProcessState(pRef)
               .fold(send(
@@ -93,19 +76,18 @@ object Scheduler {
                   // we need to submit Stop event here instead of direct call
                   // to avoid race condition between interruption and process stop
                   case _ => submit(t, ps)
-                }) >> step
+                }) >> ctxShift.shift >> step
               }
           case t => ct.raiseError(new RuntimeException(s"unsupported task: $t"))
         }
       }
 
-      pa.par(workers.map(w => ctxShift.shift >> w.run) :+ (ctxShift.shift >> step))
+      pa.par(workers.map(w => w.run) :+ step)
         .guarantee(
-          ctxShift.evalOn(ec)(stopProcess(ProcessRef.SystemRef,
+          stopProcess(ProcessRef.SystemRef,
             context, ProcessRef.SystemRef, interpreter,
             (pRef, err) => ct.delay(logger.error(s"An error occurred while stopping process $pRef", err)))) >>
-            ct.delay(es.shutdownNow()).void.guarantee(ct.delay(logger.info("scheduler has been shut down")))
-        )
+        ct.delay(logger.info("scheduler has been shut down"))
     }
 
     private def submit(task: Deliver[F], ps: ProcessState[F]): F[Unit] = {
@@ -116,10 +98,6 @@ object Scheduler {
             EventDeliveryException(s"System failed to deliver an event to process ${ps.process}",
               EventQueueIsFullException(s"process ${ps.process} event queue is full"))),
             task.envelope.sender, interpreter)
-        //  sendToDeadLetter(
-        //    DeadLetter(task.envelope,
-        //      EventDeliveryException(s"process ${ps.process} event queue is full")),
-        //    interpreter)
       }
     }
 
@@ -129,7 +107,7 @@ object Scheduler {
 
     private def createWorkers: List[Worker[F]] = {
       (1 to config.numberOfWorkers).map { i => {
-        new Worker[F](s"worker-$i", context, processRefQueue, interpreter, ec)
+        new Worker[F](s"worker-$i", context, processRefQueue, interpreter)
       }
       }.toList
     }
@@ -141,9 +119,9 @@ object Scheduler {
   object SchedulerImpl {
 
     def apply[F[_] : Concurrent : Parallel : ContextShift](
-                                                                    config: SchedulerConfig,
-                                                                    context: Context[F],
-                                                                    interpreter: Interpreter[F]): F[Scheduler[F]] =
+                                                            config: SchedulerConfig,
+                                                            context: Context[F],
+                                                            interpreter: Interpreter[F]): F[Scheduler[F]] =
       for {
         processRefQueue <- Queue.bounded[F, ProcessRef](config.queueSize)
       } yield
@@ -156,8 +134,7 @@ object Scheduler {
     class Worker[F[_] : Concurrent : Parallel : ContextShift](name: String,
                                                               context: Context[F],
                                                               processRefQueue: Queue[F, ProcessRef],
-                                                              interpreter: Interpreter[F],
-                                                              ec: ExecutionContext) {
+                                                              interpreter: Interpreter[F]) {
 
       private val logger = Logger(LoggerFactory.getLogger(s"parapet-$name"))
       private val ct = implicitly[Concurrent[F]]
@@ -165,15 +142,15 @@ object Scheduler {
 
       def run: F[Unit] = {
         def step: F[Unit] = {
-          ctxShift.evalOn(ec)(processRefQueue.dequeue) >>= { pRef =>
+          processRefQueue.dequeue >>= { pRef =>
             context.getProcessState(pRef) match {
               case Some(ps) =>
                 ps.acquire >>= {
                   case true => ct.delay(logger.debug(s"name acquired process ${ps.process} for processing")) >>
-                    ctxShift.evalOn(ec)(run(ps)) >> step
-                  case false => step
+                    run(ps) >> ctxShift.shift >> step
+                  case false => ctxShift.shift >> step
                 }
-              case None => step // process was terminated and removed from the system,
+              case None => ctxShift.shift >> step // process was terminated and removed from the system,
               // eventually scheduler will stop delivering new events for this process
             }
 
@@ -186,11 +163,11 @@ object Scheduler {
       private def run(ps: ProcessState[F]): F[Unit] = {
         def step: F[Unit] = {
           ps.tryTakeTask >>= {
-            case Some(t: Deliver[F]) => deliver(ps, t.envelope) >> step
+            case Some(t: Deliver[F]) => deliver(ps, t.envelope) >> ctxShift.shift >> step
             case Some(t) => ct.raiseError(new RuntimeException(s"unsupported task: $t"))
             case None => ps.release >>= {
               case true => ct.delay(logger.debug(s"$name has been released process ${ps.process}"))
-              case false => step // process still has some tasks, continue
+              case false => ctxShift.shift >> step // process still has some tasks, continue
             }
           }
         }

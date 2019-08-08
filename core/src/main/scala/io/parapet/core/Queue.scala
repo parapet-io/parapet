@@ -1,7 +1,7 @@
 package io.parapet.core
 
 import cats.Monad
-import cats.effect.Concurrent
+import cats.effect.{Concurrent, ContextShift}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import io.parapet.core.Queue.{Dequeue, Enqueue}
@@ -59,16 +59,21 @@ object Queue {
     override def peek: F[A] = q.peek1
   }
 
-  def bounded[F[_] : Concurrent, A](capacity: Int): F[Queue[F, A]] = {
+  def boundedFs2[F[_] : Concurrent, A](capacity: Int): F[Queue[F, A]] = {
     for {
       q <- fs2.concurrent.InspectableQueue.bounded[F, A](capacity)
     } yield new FS2BasedQueue[F, A](q)
   }
 
-  def unbounded[F[_] : Concurrent, A]: F[Queue[F, A]] = {
+  def unboundedFs2[F[_] : Concurrent, A]: F[Queue[F, A]] = {
     for {
       q <- fs2.concurrent.InspectableQueue.unbounded[F, A]
     } yield new FS2BasedQueue[F, A](q)
   }
+
+
+  def bounded[F[_] : Concurrent : ContextShift, A](capacity: Int): F[Queue[F, A]] = boundedFs2(capacity)
+
+  def unbounded[F[_] : Concurrent, A]: F[Queue[F, A]] = unboundedFs2
 
 }

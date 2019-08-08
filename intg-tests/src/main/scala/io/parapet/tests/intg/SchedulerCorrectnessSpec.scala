@@ -180,7 +180,7 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
       require(tasks.size >= spec.numberOfEvents, "number of tasks must be gte number of events")
 
       val program = for {
-        context <- Context[F](Parapet.ParConfig(spec.config), EventLog.stub)(ct)
+        context <- Context[F](Parapet.ParConfig(spec.config), EventLog.stub)(ct, contextShift)
         _ <- context.init
         _ <- context.registerAll(ProcessRef.SystemRef, processes.toList)
         it <- interpreter(context)

@@ -49,11 +49,11 @@ lazy val global = project
   inConfig(Slow)(Defaults.testTasks))
   .aggregate(
     core,
-    testUtils,
     interopCats,
-    intgTests,
-    interopScalazZio
-  )
+    interopScalazZio,
+    interopMonix,
+    testUtils,
+    intgTests)
 
 lazy val core = project
   .settings(
