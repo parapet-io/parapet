@@ -952,6 +952,11 @@ in progress
 The project in its early stage and many things are subject to change. Now is a good time to join!
 If you want to become a contributor please send me [email](mailto:dmgcodevil@gmail.com) or text in [gitter](https://gitter.im/io-parapet/parapet) channel.
 
+If you'd like to donate in order to help with ongoing development and maintenance:
+
+<a href="https://www.patreon.com/bePatron?u=6107081"><img label="Become a Patron!" src="https://c5.patreon.com/external/logo/become_a_patron_button@2x.png" height="40" /></a>
+
+
 ## License
 
 ```
