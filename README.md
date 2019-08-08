@@ -945,7 +945,7 @@ Please refer to [components/algorithms](https://github.com/parapet-io/parapet/tr
 
 ## Performance Analysis
 
-in progress
+Performance mainly dependents on the underlying effect system. In general, there is always some performance and memory overhead associated with the use of Monads and immutable data structures. Currently where are some performance issues with fs2 queue, however, this is the only solution that works correctly. We are working on a fix.  Please refer to these issues: [#4](https://github.com/parapet-io/parapet/issues/6), [#7](https://github.com/parapet-io/parapet/issues/7), [#8](https://github.com/parapet-io/parapet/issues/8)
 
 ##  Contribution
 
