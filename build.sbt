@@ -16,7 +16,6 @@ lazy val dependencies =
     // Cats
     val catsEffect = "org.typelevel" %% "cats-effect" % "1.3.1"
     val catsFree = "org.typelevel" %% "cats-free" % "1.6.1"
-    val fs2Core = "co.fs2" %% "fs2-core" % "1.0.5"
     // Shapless
     val shapeless = "com.chuusai" %% "shapeless" % "2.3.3"
     // logging
@@ -60,8 +59,17 @@ lazy val core = project
     name := "core",
     libraryDependencies ++= (commonDependencies ++ catsDependencies),
     libraryDependencies += "org.json4s" %% "json4s-native" % "3.6.7",
-    libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7"
+    libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7",
+    libraryDependencies += "io.monix" %% "monix-eval" % "3.0.0-RC3"
   )
+
+/*lazy val perfTesting = project
+  .in(file("perf-testing"))
+  .settings(
+    name := "perf-testing",
+    libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3",
+    libraryDependencies += "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
+  ).dependsOn(core, interopCats, interopScalazZio, interopMonix)*/
 
 lazy val testUtils = project
   .in(file("test-utils"))
@@ -103,7 +111,7 @@ lazy val intgTests = project
     ),
   ).dependsOn(core, testUtils)
 
-lazy val catsDependencies = Seq(dependencies.catsEffect, dependencies.catsFree, dependencies.fs2Core)
+lazy val catsDependencies = Seq(dependencies.catsEffect, dependencies.catsFree)
 lazy val commonDependencies = Seq(
   dependencies.shapeless,
   dependencies.scalaLogging,

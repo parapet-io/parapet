@@ -10,6 +10,7 @@ import cats.syntax.functor._
 import cats.syntax.traverse._
 import io.parapet.core.Context._
 import io.parapet.core.Event.{Envelope, Start}
+import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.{Deliver, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.SystemProcess
@@ -95,7 +96,7 @@ object Context {
   def apply[F[_] : Concurrent : ContextShift](config: Parapet.ParConfig,
                                               eventLog: EventLog[F]): F[Context[F]] = {
     for {
-      taskQueue <- Queue.bounded[F, Task[F]](config.schedulerConfig.queueSize)
+      taskQueue <- Queue.bounded[F, Task[F]](config.schedulerConfig.queueSize, ChannelType.MPSC)
     } yield new Context[F](config, eventLog, taskQueue)
   }
 
@@ -134,7 +135,7 @@ object Context {
 
     def acquire: F[Boolean] = ct.delay(executing.compareAndSet(false, true))
 
-    def release: F[Boolean] = {
+    def release: F[Option[Task[F]]] = {
       if (!executing.get())
         ct.raiseError(new RuntimeException("process cannot be released because it wasn't acquired"))
       else {
@@ -144,13 +145,13 @@ object Context {
         // thus new task will be lost
         // process must be released before scheduler will add it to processRefQueue
         lock.withPermit {
-          queue.isEmpty >>= {
-            case true =>
+          queue.tryDequeue >>= {
+            case None =>
               ct.delay(executing.compareAndSet(true, false)) >>= {
                 case false => ct.raiseError(new RuntimeException("concurrent release"))
-                case _ => ct.pure(true)
+                case _ => ct.pure(Option.empty)
               }
-            case false => ct.pure(false) // new task available, don't release yet
+            case Some(task) => ct.pure(Option(task)) // new task available, don't release yet
           }
         }
       }
@@ -161,7 +162,7 @@ object Context {
   object ProcessState {
     def apply[F[_] : Concurrent : ContextShift](process: Process[F], queueSize: Int): F[ProcessState[F]] =
       for {
-        queue <- Queue.bounded[F, Task[F]](queueSize)
+        queue <- Queue.bounded[F, Task[F]](queueSize, ChannelType.SPSC)
         lock <- Lock[F]
         terminated <- Deferred[F, Unit]
       } yield new ProcessState[F](queue, lock, process, terminated)

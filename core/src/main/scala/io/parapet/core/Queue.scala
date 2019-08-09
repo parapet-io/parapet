@@ -5,6 +5,8 @@ import cats.effect.{Concurrent, ContextShift}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import io.parapet.core.Queue.{Dequeue, Enqueue}
+import monix.catnap.ConcurrentQueue
+import monix.execution.BufferCapacity.{Bounded, Unbounded}
 
 trait Queue[F[_], A] extends Enqueue[F, A] with Dequeue[F, A] {
 
@@ -17,6 +19,14 @@ trait Queue[F[_], A] extends Enqueue[F, A] with Dequeue[F, A] {
 }
 
 object Queue {
+
+  sealed trait ChannelType
+  object ChannelType {
+    case object MPMC extends ChannelType
+    case object MPSC extends ChannelType
+    case object SPMC extends ChannelType
+    case object SPSC extends ChannelType
+  }
 
   trait Enqueue[F[_], A] {
     def enqueue(a: A): F[Unit]
@@ -37,43 +47,58 @@ object Queue {
     }
   }
 
-  class FS2BasedQueue[F[_] : Concurrent, A](q: fs2.concurrent.InspectableQueue[F, A]) extends Queue[F, A] {
-
+  class MonixBasedQueue[F[_] : Concurrent, A](q: ConcurrentQueue[F, A]) extends Queue[F, A] {
     val ct: Concurrent[F] = implicitly[Concurrent[F]]
 
-    override def enqueue(a: A): F[Unit] = q.enqueue1(a)
+    override def peek: F[A] = ct.raiseError(new UnsupportedOperationException("peek is not supported"))
 
-    override def tryEnqueue(a: A): F[Boolean] = q.offer1(a)
+    override def size: F[Int] = ct.raiseError(new UnsupportedOperationException("size is not supported"))
 
-    override def dequeue: F[A] = q.dequeue1
+    override def dequeue: F[A] = q.poll
 
-    override def tryDequeue: F[Option[A]] = q.tryDequeue1
+    override def tryDequeue: F[Option[A]] = q.tryPoll
 
-    /**
-      * Returns approximate (best-effort) size of the queue.
-      *
-      * @return queue size
-      */
-    override def size: F[Int] = q.getSize
+    override def enqueue(a: A): F[Unit] = q.offer(a)
 
-    override def peek: F[A] = q.peek1
+    override def tryEnqueue(a: A): F[Boolean] = q.tryOffer(a)
   }
 
-  def boundedFs2[F[_] : Concurrent, A](capacity: Int): F[Queue[F, A]] = {
-    for {
-      q <- fs2.concurrent.InspectableQueue.bounded[F, A](capacity)
-    } yield new FS2BasedQueue[F, A](q)
+  object MonixBasedQueue {
+
+    def toMonix(ct: ChannelType): monix.execution.ChannelType = {
+      ct match {
+        case ChannelType.MPMC => monix.execution.ChannelType.MPMC
+        case ChannelType.MPSC => monix.execution.ChannelType.MPSC
+        case ChannelType.SPMC => monix.execution.ChannelType.SPMC
+        case ChannelType.SPSC => monix.execution.ChannelType.SPSC
+      }
+    }
+
+    def bounded[F[_] : Concurrent : ContextShift, A](capacity: Int, channelType: ChannelType): F[Queue[F, A]] = {
+      for {
+        q <- ConcurrentQueue[F].withConfig[A](
+          capacity = Bounded(capacity),
+          channelType = toMonix(channelType)
+        )
+      } yield new MonixBasedQueue[F, A](q)
+    }
+
+    def unbounded[F[_] : Concurrent : ContextShift, A](channelType: ChannelType): F[Queue[F, A]] = {
+      for {
+        q <- ConcurrentQueue[F].withConfig[A](
+          capacity = Unbounded(),
+          channelType = toMonix(channelType)
+        )
+      } yield new MonixBasedQueue[F, A](q)
+    }
   }
 
-  def unboundedFs2[F[_] : Concurrent, A]: F[Queue[F, A]] = {
-    for {
-      q <- fs2.concurrent.InspectableQueue.unbounded[F, A]
-    } yield new FS2BasedQueue[F, A](q)
-  }
 
+  def bounded[F[_] : Concurrent : ContextShift, A](capacity: Int,
+                                                   channelType: ChannelType = ChannelType.MPMC): F[Queue[F, A]] =
+    MonixBasedQueue.bounded(capacity, channelType)
 
-  def bounded[F[_] : Concurrent : ContextShift, A](capacity: Int): F[Queue[F, A]] = boundedFs2(capacity)
-
-  def unbounded[F[_] : Concurrent, A]: F[Queue[F, A]] = unboundedFs2
+  def unbounded[F[_] : Concurrent : ContextShift, A](channelType: ChannelType = ChannelType.MPMC): F[Queue[F, A]] =
+    MonixBasedQueue.unbounded(channelType)
 
 }

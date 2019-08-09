@@ -11,6 +11,7 @@ import io.parapet.core.Dsl.{Dsl, FlowOps}
 import io.parapet.core.DslInterpreter._
 import io.parapet.core.Event._
 import io.parapet.core.ProcessRef._
+import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler._
 import io.parapet.core.exceptions._
 import org.slf4j.LoggerFactory
@@ -123,7 +124,7 @@ object Scheduler {
                                                             context: Context[F],
                                                             interpreter: Interpreter[F]): F[Scheduler[F]] =
       for {
-        processRefQueue <- Queue.bounded[F, ProcessRef](config.queueSize)
+        processRefQueue <- Queue.bounded[F, ProcessRef](config.queueSize, ChannelType.SPMC)
       } yield
         new SchedulerImpl(
           config,
@@ -166,8 +167,9 @@ object Scheduler {
             case Some(t: Deliver[F]) => deliver(ps, t.envelope) >> ctxShift.shift >> step
             case Some(t) => ct.raiseError(new RuntimeException(s"unsupported task: $t"))
             case None => ps.release >>= {
-              case true => ct.delay(logger.debug(s"$name has been released process ${ps.process}"))
-              case false => ctxShift.shift >> step // process still has some tasks, continue
+              case None => ct.delay(logger.debug(s"$name has been released process ${ps.process}"))
+              case Some(task: Deliver[F]) => deliver(ps, task.envelope) >>
+                ctxShift.shift >> step // process still has some tasks, continue
             }
           }
         }
