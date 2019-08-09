@@ -2,6 +2,8 @@ package io.parapet.tests.intg.messaging
 
 import java.net.ServerSocket
 
+import cats.syntax.flatMap._
+import cats.syntax.functor._
 import io.parapet.core.Event.Start
 import io.parapet.core.{Encoder, Event, Process, ProcessRef}
 import io.parapet.messaging.api.MessagingApi.{Failure, Request, Response, Success}
@@ -66,42 +68,40 @@ abstract class AsyncClientsAsyncServerSpec[F[_]] extends FunSuite with Integrati
 
     val port = new ServerSocket(0).getLocalPort
 
-    val server: Process[F] = ZmqAsyncServer(s"tcp://*:$port", spec.service.ref, encoder, spec.numOfWorkers)
+    val processes = for {
+      asyncServer <- ct.pure(ZmqAsyncServer[F](s"tcp://*:$port", spec.service.ref, encoder, spec.numOfWorkers))
+      asyncClient <- ZmqAsyncClient[F](s"tcp://localhost:$port", encoder)
+      clients <- ct.pure((0 until spec.numberOfClients).map(cliId =>
+        createClient(cliId, eventStore, asyncClient,
+          (0 until spec.numberOfEventsPerClient).map(i => TestRequest(s"cli-$cliId-$i")))))
+
+    } yield Seq(asyncClient, asyncServer, spec.service) ++ clients
 
 
-    val clients: Map[Process[F], Seq[TestRequest]] = (0 until spec.numberOfClients).map { i =>
-      val clientName = s"client-$i"
-      val requests = (0 until spec.numberOfEventsPerClient).map(i => TestRequest(s"$clientName-$i"))
-      createSyncClient(port, eventStore, clientName, requests) -> requests
-    }.toMap
-
-    val processes: Seq[Process[F]] = (clients.keys ++ Seq(server, spec.service)).toSeq
-    unsafeRun(eventStore.await(spec.numberOfClients * spec.numberOfEventsPerClient, createApp(ct.pure(processes)).run))
+    unsafeRun(eventStore.await(spec.numberOfClients * spec.numberOfEventsPerClient, createApp(processes).run))
     eventStore.print()
     eventStore.size shouldBe spec.numberOfClients * spec.numberOfEventsPerClient
 
-    clients.foreach {
-      case (p, requests) => eventStore.get(p.ref).map {
-        case Success(TestResponse(data)) => data
-      } shouldBe requests.map(_.data)
+    (0 until spec.numberOfClients).foreach { cliId =>
+
+      val expectedResponses = (0 until spec.numberOfEventsPerClient).map(i =>
+        Success(TestResponse(s"cli-$cliId-$i")))
+
+      eventStore.get(ProcessRef(s"cli-$cliId")) shouldBe expectedResponses
     }
 
   }
 
-  def createSyncClient(
-                        port: Int,
-                        eventStore: EventStore[F, Response],
-                        cltName: String,
-                        events: Seq[Event]): Process[F] = new Process[F] {
-    override val name: String = cltName
-    override val ref: ProcessRef = ProcessRef(cltName)
+  def createClient(id: Int,
+                   eventStore: EventStore[F, Response],
+                   asyncClient: Process[F],
+                   events: Seq[Event]): Process[F] = new Process[F] {
+    override val name: String = s"cli-$id"
+    override val ref: ProcessRef = ProcessRef(s"cli-$id")
 
     override def handle: Receive = {
       case Start =>
-        evalWith(ZmqAsyncClient[F](s"tcp://localhost:$port", encoder)) { zmqClient =>
-          register(ref, zmqClient) ++ events.map(Request) ~> zmqClient.ref
-        }
-
+        events.map(Request) ~> asyncClient
       case res: Response => eval(eventStore.add(ref, res))
     }
   }
