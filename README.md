@@ -641,6 +641,67 @@ Sum(2, 2) ~> calculator <-> new Calculator().apply(ref, Sum(2, 2)) // where ref 
 
 ### Testing your processes
 
+Integration tests in parapet written in a generic style that we discussed before so that the same tests can be run against any effect system. Let's try to write a simple test for a proxy process. The first thing you need to do is to add `test-utils` library into your project:
+
+```scala
+libraryDependencies += "io.parapet" %% "test-utils" % version
+```
+
+A simple proxy process that receives requests and forwards them to a `service`
+
+```scala
+  class Proxy(service: ProcessRef) extends Process[F] {
+    override def handle: Receive = {
+      case Request(data) => Request(s"proxy-$data") ~> service
+    }
+  }
+```
+
+Test for our `Proxy`:
+
+```scala
+import io.parapet.core.{Event, Process, ProcessRef}
+import io.parapet.tests.intg.ProxySpec._
+import io.parapet.testutils.{EventStore, IntegrationSpec}
+import org.scalatest.FunSuite
+import org.scalatest.Matchers._
+import org.scalatest.OptionValues._
+
+
+abstract class ProxySpec[F[_]] extends FunSuite with IntegrationSpec[F] {
+
+  import dsl._
+  
+  test("proxy") {
+    val eventStore = new EventStore[F, Event]
+    val testService = Process(ref => {
+      case req: Request => eval(eventStore.add(ref, req))
+    })
+
+    val proxy = new Proxy[F](testService.ref)
+
+    val init = onStart(Request("req") ~> proxy)
+
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, testService, proxy))).run))
+
+    eventStore.get(testService.ref).headOption.value shouldBe Request("proxy-req")
+  }
+
+}
+```
+
+In order to run this test against Cats Effect IO you need to extend `BasicCatsIOSpec`:
+
+```scala
+import cats.effect.IO
+import io.parapet.testutils.BasicCatsIOSpec
+
+class ProxySpec extends io.parapet.tests.intg.ProxySpec[IO] with BasicCatsIOSpec
+```
+
+
+
+
 ### Basic patterns and tips
 
 
