@@ -1,11 +1,12 @@
 
+
 # Parapet - purely functional library to develop distributed and event-driven systems
 
 [![Build Status](https://travis-ci.org/parapet-io/parapet.svg?branch=master)](https://travis-ci.org/parapet-io/parapet)
 
 ## Motivation
 
-It's not a secret that writing distributed systems is a challenging task that can be logically broken into two main aspects: implementing distributed algorithms and running them. Parapet plays a role of execution framework for distributed algorithms, it can be viewed as an intermediate layer between a low-level effect library and high-level operations exposed in the form of DSL. Distributed engineers who mainly focused on designing and implementing distributed algorithms don't need to be worried about low-level abstractions such as `IO` or have a piece of deep knowledge in certain computer since subjects, for instance, _Concurrency_. All they need to know is what _properties_ the library satisfies and what _guarantees_ it provides. On the other hand, engineers who are specializing in writing low-level libraries can concentrate on implementing core abstractions such as `IO` or `Task`, working on performance optimizations and implementing new features. 
+It's not a secret that writing distributed systems is a challenging task that can be logically broken into two main aspects: implementing distributed algorithms and running them. Parapet plays the role of execution framework for distributed algorithms - it can be viewed as an intermediate layer between a low-level effect library and high-level operations exposed in the form of DSL. Distributed engineers who mainly focused on designing and implementing distributed algorithms don't need to be worried about low-level abstractions such as `IO` or have a piece of deep knowledge in certain computer science subjects, for instance, _Concurrency_. All they need to know is what _properties_ the library satisfies and what _guarantees_ it provides. On the other hand, engineers who are specializing in writing low-level libraries can concentrate on implementing core abstractions such as `IO` or `Task`, working on performance optimizations and implementing new features. 
 Parapet is the modular library where almost any component can be replaced with a custom implementation. 
 
 Distributed engineers unite!
@@ -26,7 +27,7 @@ Distributed engineers unite!
 
 ## Key Features
 
-* Purely functional library written in scala using Tagless-Final Style and Free Monads thoughtfully designed for people who prefer functional style over imperative
+* Purely functional library written in scala using Tagless-Final Style and Free Monads; thoughtfully designed for people who prefer functional style over imperative
 * Modular - almost any component can be replaced with a custom implementation
 * DSL provides a set of operations sufficient to write distributed algorithms
 * Lightweight and Performant. The library utilizes resources (CPU and Memory) smartly, the code is optimized to reduce CPU consumption when your application in idle state
@@ -46,7 +47,7 @@ For Monix add `libraryDependencies += "io.parapet" %% "interop-monix" % "0.0.1-R
 
 For Scalaz ZIO add `libraryDependencies += "io.parapet" %% "interop-scalaz-zio" % "0.0.1-RC1"`
 
-Once you added the library you can start writing your first program, however, it's worth taking a few minutes and getting familiar with two main approaches to write processes: generic and effect specific, I'll describe both in a minute. For those who aren't familiar with effect systems like Cats Effect, I'd strongly recommend you to read some articles about IO monad. Fortunately, you don't need to be an expert in Cats Effect to use Parapet.
+Once you added the library, you can start writing your first program.  However, it's worth taking a few minutes and getting familiar with two main approaches to write processes: generic and effect specific. I'll describe both in a minute. For those who aren't familiar with effect systems like Cats Effect, I'd strongly recommend you to read some articles about IO monad. Fortunately, you don't need to be an expert in Cats Effect to use Parapet.
 
 The first approach we'll consider is Generic. It's recommended to stick to this style when writing processes. Let's develop a simple printer process that will print users requests to the system output.
 
@@ -71,8 +72,8 @@ object Printer {
 }
 ```
 
-Let's walk through this code. You start writing your processes by extending `Process` trait and parameterizing it with an effect type. In this example we left so-called hole `F[_]` in our `Printer` type which can be any type constructor with a single argument, e.g. `F[_]` is a generic type constructor, cats effect `IO` is a specific type constructor and `IO[Unit]` is a concrete type. Starting from this moment it should become clear what it means for a process to be generic. Simply speaking it means that a process doesn't depend on any specific effect type e.g. `IO`. Thus we can claim that our `Printer` process is surely generic. The next step is to define a process API or contract that defines a set of events that it can send and receive. Process contract is an important part of any process specification that should be taken seriously. API defines a protocol that other processes will use to communicate with your process. Please remember that it's a very important aspect of any process definition and take it seriously. The next step would be importing `DSL`, Parapet DSL is a small set of operations -that we will consider in details in the next chapters-, in this example we need only `eval` operator that  suspends a side effect in `F`, in our Printer process we suspend `println` effectful computation. Finally, every process should override `handle` function defined in `Process` trait. `handle` function is a partial function that matches input events and produces an executable `flows`. If you ever tried Akka framework you may find this approach familiar (for the curious, `Receive` is simply a type alias for `PartialFunction[Event, DslF[F, Unit]]`). In our Printer process, we match on `Print` event using a well known pattern-matching feature in Scala language. If you are new in functional programming I'd strongly recommend to read about pattern-matching, it's a very powerful instrument. 
-That's it, we have considered every important aspect of our Printer process, let's move forward and write a simple client process that will talk to our Printer.
+Let's walk through this code. You start writing your processes by extending `Process` trait and parameterizing it with an effect type. In this example, we left so-called hole `F[_]` in our `Printer` type which can be any type constructor with a single argument, e.g. `F[_]` is a generic type constructor, cats effect `IO` is a specific type constructor and `IO[Unit]` is a concrete type. Starting from this moment, it should become clear what it means for a process to be generic. Simply speaking, it means that a process doesn't depend on any specific effect type e.g. `IO`. Thus we can claim that our `Printer` process is surely generic. The next step is to define a process API or contract that defines a set of events that it can send and receive. Process contract is an important part of any process specification that should be taken seriously. API defines a protocol that other processes will use to communicate with your process. Please remember that it's a very important aspect of any process definition and take it seriously. The next step would be importing `DSL`, Parapet DSL is a small set of operations that we will consider in detail in the next chapters. In this example, we need only `eval` operator that  suspends a side effect in `F`, in our Printer process we suspend `println` effectful computation. Finally, every process should override `handle` function defined in `Process` trait. `handle` function is a partial function that matches input events and produces an executable `flows`. If you ever tried Akka framework you may find this approach familiar (for the curious, `Receive` is simply a type alias for `PartialFunction[Event, DslF[F, Unit]]`). In our Printer process, we match on `Print` event using a well known pattern-matching feature in Scala language. If you are new in functional programming, I'd strongly recommend to read about pattern-matching - it's a very powerful instrument. 
+That's it. We have considered every important aspect of our `Printer` process. Let's move forward and write a simple client process that will talk to our `Printer`.
 
 
 ```scala
@@ -88,12 +89,12 @@ class PrinterClient[F[_]](printer: ProcessRef) extends Process[F] {
 }
 ```
 
-As you already might have noticed we are repeating the same steps we made when were writing our `Printer` process: 
+As you already might have noticed, we are repeating the same steps we made when were writing our `Printer` process: 
 * Create a new Process with a  _hole_ `F[_]` in its type definition
 * Extend `io.parapet.core.Process` trait and parametrizing it with generic effect type `F`
 * Implement `handle` partial function
 
-Let's consider some new types and operators we have used to write our client: `ProcessRef`, `Start` lifecycle event and `~>` (send) infix operator. Let's start from  `ProcessRef`. `ProcessRef` is a unique process identifier (UUID by default), it represents a process address in Parapet system and *must* be unique, it's recommended to use `ProcessRef` instead of a `Process` object directly unless you are sure you want otherwise. It's not prohibited to use `Process` object directly, however using a process reference may be useful in some scenarios. Let's consider one such case. Imagine we want to dynamically change the current `Printer` process in our client so that it will store data in a file on disk instead of printing it to the console. We can add a new event `ChangePrinter`:
+Let's consider some new types and operators we have used to write our client: `ProcessRef`, `Start` lifecycle event and `~>` (send) infix operator. Let's start from  `ProcessRef`. `ProcessRef` is a unique process identifier (UUID by default). It represents a process address in Parapet system and *must* be unique - it's recommended to use `ProcessRef` instead of a `Process` object directly unless you are sure you want otherwise. It's not prohibited to use `Process` object directly, however using a process reference may be useful in some scenarios. Let's consider one such case. Imagine we want to dynamically change the current `Printer` process in our client so that it will store data in a file on disk instead of printing it to the console. We can add a new event `ChangePrinter`:
 
 ```scala
 case class ChangePrinter(printer: ProcessRef) extends Event
