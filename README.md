@@ -945,7 +945,20 @@ Please refer to [components/algorithms](https://github.com/parapet-io/parapet/tr
 
 ## Performance Analysis
 
-Performance mainly dependents on the underlying effect system. In general, there is always some performance and memory overhead associated with the use of Monads and immutable data structures. Currently where are some performance issues with fs2 queue, however, this is the only solution that works correctly. We are working on a fix.  Please refer to these issues: [#4](https://github.com/parapet-io/parapet/issues/6), [#7](https://github.com/parapet-io/parapet/issues/7), [#8](https://github.com/parapet-io/parapet/issues/8)
+Performance mainly dependents on the underlying effect system. In general, there is always some performance and memory overhead associated with the use of Monads and immutable data structures.
+
+Performance test  spec:
+
+* 1M requests + 1M responses  = 2M events
+* CatsApp based
+* Number of workers - 12
+* Number of processes -  2 (one publisher, one consumer)
+* CPU:  Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz, 2208 Mhz, 6 Core(s), 12 Logical Processor(s)
+* RAM:  32GB
+* OS: Windows  10  x64
+
+Total time: `25206 ms`
+
 
 ##  Contribution
 
