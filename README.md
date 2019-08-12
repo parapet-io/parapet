@@ -641,7 +641,7 @@ Sum(2, 2) ~> calculator <-> new Calculator().apply(ref, Sum(2, 2)) // where ref 
 
 Processes can be combined using two logical operators: `or` and `and`.
 
-`and` - combines two processes by producing a new process with `ref` of the first process; combines flows iff 'handle' function is defined for the given event in both processes. Sends an error to the sender if one of the processes handle isn't defined for the given event.
+`and` - combines two processes by producing a new process with `ref` of the first process; combines flows iff 'handle' function is defined for the given event in both processes. Sends an error to the sender if either process handle isn't defined for the given event.
 
 Example:
 
