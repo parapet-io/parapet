@@ -1,11 +1,12 @@
 
+
 # Parapet - purely functional library to develop distributed and event-driven systems
 
 [![Build Status](https://travis-ci.org/parapet-io/parapet.svg?branch=master)](https://travis-ci.org/parapet-io/parapet)
-
+[![Join the chat](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/io-parapet/parapet)
 ## Motivation
 
-It's not a secret that writing distributed systems is a challenging task that can be logically broken into two main aspects: implementing distributed algorithms and running them. Parapet plays a role of execution framework for distributed algorithms, it can be viewed as an intermediate layer between a low-level effect library and high-level operations exposed in the form of DSL. Distributed engineers who mainly focused on designing and implementing distributed algorithms don't need to be worried about low-level abstractions such as `IO` or have a piece of deep knowledge in certain computer since subjects, for instance, _Concurrency_. All they need to know is what _properties_ the library satisfies and what _guarantees_ it provides. On the other hand, engineers who are specializing in writing low-level libraries can concentrate on implementing core abstractions such as `IO` or `Task`, working on performance optimizations and implementing new features. 
+It's not a secret that writing distributed systems is a challenging task that can be logically broken into two main aspects: implementing distributed algorithms and running them. Parapet plays the role of execution framework for distributed algorithms - it can be viewed as an intermediate layer between a low-level effect library and high-level operations exposed in the form of DSL. Distributed engineers who mainly focused on designing and implementing distributed algorithms don't need to be worried about low-level abstractions such as `IO` or have a piece of deep knowledge in certain computer science subjects, for instance, _Concurrency_. All they need to know is what _properties_ the library satisfies and what _guarantees_ it provides. On the other hand, engineers who are specializing in writing low-level libraries can concentrate on implementing core abstractions such as `IO` or `Task`, working on performance optimizations and implementing new features. 
 Parapet is the modular library where almost any component can be replaced with a custom implementation. 
 
 Distributed engineers unite!
@@ -26,7 +27,7 @@ Distributed engineers unite!
 
 ## Key Features
 
-* Purely functional library written in scala using Tagless-Final Style and Free Monads thoughtfully designed for people who prefer functional style over imperative
+* Purely functional library written in scala using Tagless-Final Style and Free Monads; thoughtfully designed for people who prefer functional style over imperative
 * Modular - almost any component can be replaced with a custom implementation
 * DSL provides a set of operations sufficient to write distributed algorithms
 * Lightweight and Performant. The library utilizes resources (CPU and Memory) smartly, the code is optimized to reduce CPU consumption when your application in idle state
@@ -46,7 +47,7 @@ For Monix add `libraryDependencies += "io.parapet" %% "interop-monix" % "0.0.1-R
 
 For Scalaz ZIO add `libraryDependencies += "io.parapet" %% "interop-scalaz-zio" % "0.0.1-RC1"`
 
-Once you added the library you can start writing your first program, however, it's worth taking a few minutes and getting familiar with two main approaches to write processes: generic and effect specific, I'll describe both in a minute. For those who aren't familiar with effect systems like Cats Effect, I'd strongly recommend you to read some articles about IO monad. Fortunately, you don't need to be an expert in Cats Effect to use Parapet.
+Once you added the library, you can start writing your first program.  However, it's worth taking a few minutes and getting familiar with two main approaches to write processes: generic and effect specific. I'll describe both in a minute. For those who aren't familiar with effect systems like Cats Effect, I'd strongly recommend you to read some articles about IO monad. Fortunately, you don't need to be an expert in Cats Effect to use Parapet.
 
 The first approach we'll consider is Generic. It's recommended to stick to this style when writing processes. Let's develop a simple printer process that will print users requests to the system output.
 
@@ -71,8 +72,8 @@ object Printer {
 }
 ```
 
-Let's walk through this code. You start writing your processes by extending `Process` trait and parameterizing it with an effect type. In this example we left so-called hole `F[_]` in our `Printer` type which can be any type constructor with a single argument, e.g. `F[_]` is a generic type constructor, cats effect `IO` is a specific type constructor and `IO[Unit]` is a concrete type. Starting from this moment it should become clear what it means for a process to be generic. Simply speaking it means that a process doesn't depend on any specific effect type e.g. `IO`. Thus we can claim that our `Printer` process is surely generic. The next step is to define a process API or contract that defines a set of events that it can send and receive. Process contract is an important part of any process specification that should be taken seriously. API defines a protocol that other processes will use to communicate with your process. Please remember that it's a very important aspect of any process definition and take it seriously. The next step would be importing `DSL`, Parapet DSL is a small set of operations -that we will consider in details in the next chapters-, in this example we need only `eval` operator that  suspends a side effect in `F`, in our Printer process we suspend `println` effectful computation. Finally, every process should override `handle` function defined in `Process` trait. `handle` function is a partial function that matches input events and produces an executable `flows`. If you ever tried Akka framework you may find this approach familiar (for the curious, `Receive` is simply a type alias for `PartialFunction[Event, DslF[F, Unit]]`). In our Printer process, we match on `Print` event using a well known pattern-matching feature in Scala language. If you are new in functional programming I'd strongly recommend to read about pattern-matching, it's a very powerful instrument. 
-That's it, we have considered every important aspect of our Printer process, let's move forward and write a simple client process that will talk to our Printer.
+Let's walk through this code. You start writing your processes by extending `Process` trait and parameterizing it with an effect type. In this example, we left so-called hole `F[_]` in our `Printer` type which can be any type constructor with a single argument, e.g. `F[_]` is a generic type constructor, cats effect `IO` is a specific type constructor and `IO[Unit]` is a concrete type. Starting from this moment, it should become clear what it means for a process to be generic. Simply speaking, it means that a process doesn't depend on any specific effect type e.g. `IO`. Thus we can claim that our `Printer` process is surely generic. The next step is to define a process API or contract that defines a set of events that it can send and receive. Process contract is an important part of any process specification that should be taken seriously. API defines a protocol that other processes will use to communicate with your process. Please remember that it's a very important aspect of any process definition and take it seriously. The next step would be importing `DSL`, Parapet DSL is a small set of operations that we will consider in detail in the next chapters. In this example, we need only `eval` operator that  suspends a side effect in `F`, in our Printer process we suspend `println` effectful computation. Finally, every process should override `handle` function defined in `Process` trait. `handle` function is a partial function that matches input events and produces an executable `flows`. If you ever tried Akka framework you may find this approach familiar (for the curious, `Receive` is simply a type alias for `PartialFunction[Event, DslF[F, Unit]]`). In our Printer process, we match on `Print` event using a well known pattern-matching feature in Scala language. If you are new in functional programming, I'd strongly recommend to read about pattern-matching - it's a very powerful instrument. 
+That's it. We have considered every important aspect of our `Printer` process. Let's move forward and write a simple client process that will talk to our `Printer`.
 
 
 ```scala
@@ -88,12 +89,12 @@ class PrinterClient[F[_]](printer: ProcessRef) extends Process[F] {
 }
 ```
 
-As you already might have noticed we are repeating the same steps we made when were writing our `Printer` process: 
+As you already might have noticed, we are repeating the same steps we made when were writing our `Printer` process: 
 * Create a new Process with a  _hole_ `F[_]` in its type definition
 * Extend `io.parapet.core.Process` trait and parametrizing it with generic effect type `F`
 * Implement `handle` partial function
 
-Let's consider some new types and operators we have used to write our client: `ProcessRef`, `Start` lifecycle event and `~>` (send) infix operator. Let's start from  `ProcessRef`. `ProcessRef` is a unique process identifier (UUID by default), it represents a process address in Parapet system and *must* be unique, it's recommended to use `ProcessRef` instead of a `Process` object directly unless you are sure you want otherwise. It's not prohibited to use `Process` object directly, however using a process reference may be useful in some scenarios. Let's consider one such case. Imagine we want to dynamically change the current `Printer` process in our client so that it will store data in a file on disk instead of printing it to the console. We can add a new event `ChangePrinter`:
+Let's consider some new types and operators we have used to write our client: `ProcessRef`, `Start` lifecycle event and `~>` (send) infix operator. Let's start from  `ProcessRef`. `ProcessRef` is a unique process identifier (UUID by default). It represents a process address in Parapet system and *must* be unique - it's recommended to use `ProcessRef` instead of a `Process` object directly unless you are sure you want otherwise. It's not prohibited to use `Process` object directly, however using a process reference may be useful in some scenarios. Let's consider one such case. Imagine we want to dynamically change the current `Printer` process in our client so that it will store data in a file on disk instead of printing it to the console. We can add a new event `ChangePrinter`:
 
 ```scala
 case class ChangePrinter(printer: ProcessRef) extends Event
@@ -638,7 +639,175 @@ Sum(2, 2) ~> calculator <-> new Calculator().apply(ref, Sum(2, 2)) // where ref 
 
 ### Process combinators
 
+Processes can be combined using two logical operators: `or` and `and`.
+
+`and` - combines two processes by producing a new process with `ref` of the first process; combines flows iff 'handle' function is defined for the given event in both processes. Sends an error to the sender if either of two processes isn't defined for the given event.
+
+Example:
+
+```scala
+import cats.effect.IO
+import io.parapet.CatsApp
+import io.parapet.core.Event.Start
+import io.parapet.core.{Event, Process}
+
+object Example extends CatsApp {
+
+  import dsl._
+
+  case class Print(data: Any) extends Event
+
+  override def processes: IO[Seq[Process[IO]]] =
+    for {
+      printerA <- IO.pure(Process[IO](_ => {
+        case Print(data) => eval(println(s"printerA: $data"))
+      }))
+      printerB <- IO.pure(Process[IO](_ => {
+        case Print(data) => eval(println(s"printerB: $data"))
+      }))
+
+      client <- IO.pure(Process[IO](ref => {
+        case Start => printerA.and(printerB).apply(ref, Print("test"))
+      }))
+
+    } yield Seq(printerA, printerB, client)
+
+}
+```
+
+If you want to register a combined process then you don't need to register `printerA`.
+
+Example:
+
+```scala
+import cats.effect.IO
+import io.parapet.CatsApp
+import io.parapet.core.Event.Start
+import io.parapet.core.{Event, Process}
+
+object Example extends CatsApp {
+
+  import dsl._
+
+  case class Print(data: Any) extends Event
+
+  override def processes: IO[Seq[Process[IO]]] =
+    for {
+      printerA <- IO.pure(Process[IO](_ => {
+        case Print(data) => eval(println(s"printerA: $data"))
+      }))
+      printerB <- IO.pure(Process[IO](_ => {
+        case Print(data) => eval(println(s"printerB: $data"))
+      }))
+
+      combined <- IO.pure(printerA.and(printerB))
+
+      client <- IO.pure(Process[IO](_ => {
+        case Start => Print("test") ~> combined
+      }))
+
+    } yield Seq(combined, printerB, client)
+
+}
+```
+
+`or` - creates a new process with `ref` of the first process. A combined process refers to the first process if its `handle` is defined for the given event, otherwise, to the second process. Sends an error to the sender if neither process is defined for the given event.
+
+Example:
+
+```scala
+import cats.effect.IO
+import io.parapet.CatsApp
+import io.parapet.core.Event.Start
+import io.parapet.core.{Event, Process}
+
+object Example extends CatsApp {
+
+  import dsl._
+
+  case class Print(data: Any) extends Event
+
+  override def processes: IO[Seq[Process[IO]]] =
+    for {
+      printerA <- IO.pure(Process[IO](_ => {
+        case Print(data: Int) => eval(println(s"printerA: $data"))
+      }))
+      printerB <- IO.pure(Process[IO](_ => {
+        case Print(data: String) => eval(println(s"printerB: $data"))
+      }))
+
+      combined <- IO.pure(printerA.or(printerB))
+
+      client <- IO.pure(Process[IO](_ => {
+        case Start => Print("test") ~> combined ++ Print(1) ~> combined
+      }))
+
+    } yield Seq(combined, printerB, client)
+}
+```
+
 ### Testing your processes
+
+Integration tests in parapet written in a generic style that we discussed before so that the same tests can be run against any effect system. Let's try to write a simple test for a proxy process. The first thing you need to do is to add `test-utils` library into your project:
+
+```scala
+libraryDependencies += "io.parapet" %% "test-utils" % version
+```
+
+A simple proxy process that receives requests and forwards them to a `service`
+
+```scala
+  class Proxy(service: ProcessRef) extends Process[F] {
+    override def handle: Receive = {
+      case Request(data) => Request(s"proxy-$data") ~> service
+    }
+  }
+```
+
+Test for our `Proxy`:
+
+```scala
+import io.parapet.core.{Event, Process, ProcessRef}
+import io.parapet.tests.intg.ProxySpec._
+import io.parapet.testutils.{EventStore, IntegrationSpec}
+import org.scalatest.FunSuite
+import org.scalatest.Matchers._
+import org.scalatest.OptionValues._
+
+
+abstract class ProxySpec[F[_]] extends FunSuite with IntegrationSpec[F] {
+
+  import dsl._
+  
+  test("proxy") {
+    val eventStore = new EventStore[F, Event]
+    val testService = Process(ref => {
+      case req: Request => eval(eventStore.add(ref, req))
+    })
+
+    val proxy = new Proxy[F](testService.ref)
+
+    val init = onStart(Request("req") ~> proxy)
+
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, testService, proxy))).run))
+
+    eventStore.get(testService.ref).headOption.value shouldBe Request("proxy-req")
+  }
+
+}
+```
+
+In order to run this test against Cats Effect IO you need to extend `BasicCatsIOSpec`:
+
+```scala
+import cats.effect.IO
+import io.parapet.testutils.BasicCatsIOSpec
+
+class ProxySpec extends io.parapet.tests.intg.ProxySpec[IO] with BasicCatsIOSpec
+```
+
+
+
 
 ### Basic patterns and tips
 
@@ -911,16 +1080,31 @@ errorMsg: process [name=undefined, ref=server] has failed to handle event: Reque
 
 ## Configuration
 
-`ParConfig` :
+Parapet system can be configured by providing an instance of `ParConfig`.
+
+Example:
+
+```scala
+import cats.effect.IO
+import io.parapet.core.Parapet.ParConfig
+import io.parapet.{CatsApp, core}
+ 
+object ConfigExample extends CatsApp{
+  override def processes: IO[Seq[core.Process[IO]]] = _
+ 
+  override val config: ParConfig = ParConfig(...)
+}
+```
+
+`ParConfig` has the following properties:
+
 * schedulerConfig: 
   * queueSize - size  of event queue shared  by workers
   * numberOfWorkers - number of workers; default = availableProcessors
-  * processQueueSize -  size  of event queue  per individual  process
+  * processQueueSize -  size  of event queue  per individual  process, `-1` - unbounded 
 
 You should set `queueSize` to a value that would match the expected workload. For example, if you are going to send 1M events within the same flow it's recommended to set  `queueSize` to 1M. However, it depends on how fast your consumer processes and amount of available memory, if that's possible to keep some amount of events in memory -  go for it, if not - you will probably need to reconsider your design decisions. 
 In a case the event queue is full all events will be redirected to `EventLog` (see the corresponding section).
-
-`processQueueSize` can be calculated using simple formula: `queueSize / numberOfWorkers` 
 
 ## EventLog
 
@@ -945,7 +1129,20 @@ Please refer to [components/algorithms](https://github.com/parapet-io/parapet/tr
 
 ## Performance Analysis
 
-Performance mainly dependents on the underlying effect system. In general, there is always some performance and memory overhead associated with the use of Monads and immutable data structures. Currently where are some performance issues with fs2 queue, however, this is the only solution that works correctly. We are working on a fix.  Please refer to these issues: [#4](https://github.com/parapet-io/parapet/issues/6), [#7](https://github.com/parapet-io/parapet/issues/7), [#8](https://github.com/parapet-io/parapet/issues/8)
+Performance mainly dependents on the underlying effect system. In general, there is always some performance and memory overhead associated with the use of Monads and immutable data structures.
+
+Performance test  spec:
+
+* 1M requests + 1M responses  = 2M events
+* CatsApp based
+* Number of workers - 12
+* Number of processes -  2 (one publisher, one consumer)
+* CPU:  Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz, 2208 Mhz, 6 Core(s), 12 Logical Processor(s)
+* RAM:  32GB
+* OS: Windows  10  x64
+
+Total time: `25206 ms`
+
 
 ##  Contribution
 
