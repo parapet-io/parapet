@@ -5,7 +5,9 @@ out
 build
 *.class
 classes
-project
+project/project
+project/target
+project/build.properties
 site/node_modules
 
 # IntelliJ project files
