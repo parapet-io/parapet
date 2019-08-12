@@ -639,6 +639,113 @@ Sum(2, 2) ~> calculator <-> new Calculator().apply(ref, Sum(2, 2)) // where ref 
 
 ### Process combinators
 
+Processes can be combined using two logical operators: `or` and `and`.
+
+`and` - combines two processes by producing a new process with `ref` of the first process; combines flows iff 'handle' function is defined for the given event in both processes. Sends an error to the sender if one of the processes handle isn't defined for the given event.
+
+Example:
+
+```scala
+import cats.effect.IO
+import io.parapet.CatsApp
+import io.parapet.core.Event.Start
+import io.parapet.core.{Event, Process}
+
+object Example extends CatsApp {
+
+  import dsl._
+
+  case class Print(data: Any) extends Event
+
+  override def processes: IO[Seq[Process[IO]]] =
+    for {
+      printerA <- IO.pure(Process[IO](_ => {
+        case Print(data) => eval(println(s"printerA: $data"))
+      }))
+      printerB <- IO.pure(Process[IO](_ => {
+        case Print(data) => eval(println(s"printerB: $data"))
+      }))
+
+      client <- IO.pure(Process[IO](ref => {
+        case Start => printerA.and(printerB).apply(ref, Print("test"))
+      }))
+
+    } yield Seq(printerA, printerB, client)
+
+}
+```
+
+If you want to register a combined process then don't need to register `printerA`.
+
+Example:
+
+```scala
+import cats.effect.IO
+import io.parapet.CatsApp
+import io.parapet.core.Event.Start
+import io.parapet.core.{Event, Process}
+
+object Example extends CatsApp {
+
+  import dsl._
+
+  case class Print(data: Any) extends Event
+
+  override def processes: IO[Seq[Process[IO]]] =
+    for {
+      printerA <- IO.pure(Process[IO](_ => {
+        case Print(data) => eval(println(s"printerA: $data"))
+      }))
+      printerB <- IO.pure(Process[IO](_ => {
+        case Print(data) => eval(println(s"printerB: $data"))
+      }))
+
+      combined <- IO.pure(printerA.and(printerB))
+
+      client <- IO.pure(Process[IO](_ => {
+        case Start => Print("test") ~> combined
+      }))
+
+    } yield Seq(combined, printerB, client)
+
+}
+```
+
+`or` - creates a new process with `ref` of the first process. A combined process refers to the first process if its `handle` is defined for the given event, otherwise, to the second process. Sends an error to the sender if neither process is defined for the given event.
+
+Example:
+
+```scala
+import cats.effect.IO
+import io.parapet.CatsApp
+import io.parapet.core.Event.Start
+import io.parapet.core.{Event, Process}
+
+object Example extends CatsApp {
+
+  import dsl._
+
+  case class Print(data: Any) extends Event
+
+  override def processes: IO[Seq[Process[IO]]] =
+    for {
+      printerA <- IO.pure(Process[IO](_ => {
+        case Print(data: Int) => eval(println(s"printerA: $data"))
+      }))
+      printerB <- IO.pure(Process[IO](_ => {
+        case Print(data: String) => eval(println(s"printerB: $data"))
+      }))
+
+      combined <- IO.pure(printerA.or(printerB))
+
+      client <- IO.pure(Process[IO](_ => {
+        case Start => Print("test") ~> combined ++ Print(1) ~> combined
+      }))
+
+    } yield Seq(combined, printerB, client)
+}
+```
+
 ### Testing your processes
 
 Integration tests in parapet written in a generic style that we discussed before so that the same tests can be run against any effect system. Let's try to write a simple test for a proxy process. The first thing you need to do is to add `test-utils` library into your project:
