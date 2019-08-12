@@ -3,7 +3,7 @@
 # Parapet - purely functional library to develop distributed and event-driven systems
 
 [![Build Status](https://travis-ci.org/parapet-io/parapet.svg?branch=master)](https://travis-ci.org/parapet-io/parapet)
-
+[![Join the chat](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/io-parapet/parapet)
 ## Motivation
 
 It's not a secret that writing distributed systems is a challenging task that can be logically broken into two main aspects: implementing distributed algorithms and running them. Parapet plays the role of execution framework for distributed algorithms - it can be viewed as an intermediate layer between a low-level effect library and high-level operations exposed in the form of DSL. Distributed engineers who mainly focused on designing and implementing distributed algorithms don't need to be worried about low-level abstractions such as `IO` or have a piece of deep knowledge in certain computer science subjects, for instance, _Concurrency_. All they need to know is what _properties_ the library satisfies and what _guarantees_ it provides. On the other hand, engineers who are specializing in writing low-level libraries can concentrate on implementing core abstractions such as `IO` or `Task`, working on performance optimizations and implementing new features. 
@@ -641,7 +641,7 @@ Sum(2, 2) ~> calculator <-> new Calculator().apply(ref, Sum(2, 2)) // where ref 
 
 Processes can be combined using two logical operators: `or` and `and`.
 
-`and` - combines two processes by producing a new process with `ref` of the first process; combines flows iff 'handle' function is defined for the given event in both processes. Sends an error to the sender if either process handle isn't defined for the given event.
+`and` - combines two processes by producing a new process with `ref` of the first process; combines flows iff 'handle' function is defined for the given event in both processes. Sends an error to the sender if either of two processes isn't defined for the given event.
 
 Example:
 
@@ -675,7 +675,7 @@ object Example extends CatsApp {
 }
 ```
 
-If you want to register a combined process then don't need to register `printerA`.
+If you want to register a combined process then you don't need to register `printerA`.
 
 Example:
 
@@ -1080,16 +1080,31 @@ errorMsg: process [name=undefined, ref=server] has failed to handle event: Reque
 
 ## Configuration
 
-`ParConfig` :
+Parapet system can be configured by providing an instance of `ParConfig`.
+
+Example:
+
+```scala
+import cats.effect.IO
+import io.parapet.core.Parapet.ParConfig
+import io.parapet.{CatsApp, core}
+ 
+object ConfigExample extends CatsApp{
+  override def processes: IO[Seq[core.Process[IO]]] = _
+ 
+  override val config: ParConfig = ParConfig(...)
+}
+```
+
+`ParConfig` has the following properties:
+
 * schedulerConfig: 
   * queueSize - size  of event queue shared  by workers
   * numberOfWorkers - number of workers; default = availableProcessors
-  * processQueueSize -  size  of event queue  per individual  process
+  * processQueueSize -  size  of event queue  per individual  process, `-1` - unbounded 
 
 You should set `queueSize` to a value that would match the expected workload. For example, if you are going to send 1M events within the same flow it's recommended to set  `queueSize` to 1M. However, it depends on how fast your consumer processes and amount of available memory, if that's possible to keep some amount of events in memory -  go for it, if not - you will probably need to reconsider your design decisions. 
 In a case the event queue is full all events will be redirected to `EventLog` (see the corresponding section).
-
-`processQueueSize` can be calculated using simple formula: `queueSize / numberOfWorkers` 
 
 ## EventLog
 
