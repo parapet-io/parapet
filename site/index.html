@@ -1,0 +1,1452 @@
+<!DOCTYPE html>
+<!--[if lt IE 7 ]><html class="ie ie6" lang="en"> <![endif]-->
+<!--[if IE 7 ]><html class="ie ie7" lang="en"> <![endif]-->
+<!--[if IE 8 ]><html class="ie ie8" lang="en"> <![endif]-->
+<!--[if (gte IE 9)|!(IE)]><!-->
+<html lang="en">
+<!--<![endif]-->
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <meta name="description" content="">
+    <meta name="author" content="">
+    <meta name="keywords" content="">
+    <title>Item Name | Documentation by Author Name</title>
+    <link rel="shortcut icon" href="images/favicon.png" type="image/x-icon">
+    <link rel="stylesheet" type="text/css" href="fonts/font-awesome-4.3.0/css/font-awesome.min.css">
+    <link rel="stylesheet" type="text/css" href="css/stroke.css">
+    <link rel="stylesheet" type="text/css" href="css/bootstrap.css">
+    <link rel="stylesheet" type="text/css" href="css/animate.css">
+    <link rel="stylesheet" type="text/css" href="css/prettyPhoto.css">
+    <link rel="stylesheet" type="text/css" href="css/style.css">
+    <link rel="stylesheet" type="text/css" href="js/syntax-highlighter/styles/shCore.css" media="all">
+    <link rel="stylesheet" type="text/css" href="js/syntax-highlighter/styles/shThemeRDark.css" media="all">
+    <!-- CUSTOM -->
+    <link rel="stylesheet" type="text/css" href="css/custom.css">
+    <link rel="stylesheet" type="text/css" href="css/code-prettify-desert.css">
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+      <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <![endif]-->
+</head>
+
+<body>
+    <div id="wrapper">
+        <div class="container">
+            <section id="top" class="section docs-heading">
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="big-title text-center">
+                            <h1>Parapet</h1>
+                            <p class="lead">A purely functional library to build distributed and event-driven systems</p>
+                        </div>
+                        <!-- end title -->
+                    </div>
+                    <!-- end 12 -->
+                </div>
+                <!-- end row -->
+                <hr>
+                <div class="row">
+                    <div class="col-md-12 text-center">
+                        <a href="https://github.com/parapet-io/parapet/">
+                            <a class="github-button" href="https://github.com/parapet-io/parapet/" data-icon="octicon-star" data-show-count="true" aria-label="Star parapet-io/parapet on GitHub">Star</a>
+                            <a class="github-button" href="https://github.com/parapet-io/parapet/subscription" data-icon="octicon-eye" aria-label="Watch parapet-io/parapet on GitHub">Watch</a>
+                            <p />
+                            <a href="https://travis-ci.org/parapet-io/parapet">
+                                <img border="0" src="https://travis-ci.org/parapet-io/parapet.svg?branch=master">
+                            </a>
+                            <a href="https://gitter.im/io-parapet/parapet">
+                                <img border="0" src="https://badges.gitter.im/Join%20Chat.svg">
+                            </a>
+                    </div>
+                </div>
+                <!-- end row -->
+                <hr>
+            </section>
+            <!-- end section -->
+            <div class="row">
+                <div class="col-md-3">
+                    <nav class="docs-sidebar" data-spy="affix" data-offset-top="300" data-offset-bottom="200" role="navigation">
+                        <ul class="nav">
+                            <li><a href="#line1">Key Features</a></li>
+                            <li><a href="#line2">Getting Started</a></li>
+                            <li><a href="#line3">DSL
+                                    <ul class="nav">
+                                        <li><a href="#line3_1">unit</a></li>
+                                        <li><a href="#line3_2">flow</a></li>
+                                        <li><a href="#line3_3">send</a></li>
+                                        <li><a href="#line3_4">forward</a></li>
+                                        <li><a href="#line3_5">par</a></li>
+                                        <li><a href="#line3_6">delay</a></li>
+                                        <li><a href="#line3_7">withSender</a></li>
+                                        <li><a href="#line3_8">fork</a></li>
+                                        <li><a href="#line3_9">register</a></li>
+                                        <li><a href="#line3_10">race</a></li>
+                                        <li><a href="#line3_11">suspend</a></li>
+                                        <li><a href="#line3_12">suspendWith</a></li>
+                                        <li><a href="#line3_13">eval</a></li>
+                                        <li><a href="#line3_14">evalWith</a></li>
+                                    </ul>
+                            </li>
+                            <li><a href="#line4">Process</a>
+                                <ul class="nav">
+                                    <li><a href="#line4_1">Predefined processes and reserved references</a></li>
+                                    <li><a href="#line4_2">Switching process behavior</a></li>
+                                    <li><a href="#line4_3">Direct process call</a></li>
+                                    <li><a href="#line4_4">Process combinators</a></li>
+                                    <li><a href="#line4_5">Testing your processes</a></li>
+                                    <li><a href="#line4_6">Basic patterns and tips</a></li>
+                                </ul>
+                            </li>
+                            <li><a href="#line5">Channel</a></li>
+                            <li><a href="#line6">Error Handling</a>
+                                <ul class="nav">
+                                    <li><a href="#line6_1">DeadLetterProcess</a></li>
+                                </ul>
+                            </li>
+                            <li><a href="#line7">EventLog</a></li>
+                            <li><a href="#line8">Configuration</a></li>
+                            <li><a href="#line9">Correctness Properties</a></li>
+                            <li><a href="#line10">Distributed Algorithms in Parapet</a></li>
+                            <li><a href="#line11">Contribution</a></li>
+                            <li><a href="#line12">Copyright and license</a></li>
+                        </ul>
+                    </nav>
+                </div>
+                <div class="col-md-9">
+                    <section class="welcome">
+                        <div class="row">
+                            <div class="col-md-12 left-align">
+                                <h2 class="dark-text">Introduction
+                                    <hr>
+                                </h2>
+                                <div class="row">
+                                    <div class="col-md-12 full">
+                                        <div class="intro1">
+                                            <ul>
+                                                <li><strong>Version : </strong> 0.0.1-RC1</li>
+                                                <li><strong>Author : </strong> Roman Pleshkov (dmgcodevil)</li>
+                                                <li><strong>Github : </strong> <a href="https://github.com/parapet-io/parapet" target="_blank">https://github.com/parapet-io/parapet</a></li>
+                                                <li><strong>License : </strong> <a href="http://www.apache.org/licenses/LICENSE-2.0" target="_blank">Apache License, Version 2.0</a></li>
+                                            </ul>
+                                        </div>
+                                        <hr>
+                                        <div>
+                                            <p>
+                                                It's not a secret that writing distributed systems is a challenging task that can be logically broken into two main aspects: implementing distributed algorithms and running them. <strong>Parapet</strong> plays the role of execution framework for distributed algorithms - it can be viewed as an intermediate layer between a low-level effect library and high-level operations exposed in the form of <em>DSL</em>. Distributed engineers who mainly focused on designing and implementing distributed algorithms don't need to be worried about low-level abstractions such as <code>IO</code> or have a piece of deep knowledge in certain computer science subjects, for instance, <em>Concurrency</em>. All they need to know is what <em>properties</em> the library satisfies and what <em>guarantees</em> it provides. On the other hand, engineers who are specializing in writing low-level libraries can concentrate on implementing core abstractions such as <code>IO</code> or <code>Task</code>, working on performance optimizations and implementing new features. Parapet is the modular library where almost any component can be replaced with a custom implementation.
+                                            </p>
+                                            <h4>Prerequisites</h4>
+                                            Before starting using Parapet it's recommended to get familiar with the following topics:
+                                            <ul>
+                                                <li>Basic functional abstractions such as <code>Monad</code>, <code>Free Monad</code>, <code>Functor</code>. However, understanding of the underlying monad theory is not necessary to use the library. Links: <a href="https://underscore.io/books/scala-with-cats/" target="_blank">Scala with Cats Book</a> is a very good start,
+                                                    <a href="https://www.haskell.org/tutorial/io.html" target="_blank">A Gentle Introduction to I/O</a>,
+                                                    <a href="https://typelevel.org/cats/datatypes/freemonad.html" target="_blank">Free Monad</a>,
+                                                    <a href="http://www.cs.ru.nl/~W.Swierstra/Publications/DataTypesALaCarte.pdf" target="_blank">Data types a la carte</a> +
+                                                    <a href="https://typelevel.org/cats/api/cats/InjectK.html" target="_blank">InjectK in Cats</a></li>
+                                                <li>Models of process communications: <code>Synchronous/Asynchronous</code></li>
+                                                <li>Models of communication networks: <code>FIFO/non-FIFO</code> </li>
+                                                <li>Correctness properties of concurrent and distributed systems: <code>Liveness</code> and <code>Safety</code></li>
+                                                <li>Consistency models</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- end row -->
+                            </div>
+                        </div>
+                    </section>
+                    <section id="line1" class="section">
+                        <div class="row">
+                            <div class="col-md-12 left-align">
+                                <h2 class="dark-text">Key Features <a href="#top">#back to top</a>
+                                    <hr>
+                                </h2>
+                                <ul>
+                                    <li>
+                                        <strong>Purely functional</strong> library written in scala using <em>Tagless-Final</em> Style and <em>Free Monads</em>; thoughtfully designed for people who prefer functional style over imperative
+                                    </li>
+                                    <li>
+                                        <strong>Modular</strong> - almost any component can be replaced with a custom implementation
+                                    </li>
+                                    <strong>DSL</strong> provides a set of operations sufficient to write distributed algorithms
+                                    <li>
+                                        <strong>Lightweight and Performant</strong>. The library utilizes resources (CPU and Memory) smartly, the code is optimized to reduce CPU consumption when your application in idle state
+                                    </li>
+                                    <li>
+                                        <strong>Built-in support</strong> for the following effect libraries: Cats Effect, Monix, and Scalaz ZIO. The library can be extended to support other effect libraries: <a href="https://typelevel.org/cats-effect/" target="_blank">Cats Effect</a>,<a href="https://monix.io/" target="_blank">Monix</a>, and <a href="https://zio.dev/" target="_blank">Scalaz ZIO</a>
+                                    </li>
+                                </ul>
+                            </div>
+                            <!-- end col -->
+                        </div>
+                    </section id="line1" class="section">
+                    <section id="line2" class="section">
+                        <div class="row">
+                            <div class="col-md-12 left-align">
+                                <h2 class="dark-text">Getting Started <a href="#top">#back to top</a>
+                                    <hr>
+                                </h2>
+                            </div>
+                            <!-- end col -->
+                        </div>
+                        <!-- end row -->
+                        <div class="row">
+                            <div class="col-md-12">
+                                The first thing you need to do is to add two dependencies into your project: <code>parapet-core</code> and <code>interop-{effect_library}</code> for a specific effect library. You can find the latest version in maven central.
+                                <p><code>libraryDependencies += "io.parapet" %% "core" % "0.0.1-RC1"</code></p>
+                                <lu>
+                                    <li>
+                                        For Cats Effect add <code>libraryDependencies += "io.parapet" %% "interop-cats" % "0.0.1-RC1"</code>
+                                    </li>
+                                    <li>
+                                        For Monix add <code>libraryDependencies += "io.parapet" %% "interop-monix" % "0.0.1-RC1"</code>
+                                    </li>
+                                    <li>
+                                        For Scalaz ZIO add <code>libraryDependencies += "io.parapet" %% "interop-scalaz-zio" % "0.0.1-RC1"</code>
+                                    </li>
+                                </lu>
+                                <p>
+                                    Once you added the library, you can start writing your first program. However, it's worth taking a few minutes and getting familiar with two main approaches to write processes: <code>Generic</code> and <code>Effect Specific</code>. I'll describe both in a minute. For those who aren't familiar with effect systems like <code>Cats Effect</code>, I'd strongly recommend you to read some articles about <code>IO</code> monad or the <a href="https://typelevel.org/cats-effect/">official</a> documentation. Fortunately, you don't need to be an expert in <code>Cats Effect</code> to use Parapet.
+                                </p>
+                                <p>
+                                    The first approach we'll consider is <code>Generic</code>. It's recommended to stick to this style when writing processes. Let's develop a simple <em>Printer</em> process that will print users requests to the system output.
+                                </p>
+                                <pre class="brush: scala">
+                            import io.parapet.core.{Event, Process}
+
+                            class Printer[F[_]] extends Process[F] {
+
+                              import Printer._ //  import Printer API
+
+                              import dsl._ // import DSL operations
+
+                              override def handle: Receive = {
+                                case Print(data) => eval(println(data))
+                              }
+                            }
+
+                            object Printer {
+
+                              case class Print(data: Any) extends Event
+
+                            }</pre>
+                                <p />
+                                Let's walk through this code. You start writing your processes by extending <code>Process</code> trait and parameterizing it with an effect type. In this example, we left so-called <em>hole</em> <code>F[_]</code> in our
+                                <code>Printer</code> type which can be any <em>type constructor</em> with a single argument, e.g. <code>F[_]</code> is a generic type constructor, cats effect <code>IO</code> is a specific type constructor and <code>IO[Unit]</code> is a concrete type. Starting from this moment, it should become clear what it means for a process to be <code>generic</code>. Simply speaking, it means that a process doesn't depend on any specific effect type e.g. <code>IO</code>. Thus we can claim that our <code>Printer</code> process is surely generic. The next step is to define a process <code>API</code> or contract that defines a set of events that it can send and receive. Process contract is an important part of any process specification that should be taken seriously. API defines a protocol that other processes will use to communicate with your process. Please remember that it's a very important aspect of any process definition and take it seriously. The next step would be importing <code>DSL</code>, <strong>Parapet DSL</strong> is a small set of operations that we will consider in detail in the next chapters. In this example, we need only <code>eval</code> operator that suspends a side effect in <code>F</code>, in our Printer process we suspend <code>println</code> effectful computation. Finally, every process should override <code>handle</code> function defined in <code>Process</code> trait. <code>handle</code> function is a partial function that matches input events and produces an executable <code>flows</code>. If you ever tried <em>Akka framework</em> you may find this approach familiar (for the curious, <code>Receive</code> is simply a type alias for <code>PartialFunction[Event, DslF[F, Unit]]</code>). In our Printer process, we match on <code>Print</code> event using a well known <em>pattern-matching</em> feature in Scala language. If you are new in functional programming, I'd strongly recommend to read about pattern-matching - it's a very powerful instrument.
+                                That's it. We have considered every important aspect of our <code>Printer</code> process.
+                                <p>
+                                    Let's move forward and write a simple client process that will talk to our <code>Printer</code>.
+                                </p>
+                                <pre class="brush: scala">
+                            import io.parapet.core.Event.Start
+                            import io.parapet.core.{Process, ProcessRef}
+                            import io.parapet.examples.Printer._ // import Printer API
+
+                            class PrinterClient[F[_]](printer: ProcessRef) extends Process[F] {
+                              override def handle: Receive = {
+                                // Start is a lifecycle event that gets delivered when a process started
+                                case Start => Print("hello world") ~> printer
+                              }
+                            }
+                         </pre>
+                                <p>
+                                    As you already might have noticed, we are repeating the same steps we made when were writing our <code>Printer</code> process:
+                                    <lu>
+                                        <li> Create a new Process with a <em>hole</em> <code>F[_]</code> in its type definition </li>
+                                        <li> Extend <code>io.parapet.core.Process</code> trait and parametrizing it with generic effect type <code>F</code> </li>
+                                        <li> Implement <code>handle</code> partial function </li>
+                                    </lu>
+                                </p>
+                                <p>
+                                    Let's consider some new types and operators we have used to write our client: <code>ProcessRef</code>, <code>Start</code> lifecycle event and <code>~></code> (send) infix operator. Let's start from <code>ProcessRef</code>. <code>ProcessRef</code> is a <strong>unique</strong> process identifier (UUID by default). It represents a process address in Parapet system and <strong>must</strong> be unique - it's recommended to use <code>ProcessRef</code> instead of a <code>Process</code> object directly unless you are sure you want otherwise. It's not prohibited to use <code>Process</code> object directly, however using a process reference may be useful in some scenarios. Let's consider one such case. Imagine we want to dynamically change the current <code>Printer</code> process in our client so that it will store data in a file on disk instead of printing it to the console. We can add a new event <code>ChangePrinter</code>:</p>
+                                <pre class="brush: scala">
+                            case class ChangePrinter(printer: ProcessRef) extends Event
+                         </pre>
+                                <p>Then our client will look like this:</p>
+                                <pre class="brush: scala">
+                              class PrinterClient[F[_]](private var printer: ProcessRef) extends Process[F] {
+ 
+                              import PrinterClient._
+                              import dsl._
+
+
+                              override def handle: Receive = {
+                                case Start => Print("hello world") ~> printer
+                                case ChangePrinter(newPrinter) => eval(printer = newPrinter)
+                              }
+                            }
+
+                            object PrinterClient {
+
+                              case class ChangePrinter(printer: ProcessRef) extends Event
+
+                            }
+                         </pre>
+                                <p>
+                                    This design cannot be achieved when using direct processes b/c it's not possible to send `Process` objects, processes are <strong>NOT</strong> serializable in general. One more thing, you can override a <code>Process#ref</code> field, only make sure it's unique otherwise Parapet system will return an error during the startup.
+                                </p>
+                                <p>
+                                    Ok, we are almost done! There are a few more things left we need to cover: <code>Start</code> lifecycle event and <code>~></code> operator and there is nothing special about these two. Parapet has two lifecycle events:
+                                </p>
+                                <p>
+                                    <lu>
+                                        <li> <code>io.parapet.core.Event.Start</code> is sent to a process once it's created in Parapet system </li>
+                                        <li> <code>io.parapet.core.Event.Stop</code> is sent to a process when an application is interrupted with <code>Ctrl-C</code> or when some other process sent <code>Stop</code> or <code>Kill</code> event to that process. The main difference between <code>Stop</code> and <code>Kill</code> is that in the former case a process can finish processing all pending events before it will receive <code>Stop</code> event, whereas <code>Kill</code> will interrupt a process and then deliver <code>Stop</code> event, all pending events will be discarded. If you familiar with Java <code>ExecutorService</code> then you can think of <code>Stop</code> as <code>shutdown</code> and <code>Kill</code> as <code>shutdownNow</code>.</li>
+                                    </lu>
+                                </p>
+                                <p>
+                                    Finally <code>~></code> is the most frequently used operator that is defined for any type that extends <code>io.parapet.core.Event</code> trait. <code>~></code> is just a symbolic name for <code>send(event, processRef)</code> operator.
+                                </p>
+                                <p>
+                                    By this moment we have two processes: <code>Printer</code> and <code>PrinterClient</code>, nice! But wait, we need to run them somehow, right?
+                                    Fortunately, it's extremely easy to do so, all we need is to create <code>PrinterApp</code> object which represents our application and extend it from <code>CatsApp</code> abstract class. <code>CatsApp</code> extends ParApp by specifying concrete effect type <code>IO</code>:
+                                </p>
+                                <pre class="brush: scala">
+abstract class CatsApp extends ParApp[IO]
+</pre>
+                                <code>CatsApp</code> is provided by the library.
+                                <pre class="brush: scala">
+import cats.effect.IO
+import io.parapet.CatsApp
+import io.parapet.core.Process
+
+object PrinterApp extends CatsApp {
+  override def processes: IO[Seq[Process[IO]]] = IO {
+    val printer = new Printer[IO]
+    val printerClient = new PrinterClient[IO](printer.ref)
+    Seq(printer, printerClient)
+  }
+}
+</pre>
+                                <p>
+                                    This is Cats Effect specific application, meaning it uses <code>Cats IO</code> type under the hood. If you run your program you should see <code>hello world</code> printed to the console. Also notice that we are using concrete effect type IO to fill the hole in our <code>Printer</code> type, e.g.: <code>new Printer[IO]</code> in practice it can be any other effect type like <code>Task</code>, although it requires some extra work in the library.
+                                    In our example, we created <code>PrinterClient</code> which does nothing but sending <code>Print</code> event at the startup. In my opinion, it doesn't deserve to be a standalone process, would be better if we create a process in place:
+                                </p>
+                                <pre class="brush: scala">
+object PrinterApp extends CatsApp {
+  override def processes: IO[Seq[Process[IO]]] = IO {
+    val printer = new Printer[IO]
+    val start = Process[IO](_ => {
+      case Start => Printer.Print("hello world") ~> printer.ref
+    })
+    Seq(start, printer)
+  }
+}
+</pre>
+                                <p>
+                                    Although it's a matter of taste, there is no hard rule.
+                                </p>
+                            </div>
+                            <!-- end col -->
+                        </div>
+                        <!-- end row -->
+                    </section>
+                    <!-- end section -->
+                    <section id="line3" class="section">
+                        <div class="row">
+                            <div class="col-md-12 left-align">
+                                <h2 class="dark-text">DSL <a href="#top">#back to top</a>
+                                    <hr>
+                                </h2>
+                            </div>
+                            <!-- end col -->
+                            <p>This chapter describes each DSL operator in details. Let's get started.</p>
+                        </div>
+                        <!-- end row -->
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line3_1">unit - <a href="#top">#back to top</a></h4>
+                                <p>
+                                    <code>unit</code> - semantically this operator is equivalent with <code>Monad.unit</code> and obeys the same laws. Having said that the following expressions are equivalent:
+                                </p>
+                                <pre class="brush: scala">
+event ~> process <-> unit ++ event ~> process
+event ~> process <-> event ~> process ++ unit
+</pre>
+                                <p>
+                                    This operator can be used in <code>fold</code> operator to combine multiple flows. Example:
+                                </p>
+                                <pre class="brush: scala">
+processes.map(event ~> _).fold(unit)(_ ++ _)
+</pre>
+                                <p>It also can be used to represent an empty flow:</p>
+                                <pre class="brush: scala">
+{
+  case Start => unit // do nothing
+  case Stop => unit // do nothing
+}
+</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line3_2">flow - <a href="#top">#back to top</a></h4>
+                                <p>
+                                    <code>flow</code> - suspends the thunk that produces flow. Semantically this operator is equivalent with <code>suspend</code> for effects however it's strongly not recommended to perform any side effects within <code>flow</code>.
+                                </p>
+                                <p>Not recommended:</p>
+                                <pre class="brush: scala">
+def print(str: String) = flow {
+  println(str)
+  unit
+}
+</pre>
+                                <p>Recommended:</p>
+                                <pre class="brush: scala">
+def print(str: String) = flow {
+  eval(println(str))
+}
+</pre>
+                                <code>flow</code> may be useful to implement recursive flows. Example:
+                                <pre class="brush: scala">
+def times[F[_]](n: Int) = {
+  def step(remaining: Int): DslF[F, Unit] = flow {
+    if (remaining == 0) unit
+    else eval(print(remaining)) ++ step(remaining - 1)
+  }
+
+  step(n)
+}
+</pre>
+                                <p>If you try to remove <code>flow</code> you will get <code>StackOverflowError</code></p>
+                                <p>Another useful application is using lazy values inside <code>flow</code>. Example:</p>
+                                <pre class="brush: scala">
+  lazy val lazyValue: String = {
+    println("evaluated")
+    "hello"
+  }
+
+  val useLazyValue = flow {
+    val tmp = lazyValue + " world"
+    eval(println(tmp))
+  }
+</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line3_3">send - <a href="#top">#back to top</a></h4>
+                                <code>send</code> - sends an event to one or more receivers. Event will be delivered to all receivers in the specified order.
+                                Parapet provides a symbolic name for this operator <code>~></code> although in the current implementation it doesn't allow to send an event to multiple receivers. It will be added in the future releases.
+                                Examples:
+                                <pre class="brush: scala">
+send(Ping, processA, processB, processC)
+</pre>
+                                <code>Ping</code> event will be sent to the <code>processA</code> then <code>processB</code> and finaly <code>processC</code>. It's not guaranteed that <code>processA</code> will receive <code>Ping</code> event before <code>processC</code> as it depends on it's processing speed and current workload.
+                                <pre class="brush: scala">
+Ping ~> processA
+</pre>
+                                Not supported:
+                                <pre class="brush: scala">
+Ping ~> Seq(processA, processB, processC)
+</pre>
+                                Possible workaround:
+                                <pre class="brush: scala">
+ Seq(processA, processB, processC).map(Ping ~> _).fold(unit)(_ ++ _)
+</pre>
+                                Send multiple events to a process:
+                                <pre class="brush: scala">
+Seq(e1, e2, e3) ~> process
+</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line3_4">forward - <a href="#top">#back to top</a></h4>
+                                <code>forward</code> - sends an event to the receiver using original sender reference. This may be useful for implementing a proxy process.
+                                Example:
+                                <pre class="brush: scala">
+val server = Process[IO](_ => {
+  case Request(body) => withSender(sender => eval(println(s"$sender-$body")))
+})
+
+val proxy = Process[IO](_ => {
+  case Request(body) => forward(Request(s"proxy-$body"), server.ref)
+})
+
+val client = Process.builder[IO](_ => {
+    case Start => Request("ping") ~> proxy
+  }).ref(ProcessRef("client")).build
+</pre>
+                                The code above will print:
+                                <pre>client-proxy-ping</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line3_5">par - <a href="#top">#back to top</a></h4>
+                                <code>par</code> - executes operations from the given flow in parallel. Example:
+                                <pre class="brush: scala">
+par(eval(print(1)) ++ eval(print(2))) 
+</pre>
+                                Possible outputs: <code>12 or 21</code>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line3_6">delay - <a href="#top">#back to top</a></h4>
+                                <code>delay</code> - delays every operation in the given flow for the given duration.
+                                For sequential flows the flowing expressions are semantically equivalent:
+                                <pre class="brush: scala">
+ delay(duration, x~>p ++ y~>p) <-> delay(duration, x~>p) ++ delay(duration, y~>p)
+ delay(duration, x~>p ++ y~>p) <-> delay(duration) ++ x~>p ++ delay(duration) ++ y~>p
+</pre>
+                                For parallel flows:
+                                <pre class="brush: scala">
+delay(duration, par(x~>p ++ y~>p)) <-> delay(duration) ++ par(x~>p ++ y~>p)
+</pre>
+                                Note: since the following flow will be executed in parallel the second operation won't be delayed:
+                                <pre class="brush: scala">
+par(delay(duration) ++ eval(print(1)))
+</pre>
+                                instead, use:
+                                <pre class="brush: scala">
+par(delay(duration, eval(print(1))))
+</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line3_7">withSender - <a href="#top">#back to top</a></h4>
+                                <code>withSender</code> - accepts a callback function that takes a sender reference and produces a new flow. Example:
+                                <pre class="brush: scala">
+val server = Process[IO](_ => {
+  case Request(data) => withSender(sender => eval(print(s"$sender says $data")))
+})
+
+val client = Process.builder[IO](_ => {
+  case Start => Request("hello") ~> server
+}).ref(ProcessRef("client")).build
+</pre>
+                                The code above will print:
+                                <pre>client says hello</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line3_8">fork - <a href="#top">#back to top</a></h4>
+                                <code>fork</code> - does what exactly the name says, executes the given flow concurrently. Example:
+                                <pre class="brush: scala">
+val process = Process[IO](_ => {
+  case Start => fork(eval(print(1))) ++ fork(eval(print(2)))
+})
+</pre>
+                                Possible outputs: <code>12 or 21</code>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line3_9">register - <a href="#top">#back to top</a></h4>
+                                <code>register</code> - registers a child process in the Parapet context. It's guaranteed that a child process will receive <code>Stop</code> event before its parent. Example:
+                                <pre class="brush: scala">
+  val server = Process[IO](ref => {
+    case Start => register(ref, Process[IO](_ => {
+      case Stop => eval(println("stop worker"))
+    }))
+    case Stop => eval(println("stop server"))
+  })
+</pre>
+                                The code above will print:
+                                <p />
+                                <pre>
+stop worker
+stop server
+                                </pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line3_10">race - <a href="#top">#back to top</a></h4>
+                                <code>race</code> - runs two flows concurrently. The loser of the race is canceled.
+                                Example:
+                                <pre class="brush: scala">
+  val forever = eval(while (true) {})
+
+  val process: Process[IO] = Process[IO](_ => {
+    case Start => race(forever, eval(println("winner")))
+  })
+</pre>
+                                Output: <code>winner</code>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line3_11">suspend - <a href="#top">#back to top</a></h4>
+                                <code>suspend</code> - adds an effect which produces `F` to the current flow. Example:
+                                <pre class="brush: scala">
+suspend(IO(print("hello world")))
+</pre>
+                                Output: <code>hello world</code>
+                                Not recommended:
+                                <pre class="brush: scala">
+suspend {
+ println("hello world")
+ IO.unit
+}
+</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line3_12">suspendWith - <a href="#top">#back to top</a></h4>
+                                <code>suspendWith</code> - suspends an effect which produces `F` and then feeds that into a function that takes a normal value and returns a new flow. All operations from produced flow added to the current flow. Example:
+                                <pre class="brush: scala">
+suspend(IO.pure(1))) { i => eval(print(i)) } 
+</pre>
+                                Output: <code>1</code>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line3_13">eval - <a href="#top">#back to top</a></h4>
+                                <code>eval</code> - suspends a side effect in `F` and then adds that to the current flow. Example:
+                                <pre class="brush: scala">
+eval(println("hello world"))
+</pre>
+                                Output: <code>hello world</code>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line3_14">evalWith - <a href="#top">#back to top</a></h4>
+                                <code>evalWith</code> - Suspends a side effect in `F` and then feeds that into a function that takes a normal value and returns a new flow. All operations from a produced flow will be added to the current flow. Example:
+                                <pre class="brush: scala">
+evalWith("hello world")(a => eval(println(a)))
+</pre>
+                                Output: <code>hello world</code>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                    </section>
+                    <section id="line4" class="section">
+                        <div class="row">
+                            <div class="col-md-12 left-align">
+                                <h2 class="dark-text">Process <a href="#top">#back to top</a>
+                                    <hr>
+                                </h2>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <p>
+                                    <code>Process</code> is a key abstraction in Parapet, any application must have a least one process. If you try to run an application w/o processes you will get an error saying that at least one process required. This section covers some useful features that we haven't seen yet, below you will find a shortlist of features:
+                                    <lu>
+                                        <li> Predefined processes and reserved references </li>
+                                        <li> Switching process behavior </li>
+                                        <li> Direct process call </li>
+                                        <li> Process combinators: <code>and</code> and <code>or</code> </li>
+                                        <li> Testing your processes </li>
+                                        <li> Basic patterns and tips </li>
+                                    </lu>
+                                </p>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line4_1">Predefined processes and reserved references - <a href="#top">#back to top</a></h4>
+                                <p>
+                                    Parapet has some reserved process references, e.g.: <code>KernelRef(parapet-kernel)</code>, <code>SystemRef(parapet-system)</code>, <code>DeadLetterRef(parapet-deadletter)</code>, <code>UndefinedRef(parapet-undefined)</code>. The general rule is that any reference that starts with <code>parapet-</code> prefix can be used by the platform code for any purpose.
+                                    Parapet has a <code>SystemProcess</code> that cannot be overridden by users. <code>SystemProcess</code> is a starting point, i.e. it's created before any other process. Lifecycle event <code>Start</code> is sent by <code>SystemProcess</code>. Any event sent to the <code>SystemProcess</code> will be ignored and dropped. Don't try to send any events to <code>SystemProcess</code> b/c it can lead to unpredictable errors.
+                                    <code>DeadLetterProcess</code> is another process that is created by default, although it can be overridden, for more details check <code>DeadLetterProcess</code> section under <code>Event Handling</code>.
+                                </p>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line4_2">Switching process behavior - <a href="#top">#back to top</a></h4>
+                                <p>
+                                    Sometimes it might be useful to dynamically switch a process behavior, e.g.: from <code>uninitialized</code> to <code>ready</code> state. Thankfully <code>Process</code> provides <code>switch</code> method that does exactly that.</p>
+                                <p>Example (lazy server):</p>
+                                <pre class="brush: scala">
+  // for some effect `F[_]`
+  val server = new Process[F] {
+
+    val init = eval(println("acquire resources: create socket and etc."))
+
+    def ready: Receive = {
+      case Request(data) => withSender(Success(data) ~> _)
+      case Stop => eval(println("release resources: close socket and etc."))
+    }
+
+    def uninitialized: Receive = {
+      case Start => unit // ignore Start event, wait for Init
+      case Stop => unit // process is not initialized, do nothing
+      case Init => init ++ switch(ready)
+      case _ => withSender(Failure("process is not initialized", ErrorCodes.ProcessUninitialized) ~> _)
+    }
+
+    override def handle: Receive = uninitialized
+  }
+
+  // API
+
+  object Init extends Event
+
+  case class Request(data: Any) extends Event
+
+  sealed trait Response extends Event
+  case class Success(data: Any) extends Event
+  case class Failure(data: Any, errorCode: Int) extends Event
+
+  object ErrorCodes {
+    val ProcessUninitialized  = 0
+  }
+</pre>
+                                <p>A client which sends <code>Request</code> event w/o sending <code>Init</code>:</p>
+                                <pre class="brush: scala">
+  val impatientClient = Process[F](_ => {
+    case Start => Request("PING") ~> server
+    case Success(_) => eval(println("that is not going to happen"))
+    case f:Failure => eval(println(f))
+  })
+</pre>
+                                <p>The code above will print: <code>Failure(process is not initialized,0)</code></p>
+                                <p>A client which sends <code>Init</code> first and then <code>Request</code>:</p>
+                                <pre class="brush: scala">
+  val humbleClient = Process[F](_ => {
+    case Start => Seq(Init, Request("PING")) ~> server
+    case Success(data) => eval(println(s"client receive response from server: $data"))
+    case _:Failure => eval(println("that is not going to happen"))
+  })
+</pre>
+                                <p>The code above will print:</p>
+                                <pre>
+acquire resources: create socket and etc.
+client receive response from server: PING
+release resources: close socket and etc.
+</pre>
+                                <code>switch</code> is <strong>NOT</strong> an atomic operation, avoid using <code>switch</code> in concurrent flows because it may result in an error or lead to unpredictable behavior.
+                                <p>Not recommended:</p>
+                                <pre class="brush: scala">
+  val process = new Process[F] {
+    def ready: Receive = _
+
+    override def handle: Receive = {
+      case Init => fork(switch(ready)) // bad, may lead to unpredictable behaviour
+    }
+  }
+
+</pre>
+                                <p>
+                                    If you need to switch behavior from a concurrent flow just send an event e.g. <code>Swith(State.Ready)</code> to itself. Process will <em>eventually</em> switch its behavior.</p>
+                                <p>Recommended:</p>
+                                <pre class="brush: scala">
+  val process = new Process[F] {
+    def ready: Receive = _
+
+    override def handle: Receive = {
+      case Init => fork {
+        eval(println("do some work in parallel"))
+        Switch(Ready) ~> ref // notify the process that it's time to switch it's behaviour
+      }
+      case Switch(Ready) =>  switch(ready)
+    }
+  }
+
+  sealed trait State
+  object Ready extends State
+
+  case class Switch(next: State) extends Event
+</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line4_3">Direct process call - <a href="#top">#back to top</a></h4>
+                                <p>
+                                    Sometimes it may be useful to call a process directly. Especially it's a common case for short living processes. For instance, you may want to create a process, call it and then abandon, garbage collector will do its job. However, if you try to send an event to a process that doesn't exist in the system you will receive <code>Failure</code> event with <code>UnknownProcessException</code>. This is where <code>direct call</code> comes to rescue.</p>
+                                <p>Example:</p>
+                                <pre class="brush: scala">
+  // API
+  case class Sum(a: Int, b: Int) extends Event
+  case class Result(value: Int) extends Event
+
+  class Calculator[F[_]] extends Process[F] {
+    override def handle: Receive = {
+      case Sum(a, b) => withSender(Result(a + b - 1) ~> _) // yes, very poor calculator
+    }
+  }
+
+  val student = Process[F](ref => {
+    case Start => new Calculator().apply(ref, Sum(2, 2))
+    case Result(value) => eval(println(s"2 + 2 = $value"))
+  })
+
+</pre>
+                                <p>Output: <code>2 + 2 = 3</code></p>
+                                <p>
+                                    Note that <code>apply</code> method doesn't return a normal value rather it returns a *program* which will be executed as normal flow.
+                                    In other words the following expressions are equivalent:</p>
+                                <pre class="brush: scala">
+Sum(2, 2) ~> calculator <-> new Calculator().apply(ref, Sum(2, 2)) // where ref belongs to the same process in both cases
+</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line4_4">Process combinators - <a href="#top">#back to top</a></h4>
+                                <p>Processes can be combined using two logical operators: <code>or</code> and <code>and</code>.</p>
+                                <code>and</code> - combines two processes by producing a new process with <code>ref</code> of the first process; combines flows iff <code>handle</code> function is defined for the given event in both processes. Sends an error to the sender if either of two processes isn't defined for the given event.
+                                <p>Example:</p>
+                                <pre class="brush: scala">
+import cats.effect.IO
+import io.parapet.CatsApp
+import io.parapet.core.Event.Start
+import io.parapet.core.{Event, Process}
+
+object Example extends CatsApp {
+
+  import dsl._
+
+  case class Print(data: Any) extends Event
+
+  override def processes: IO[Seq[Process[IO]]] =
+    for {
+      printerA <- IO.pure(Process[IO](_ => {
+        case Print(data) => eval(println(s"printerA: $data"))
+      }))
+      printerB <- IO.pure(Process[IO](_ => {
+        case Print(data) => eval(println(s"printerB: $data"))
+      }))
+
+      client <- IO.pure(Process[IO](ref => {
+        case Start => printerA.and(printerB).apply(ref, Print("test"))
+      }))
+
+    } yield Seq(printerA, printerB, client)
+
+}
+</pre>
+                                Output:
+                                <pre>
+printerA: test
+printerB: test
+</pre>
+                                <p>If you want to register a combined process then you don't need to register <code>printerA</code>.</p>
+                                Example:
+                                <pre class="brush: scala">
+import cats.effect.IO
+import io.parapet.CatsApp
+import io.parapet.core.Event.Start
+import io.parapet.core.{Event, Process}
+
+object Example extends CatsApp {
+
+  import dsl._
+
+  case class Print(data: Any) extends Event
+
+  override def processes: IO[Seq[Process[IO]]] =
+    for {
+      printerA <- IO.pure(Process[IO](_ => {
+        case Print(data) => eval(println(s"printerA: $data"))
+      }))
+      printerB <- IO.pure(Process[IO](_ => {
+        case Print(data) => eval(println(s"printerB: $data"))
+      }))
+
+      combined <- IO.pure(printerA.and(printerB))
+
+      client <- IO.pure(Process[IO](_ => {
+        case Start => Print("test") ~> combined
+      }))
+
+    } yield Seq(combined, printerB, client)
+
+}
+</pre>
+                                <code>or</code> - creates a new process with <code>ref</code> of the first process. A combined process refers to the first process if its <code>handle</code> is defined for the given event, otherwise, to the second process. Sends an error to the sender if neither process is defined for the given event.
+                                <p>Example:</p>
+                                <pre class="brush: scala">
+import cats.effect.IO
+import io.parapet.CatsApp
+import io.parapet.core.Event.Start
+import io.parapet.core.{Event, Process}
+
+object Example extends CatsApp {
+
+  import dsl._
+
+  case class Print(data: Any) extends Event
+
+  override def processes: IO[Seq[Process[IO]]] =
+    for {
+      printerA <- IO.pure(Process[IO](_ => {
+        case Print(data: Int) => eval(println(s"printerA: $data"))
+      }))
+      printerB <- IO.pure(Process[IO](_ => {
+        case Print(data: String) => eval(println(s"printerB: $data"))
+      }))
+
+      combined <- IO.pure(printerA.or(printerB))
+
+      client <- IO.pure(Process[IO](_ => {
+        case Start => Print("test") ~> combined ++ Print(1) ~> combined
+      }))
+
+    } yield Seq(combined, printerB, client)
+}
+</pre>
+                                Output:
+                                <pre>
+printerB: test
+printerA: 1
+</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line4_5">Testing your processes - <a href="#top">#back to top</a></h4>
+                                <p>
+                                    Integration tests in parapet written in a generic style that we discussed before so that the same tests can be run against any effect system. Let's try to write a simple test for a proxy process. The first thing you need to do is to add <code>test-utils</code> library into your project: </p>
+                                <pre class="brush: scala">
+libraryDependencies += "io.parapet" %% "test-utils" % version
+</pre>
+                                <p>A simple proxy process that receives requests and forwards them to a <code>service</code></p>
+                                <pre class="brush: scala">
+  class Proxy(service: ProcessRef) extends Process[F] {
+    override def handle: Receive = {
+      case Request(data) => Request(s"proxy-$data") ~> service
+    }
+  }
+</pre>
+                                <p>Test for our <code>Proxy</code>:</p>
+                                <pre class="brush: scala">
+import io.parapet.core.{Event, Process, ProcessRef}
+import io.parapet.tests.intg.ProxySpec._
+import io.parapet.testutils.{EventStore, IntegrationSpec}
+import org.scalatest.FunSuite
+import org.scalatest.Matchers._
+import org.scalatest.OptionValues._
+
+
+abstract class ProxySpec[F[_]] extends FunSuite with IntegrationSpec[F] {
+
+  import dsl._
+  
+  test("proxy") {
+    val eventStore = new EventStore[F, Event]
+    val testService = Process(ref => {
+      case req: Request => eval(eventStore.add(ref, req))
+    })
+
+    val proxy = new Proxy[F](testService.ref)
+
+    val init = onStart(Request("req") ~> proxy)
+
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, testService, proxy))).run))
+
+    eventStore.get(testService.ref).headOption.value shouldBe Request("proxy-req")
+  }
+
+}
+</pre>
+                                <p>In order to run this test against <code>Cats Effect IO</code> you need to extend <code>BasicCatsIOSpec</code>:</p>
+                                <pre class="brush: scala">
+import cats.effect.IO
+import io.parapet.testutils.BasicCatsIOSpec
+
+class ProxySpec extends io.parapet.tests.intg.ProxySpec[IO] with BasicCatsIOSpec
+</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line4_6">Basic patterns and tips - <a href="#top">#back to top</a></h4>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                    </section>
+                    <!-- end section -->
+                    <section id="line5" class="section">
+                        <div class="row">
+                            <div class="col-md-12 left-align">
+                                <h2 class="dark-text">Channel <a href="#top">#back to top</a>
+                                    <hr>
+                                </h2>
+                            </div>
+                            <!-- end col -->
+                        </div>
+                        <!-- end row -->
+                        <div class="row">
+                            <div class="col-md-12">
+                                <p>Channel is a process that implements strictly synchronous request-reply dialog. The channel sends an event to a receiver and then waits for a response in one step, i.e. it blocks <i>asynchronously</i> until it receives a response. Doing any other sequence, e.g., sending two request or reply events in a row will return a failure to the sender.</p>
+                                <p>Example for some <code>F[_]</code>:</p>
+                                <pre class="brush: scala">
+  val server = new Process[F] {
+    override def handle: Receive = {
+      case Request(data) => withSender(sender => Response(s"echo: $data") ~> sender)
+    }
+  }
+
+  val client = new Process[F] {
+
+    lazy val ch = Channel[F]
+
+    override def handle: Receive = {
+      case Start => register(ref, ch) ++
+        ch.send(Request("PING"), server.ref, {
+          case scala.util.Success(Response(data)) => eval(println(data))
+          case scala.util.Failure(err) => eval(println(s"server failed to process request. err: ${err.getMessage}"))
+        })
+
+    }
+  }
+
+
+  case class Request(data: Any) extends Event
+
+  case class Response(data: Any) extends Event
+</pre>
+                                Output:
+                                <pre>
+echo: PING
+</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                    </section>
+                    <!-- end section -->
+                    <section id="line6" class="section">
+                        <div class="row">
+                            <div class="col-md-12 left-align">
+                                <h2 class="dark-text">Error Handling<a href="#top">#back to top</a>
+                                    <hr>
+                                </h2>
+                            </div>
+                            <!-- end col -->
+                        </div>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <p>There are some scenarios when a process may receive a <code>Failure</code> event:</p>
+                                <strong>When a target process failed to handle an event sent by another process.</strong>
+                                <p>Example:</p>
+                                <pre class="brush: scala">
+
+  // for some effect F[_]
+  val faultyServer = Process.builder[F](_ => {
+    case Request(_) => eval(throw new RuntimeException("server is down"))
+  }).ref(ProcessRef("server")).build
+
+  val client = Process.builder[F](_ => {
+    case Start => Request("PING") ~> faultyServer
+    case Failure(Envelope(me, event, receiver), EventHandlingException(errMsg, cause)) => eval {
+      println(s"self: $me")
+      println(s"event: $event")
+      println(s"receiver: $receiver")
+      println(s"errMsg: $errMsg")
+      println(s"cause: ${cause.getMessage}")
+    }
+  }).ref(ProcessRef("client")).build
+</pre>
+                                <p>The code above will output:</p>
+                                <pre>
+self: client
+event: Request(PING)
+receiver: server
+errMsg: process [name=undefined, ref=server] has failed to handle event: Request(PING)
+cause: server is down
+</pre>
+                                <code>EventHandlingException</code> indicates that a receiver process failed to handle an event.
+                                <p />
+                                <strong>When a process event queue is full. It's possible when a process experiencing performance degradation due to heavy load.</strong>
+                                <p>Example:</p>
+                                For this example we need to tweak <code>SchedulerConfig</code>:
+                                <pre>
+queueSize = 10000
+processQueueSize = 100
+</pre>
+                                <pre class="brush: scala">
+  // for some effect F[_]
+  val slowServer = Process.builder[F](_ => {
+    case Request(_) => eval(while (true) {}) // very slow process...
+  }).ref(ProcessRef("server")).build
+
+  val client = Process.builder[F](_ => {
+    case Start =>
+      generateRequests(1000) ~> slowServer
+    case Failure(Envelope(me, event, receiver), EventDeliveryException(errMsg, cause)) => eval {
+      println(s"self: $me")
+      println(s"event: $event")
+      println(s"receiver: $receiver")
+      println(s"errMsg: $errMsg")
+      println(s"cause: ${cause.getMessage}")
+      println("=====================================================")
+    }
+  }).ref(ProcessRef("client")).build
+
+  def generateRequests(n: Int): Seq[Event] = {
+    (0 until n).map(Request)
+  }
+</pre>
+                                The code above will print a dozens of lines, four lines per <code>Failure</code> event:
+                                <pre>
+client sent events
+self: client
+event: Request(101)
+receiver: server
+errMsg: System failed to deliver an event to process [name=undefined, ref=server]
+cause: process [name=undefined, ref=server] event queue is full
+=====================================================
+self: client
+event: Request(102)
+receiver: server
+errMsg: System failed to deliver an event to process [name=undefined, ref=server]
+cause: process [name=undefined, ref=server] event queue is full
+=====================================================
+self: client
+event: Request(103)
+receiver: server
+errMsg: System failed to deliver an event to process [name=undefined, ref=server]
+cause: process [name=undefined, ref=server] event queue is full
+=====================================================
+</pre>
+                                <code>EventDeliveryException</code> indicates that the system failed to deliver an event. Handling such types of errors may be useful for runtime analysis, e.g. a sender process might consider lowering event send rate or even stop sending events to let a target process to finish processing pending events. It's worth noting that you should avoid any long-running computations when processing <code>Failure</code> events because it could lead to <i>cascading failures</i>.
+                                <p />
+                                <strong>A process event handler isn't defined for some events.</strong>
+                                <p>Example:</p>
+                                <pre class="brush: scala">
+  // for some effect F[_]
+  val uselessService = Process.builder[F](_ => {
+    case Start => unit
+    case Stop => unit
+  }).ref(ProcessRef("server")).build
+
+  val client = Process.builder[F](_ => {
+    case Start =>
+      Request("PING") ~> uselessService
+    case Failure(Envelope(me, event, receiver), EventMatchException(errMsg)) => eval {
+      println(s"self: $me")
+      println(s"event: $event")
+      println(s"receiver: $receiver")
+      println(s"errMsg: $errMsg")
+    }
+  }).ref(ProcessRef("client")).build
+</pre>
+                                <p>The code above will print:</p>
+                                <pre>
+self: client
+event: Request(PING)
+receiver: server
+errMsg: process [name=undefined, ref=server] handler is not defined for event: Request(PING)
+</pre>
+                                <strong>A process doesn't exist in Parapet system.</strong>
+                                <pre class="brush: scala">
+  // for some effect F[_]
+  val unknownService = Process.builder[F](_ => {
+    case Start => unit
+    case Stop => unit
+  }).ref(ProcessRef("server")).build
+
+  val client = Process.builder[F](_ => {
+    case Start =>
+      Request("PING") ~> unknownService
+    case Failure(Envelope(me, event, receiver), UnknownProcessException(errMsg)) => eval {
+      println(s"self: $me")
+      println(s"event: $event")
+      println(s"receiver: $receiver")
+      println(s"errMsg: $errMsg")
+    }
+  }).ref(ProcessRef("client")).build
+</pre>
+                                The code above will print:
+                                <pre>
+self: client
+event: Request(PING)
+receiver: server
+errMsg: there is no such process with id=server registered in the system
+</pre>
+                                <p>Final notes regarding error handling:</p>
+                                <ul>
+                                    <li> All <code>Failure</code> events sent by <code>parapet-system</code> process (if you are curious you can check it by yourself using <code>withSender</code>).</li>
+                                    <li> If a process has no error handling then <code>Failure</code> event will be sent to <code>DeadLetterProcess</code>. More about <code>DeadLetterProcess</code> you will find below</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line6_1">DeadLetterProcess <a href="#top">#back to top</a></h4>
+                                <p>
+                                    The library by default provides an implementation of <code>DeadLetterProcess</code> which just logs failures. Although it might be not very practical, for instance, you may prefer to store failures into a database for further analyses. The library allows providing a custom implementation of <code>DeadLetterProcess</code>.
+                                </p>
+                                <p>Example using <code>CatsApp</code>:</p>
+                                <pre class="brush: scala">
+import cats.effect.IO
+import io.parapet.CatsApp
+import io.parapet.core.Event.{DeadLetter, Start}
+import io.parapet.core.processes.DeadLetterProcess
+import io.parapet.core.{Event, Process, ProcessRef}
+
+
+object CustomDeadLetterProcessDemo extends CatsApp {
+
+  import dsl._
+
+  override def deadLetter: IO[DeadLetterProcess[IO]] = IO.pure {
+    new DeadLetterProcess[IO] {
+      override def handle: Receive = {
+        // can be stored in database
+        case DeadLetter(envelope, error) => eval {
+          println(s"sender: ${envelope.sender}")
+          println(s"receiver: ${envelope.receiver}")
+          println(s"event: ${envelope.event}")
+          println(s"errorType: ${error.getClass.getSimpleName}")
+          println(s"errorMsg: ${error.getMessage}")
+        }
+      }
+    }
+  }
+
+  val faultyServer = Process.builder[IO](_ => {
+    case Request(_) => eval(throw new RuntimeException("server is down"))
+  }).ref(ProcessRef("server")).build
+
+  val client = Process.builder[IO](_ => {
+    case Start => Request("PING") ~> faultyServer
+    // no error handling
+  }).ref(ProcessRef("client")).build
+
+  override def processes: IO[Seq[Process[IO]]] = IO {
+    Seq(client, faultyServer)
+  }
+
+  case class Request(data: Any) extends Event
+
+}
+</pre>
+                                <p>The code above will print:</p>
+                                <pre>
+sender: client
+receiver: server
+event: Request(PING)
+errorType: EventHandlingException
+errorMsg: process [name=undefined, ref=server] has failed to handle event: Request(PING)
+</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                    </section>
+                    <!-- end section -->
+                    <section id="line7" class="section">
+                        <div class="row">
+                            <div class="col-md-12 left-align">
+                                <h2 class="dark-text">EventLog <a href="#top">#back to top</a>
+                                    <hr>
+                                </h2>
+                            </div>
+                            <!-- end col -->
+                        </div>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <p>
+                                    <code>EventLog</code> can be used to store events on disk. Latter, events can be retrieved and resubmitted.
+                                    In a case, the event queue is full unsubmitted events will be redirected to <code>EventLog</code>. The default implementation just logs such events. In future releases, more practical implementation will be provided.
+                                </p>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                    </section>
+                    <!-- end section -->
+                    <section id="line8" class="section">
+                        <div class="row">
+                            <div class="col-md-12 left-align">
+                                <h2 class="dark-text">Configuration <a href="#top">#back to top</a>
+                                    <hr>
+                                </h2>
+                            </div>
+                            <!-- end col -->
+                        </div>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <p>Parapet system can be configured by providing an instance of <code>ParConfig</code>.</p>
+                                <p>Example:</p>
+                                <pre class="brush: scala">
+import cats.effect.IO
+import io.parapet.core.Parapet.ParConfig
+import io.parapet.{CatsApp, core}
+
+object ConfigExample extends CatsApp{
+  override def processes: IO[Seq[core.Process[IO]]] = _
+
+  override val config: ParConfig = ParConfig(...)
+}
+</pre>
+                                <code>ParConfig</code> has the following properties
+                                <ul>
+                                    <li><code>schedulerConfig:</code>
+                                        <ul>
+                                            <li><code>queueSize</code> - size of event queue shared by workers</li>
+                                            <li><code>numberOfWorkers</code> - number of workers; default = availableProcessors</li>
+                                            <li><code>processQueueSize</code> - size of event queue per process, <code>-1</code> - unbounded</li>
+                                        </ul>
+                                    </li>
+                                </ul>
+                                You should set <code>queueSize</code> to a value that would match the expected workload. For example, if you are going to send 1M events within the same flow it's recommended to set <code>queueSize</code> to 1M. However, it depends on how fast your consumer processes and amount of available memory, if that's possible to keep some amount of events in memory - go for it, if not - you will probably need to reconsider your design decisions.
+                                In a case the event queue is full all events will be redirected to <code>EventLog</code> (see the corresponding section).
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                    </section>
+                    <section id="line9" class="section">
+                        <div class="row">
+                            <div class="col-md-12 left-align">
+                                <h2 class="dark-text">Correctness Properties <a href="#top">#back to top</a>
+                                    <hr>
+                                </h2>
+                            </div>
+                            <!-- end col -->
+                        </div>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <p><strong>Safty properties:</strong></p>
+                                <ul>
+                                    <li>It's guaranteed that events will be delivered to a process in a strictly synchronous request-reply dialog, i.e. a process will receive a new event iff it completed processing the current one. </li>
+                                    <li> All events delivered in send order </li>
+                                </ul>
+                                <p><strong>Liveness properties:</strong></p>
+                                <ul>
+                                    <li> Sent events eventually delivered </li>
+                                    <li> A sender eventually receives a response </li>
+                                </ul>
+                            </div>
+                            <!-- end row -->
+                            <hr>
+                    </section>
+                    <section id="line10" class="section">
+                        <div class="row">
+                            <div class="col-md-12 left-align">
+                                <h2 class="dark-text">Distributed Algorithms in Parapet <a href="#top">#back to top</a>
+                                    <hr>
+                                </h2>
+                            </div>
+                            <!-- end col -->
+                        </div>
+                        <!-- end row -->
+                        <div class="col-md-12">
+                            <p>..................</p>
+                        </div>
+                    </section>
+                    <section id="line11" class="section">
+                        <div class="row">
+                            <div class="col-md-12 left-align">
+                                <h2 class="dark-text">Contribution <a href="#top">#back to top</a>
+                                    <hr>
+                                </h2>
+                            </div>
+                            <!-- end col -->
+                        </div>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <p>The project in its early stage and many things are subject to change. Now is a good time to join!
+                                    If you want to become a contributor please <a href="mailto:dmgcodevil@gmail.com">send</a> an email or text in <a href="https://gitter.im/io-parapet/parapet">gitter</a> channel.</p>
+                                <p>If you'd like to donate in order to help with ongoing development and maintenance:</p>
+                                <a href="https://www.patreon.com/bePatron?u=6107081"><img label="Become a Patron!" src="https://c5.patreon.com/external/logo/become_a_patron_button@2x.png" height="40" /></a>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                    </section>
+                    <section id="line12" class="section">
+                        <div class="row">
+                            <div class="col-md-12 left-align">
+                                <h2 class="dark-text">License <a href="#top">#back to top</a>
+                                    <hr>
+                                </h2>
+                            </div>
+                            <!-- end col -->
+                        </div>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <pre>
+   Copyright [2019] The Parapet Project Developers
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                    </section>
+                    <!-- end section -->
+                    <!-- end section -->
+                </div>
+                <!-- // end .col -->
+            </div>
+            <!-- // end .row -->
+        </div>
+        <!-- // end container -->
+    </div>
+    <!-- end wrapper -->
+    <script src="js/jquery.min.js"></script>
+    <script src="js/bootstrap.min.js"></script>
+    <script src="js/retina.js"></script>
+    <script src="js/jquery.fitvids.js"></script>
+    <script src="js/wow.js"></script>
+    <script src="js/jquery.prettyPhoto.js"></script>
+    <!-- CUSTOM PLUGINS -->
+    <script src="js/custom.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/syntax-highlighter/scripts/shCore.js"></script>
+    <script src="js/syntax-highlighter/scripts/shBrushXml.js"></script>
+    <script src="js/syntax-highlighter/scripts/shBrushCss.js"></script>
+    <script src="js/syntax-highlighter/scripts/shBrushJScript.js"></script>
+    <script src="js/syntax-highlighter/scripts/shBrushScala.js"></script>
+    <script src="https://cdn.rawgit.com/google/code-prettify/master/loader/run_prettify.js"></script>
+    <!-- Place this tag in your head or just before your close body tag. -->
+    <script async defer src="https://buttons.github.io/buttons.js"></script>
+</body>
+
+</html>
