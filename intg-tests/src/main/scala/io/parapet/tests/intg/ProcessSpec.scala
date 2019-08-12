@@ -111,7 +111,7 @@ abstract class ProcessSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
 
         val init = onStart(Result(42) ~> composed)
 
-        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, composed))).run))
+        unsafeRun(eventStore.await(2, createApp(ct.pure(Seq(init, composed))).run))
         eventStore.size shouldBe 2
         eventStore.get(p1.ref).headOption.value should matchPattern {
           case Result(42) =>
