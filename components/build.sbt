@@ -49,7 +49,7 @@ lazy val global = project
     msgZmq,
     msgIntgTests,
     algorithmsIntgTest
-  ).settings(skip in publish := true)
+  )
 
 // Algorithms
 lazy val algorithms = project.in(file("./algorithms"))
@@ -91,6 +91,10 @@ lazy val msgIntgTests = project.in(file("./messaging/intg-tests"))
       "io.parapet" %% "test-utils" % coreVersion
     )
   ).dependsOn(msgApi, msgZmq)
+
+publishArtifact in global := false
+publishArtifact in algorithmsIntgTest := false
+publishArtifact in msgIntgTests := false
 
 ThisBuild / scmInfo := Some(
   ScmInfo(

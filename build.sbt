@@ -59,7 +59,6 @@ lazy val global = project
     interopMonix,
     testUtils,
     intgTests)
-  .settings(skip in publish := true)
 
 lazy val core = project
   .settings(
