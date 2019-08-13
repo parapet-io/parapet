@@ -1394,9 +1394,9 @@ object ConfigExample extends CatsApp{
                                 <ul>
                                     <li><code>schedulerConfig:</code>
                                         <ul>
-                                            <li><code>queueSize</code> - size of event queue shared by workers</li>
+                                            <li><code>queueSize</code> - size of event queue shared by workers; <code>-1</code> - unbounded by default</li>
                                             <li><code>numberOfWorkers</code> - number of workers; default = availableProcessors</li>
-                                            <li><code>processQueueSize</code> - size of event queue per process, <code>-1</code> - unbounded by default</li>
+                                            <li><code>processQueueSize</code> - size of event queue per process; <code>-1</code> - unbounded by default</li>
                                         </ul>
                                     </li>
                                 </ul>

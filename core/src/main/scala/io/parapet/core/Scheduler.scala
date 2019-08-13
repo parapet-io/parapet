@@ -39,7 +39,7 @@ object Scheduler {
   case class SchedulerConfig(queueSize: Int,
                              numberOfWorkers: Int,
                              processQueueSize: Int) {
-    require(queueSize > 0)
+    require(queueSize > 0 || queueSize == -1)
     require(numberOfWorkers > 0)
     require(processQueueSize > 0 || processQueueSize == -1)
   }
@@ -128,7 +128,9 @@ object Scheduler {
                                                             context: Context[F],
                                                             interpreter: Interpreter[F]): F[Scheduler[F]] =
       for {
-        processRefQueue <- Queue.bounded[F, ProcessRef](config.queueSize, ChannelType.SPMC)
+        processRefQueue <-
+        if (config.queueSize == -1) Queue.unbounded[F, ProcessRef](ChannelType.SPMC)
+        else Queue.bounded[F, ProcessRef](config.queueSize, ChannelType.SPMC)
       } yield
         new SchedulerImpl(
           config,

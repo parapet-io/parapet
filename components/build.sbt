@@ -1,7 +1,11 @@
+import sbt.url
 
 name := "components"
 
-organization in ThisBuild := "io.parapet"
+ThisBuild / organization := "io.parapet"
+ThisBuild / organizationName := "parapet"
+ThisBuild / organizationHomepage := Some(url("http://parapet.io/"))
+
 val coreVersion = "0.0.1-RC1"
 scalaVersion := "2.12.8"
 
@@ -11,6 +15,11 @@ scalacOptions in ThisBuild ++= Seq(
   "-feature",
   "-deprecation"
 )
+
+useGpg := false
+
+credentials += Credentials(Path.userHome / ".sbt" / "sonatype_credential")
+
 libraryDependencies in ThisBuild += "io.parapet" %% "core" % coreVersion
 libraryDependencies in ThisBuild += "io.monix" %% "monix-eval" % "3.0.0-RC3"
 libraryDependencies in ThisBuild += "com.chuusai" %% "shapeless" % "2.3.3"
@@ -82,3 +91,32 @@ lazy val msgIntgTests = project.in(file("./messaging/intg-tests"))
       "io.parapet" %% "test-utils" % coreVersion
     )
   ).dependsOn(msgApi, msgZmq)
+
+ThisBuild / scmInfo := Some(
+  ScmInfo(
+    url("https://github.com/parapet-io/parapet"),
+    "scm:git@github.com:parapet-io/parapet.git"
+  )
+)
+
+ThisBuild / developers := List(
+  Developer(
+    id    = "dmgcodevil",
+    name  = "Roman Pleshkov",
+    email = "dmgcodevil@gmail.com",
+    url   = url("http://parapet.io/")
+  )
+)
+
+ThisBuild / description := "A purely functional library to develop distributed and event driven systems."
+ThisBuild / licenses := List("Apache 2" -> new URL("http://www.apache.org/licenses/LICENSE-2.0.txt"))
+ThisBuild / homepage := Some(url("http://parapet.io/"))
+
+// Remove all additional repository other than Maven Central from POM
+ThisBuild / pomIncludeRepository := { _ => false }
+ThisBuild / publishTo := {
+  val nexus = "https://oss.sonatype.org/"
+  if (isSnapshot.value) Some("snapshots" at nexus + "content/repositories/snapshots")
+  else Some("releases" at nexus + "service/local/staging/deploy/maven2")
+}
+ThisBuild / publishMavenStyle := true

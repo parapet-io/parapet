@@ -2,7 +2,7 @@ name := "parapet"
 
 ThisBuild / organization := "io.parapet"
 ThisBuild / organizationName := "parapet"
-ThisBuild / organizationHomepage := Some(url("https://github.com/parapet-io/"))
+ThisBuild / organizationHomepage := Some(url("http://parapet.io/"))
 
 scalaVersion := "2.12.8"
 
@@ -59,6 +59,7 @@ lazy val global = project
     interopMonix,
     testUtils,
     intgTests)
+  .settings(skip in publish := true)
 
 lazy val core = project
   .settings(
@@ -109,6 +110,8 @@ lazy val intgTests = project
   .in(file("intg-tests"))
   .settings(
     name := "intg-tests",
+    publishLocal := {},
+    publish := {},
     libraryDependencies ++= Seq(
       "ch.qos.logback" % "logback-classic" % "1.2.3",
       "org.scalatest" %% "scalatest" % "3.0.7",
@@ -165,13 +168,13 @@ ThisBuild / developers := List(
     id    = "dmgcodevil",
     name  = "Roman Pleshkov",
     email = "dmgcodevil@gmail.com",
-    url   = url("https://github.com/parapet-io/parapet")
+    url   = url("http://parapet.io/")
   )
 )
 
 ThisBuild / description := "A purely functional library to develop distributed and event driven systems."
 ThisBuild / licenses := List("Apache 2" -> new URL("http://www.apache.org/licenses/LICENSE-2.0.txt"))
-ThisBuild / homepage := Some(url("https://github.com/parapet-io/parapet"))
+ThisBuild / homepage := Some(url("http://parapet.io/"))
 
 // Remove all additional repository other than Maven Central from POM
 ThisBuild / pomIncludeRepository := { _ => false }

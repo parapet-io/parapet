@@ -96,7 +96,9 @@ object Context {
   def apply[F[_] : Concurrent : ContextShift](config: Parapet.ParConfig,
                                               eventLog: EventLog[F]): F[Context[F]] = {
     for {
-      taskQueue <- Queue.bounded[F, Task[F]](config.schedulerConfig.queueSize, ChannelType.MPSC)
+      taskQueue <-
+      if (config.schedulerConfig.queueSize == -1) Queue.unbounded[F, Task[F]](ChannelType.MPSC)
+      else Queue.bounded[F, Task[F]](config.schedulerConfig.queueSize, ChannelType.MPSC)
     } yield new Context[F](config, eventLog, taskQueue)
   }
 
