@@ -81,7 +81,11 @@ p {
     font-weight: 400;
     line-height: 26px;
     letter-spacing: 0;
-    margin-top: 15px;
+    margin-top: 5px;
+}
+
+ul {
+    font-size: 15px;
 }
 
 img.aligncenter {
@@ -161,7 +165,7 @@ sub {
 }
 
 p {
-    padding: 0 0 20px 0;
+    padding: 0 0 5px 0;
 }
 
 .check li:before {
@@ -187,7 +191,7 @@ p {
 }
 
 .section {
-    padding: 180px 0;
+    padding: 10px 0;
     position: relative;
     display: block;
 }
@@ -232,7 +236,7 @@ h4 a {
 .dark-text hr {
     width: 130px;
     margin-left: 0;
-    margin-top: 40px;
+    margin-top: 10px;
     border-width: 1px;
     border-color: #030303;
 }
