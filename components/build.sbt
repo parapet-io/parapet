@@ -12,6 +12,7 @@ scalacOptions in ThisBuild ++= Seq(
   "-deprecation"
 )
 libraryDependencies in ThisBuild += "io.parapet" %% "core" % coreVersion
+libraryDependencies in ThisBuild += "io.monix" %% "monix-eval" % "3.0.0-RC3"
 libraryDependencies in ThisBuild += "com.chuusai" %% "shapeless" % "2.3.3"
 libraryDependencies in ThisBuild += "io.parapet" %% "test-utils" % coreVersion % Test
 libraryDependencies in ThisBuild += "org.scalatest" %% "scalatest" % "3.0.7" % Test
@@ -27,6 +28,9 @@ libraryDependencies in ThisBuild ++= (scalaBinaryVersion.value match {
   case _ =>
     Nil
 })
+
+libraryDependencies in ThisBuild += "ch.qos.logback" % "logback-classic" % "1.2.3"
+libraryDependencies in ThisBuild += "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
 
 lazy val global = project
   .in(file("."))

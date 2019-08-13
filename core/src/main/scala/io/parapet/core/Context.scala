@@ -28,7 +28,7 @@ class Context[F[_] : Concurrent : ContextShift](
 
   private val processes = new java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessState[F]]()
 
-  private val graph = new java.util.concurrent.ConcurrentHashMap[ProcessRef, List[ProcessRef]]
+  private val graph = new java.util.concurrent.ConcurrentHashMap[ProcessRef, Vector[ProcessRef]]
 
   def init: F[Unit] = {
     ct.delay(new SystemProcess[F]()).flatMap { sysProcess =>
@@ -47,7 +47,7 @@ class Context[F[_] : Concurrent : ContextShift](
         if (processes.putIfAbsent(process.ref, s) != null)
           ct.raiseError(new RuntimeException(s"duplicated process. ref = ${process.ref}"))
         else {
-          graph.computeIfAbsent(parent, _ => List())
+          graph.computeIfAbsent(parent, _ => Vector())
           graph.computeIfPresent(parent, (_, v) => v :+ process.ref)
           start(process.ref).map(_ => process.ref)
         }
@@ -55,7 +55,7 @@ class Context[F[_] : Concurrent : ContextShift](
     }
   }
 
-  def child(parent: ProcessRef): List[ProcessRef] = graph.getOrDefault(parent, List.empty)
+  def child(parent: ProcessRef): Vector[ProcessRef] = graph.getOrDefault(parent, Vector.empty)
 
   private def start(processRef: ProcessRef): F[Unit] = {
     taskQueue.enqueue(Deliver(Envelope(ProcessRef.SystemRef, Start, processRef)))
@@ -162,7 +162,9 @@ object Context {
   object ProcessState {
     def apply[F[_] : Concurrent : ContextShift](process: Process[F], queueSize: Int): F[ProcessState[F]] =
       for {
-        queue <- Queue.bounded[F, Task[F]](queueSize, ChannelType.SPSC)
+        queue <-
+        if (queueSize == -1) Queue.unbounded[F, Task[F]]()
+        else Queue.bounded[F, Task[F]](queueSize, ChannelType.SPSC)
         lock <- Lock[F]
         terminated <- Deferred[F, Unit]
       } yield new ProcessState[F](queue, lock, process, terminated)

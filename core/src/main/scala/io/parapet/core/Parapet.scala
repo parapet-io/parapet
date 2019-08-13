@@ -20,6 +20,6 @@ object Parapet extends StrictLogging {
     schedulerConfig = SchedulerConfig(
       queueSize = 10000,
       numberOfWorkers = Runtime.getRuntime.availableProcessors(),
-      processQueueSize = 1000))
+      processQueueSize = -1))
 
 }

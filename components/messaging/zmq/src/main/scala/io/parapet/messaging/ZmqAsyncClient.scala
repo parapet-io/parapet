@@ -2,7 +2,7 @@ package io.parapet.messaging
 
 import java.util.UUID
 
-import cats.effect.Concurrent
+import cats.effect.{Concurrent, ContextShift}
 import cats.syntax.functor._
 import com.typesafe.scalalogging.StrictLogging
 import io.parapet.core.Dsl.DslF
@@ -22,7 +22,9 @@ import scala.language.higherKinds
 import scala.util.Try
 
 class ZmqAsyncClient[F[_]](address: String,
-                           encoder: Encoder, requestQueue: Queue[F, PendingRequest]) extends Process[F] with StrictLogging {
+                           encoder: Encoder,
+                           requestQueue: Queue[F, PendingRequest],
+                           workers: Int) extends Process[F] with StrictLogging {
 
   import dsl._
 
@@ -40,12 +42,16 @@ class ZmqAsyncClient[F[_]](address: String,
     socket.connect(address)
   }
 
+  private def createWorkers: DslF[F, Unit] =
+    (0 until workers).map(_ => new Worker[F](ref, zmqContext, address, requestQueue, encoder))
+      .map(register(ref, _))
+      .fold(unit)(_ ++ _)
+
   private def uninitialized: Receive = {
-    case Start => init ++ switch(ready) ++ register(ref, worker)
+    case Start => init ++ switch(ready) ++ createWorkers
     case Stop => unit
     case _ => eval(throw UninitializedProcessException("zmq sync client isn't initialized"))
   }
-
 
   private def ready: Receive = {
     case Stop => Utils.close(zmqContext)
@@ -127,10 +133,10 @@ object ZmqAsyncClient {
   }
 
 
-  def apply[F[_] : Concurrent](address: String, encoder: Encoder): F[Process[F]] = {
+  def apply[F[_] : Concurrent : ContextShift](address: String, encoder: Encoder, workers: Int = 1): F[Process[F]] = {
     for {
-      queue <- Queue.unbounded[F, PendingRequest]
-    } yield new ZmqAsyncClient(address, encoder, queue)
+      queue <- Queue.unbounded[F, PendingRequest]()
+    } yield new ZmqAsyncClient(address, encoder, queue, workers)
   }
 
   private case class PendingRequest(id: String, event: Event)

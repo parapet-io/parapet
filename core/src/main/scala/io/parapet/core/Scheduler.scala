@@ -38,7 +38,11 @@ object Scheduler {
 
   case class SchedulerConfig(queueSize: Int,
                              numberOfWorkers: Int,
-                             processQueueSize: Int)
+                             processQueueSize: Int) {
+    require(queueSize > 0)
+    require(numberOfWorkers > 0)
+    require(processQueueSize > 0 || processQueueSize == -1)
+  }
 
   import SchedulerImpl._
 
