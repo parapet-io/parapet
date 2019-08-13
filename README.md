@@ -11,7 +11,7 @@ Parapet is the modular library where almost any component can be replaced with a
 
 Distributed engineers unite!
 
-**NOTE** - Github documentation may be out of date. It's preferable to use the official documentation.
+**NOTE** - Github documentation may be out of date. It's preferable to use the [official documentation](http://parapet.io/).
 
 ## Contents
 
