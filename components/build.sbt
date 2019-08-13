@@ -40,7 +40,7 @@ lazy val global = project
     msgZmq,
     msgIntgTests,
     algorithmsIntgTest
-  )
+  ).settings(skip in publish := true)
 
 // Algorithms
 lazy val algorithms = project.in(file("./algorithms"))
@@ -51,6 +51,8 @@ lazy val algorithms = project.in(file("./algorithms"))
 lazy val algorithmsIntgTest = project.in(file("./algorithms-intg-test"))
   .settings(
     name := "algorithms-intg-test",
+    publishLocal := {},
+    publish := {},
     libraryDependencies ++= Seq(
       "io.parapet" %% "interop-cats" % coreVersion,
       "io.parapet" %% "interop-scalaz-zio" % coreVersion,
@@ -72,6 +74,8 @@ lazy val msgZmq = project.in(file("./messaging/zmq"))
 lazy val msgIntgTests = project.in(file("./messaging/intg-tests"))
   .settings(
     name := "messaging-intg-tests",
+    publishLocal := {},
+    publish := {},
     libraryDependencies ++= Seq(
       "io.parapet" %% "interop-cats" % coreVersion,
       "io.parapet" %% "interop-scalaz-zio" % coreVersion,
