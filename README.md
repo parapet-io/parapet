@@ -4,6 +4,8 @@
 
 [![Build Status](https://travis-ci.org/parapet-io/parapet.svg?branch=master)](https://travis-ci.org/parapet-io/parapet)
 [![Join the chat](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/io-parapet/parapet)
+[![Maven Central](https://maven-badges.herokuapp.com/maven-central/io.parapet/core_2.12/badge.svg)](https://maven-badges.herokuapp.com/maven-central/io.parapet/core_2.12)
+
 ## Motivation
 
 It's not a secret that writing distributed systems is a challenging task that can be logically broken into two main aspects: implementing distributed algorithms and running them. Parapet plays the role of execution framework for distributed algorithms - it can be viewed as an intermediate layer between a low-level effect library and high-level operations exposed in the form of DSL. Distributed engineers who mainly focused on designing and implementing distributed algorithms don't need to be worried about low-level abstractions such as `IO` or have a piece of deep knowledge in certain computer science subjects, for instance, _Concurrency_. All they need to know is what _properties_ the library satisfies and what _guarantees_ it provides. On the other hand, engineers who are specializing in writing low-level libraries can concentrate on implementing core abstractions such as `IO` or `Task`, working on performance optimizations and implementing new features. 
