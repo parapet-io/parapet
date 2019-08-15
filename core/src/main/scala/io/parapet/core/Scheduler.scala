@@ -202,10 +202,10 @@ object Scheduler {
               DeadLetter(envelope, new IllegalStateException(s"process: $process is terminated")), interpreter)
           }
           case _ =>
-            if (process.execute.isDefinedAt(event)) {
+            if (process.canHandle(event)) {
               ct.race(
                 (for {
-                  flow <- ct.delay(process.execute.apply(event))
+                  flow <- ct.delay(process(event))
                   _ <- interpret_(flow, interpreter, FlowState[F](senderRef = sender, selfRef = receiver))
                 } yield ()).handleErrorWith(err => handleError(process, envelope, err)),
                 processState.interruption).flatMap {
@@ -270,9 +270,9 @@ object Scheduler {
                                                     process: Process[F],
                                                     interpreter: Interpreter[F]): F[Unit] = {
       val ct = implicitly[Concurrent[F]]
-      if (process.execute.isDefinedAt(Stop)) {
+      if (process.canHandle(Stop)) {
         interpret_(
-          process.execute.apply(Stop),
+          process(Stop),
           interpreter,
           FlowState[F](senderRef = sender, selfRef = process.ref))
       } else {

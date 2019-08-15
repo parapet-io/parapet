@@ -14,34 +14,37 @@ trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
   val ref: ProcessRef = ProcessRef.jdkUUIDRef
 
-  private var state = Option.empty[Receive]
+  private var _handler = Option.empty[Receive]
 
-  private[core] def execute: Receive = {
-    state match {
+  private[core] def handler: Receive = {
+    _handler match {
       case Some(s) => s
       case None =>
         val default = handle
-        state = Some(default)
+        _handler = Some(default)
         default
     }
   }
 
+  // default handler
   def handle: this.Receive
 
   def apply(caller: ProcessRef, e: Event): Program = {
-    if (handle.isDefinedAt(e)) {
-      dsl.invoke(caller, handle(e), ref)
+    if (canHandle(e)) {
+      dsl.invoke(caller, apply(e), ref)
     } else {
       dsl.send(Failure(Envelope(caller, e, ref),
         EventMatchException(s"process ${_self} handler is not defined for event: $e")), caller)
     }
   }
 
-  def apply(e: Event): Program = handle(e)
+  def apply(e: Event): Program = handler(e)
+
+  def canHandle(e: Event): Boolean = handler.isDefinedAt(e)
 
   def switch(newHandler: => Receive): Program = {
     dsl.eval {
-      state = Some(newHandler)
+      _handler = Some(newHandler)
     }
   }
 
@@ -54,11 +57,11 @@ trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
     override val handle: Receive = new Receive {
 
       override def isDefinedAt(x: Event): Boolean = {
-        _self.execute.isDefinedAt(x) && that.execute.isDefinedAt(x)
+        _self.canHandle(x) && that.canHandle(x)
       }
 
       override def apply(v1: Event): DslF[F, Unit] = {
-        _self.execute(v1) ++ that.execute(v1)
+        _self(v1) ++ that(v1)
       }
     }
   }
@@ -66,7 +69,7 @@ trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
   def or(that: Process[F]): Process[F] = new Process[F] {
     override val ref: ProcessRef = _self.ref
     override val name: String = _self.name
-    override val handle: Receive = _self.execute.orElse(that.execute)
+    override val handle: Receive = _self.handler.orElse(that.handler)
   }
 
   override def toString: String = s"[name=$name, ref=$ref]"
