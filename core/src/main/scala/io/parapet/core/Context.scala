@@ -135,6 +135,8 @@ object Context {
 
     def stopped: Boolean = _stopped.get()
 
+    def acquired: Boolean = executing.get()
+
     def acquire: F[Boolean] = ct.delay(executing.compareAndSet(false, true))
 
     def release: F[Option[Task[F]]] = {
