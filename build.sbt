@@ -52,6 +52,7 @@ lazy val global = project
   .in(file("."))
   .configs(Slow).settings(
   inConfig(Slow)(Defaults.testTasks))
+  .disablePlugins(plugins.JUnitXmlReportPlugin)
   .aggregate(
     core,
     interopCats,
