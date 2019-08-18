@@ -57,8 +57,6 @@ object Scheduler {
     private val pa = implicitly[Parallel[F]]
     private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
 
-    private val ctxShift = implicitly[ContextShift[F]]
-
     override def run: F[Unit] = {
       val workers = createWorkers
 
@@ -81,7 +79,7 @@ object Scheduler {
                   // we need to submit Stop event here instead of direct call
                   // to avoid race condition between interruption and process stop
                   case _ => submit(t, ps)
-                }) >> ctxShift.shift >> step
+                }) >> step
               }
           case t => ct.raiseError(new RuntimeException(s"unsupported task: $t"))
         }
@@ -145,7 +143,6 @@ object Scheduler {
 
       private val logger = Logger(LoggerFactory.getLogger(s"parapet-$name"))
       private val ct = implicitly[Concurrent[F]]
-      private val ctxShift = implicitly[ContextShift[F]]
 
       def run: F[Unit] = {
         def step: F[Unit] = {
@@ -153,11 +150,10 @@ object Scheduler {
             context.getProcessState(pRef) match {
               case Some(ps) =>
                 ps.acquire >>= {
-                  case true => ct.delay(logger.debug(s"name acquired process ${ps.process} for processing")) >>
-                    run(ps) >> ctxShift.shift >> step
-                  case false => ctxShift.shift >> step
+                  case true => run(ps) >> step
+                  case false => step
                 }
-              case None => ctxShift.shift >> step // process was terminated and removed from the system,
+              case None => step // process was terminated and removed from the system,
               // eventually scheduler will stop delivering new events for this process
             }
 
@@ -170,12 +166,12 @@ object Scheduler {
       private def run(ps: ProcessState[F]): F[Unit] = {
         def step: F[Unit] = {
           ps.tryTakeTask >>= {
-            case Some(t: Deliver[F]) => deliver(ps, t.envelope) >> ctxShift.shift >> step
+            case Some(t: Deliver[F]) => deliver(ps, t.envelope) >> step
             case Some(t) => ct.raiseError(new RuntimeException(s"unsupported task: $t"))
             case None => ps.release >>= {
               case None => ct.delay(logger.debug(s"$name has been released process ${ps.process}"))
               case Some(task: Deliver[F]) => deliver(ps, task.envelope) >>
-                ctxShift.shift >> step // process still has some tasks, continue
+                step // process still has some tasks, continue
             }
           }
         }
