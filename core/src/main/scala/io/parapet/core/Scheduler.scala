@@ -18,9 +18,9 @@ import io.parapet.core.exceptions._
 import org.slf4j.LoggerFactory
 
 trait Scheduler[F[_]] {
-  def run: F[Unit]
+  def start: F[Unit]
 
-  def submit(task: Task[F]): F[Unit]
+  def submit(task: Task[F]): F[SubmissionResult]
 }
 
 object Scheduler {
@@ -37,13 +37,19 @@ object Scheduler {
     SchedulerImpl(config, context, interpreter)
   }
 
-  case class SchedulerConfig(queueSize: Int,
+  case class SchedulerConfig(
                              numberOfWorkers: Int,
                              processQueueSize: Int) {
-    require(queueSize > 0 || queueSize == -1)
+
     require(numberOfWorkers > 0)
     require(processQueueSize > 0 || processQueueSize == -1)
   }
+
+  // todo: revisit
+  sealed trait SubmissionResult
+  object Ok extends SubmissionResult
+  object UnknownProcess extends SubmissionResult
+  object ProcessQueueIsFull extends SubmissionResult
 
   import SchedulerImpl._
 
@@ -58,35 +64,10 @@ object Scheduler {
     private val pa = implicitly[Parallel[F]]
     private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
 
-    override def run: F[Unit] = {
+    override def start: F[Unit] = ct.suspend {
       val workers = createWorkers
 
-      def step: F[Unit] = {
-        context.taskQueue.dequeue >>= {
-          case t@Deliver(e@Envelope(sender, event, pRef)) =>
-            context.getProcessState(pRef)
-              .fold(send(
-                SystemRef,
-                Failure(e, UnknownProcessException(s"there is no such process with id=$pRef registered in the system")),
-                sender,
-                interpreter) >> step) { ps =>
-                (event match {
-                  case Kill =>
-                    context.interrupt(pRef) >>
-                      submit(Deliver(Envelope(sender, Stop, pRef)), ps)
-                  // interruption isn't instant operation since it's just a signal (e.g. Deferred)
-                  // i.e. interrupt may be completed although
-                  // the actual process is still performing some computations and will be interrupted latter
-                  // we need to submit Stop event here instead of direct call
-                  // to avoid race condition between interruption and process stop
-                  case _ => submit(t, ps)
-                }) >> step
-              }
-          case t => ct.raiseError(new RuntimeException(s"unsupported task: $t"))
-        }
-      }
-
-      pa.par(workers.map(w => w.run) :+ step)
+      pa.par(workers.map(w => w.run))
         .guarantee(
           stopProcess(ProcessRef.SystemRef,
             context, ProcessRef.SystemRef, interpreter,
@@ -94,23 +75,44 @@ object Scheduler {
         ct.delay(logger.info("scheduler has been shut down"))
     }
 
-    private def submit(task: Deliver[F], ps: ProcessState[F]): F[Unit] = {
+    private def submit(ps: ProcessState[F], task: Deliver[F]): F[SubmissionResult] = {
       ps.tryPut(task) >>= {
         case true =>
           ps.acquired.flatMap {
             case true => ct.unit
             case false => processRefQueue.enqueue(ps.process.ref)
-          }
+          } >> ct.pure(Ok)
         case false =>
           send(ProcessRef.SystemRef, Failure(task.envelope,
             EventDeliveryException(s"System failed to deliver an event to process ${ps.process}",
               EventQueueIsFullException(s"process ${ps.process} event queue is full"))),
-            task.envelope.sender, interpreter)
+            task.envelope.sender, interpreter) >> ct.pure(ProcessQueueIsFull)
       }
     }
 
-    override def submit(task: Task[F]): F[Unit] = {
-      context.taskQueue.enqueue(task)
+    override def submit(task: Task[F]): F[SubmissionResult] = {
+      task match {
+        case deliverTask@Deliver(e@Envelope(sender, event, pRef)) =>
+          context.getProcessState(pRef)
+            .fold[F[SubmissionResult]](send(
+              SystemRef,
+              Failure(e, UnknownProcessException(s"there is no such process with id=$pRef registered in the system")),
+              sender,
+              interpreter) >> ct.pure(UnknownProcess)) { ps =>
+              event match {
+                case Kill =>
+                  // interruption is a concurrent operation
+                  // i.e. interrupt may be completed but
+                  // the actual process may be still performing some computations
+                  // we need to submit Stop event here instead of `direct call`
+                  // to avoid race condition between interruption and process stop
+                  context.interrupt(pRef) >> submit(ps, Deliver(Envelope(sender, Stop, pRef)))
+                case _ => submit(ps, deliverTask)
+              }
+            }
+        case t => ct.raiseError(new RuntimeException(s"unsupported task: $t"))
+      }
+
     }
 
     private def createWorkers: List[Worker[F]] = {
@@ -131,9 +133,7 @@ object Scheduler {
                                                             context: Context[F],
                                                             interpreter: Interpreter[F]): F[Scheduler[F]] =
       for {
-        processRefQueue <-
-        if (config.queueSize == -1) Queue.unbounded[F, ProcessRef](ChannelType.SPMC)
-        else Queue.bounded[F, ProcessRef](config.queueSize, ChannelType.SPMC)
+        processRefQueue <- Queue.unbounded[F, ProcessRef](ChannelType.MPMC)
       } yield
         new SchedulerImpl(
           config,
@@ -301,7 +301,7 @@ object Scheduler {
         stopChildProcesses >>
           (context.getProcess(ref) match {
             case Some(p) => deliverStopEvent(sender, p, interpreter).handleErrorWith(err => onError(ref, err))
-            case None => ct.unit // revisit
+            case None => ct.unit // todo: revisit
           })
       }
     }

@@ -49,12 +49,13 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
           ct.raiseError[Unit](new RuntimeException("Initialization error:  at least one process must be provided"))
         } else ct.unit
         context <- Context(config, eventLog)
-        _ <- context.init
-        dlProcess <- deadLetter
-        _ <- context.registerAll(ProcessRef.SystemRef, ps.toList :+ dlProcess)
         interpreter <- ct.pure(flowInterpreter(context))
         scheduler <- Scheduler.apply[F](config.schedulerConfig, context, interpreter)
-        _ <- scheduler.run
+        f <- ct.start(scheduler.start)
+        _ <- context.start(scheduler)
+        dlProcess <- deadLetter
+        _ <- context.registerAll(ProcessRef.SystemRef, ps.toList :+ dlProcess)
+        _ <- f.join
       } yield ()
 
   }

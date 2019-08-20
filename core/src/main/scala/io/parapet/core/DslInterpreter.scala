@@ -10,7 +10,7 @@ import cats.syntax.traverse._
 import cats.{Monad, ~>}
 import io.parapet.core.Dsl._
 import io.parapet.core.Event.Envelope
-import io.parapet.core.Scheduler.Deliver
+import io.parapet.core.Scheduler.{Deliver, ProcessQueueIsFull}
 
 object DslInterpreter {
 
@@ -47,9 +47,10 @@ object DslInterpreter {
     private val pa = implicitly[Parallel[F]]
 
     def send(e: Envelope): F[Unit] = {
-      context.taskQueue.tryEnqueue(Deliver(e)).flatMap {
-        case false => context.eventLog.write(e)
-        case true => ct.unit
+      // todo move to context
+      context.schedule(Deliver(e)).flatMap {
+        case ProcessQueueIsFull => context.eventLog.write(e)
+        case _ => ct.unit
       }
     }
 
@@ -106,7 +107,7 @@ object DslInterpreter {
 
         case Register(parent, process: Process[F]) =>
           StateT.modify[F, FlowState[F]] { s =>
-            s.add(context.register(parent, process))
+            s.add(context.registerAndStart(parent, process))
           }
 
         case Race(firstFlow, secondFlow) =>

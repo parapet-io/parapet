@@ -33,7 +33,6 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
       StabilitySpec(
         name = "test-1",
         config = SchedulerConfig(
-          queueSize = 1000,
           numberOfWorkers = 5,
           processQueueSize = 100),
         wds = WorkDistributionStrategy.Random,
@@ -46,7 +45,6 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
       StabilitySpec(
         name = "test-2",
         config = SchedulerConfig(
-          queueSize = 1000,
           numberOfWorkers = 10,
           processQueueSize = 100),
         wds = WorkDistributionStrategy.Random,
@@ -60,7 +58,6 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
       StabilitySpec(
         name = "test-3",
         config = SchedulerConfig(
-          queueSize = 1000,
           numberOfWorkers = 10,
           processQueueSize = 100),
         wds = WorkDistributionStrategy.Batch,
@@ -72,7 +69,6 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
       StabilitySpec(
         name = "test-3",
         config = SchedulerConfig(
-          queueSize = 1000,
           numberOfWorkers = 10,
           processQueueSize = 100),
         wds = WorkDistributionStrategy.Batch,
@@ -161,7 +157,6 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
       val mdcFields: MDCFields = Map(
         "name" -> spec.name,
         "sample" -> i,
-        "scheduler_task_queue_size" -> spec.config.queueSize,
         "process_event_queue_size" -> spec.config.processQueueSize,
         "number_of_workers" -> spec.config.numberOfWorkers,
         "number_of_processes" -> spec.numberOfProcesses,
@@ -181,13 +176,14 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
 
       val program = for {
         context <- Context[F](Parapet.ParConfig(spec.config), EventLog.stub)(ct, contextShift)
-        _ <- context.init
-        _ <- context.registerAll(ProcessRef.SystemRef, processes.toList)
         it <- interpreter(context)
         scheduler <- Scheduler[F](spec.config, context, it)
-
+        fiber <- ct.start(scheduler.start)
+        _ <- context.start(scheduler)
+        _ <- context.registerAll(ProcessRef.SystemRef, processes.toList)
         _ <- submitAll(scheduler, tasks)
-        _ <- eventStore.await(tasks.size, scheduler.run)
+        _ <- eventStore.await0(tasks.size, fiber)
+
       } yield ()
 
       logger.mdc(mdcFields) { _ => {
@@ -259,7 +255,7 @@ object SchedulerCorrectnessSpec {
 
   def submitAll[F[_] : Concurrent](scheduler: Scheduler[F], tasks: Seq[Task[F]]): F[Unit] = {
     val ct = implicitly[Concurrent[F]]
-    tasks.map(scheduler.submit).foldLeft(ct.unit)(_ >> _)
+    tasks.map(t => scheduler.submit(t).void).foldLeft(ct.unit)(_ >> _)
   }
 
   @tailrec

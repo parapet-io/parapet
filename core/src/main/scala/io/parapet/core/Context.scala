@@ -11,7 +11,7 @@ import cats.syntax.traverse._
 import io.parapet.core.Context._
 import io.parapet.core.Event.{Envelope, Start}
 import io.parapet.core.Queue.ChannelType
-import io.parapet.core.Scheduler.{Deliver, Task, TaskQueue}
+import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.SystemProcess
 
@@ -19,8 +19,7 @@ import scala.collection.JavaConverters._
 
 class Context[F[_] : Concurrent : ContextShift](
                                                  config: Parapet.ParConfig,
-                                                 val eventLog: EventLog[F],
-                                                 val taskQueue: TaskQueue[F]) {
+                                                 val eventLog: EventLog[F]) {
 
 
   private val ct = implicitly[Concurrent[F]]
@@ -30,13 +29,18 @@ class Context[F[_] : Concurrent : ContextShift](
 
   private val graph = new java.util.concurrent.ConcurrentHashMap[ProcessRef, Vector[ProcessRef]]
 
-  def init: F[Unit] = {
-    ct.delay(new SystemProcess[F]()).flatMap { sysProcess =>
-      ProcessState(sysProcess, processQueueSize).flatMap { s =>
-        ct.delay(processes.put(sysProcess.ref, s)) >> start(sysProcess.ref)
+  private var _scheduler: Scheduler[F] = _
+
+  def start(scheduler: Scheduler[F]): F[Unit] = {
+    ct.delay(_scheduler = scheduler) >>
+      ct.delay(new SystemProcess[F]()).flatMap { sysProcess =>
+        ProcessState(sysProcess, processQueueSize).flatMap { s =>
+          ct.delay(processes.put(sysProcess.ref, s)) >> sendStartEvent(sysProcess.ref).void
+        }
       }
-    }
   }
+
+  def schedule(task: Task[F]): F[SubmissionResult] = _scheduler.submit(task)
 
   def register(parent: ProcessRef, process: Process[F]): F[ProcessRef] = {
     if (!processes.containsKey(parent)) {
@@ -49,7 +53,7 @@ class Context[F[_] : Concurrent : ContextShift](
         else {
           graph.computeIfAbsent(parent, _ => Vector())
           graph.computeIfPresent(parent, (_, v) => v :+ process.ref)
-          start(process.ref).map(_ => process.ref)
+          ct.pure(process.ref)
         }
       }
     }
@@ -57,18 +61,24 @@ class Context[F[_] : Concurrent : ContextShift](
 
   def child(parent: ProcessRef): Vector[ProcessRef] = graph.getOrDefault(parent, Vector.empty)
 
-  private def start(processRef: ProcessRef): F[Unit] = {
-    taskQueue.enqueue(Deliver(Envelope(ProcessRef.SystemRef, Start, processRef)))
+  def registerAndStart(parent: ProcessRef, process: Process[F]): F[SubmissionResult] = {
+    register(parent, process) >> sendStartEvent(process.ref)
+  }
+
+  private def sendStartEvent(processRef: ProcessRef): F[SubmissionResult] = {
+    _scheduler.submit(Deliver(Envelope(ProcessRef.SystemRef, Start, processRef)))
   }
 
   def registerAll(parent: ProcessRef, processes: List[Process[F]]): F[List[ProcessRef]] = {
-    processes.map(p => register(parent, p)).sequence
+
+    for {
+      refs <- processes.map(p => register(parent, p)).sequence
+      res <- refs.map(ref => sendStartEvent(ref) >> ct.pure(ref)).sequence
+    } yield res
+
   }
 
   def getProcesses: List[Process[F]] = processes.values().asScala.map(_.process).toList
-
-//  def getRunningProcesses: List[Process[F]] =
-//    processes.values().asScala.filter(!_.stopped).map(_.process).toList
 
   def getProcess(ref: ProcessRef): Option[Process[F]] = {
     getProcessState(ref).map(_.process)
@@ -95,13 +105,8 @@ object Context {
 
   def apply[F[_] : Concurrent : ContextShift](config: Parapet.ParConfig,
                                               eventLog: EventLog[F]): F[Context[F]] = {
-    for {
-      taskQueue <-
-      if (config.schedulerConfig.queueSize == -1) Queue.unbounded[F, Task[F]](ChannelType.MPSC)
-      else Queue.bounded[F, Task[F]](config.schedulerConfig.queueSize, ChannelType.MPSC)
-    } yield new Context[F](config, eventLog, taskQueue)
+    implicitly[Concurrent[F]].delay(new Context[F](config, eventLog))
   }
-
 
   class ProcessState[F[_] : Concurrent](
                                          queue: TaskQueue[F],
@@ -115,7 +120,6 @@ object Context {
 
     private[this] val _interrupted: AtomicBoolean = new AtomicBoolean(false)
     private[this] val _stopped: AtomicBoolean = new AtomicBoolean(false)
-    //private val executing: AtomicBoolean = new AtomicBoolean()
     private[this] val pLock = new ProcessLock[F](process.ref)
 
     def tryPut(t: Task[F]): F[Boolean] = {
