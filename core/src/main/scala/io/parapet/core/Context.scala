@@ -67,8 +67,8 @@ class Context[F[_] : Concurrent : ContextShift](
 
   def getProcesses: List[Process[F]] = processes.values().asScala.map(_.process).toList
 
-  def getRunningProcesses: List[Process[F]] =
-    processes.values().asScala.filter(!_.stopped).map(_.process).toList
+//  def getRunningProcesses: List[Process[F]] =
+//    processes.values().asScala.filter(!_.stopped).map(_.process).toList
 
   def getProcess(ref: ProcessRef): Option[Process[F]] = {
     getProcessState(ref).map(_.process)
@@ -102,20 +102,24 @@ object Context {
     } yield new Context[F](config, eventLog, taskQueue)
   }
 
+
   class ProcessState[F[_] : Concurrent](
                                          queue: TaskQueue[F],
                                          lock: Lock[F],
                                          val process: Process[F],
                                          _interruption: Deferred[F, Unit]) {
 
+    import ProcessState._
+
     private val ct = implicitly[Concurrent[F]]
 
-    private val _interrupted: AtomicBoolean = new AtomicBoolean(false)
-    private val _stopped: AtomicBoolean = new AtomicBoolean(false)
-    private val executing: AtomicBoolean = new AtomicBoolean()
+    private[this] val _interrupted: AtomicBoolean = new AtomicBoolean(false)
+    private[this] val _stopped: AtomicBoolean = new AtomicBoolean(false)
+    //private val executing: AtomicBoolean = new AtomicBoolean()
+    private[this] val pLock = new ProcessLock[F](process.ref)
 
     def tryPut(t: Task[F]): F[Boolean] = {
-      lock.withPermit(queue.tryEnqueue(t))
+      queue.tryEnqueue(t)
     }
 
     def tryTakeTask: F[Option[Task[F]]] = queue.tryDequeue
@@ -127,37 +131,19 @@ object Context {
       }
     }
 
-    def stop(): Boolean = _stopped.compareAndSet(false, true)
+    def stop(): F[Boolean] = ct.delay(_stopped.compareAndSet(false, true))
 
     def interruption: F[Unit] = _interruption.get
 
-    def interrupted: Boolean = _interrupted.get()
+    def interrupted: F[Boolean] = ct.pure(_interrupted.get())
 
-    def stopped: Boolean = _stopped.get()
+    def stopped: F[Boolean] = ct.pure(_stopped.get())
 
-    def acquire: F[Boolean] = ct.delay(executing.compareAndSet(false, true))
+    def acquired: F[Boolean] = pLock.acquired
 
-    def release: F[Option[Task[F]]] = {
-      if (!executing.get())
-        ct.raiseError(new RuntimeException("process cannot be released because it wasn't acquired"))
-      else {
-        // lock required to avoid the situation when worker 1 got suspended during process release,
-        // scheduler puts a new task to the process's queue and process ref to processRefQueue
-        // worker 2 dequeues process ref and fails to acquire it b/c it's still in executing state
-        // thus new task will be lost
-        // process must be released before scheduler will add it to processRefQueue
-        lock.withPermit {
-          queue.tryDequeue >>= {
-            case None =>
-              ct.delay(executing.compareAndSet(true, false)) >>= {
-                case false => ct.raiseError(new RuntimeException("concurrent release"))
-                case _ => ct.pure(Option.empty)
-              }
-            case Some(task) => ct.pure(Option(task)) // new task available, don't release yet
-          }
-        }
-      }
-    }
+    def acquire: F[Boolean] = pLock.acquire
+
+    def release: F[Boolean] = pLock.release
 
   }
 
@@ -170,6 +156,33 @@ object Context {
         lock <- Lock[F]
         terminated <- Deferred[F, Unit]
       } yield new ProcessState[F](queue, lock, process, terminated)
+
+    class ProcessLock[F[_] : Concurrent](ref: ProcessRef) {
+      private[this] val ct = implicitly[Concurrent[F]]
+      private[this] val lock = new java.util.concurrent.ConcurrentHashMap[ProcessRef, Integer]()
+
+      def acquired: F[Boolean] = ct.delay {
+        lock.computeIfPresent(ref, (_: ProcessRef, c: Integer) => c + 1) != null
+      }
+
+      def acquire: F[Boolean] = ct.delay {
+        lock.putIfAbsent(ref, 0) == null
+      }
+
+      // release and reset
+      def release: F[Boolean] = ct.delay {
+        if (!lock.containsKey(ref)) {
+          throw new IllegalStateException("process cannot be released because it's not acquired")
+        }
+
+        val res = lock.remove(ref, 0)
+        if (!res) {
+          lock.put(ref, 0) // reset
+        }
+        res
+      }
+    }
+
   }
 
 }
