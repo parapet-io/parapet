@@ -23,7 +23,6 @@ class Context[F[_] : Concurrent : ContextShift](
 
 
   private val ct = implicitly[Concurrent[F]]
-  private val processQueueSize = config.schedulerConfig.processQueueSize
 
   private val processes = new java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessState[F]]()
 
@@ -34,7 +33,7 @@ class Context[F[_] : Concurrent : ContextShift](
   def start(scheduler: Scheduler[F]): F[Unit] = {
     ct.delay(_scheduler = scheduler) >>
       ct.delay(new SystemProcess[F]()).flatMap { sysProcess =>
-        ProcessState(sysProcess, processQueueSize).flatMap { s =>
+        ProcessState(sysProcess, config).flatMap { s =>
           ct.delay(processes.put(sysProcess.ref, s)) >> sendStartEvent(sysProcess.ref).void
         }
       }
@@ -47,7 +46,7 @@ class Context[F[_] : Concurrent : ContextShift](
       ct.raiseError(UnknownProcessException(
         s"process cannot be registered because parent process with id=$parent doesn't exist"))
     } else {
-      ProcessState(process, processQueueSize).flatMap { s =>
+      ProcessState(process, config).flatMap { s =>
         if (processes.putIfAbsent(process.ref, s) != null)
           ct.raiseError(new RuntimeException(s"duplicated process. ref = ${process.ref}"))
         else {
@@ -152,14 +151,17 @@ object Context {
   }
 
   object ProcessState {
-    def apply[F[_] : Concurrent : ContextShift](process: Process[F], queueSize: Int): F[ProcessState[F]] =
+    def apply[F[_] : Concurrent : ContextShift](process: Process[F],
+                                                config: Parapet.ParConfig): F[ProcessState[F]] = {
+      val processBufferSize = if (process.bufferSize != -1) process.bufferSize else config.processBufferSize
       for {
         queue <-
-        if (queueSize == -1) Queue.unbounded[F, Task[F]]()
-        else Queue.bounded[F, Task[F]](queueSize, ChannelType.SPSC)
+        if (processBufferSize == -1) Queue.unbounded[F, Task[F]]()
+        else Queue.bounded[F, Task[F]](processBufferSize, ChannelType.SPSC)
         lock <- Lock[F]
         terminated <- Deferred[F, Unit]
       } yield new ProcessState[F](queue, lock, process, terminated)
+    }
 
     class ProcessLock[F[_] : Concurrent](ref: ProcessRef) {
       private[this] val ct = implicitly[Concurrent[F]]

@@ -32,51 +32,51 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
       // random work distribution
       StabilitySpec(
         name = "test-1",
+        samples = 5,
         config = SchedulerConfig(
-          numberOfWorkers = 5,
-          processQueueSize = 100),
+          numberOfWorkers = 5),
         wds = WorkDistributionStrategy.Random,
         numberOfEvents = 50,
         numberOfProcesses = 5,
         pta = instant,
         ratio = 0.5,
-        ptb = range(100.millis, 500.millis)),
+        ptb = range(50.millis, 100.millis)),
 
       StabilitySpec(
         name = "test-2",
+        samples = 5,
         config = SchedulerConfig(
-          numberOfWorkers = 10,
-          processQueueSize = 100),
+          numberOfWorkers = 10),
         wds = WorkDistributionStrategy.Random,
         numberOfEvents = 50,
         numberOfProcesses = 5,
         pta = instant,
         ratio = 0.75,
-        ptb = range(100.millis, 500.millis)),
+        ptb = range(50.millis, 100.millis)),
 
       // batch work distribution
       StabilitySpec(
         name = "test-3",
+        samples = 5,
         config = SchedulerConfig(
-          numberOfWorkers = 10,
-          processQueueSize = 100),
+          numberOfWorkers = 10),
         wds = WorkDistributionStrategy.Batch,
         numberOfEvents = 10,
         numberOfProcesses = 5,
         pta = instant,
         ratio = 0.5,
-        ptb = range(100.millis, 500.millis)),
+        ptb = range(50.millis, 100.millis)),
       StabilitySpec(
         name = "test-3",
+        samples = 5,
         config = SchedulerConfig(
-          numberOfWorkers = 10,
-          processQueueSize = 100),
+          numberOfWorkers = 10),
         wds = WorkDistributionStrategy.Batch,
         numberOfEvents = 10,
         numberOfProcesses = 5,
         pta = instant,
         ratio = 0.75,
-        ptb = range(100.millis, 500.millis))
+        ptb = range(50.millis, 100.millis))
     )
 
     run(specs)
@@ -157,7 +157,6 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
       val mdcFields: MDCFields = Map(
         "name" -> spec.name,
         "sample" -> i,
-        "process_event_queue_size" -> spec.config.processQueueSize,
         "number_of_workers" -> spec.config.numberOfWorkers,
         "number_of_processes" -> spec.numberOfProcesses,
         "number_of_events" -> spec.numberOfEvents,
@@ -175,7 +174,8 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
       require(tasks.size >= spec.numberOfEvents, "number of tasks must be gte number of events")
 
       val program = for {
-        context <- Context[F](Parapet.ParConfig(spec.config), EventLog.stub)(ct, contextShift)
+        context <- Context[F](Parapet.ParConfig(processBufferSize = -1,
+          schedulerConfig = spec.config), EventLog.stub)(ct, contextShift)
         it <- interpreter(context)
         scheduler <- Scheduler[F](spec.config, context, it)
         fiber <- ct.start(scheduler.start)

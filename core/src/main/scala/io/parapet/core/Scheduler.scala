@@ -37,12 +37,8 @@ object Scheduler {
     SchedulerImpl(config, context, interpreter)
   }
 
-  case class SchedulerConfig(
-                             numberOfWorkers: Int,
-                             processQueueSize: Int) {
-
+  case class SchedulerConfig(numberOfWorkers: Int) {
     require(numberOfWorkers > 0)
-    require(processQueueSize > 0 || processQueueSize == -1)
   }
 
   // todo: revisit
