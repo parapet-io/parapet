@@ -6,7 +6,7 @@ ThisBuild / organization := "io.parapet"
 ThisBuild / organizationName := "parapet"
 ThisBuild / organizationHomepage := Some(url("http://parapet.io/"))
 
-val coreVersion = "0.0.1-RC1"
+val coreVersion = "0.0.1-RC2"
 scalaVersion := "2.12.8"
 
 scalacOptions in ThisBuild ++= Seq(
