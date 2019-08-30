@@ -37,6 +37,8 @@ object Dsl {
 
   case class Eval[F[_], C[_], A](thunk: () => A, bind: Option[A => Free[C, Unit]]) extends FlowOp[F, Unit]
 
+  case class Blocking[F[_], C[_]](flow: Free[C, Unit]) extends FlowOp[F, Unit]
+
   /**
     * Smart constructors for FlowOp[F, _].
     *
@@ -357,6 +359,8 @@ object Dsl {
       */
     def evalWith[A](thunk: => A)(bind: A => Free[C, Unit]): Free[C, Unit] =
       Free.inject[FlowOp[F, ?], C](Eval(() => thunk, Option(bind)))
+
+    def blocking(flow: Free[C, Unit]): Free[C, Unit] =  Free.inject[FlowOp[F, ?], C](Blocking(flow))
 
   }
 

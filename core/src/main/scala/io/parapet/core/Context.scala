@@ -119,6 +119,7 @@ object Context {
 
     private[this] val _interrupted: AtomicBoolean = new AtomicBoolean(false)
     private[this] val _stopped: AtomicBoolean = new AtomicBoolean(false)
+    private[this] val _suspended: AtomicBoolean = new AtomicBoolean(false)
     private[this] val pLock = new ProcessLock[F](process.ref)
 
     def tryPut(t: Task[F]): F[Boolean] = {
@@ -136,7 +137,7 @@ object Context {
 
     def stop(): F[Boolean] = ct.delay(_stopped.compareAndSet(false, true))
 
-    def interruption: F[Unit] = _interruption.get
+    def interruption: Deferred[F, Unit] = _interruption
 
     def interrupted: F[Boolean] = ct.pure(_interrupted.get())
 
@@ -147,6 +148,25 @@ object Context {
     def acquire: F[Boolean] = pLock.acquire
 
     def release: F[Boolean] = pLock.release
+
+    def releaseNow: F[Unit] = pLock.releaseNow
+
+    /**
+      * returns `true` if this process performing some blocking operations, other `false`
+      */
+    def suspended: F[Boolean] = ct.pure(_suspended.get())
+
+    def suspend: F[Unit] = ct.delay {
+      if (!_suspended.compareAndSet(false, true)) {
+        throw new IllegalStateException(s"process[${process.ref}] is already suspended")
+      }
+    }
+
+    def resume: F[Unit] = ct.delay {
+      if (!_suspended.compareAndSet(true, false)) {
+        throw new IllegalStateException(s"process[${process.ref}] is not suspended")
+      }
+    }
 
   }
 
@@ -173,6 +193,12 @@ object Context {
 
       def acquire: F[Boolean] = ct.delay {
         lock.putIfAbsent(ref, 0) == null
+      }
+
+      def releaseNow: F[Unit] = ct.delay {
+        if (lock.remove(ref) == null) {
+          throw new IllegalStateException("process cannot be released because it's not acquired")
+        }
       }
 
       // release and reset

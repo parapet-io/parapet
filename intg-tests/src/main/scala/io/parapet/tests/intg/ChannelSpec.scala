@@ -2,6 +2,8 @@ package io.parapet.tests.intg
 
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Start, Stop}
+import io.parapet.core.Parapet.ParConfig
+import io.parapet.core.Scheduler.SchedulerConfig
 import io.parapet.core.{Channel, Event, Process}
 import io.parapet.tests.intg.ChannelSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
@@ -44,7 +46,8 @@ abstract class ChannelSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
       }
     }
 
-    unsafeRun(eventStore.await(numOfRequests, createApp(ct.pure(Seq(client, server))).run))
+    unsafeRun(eventStore.await(numOfRequests,
+      createApp(ct.pure(Seq(client, server)), Option.empty, ParConfig(-1, SchedulerConfig(1))).run))
     eventStore.get(client.ref) shouldBe Seq(Response(0), Response(1), Response(2), Response(3), Response(4))
 
   }

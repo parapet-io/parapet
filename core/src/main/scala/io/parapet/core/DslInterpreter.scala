@@ -1,7 +1,7 @@
 package io.parapet.core
 
 
-import cats.data.StateT
+import cats.data.State
 import cats.effect.{Concurrent, Timer}
 import cats.instances.list._
 import cats.syntax.flatMap._
@@ -14,26 +14,31 @@ import io.parapet.core.Scheduler.{Deliver, ProcessQueueIsFull}
 
 object DslInterpreter {
 
-  type Flow[F[_], A] = StateT[F, FlowState[F], A]
+  type Flow[F[_], A] = State[FlowState[F], A]
   type Interpreter[F[_]] = Dsl[F, ?] ~> Flow[F, ?]
 
-  case class FlowState[F[_]](senderRef: ProcessRef, selfRef: ProcessRef, ops: Vector[F[_]] = Vector.empty) {
+  case class FlowState[F[_]](senderRef: ProcessRef, selfRef: ProcessRef,
+                             ops: Vector[F[_]] = Vector.empty, blocking: Boolean = false) {
     def addAll(that: Seq[F[_]]): FlowState[F] = this.copy(ops = ops ++ that)
 
     def add(op: F[_]): FlowState[F] = this.copy(ops = ops :+ op)
+
+    def asBlocking: FlowState[F] = this.copy(blocking = true)
   }
 
   private[parapet] def interpret[F[_] : Monad, A](program: DslF[F, A],
                                                   interpreter: Interpreter[F],
-                                                  state: FlowState[F]): F[Seq[F[_]]] = {
-    program.foldMap[Flow[F, ?]](interpreter).runS(state).map(_.ops)
+                                                  state: FlowState[F]): Effect[Seq[F[_]]] = {
+    val res = program.foldMap[Flow[F, ?]](interpreter).runS(state).value
+    if (res.blocking) Effect.blocking(res.ops)
+    else Effect(res.ops)
   }
 
   private[parapet] def interpret_[F[_] : Monad, A](program: DslF[F, A],
                                                    interpreter: Interpreter[F],
-                                                   state: FlowState[F]): F[Unit] = {
-    interpret(program, interpreter, state)
-      .flatMap(s => s.fold(Monad[F].unit)(_ >> _).void)
+                                                   state: FlowState[F]): Effect[F[Unit]] = {
+    val res = interpret(program, interpreter, state)
+    res.map(s => s.fold(Monad[F].unit)(_ >> _).void)
   }
 
   def apply[F[_] : Concurrent : Parallel : Timer](context: Context[F]):
@@ -56,25 +61,25 @@ object DslInterpreter {
 
     override def apply[A](fa: Dsl.Dsl[F, A]): Flow[F, A] = {
       fa match {
-        case UnitFlow() => StateT.modify(s => s)
+        case UnitFlow() => State.modify(s => s)
 
         case Send(event, receivers) =>
-          StateT.modify[F, FlowState[F]] { s =>
+          State.modify[FlowState[F]] { s =>
             s.add(receivers.map(receiver => send(Envelope(s.selfRef, event, receiver))).toList.sequence)
           }
 
         case Forward(event, receivers) =>
-          StateT.modify[F, FlowState[F]] { s =>
+          State.modify[FlowState[F]] { s =>
             s.add(receivers.map(receiver => send(Envelope(s.senderRef, event, receiver))).toList.sequence)
           }
 
         case par: Par[F, Dsl[F, ?]]@unchecked =>
-          StateT.modify[F, FlowState[F]] { s =>
-            s.add(interpret(par.flow, self, FlowState[F](s.senderRef, s.selfRef)).flatMap(pa.par))
+          State.modify[FlowState[F]] { s =>
+            s.add(interpret(par.flow, self, FlowState[F](s.senderRef, s.selfRef)).map(pa.par).get)
           }
 
         case delayOp: Delay[F, Dsl[F, ?]]@unchecked =>
-          StateT.modify[F, FlowState[F]] { s =>
+          State.modify[FlowState[F]] { s =>
             val delayIO = timer.sleep(delayOp.duration)
             delayOp.flow match {
               case Some(flow) =>
@@ -84,53 +89,58 @@ object DslInterpreter {
                 // required: F[_] <:< F[Any]
                 // .map(ops => ops.map(op => (delayIO >> op))).flatMap(_.toList.sequence)
                 val res = interpret(flow, self, FlowState[F](s.senderRef, s.selfRef))
-                  .map(ops => ops.map(op => (delayIO >> op).void)).flatMap(_.toList.sequence)
-                s.add(res)
+                  .map(ops => ops.map(op => (delayIO >> op).void)).map(_.toList.sequence)
+                s.add(res.get)
               case None => s.add(delayIO)
             }
           }
 
         case reply: WithSender[F, Dsl[F, ?]]@unchecked =>
-          StateT.modify[F, FlowState[F]] { s =>
-            s.add(interpret_(reply.f(s.senderRef), self, FlowState[F](s.senderRef, s.selfRef)))
+          State.modify[FlowState[F]] { s =>
+            s.add(interpret_(reply.f(s.senderRef), self, FlowState[F](s.senderRef, s.selfRef)).get)
           }
 
         case invoke: Invoke[F, Dsl[F, ?]]@unchecked =>
-          StateT.modify[F, FlowState[F]] { s =>
-            s.add(interpret_(invoke.body, self, FlowState[F](invoke.caller, invoke.callee)))
+          State.modify[FlowState[F]] { s =>
+            s.add(interpret_(invoke.body, self, FlowState[F](invoke.caller, invoke.callee)).get)
           }
 
         case fork: Fork[F, Dsl[F, ?]]@unchecked =>
-          StateT.modify[F, FlowState[F]] { s =>
-            s.add(ct.start(interpret_(fork.flow, self, FlowState[F](s.senderRef, s.selfRef))))
+          State.modify[FlowState[F]] { s =>
+            s.add(ct.start(interpret_(fork.flow, self, FlowState[F](s.senderRef, s.selfRef)).get))
           }
 
         case Register(parent, process: Process[F]) =>
-          StateT.modify[F, FlowState[F]] { s =>
+          State.modify[FlowState[F]] { s =>
             s.add(context.registerAndStart(parent, process))
           }
 
         case Race(firstFlow, secondFlow) =>
-          StateT.modify[F, FlowState[F]] { s =>
-            val first = interpret_(firstFlow.asInstanceOf[DslF[F, A]], self, FlowState[F](s.senderRef, s.selfRef))
-            val second = interpret_(secondFlow.asInstanceOf[DslF[F, A]], self, FlowState[F](s.senderRef, s.selfRef))
+          State.modify[FlowState[F]] { s =>
+            val first = interpret_(firstFlow.asInstanceOf[DslF[F, A]], self, FlowState[F](s.senderRef, s.selfRef)).get
+            val second = interpret_(secondFlow.asInstanceOf[DslF[F, A]], self, FlowState[F](s.senderRef, s.selfRef)).get
             s.add(ct.race(first, second))
           }
 
         case suspend: Suspend[F, Dsl[F, ?], A]@unchecked =>
-          StateT.modify[F, FlowState[F]] { s =>
+          State.modify[FlowState[F]] { s =>
             s.add(ct.suspend(suspend.thunk()).flatMap { a =>
-              suspend.bind.map(f => (b: A) => interpret_(f(b), self, FlowState[F](s.senderRef, s.selfRef)))
+              suspend.bind.map(f => (b: A) => interpret_(f(b), self, FlowState[F](s.senderRef, s.selfRef)).get)
                 .getOrElse((_: A) => ct.unit)(a)
             })
           }
 
         case eval: Eval[F, Dsl[F, ?], A]@unchecked =>
-          StateT.modify[F, FlowState[F]] { s =>
+          State.modify[FlowState[F]] { s =>
             s.add(ct.delay(eval.thunk()).flatMap { a =>
-              eval.bind.map(f => (b: A) => interpret_(f(b), self, FlowState[F](s.senderRef, s.selfRef)))
+              eval.bind.map(f => (b: A) => interpret_(f(b), self, FlowState[F](s.senderRef, s.selfRef)).get)
                 .getOrElse((_: A) => ct.unit)(a)
             })
+          }
+
+        case blocking: Blocking[F, Dsl[F, ?]]@unchecked =>
+          State.modify[FlowState[F]] { s =>
+            s.asBlocking.add(interpret_(blocking.flow, self, FlowState[F](s.senderRef, s.selfRef)).get)
           }
       }
     }

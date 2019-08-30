@@ -112,9 +112,9 @@ lazy val intgTests = project
     publishLocal := {},
     publish := {},
     libraryDependencies ++= Seq(
-      "ch.qos.logback" % "logback-classic" % "1.2.3",
       "org.scalatest" %% "scalatest" % "3.0.7",
       "org.pegdown" % "pegdown" % "1.6.0",
+      "ch.qos.logback" % "logback-classic" % "1.2.3",
       "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
     ),
   ).dependsOn(core, testUtils)

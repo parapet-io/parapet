@@ -8,15 +8,7 @@ import io.parapet.core.Queue.{Dequeue, Enqueue}
 import monix.catnap.ConcurrentQueue
 import monix.execution.BufferCapacity.{Bounded, Unbounded}
 
-trait Queue[F[_], A] extends Enqueue[F, A] with Dequeue[F, A] {
-
-  def peek: F[A]
-
-  def size: F[Int]
-
-  def isEmpty(implicit M: Monad[F]): F[Boolean] = size.map(v => v == 0)
-
-}
+trait Queue[F[_], A] extends Enqueue[F, A] with Dequeue[F, A]
 
 object Queue {
 
@@ -49,10 +41,6 @@ object Queue {
 
   class MonixBasedQueue[F[_] : Concurrent, A](q: ConcurrentQueue[F, A]) extends Queue[F, A] {
     val ct: Concurrent[F] = implicitly[Concurrent[F]]
-
-    override def peek: F[A] = ct.raiseError(new UnsupportedOperationException("peek is not supported"))
-
-    override def size: F[Int] = ct.raiseError(new UnsupportedOperationException("size is not supported"))
 
     override def dequeue: F[A] = q.poll
 
