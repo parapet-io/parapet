@@ -54,9 +54,21 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
         ratio = 0.75,
         ptb = range(50.millis, 100.millis)),
 
-      // batch work distribution
       StabilitySpec(
         name = "test-3",
+        samples = 5,
+        config = SchedulerConfig(
+          numberOfWorkers = 1),
+        wds = WorkDistributionStrategy.Random,
+        numberOfEvents = 50,
+        numberOfProcesses = 5,
+        pta = instant,
+        ratio = 0.5,
+        ptb = range(50.millis, 100.millis)),
+
+      // batch work distribution
+      StabilitySpec(
+        name = "test-4",
         samples = 5,
         config = SchedulerConfig(
           numberOfWorkers = 10),
@@ -67,7 +79,18 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
         ratio = 0.5,
         ptb = range(50.millis, 100.millis)),
       StabilitySpec(
-        name = "test-3",
+        name = "test-5",
+        samples = 5,
+        config = SchedulerConfig(
+          numberOfWorkers = 1),
+        wds = WorkDistributionStrategy.Batch,
+        numberOfEvents = 10,
+        numberOfProcesses = 5,
+        pta = instant,
+        ratio = 0.5,
+        ptb = range(50.millis, 100.millis)),
+      StabilitySpec(
+        name = "test-6",
         samples = 5,
         config = SchedulerConfig(
           numberOfWorkers = 10),

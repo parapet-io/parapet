@@ -360,7 +360,16 @@ object Dsl {
     def evalWith[A](thunk: => A)(bind: A => Free[C, Unit]): Free[C, Unit] =
       Free.inject[FlowOp[F, ?], C](Eval(() => thunk, Option(bind)))
 
-    def blocking(flow: Free[C, Unit]): Free[C, Unit] =  Free.inject[FlowOp[F, ?], C](Blocking(flow))
+    /**
+      * Marks the given flow as blocking.
+      * All blocking operations should be wrapped into this operator
+      * in order not to block scheduler worker.
+      * Example of blocking operation is a client waiting for a response from server.
+      *
+      * @param flow the blocking flow
+      * @return Unit
+      */
+    def blocking(flow: Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Blocking(flow))
 
   }
 
