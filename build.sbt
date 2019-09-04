@@ -58,7 +58,13 @@ lazy val global = project
     interopScalazZio,
     interopMonix,
     testUtils,
-    intgTests)
+    intgTests,
+    algorithms,
+    msgApi,
+    msgZmq,
+    msgIntgTests,
+    algorithmsIntgTest,
+    examples)
 
 lazy val core = project
   .settings(
@@ -68,6 +74,14 @@ lazy val core = project
     libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7",
     libraryDependencies += "io.monix" %% "monix-eval" % "3.0.0-RC3"
   )
+
+lazy val examples = project
+  .in(file("examples"))
+  .settings(
+    name := "examples",
+    libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3",
+    libraryDependencies += "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
+  ).dependsOn(core, interopCats, interopScalazZio, interopMonix)
 
 /*lazy val perfTesting = project
   .in(file("perf-testing"))
@@ -112,12 +126,43 @@ lazy val intgTests = project
     publishLocal := {},
     publish := {},
     libraryDependencies ++= Seq(
-      "ch.qos.logback" % "logback-classic" % "1.2.3",
       "org.scalatest" %% "scalatest" % "3.0.7",
       "org.pegdown" % "pegdown" % "1.6.0",
+      "ch.qos.logback" % "logback-classic" % "1.2.3",
       "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
     ),
   ).dependsOn(core, testUtils)
+
+// Algorithms
+lazy val algorithms = project.in(file("./components/algorithms"))
+  .settings(
+    name := "algorithms"
+  ).dependsOn(core)
+
+lazy val algorithmsIntgTest = project.in(file("./components/algorithms-intg-test"))
+  .settings(
+    name := "algorithms-intg-test",
+    publishLocal := {},
+    publish := {}
+  ).dependsOn(algorithms, testUtils)
+
+// Messaging components
+lazy val msgApi = project.in(file("./components/messaging/api"))
+  .settings(
+    name := "messaging-api"
+  ).dependsOn(core)
+
+lazy val msgZmq = project.in(file("./components/messaging/zmq"))
+  .settings(
+    name := "messaging-zmq"
+  ).dependsOn(msgApi)
+
+lazy val msgIntgTests = project.in(file("./components/messaging/intg-tests"))
+  .settings(
+    name := "messaging-intg-tests",
+    publishLocal := {},
+    publish := {}
+  ).dependsOn(msgZmq, testUtils)
 
 lazy val catsDependencies = Seq(dependencies.catsEffect, dependencies.catsFree)
 lazy val commonDependencies = Seq(
@@ -155,6 +200,9 @@ concurrentRestrictions in Global += Tags.limit(Tags.Test, 1)
 
 publishArtifact in global := false
 publishArtifact in intgTests := false
+publishArtifact in examples := false
+publishArtifact in algorithmsIntgTest := false
+publishArtifact in msgIntgTests := false
 
 ThisBuild / scmInfo := Some(
   ScmInfo(
@@ -164,10 +212,10 @@ ThisBuild / scmInfo := Some(
 )
 ThisBuild / developers := List(
   Developer(
-    id    = "dmgcodevil",
-    name  = "Roman Pleshkov",
+    id = "dmgcodevil",
+    name = "Roman Pleshkov",
     email = "dmgcodevil@gmail.com",
-    url   = url("http://parapet.io/")
+    url = url("http://parapet.io/")
   )
 )
 

@@ -11,15 +11,20 @@ object Parapet extends StrictLogging {
 
   val ParapetPrefix = "parapet"
 
-  case class ParConfig(schedulerConfig: SchedulerConfig)
+  case class ParConfig(
+                        processBufferSize: Int,
+                        schedulerConfig: SchedulerConfig)
 
-  // Config lenses
-  val processQueueSizeLens: Lens[ParConfig, Int] = lens[ParConfig].schedulerConfig.processQueueSize
+  val processBufferSizeLens: Lens[ParConfig, Int] = lens[ParConfig].processBufferSize
 
-  val defaultConfig: ParConfig = ParConfig(
-    schedulerConfig = SchedulerConfig(
-      queueSize = -1,
-      numberOfWorkers = Runtime.getRuntime.availableProcessors(),
-      processQueueSize = -1))
+  // Scheduler config lenses
+  val numberOfWorkersLens: Lens[ParConfig, Int] = lens[ParConfig].schedulerConfig.numberOfWorkers
+
+
+  object ParConfig {
+    val default: ParConfig = ParConfig(
+      processBufferSize = -1, // unbounded
+      schedulerConfig = SchedulerConfig.default)
+  }
 
 }

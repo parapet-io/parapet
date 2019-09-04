@@ -11,7 +11,7 @@ import cats.syntax.traverse._
 import io.parapet.core.Context._
 import io.parapet.core.Event.{Envelope, Start}
 import io.parapet.core.Queue.ChannelType
-import io.parapet.core.Scheduler.{Deliver, Task, TaskQueue}
+import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.SystemProcess
 
@@ -19,37 +19,40 @@ import scala.collection.JavaConverters._
 
 class Context[F[_] : Concurrent : ContextShift](
                                                  config: Parapet.ParConfig,
-                                                 val eventLog: EventLog[F],
-                                                 val taskQueue: TaskQueue[F]) {
+                                                 val eventLog: EventLog[F]) {
 
 
   private val ct = implicitly[Concurrent[F]]
-  private val processQueueSize = config.schedulerConfig.processQueueSize
 
   private val processes = new java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessState[F]]()
 
   private val graph = new java.util.concurrent.ConcurrentHashMap[ProcessRef, Vector[ProcessRef]]
 
-  def init: F[Unit] = {
-    ct.delay(new SystemProcess[F]()).flatMap { sysProcess =>
-      ProcessState(sysProcess, processQueueSize).flatMap { s =>
-        ct.delay(processes.put(sysProcess.ref, s)) >> start(sysProcess.ref)
+  private var _scheduler: Scheduler[F] = _
+
+  def start(scheduler: Scheduler[F]): F[Unit] = {
+    ct.delay(_scheduler = scheduler) >>
+      ct.delay(new SystemProcess[F]()).flatMap { sysProcess =>
+        ProcessState(sysProcess, config).flatMap { s =>
+          ct.delay(processes.put(sysProcess.ref, s)) >> sendStartEvent(sysProcess.ref).void
+        }
       }
-    }
   }
+
+  def schedule(task: Task[F]): F[SubmissionResult] = _scheduler.submit(task)
 
   def register(parent: ProcessRef, process: Process[F]): F[ProcessRef] = {
     if (!processes.containsKey(parent)) {
       ct.raiseError(UnknownProcessException(
         s"process cannot be registered because parent process with id=$parent doesn't exist"))
     } else {
-      ProcessState(process, processQueueSize).flatMap { s =>
+      ProcessState(process, config).flatMap { s =>
         if (processes.putIfAbsent(process.ref, s) != null)
           ct.raiseError(new RuntimeException(s"duplicated process. ref = ${process.ref}"))
         else {
           graph.computeIfAbsent(parent, _ => Vector())
           graph.computeIfPresent(parent, (_, v) => v :+ process.ref)
-          start(process.ref).map(_ => process.ref)
+          ct.pure(process.ref)
         }
       }
     }
@@ -57,18 +60,24 @@ class Context[F[_] : Concurrent : ContextShift](
 
   def child(parent: ProcessRef): Vector[ProcessRef] = graph.getOrDefault(parent, Vector.empty)
 
-  private def start(processRef: ProcessRef): F[Unit] = {
-    taskQueue.enqueue(Deliver(Envelope(ProcessRef.SystemRef, Start, processRef)))
+  def registerAndStart(parent: ProcessRef, process: Process[F]): F[SubmissionResult] = {
+    register(parent, process) >> sendStartEvent(process.ref)
+  }
+
+  private def sendStartEvent(processRef: ProcessRef): F[SubmissionResult] = {
+    _scheduler.submit(Deliver(Envelope(ProcessRef.SystemRef, Start, processRef)))
   }
 
   def registerAll(parent: ProcessRef, processes: List[Process[F]]): F[List[ProcessRef]] = {
-    processes.map(p => register(parent, p)).sequence
+
+    for {
+      refs <- processes.map(p => register(parent, p)).sequence
+      res <- refs.map(ref => sendStartEvent(ref) >> ct.pure(ref)).sequence
+    } yield res
+
   }
 
   def getProcesses: List[Process[F]] = processes.values().asScala.map(_.process).toList
-
-  def getRunningProcesses: List[Process[F]] =
-    processes.values().asScala.filter(!_.stopped).map(_.process).toList
 
   def getProcess(ref: ProcessRef): Option[Process[F]] = {
     getProcessState(ref).map(_.process)
@@ -95,11 +104,7 @@ object Context {
 
   def apply[F[_] : Concurrent : ContextShift](config: Parapet.ParConfig,
                                               eventLog: EventLog[F]): F[Context[F]] = {
-    for {
-      taskQueue <-
-      if (config.schedulerConfig.queueSize == -1) Queue.unbounded[F, Task[F]](ChannelType.MPSC)
-      else Queue.bounded[F, Task[F]](config.schedulerConfig.queueSize, ChannelType.MPSC)
-    } yield new Context[F](config, eventLog, taskQueue)
+    implicitly[Concurrent[F]].delay(new Context[F](config, eventLog))
   }
 
   class ProcessState[F[_] : Concurrent](
@@ -108,14 +113,17 @@ object Context {
                                          val process: Process[F],
                                          _interruption: Deferred[F, Unit]) {
 
+    import ProcessState._
+
     private val ct = implicitly[Concurrent[F]]
 
-    private val _interrupted: AtomicBoolean = new AtomicBoolean(false)
-    private val _stopped: AtomicBoolean = new AtomicBoolean(false)
-    private val executing: AtomicBoolean = new AtomicBoolean()
+    private[this] val _interrupted: AtomicBoolean = new AtomicBoolean(false)
+    private[this] val _stopped: AtomicBoolean = new AtomicBoolean(false)
+    private[this] val _suspended: AtomicBoolean = new AtomicBoolean(false)
+    private[this] val pLock = new ProcessLock[F](process.ref)
 
     def tryPut(t: Task[F]): F[Boolean] = {
-      lock.withPermit(queue.tryEnqueue(t))
+      queue.tryEnqueue(t)
     }
 
     def tryTakeTask: F[Option[Task[F]]] = queue.tryDequeue
@@ -127,49 +135,86 @@ object Context {
       }
     }
 
-    def stop(): Boolean = _stopped.compareAndSet(false, true)
+    def stop(): F[Boolean] = ct.delay(_stopped.compareAndSet(false, true))
 
-    def interruption: F[Unit] = _interruption.get
+    def interruption: Deferred[F, Unit] = _interruption
 
-    def interrupted: Boolean = _interrupted.get()
+    def interrupted: F[Boolean] = ct.pure(_interrupted.get())
 
-    def stopped: Boolean = _stopped.get()
+    def stopped: F[Boolean] = ct.pure(_stopped.get())
 
-    def acquire: F[Boolean] = ct.delay(executing.compareAndSet(false, true))
+    def acquired: F[Boolean] = pLock.acquired
 
-    def release: F[Option[Task[F]]] = {
-      if (!executing.get())
-        ct.raiseError(new RuntimeException("process cannot be released because it wasn't acquired"))
-      else {
-        // lock required to avoid the situation when worker 1 got suspended during process release,
-        // scheduler puts a new task to the process's queue and process ref to processRefQueue
-        // worker 2 dequeues process ref and fails to acquire it b/c it's still in executing state
-        // thus new task will be lost
-        // process must be released before scheduler will add it to processRefQueue
-        lock.withPermit {
-          queue.tryDequeue >>= {
-            case None =>
-              ct.delay(executing.compareAndSet(true, false)) >>= {
-                case false => ct.raiseError(new RuntimeException("concurrent release"))
-                case _ => ct.pure(Option.empty)
-              }
-            case Some(task) => ct.pure(Option(task)) // new task available, don't release yet
-          }
-        }
+    def acquire: F[Boolean] = pLock.acquire
+
+    def release: F[Boolean] = pLock.release
+
+    def releaseNow: F[Unit] = pLock.releaseNow
+
+    /**
+      * returns `true` if this process performing some blocking operations, other `false`
+      */
+    def suspended: F[Boolean] = ct.pure(_suspended.get())
+
+    def suspend: F[Unit] = ct.delay {
+      if (!_suspended.compareAndSet(false, true)) {
+        throw new IllegalStateException(s"process[${process.ref}] is already suspended")
+      }
+    }
+
+    def resume: F[Unit] = ct.delay {
+      if (!_suspended.compareAndSet(true, false)) {
+        throw new IllegalStateException(s"process[${process.ref}] is not suspended")
       }
     }
 
   }
 
   object ProcessState {
-    def apply[F[_] : Concurrent : ContextShift](process: Process[F], queueSize: Int): F[ProcessState[F]] =
+    def apply[F[_] : Concurrent : ContextShift](process: Process[F],
+                                                config: Parapet.ParConfig): F[ProcessState[F]] = {
+      val processBufferSize = if (process.bufferSize != -1) process.bufferSize else config.processBufferSize
       for {
         queue <-
-        if (queueSize == -1) Queue.unbounded[F, Task[F]]()
-        else Queue.bounded[F, Task[F]](queueSize, ChannelType.SPSC)
+        if (processBufferSize == -1) Queue.unbounded[F, Task[F]]()
+        else Queue.bounded[F, Task[F]](processBufferSize, ChannelType.SPSC)
         lock <- Lock[F]
         terminated <- Deferred[F, Unit]
       } yield new ProcessState[F](queue, lock, process, terminated)
+    }
+
+    class ProcessLock[F[_] : Concurrent](ref: ProcessRef) {
+      private[this] val ct = implicitly[Concurrent[F]]
+      private[this] val lock = new java.util.concurrent.ConcurrentHashMap[ProcessRef, Integer]()
+
+      def acquired: F[Boolean] = ct.delay {
+        lock.computeIfPresent(ref, (_: ProcessRef, c: Integer) => c + 1) != null
+      }
+
+      def acquire: F[Boolean] = ct.delay {
+        lock.putIfAbsent(ref, 0) == null
+      }
+
+      def releaseNow: F[Unit] = ct.delay {
+        if (lock.remove(ref) == null) {
+          throw new IllegalStateException("process cannot be released because it's not acquired")
+        }
+      }
+
+      // release and reset
+      def release: F[Boolean] = ct.delay {
+        if (!lock.containsKey(ref)) {
+          throw new IllegalStateException("process cannot be released because it's not acquired")
+        }
+
+        val res = lock.remove(ref, 0)
+        if (!res) {
+          lock.put(ref, 0) // reset
+        }
+        res
+      }
+    }
+
   }
 
 }

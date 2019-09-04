@@ -75,7 +75,7 @@ abstract class SchedulerSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
           }
         }
 
-        val config = processQueueSizeLens.set(defaultConfig)(processQueueSize)
+        val config = processBufferSizeLens.set(ParConfig.default)(processQueueSize)
 
         unsafeRun(eventStore.await(1,
           createApp(ct.pure(Seq(client, slowServer)), Some(ct.pure(deadLetter)), config).run))

@@ -1,10 +1,11 @@
 package io.parapet.core
 
 import cats.effect.syntax.bracket._
-import cats.effect.{Concurrent, ContextShift}
+import cats.effect.{Concurrent, ContextShift, Fiber}
 import cats.syntax.applicativeError._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
+import cats.syntax.semigroupal._
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.Context.ProcessState
 import io.parapet.core.Dsl.{Dsl, FlowOps}
@@ -17,9 +18,9 @@ import io.parapet.core.exceptions._
 import org.slf4j.LoggerFactory
 
 trait Scheduler[F[_]] {
-  def run: F[Unit]
+  def start: F[Unit]
 
-  def submit(task: Task[F]): F[Unit]
+  def submit(task: Task[F]): F[SubmissionResult]
 }
 
 object Scheduler {
@@ -36,13 +37,23 @@ object Scheduler {
     SchedulerImpl(config, context, interpreter)
   }
 
-  case class SchedulerConfig(queueSize: Int,
-                             numberOfWorkers: Int,
-                             processQueueSize: Int) {
-    require(queueSize > 0 || queueSize == -1)
+  case class SchedulerConfig(numberOfWorkers: Int) {
     require(numberOfWorkers > 0)
-    require(processQueueSize > 0 || processQueueSize == -1)
   }
+
+  object SchedulerConfig {
+    val default: SchedulerConfig = SchedulerConfig(
+      numberOfWorkers = Runtime.getRuntime.availableProcessors())
+  }
+
+  // todo: revisit
+  sealed trait SubmissionResult
+
+  object Ok extends SubmissionResult
+
+  object UnknownProcess extends SubmissionResult
+
+  object ProcessQueueIsFull extends SubmissionResult
 
   import SchedulerImpl._
 
@@ -57,55 +68,56 @@ object Scheduler {
     private val pa = implicitly[Parallel[F]]
     private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
 
-    override def run: F[Unit] = {
-      val workers = createWorkers
-
-      def step: F[Unit] = {
-        context.taskQueue.dequeue >>= {
-          case t@Deliver(e@Envelope(sender, event, pRef)) =>
-            context.getProcessState(pRef)
-              .fold(send(
-                SystemRef,
-                Failure(e, UnknownProcessException(s"there is no such process with id=$pRef registered in the system")),
-                sender,
-                interpreter) >> step) { ps =>
-                (event match {
-                  case Kill =>
-                    context.interrupt(pRef) >>
-                      submit(Deliver(Envelope(sender, Stop, pRef)), ps)
-                  // interruption isn't instant operation since it's just a signal (e.g. Deferred)
-                  // i.e. interrupt may be completed although
-                  // the actual process is still performing some computations and will be interrupted latter
-                  // we need to submit Stop event here instead of direct call
-                  // to avoid race condition between interruption and process stop
-                  case _ => submit(t, ps)
-                }) >> step
-              }
-          case t => ct.raiseError(new RuntimeException(s"unsupported task: $t"))
-        }
+    override def start: F[Unit] = {
+      ct.bracket(ct.delay(createWorkers)) { workers =>
+        pa.par(workers.map(w => w.run))
+      } { _ =>
+        stopProcess(ProcessRef.SystemRef,
+          context, ProcessRef.SystemRef, interpreter,
+          (pRef, err) => ct.delay(logger.error(s"An error occurred while stopping process $pRef", err))) >>
+          ct.delay(logger.info("scheduler has been shut down"))
       }
-
-      pa.par(workers.map(w => w.run) :+ step)
-        .guarantee(
-          stopProcess(ProcessRef.SystemRef,
-            context, ProcessRef.SystemRef, interpreter,
-            (pRef, err) => ct.delay(logger.error(s"An error occurred while stopping process $pRef", err)))) >>
-        ct.delay(logger.info("scheduler has been shut down"))
     }
 
-    private def submit(task: Deliver[F], ps: ProcessState[F]): F[Unit] = {
+    private def submit(ps: ProcessState[F], task: Deliver[F]): F[SubmissionResult] = {
       ps.tryPut(task) >>= {
-        case true => processRefQueue.enqueue(ps.process.ref)
+        case true =>
+          ps.acquired.flatMap {
+            case true => ct.unit
+            case false => processRefQueue.enqueue(ps.process.ref)
+          } >> ct.pure(Ok)
         case false =>
           send(ProcessRef.SystemRef, Failure(task.envelope,
             EventDeliveryException(s"System failed to deliver an event to process ${ps.process}",
               EventQueueIsFullException(s"process ${ps.process} event queue is full"))),
-            task.envelope.sender, interpreter)
+            task.envelope.sender, interpreter) >> ct.pure(ProcessQueueIsFull)
       }
     }
 
-    override def submit(task: Task[F]): F[Unit] = {
-      context.taskQueue.enqueue(task)
+    override def submit(task: Task[F]): F[SubmissionResult] = {
+      task match {
+        case deliverTask@Deliver(e@Envelope(sender, event, pRef)) =>
+          ct.suspend {
+            context.getProcessState(pRef)
+              .fold[F[SubmissionResult]](send(
+              SystemRef,
+              Failure(e, UnknownProcessException(s"there is no such process with id=$pRef registered in the system")),
+              sender,
+              interpreter) >> ct.pure(UnknownProcess)) { ps =>
+              event match {
+                case Kill =>
+                  // interruption is a concurrent operation
+                  // i.e. interrupt may be completed but
+                  // the actual process may be still performing some computations
+                  // we need to submit Stop event here instead of `direct call`
+                  // to avoid race condition between interruption and process stop
+                  context.interrupt(pRef) >> submit(ps, Deliver(Envelope(sender, Stop, pRef)))
+                case _ => submit(ps, deliverTask)
+              }
+            }
+          }
+        case t => ct.raiseError(new RuntimeException(s"unsupported task: $t"))
+      }
     }
 
     private def createWorkers: List[Worker[F]] = {
@@ -126,9 +138,7 @@ object Scheduler {
                                                             context: Context[F],
                                                             interpreter: Interpreter[F]): F[Scheduler[F]] =
       for {
-        processRefQueue <-
-        if (config.queueSize == -1) Queue.unbounded[F, ProcessRef](ChannelType.SPMC)
-        else Queue.bounded[F, ProcessRef](config.queueSize, ChannelType.SPMC)
+        processRefQueue <- Queue.unbounded[F, ProcessRef](ChannelType.MPMC)
       } yield
         new SchedulerImpl(
           config,
@@ -149,10 +159,14 @@ object Scheduler {
           processRefQueue.dequeue >>= { pRef =>
             context.getProcessState(pRef) match {
               case Some(ps) =>
-                ps.acquire >>= {
-                  case true => run(ps) >> step
-                  case false => step
+                ps.suspended.flatMap {
+                  case true => step
+                  case false => ps.acquire >>= {
+                    case true => run(ps) >> step
+                    case false => step
+                  }
                 }
+
               case None => step // process was terminated and removed from the system,
               // eventually scheduler will stop delivering new events for this process
             }
@@ -165,68 +179,109 @@ object Scheduler {
 
       private def run(ps: ProcessState[F]): F[Unit] = {
         def step: F[Unit] = {
-          ps.tryTakeTask >>= {
-            case Some(t: Deliver[F]) => deliver(ps, t.envelope) >> step
-            case Some(t) => ct.raiseError(new RuntimeException(s"unsupported task: $t"))
-            case None => ps.release >>= {
-              case None => ct.delay(logger.debug(s"$name has been released process ${ps.process}"))
-              case Some(task: Deliver[F]) => deliver(ps, task.envelope) >>
-                step // process still has some tasks, continue
-            }
+          ps.suspended.flatMap {
+            case true =>
+              // release the process even if it still has pending tasks. workers will be notified once the process resumed
+              ps.releaseNow
+            case false =>
+              ps.tryTakeTask >>= {
+                case Some(t: Deliver[F]) => deliver(ps, t.envelope) >> step
+                case Some(t) => ct.raiseError(new RuntimeException(s"unsupported task: $t"))
+                case None => ps.release >>= {
+                  case true => ct.unit
+                  case false => step // the process still has tasks, continue
+                }
+              }
           }
         }
 
         step
       }
 
-      private def deliver(processState: ProcessState[F], envelope: Envelope): F[Unit] = {
-        val process = processState.process
+      private def deliver(ps: ProcessState[F], envelope: Envelope): F[Unit] = {
+        val process = ps.process
         val event = envelope.event
         val sender = envelope.sender
         val receiver = envelope.receiver
 
-
         event match {
-          case Stop if processState.stop() =>
-            stopProcess(sender, context, process.ref, interpreter,
-              (_, err) => handleError(process, envelope, err)) >> context.remove(process.ref).void
-          case _ if processState.stopped =>
-            sendToDeadLetter(
-              DeadLetter(envelope, new IllegalStateException(s"process: $process is stopped")), interpreter)
-          case _ if processState.interrupted => { // process was interrupted but not stopped yet
-            sendToDeadLetter(
-              DeadLetter(envelope, new IllegalStateException(s"process: $process is terminated")), interpreter)
-          }
-          case _ =>
-            if (process.canHandle(event)) {
-              ct.race(
-                (for {
-                  flow <- ct.delay(process(event))
-                  _ <- interpret_(flow, interpreter, FlowState[F](senderRef = sender, selfRef = receiver))
-                } yield ()).handleErrorWith(err => handleError(process, envelope, err)),
-                processState.interruption).flatMap {
-                case Left(_) => ct.unit
-                case Right(_) => ct.unit // process has been interrupted. Stop event shall be delivered by scheduler
-              }
-            } else {
-              val errorMsg = s"process $process handler is not defined for event: $event"
-              val whenUndefined = event match {
-                case f: Failure =>
-                  // no error handling, send to dead letter
-                  sendToDeadLetter(DeadLetter(f), interpreter)
-                case Start => ct.unit // ignore lifecycle events
-                case _ =>
-                  send(ProcessRef.SystemRef,
-                    Failure(envelope, EventMatchException(errorMsg)), envelope.sender, interpreter)
-                // sendToDeadLetter(DeadLetter(envelope, EventMatchException(errorMsg)), interpreter)
-              }
-              val logMsg = event match {
-                case Start | Stop => ct.unit
-                case _ => ct.delay(logger.warn(errorMsg))
-              }
-              logMsg >> whenUndefined
+
+          case Stop =>
+            ps.stop().flatMap {
+              case true => stopProcess(sender, context, process.ref, interpreter,
+                (_, err) => handleError(process, envelope, err)) >> context.remove(process.ref).void
+              case false => sendToDeadLetter(
+                DeadLetter(envelope, new IllegalStateException(s"process: $process is already stopped")), interpreter)
             }
+          case _ =>
+            ps.interrupted.product(ps.stopped).flatMap {
+              case (_, true) | (true, _) =>
+                sendToDeadLetter(
+                  DeadLetter(envelope, new IllegalStateException(s"process: $process is terminated")), interpreter)
+              case _ =>
+                if (process.canHandle(event)) {
+                  for {
+                    flow <- ct.delay(process(event))
+                    effect <- ct.delay(interpret_(flow, interpreter, FlowState[F](senderRef = sender, selfRef = receiver)))
+                    _ <- runEffect(effect, ps, err => handleError(process, envelope, err))
+                  } yield ()
+
+                } else {
+                  val errorMsg = s"process $process handler is not defined for event: $event"
+                  val whenUndefined = event match {
+                    case f: Failure =>
+                      // no error handling, send to dead letter
+                      sendToDeadLetter(DeadLetter(f), interpreter)
+                    case Start => ct.unit // ignore lifecycle events
+                    case _ =>
+                      send(ProcessRef.SystemRef,
+                        Failure(envelope, EventMatchException(errorMsg)), envelope.sender, interpreter)
+                    // sendToDeadLetter(DeadLetter(envelope, EventMatchException(errorMsg)), interpreter)
+                  }
+                  val logMsg = event match {
+                    case Start | Stop => ct.unit
+                    case _ => ct.delay(logger.warn(errorMsg))
+                  }
+                  logMsg >> whenUndefined
+                }
+            }
+
         }
+      }
+
+      def runEffect(effect: Effect[F[Unit]],
+                    ps: ProcessState[F],
+                    errorHandler: Throwable => F[Unit]): F[Unit] = {
+        effect match {
+          case Effect.Blocking(flow) => runBlocking(flow, ps, errorHandler)
+          case Effect.NonBlocking(flow) => runNonBlocking(flow, ps, errorHandler)
+        }
+      }
+
+      def runNonBlocking(flow: F[Unit],
+                         ps: ProcessState[F],
+                         errorHandler: Throwable => F[Unit]): F[Unit] = {
+        ct.race(flow, ps.interruption.get).void.handleErrorWith(errorHandler)
+      }
+
+      def runBlocking(flow: F[Unit],
+                      ps: ProcessState[F],
+                      errorHandler: Throwable => F[Unit]): F[Unit] = {
+        for {
+          fiber <- ct.start(flow)
+          _ <- ct.start(run(fiber, ps, errorHandler)) // start and forget
+        } yield ()
+      }
+
+      def run(fiber: Fiber[F, Unit],
+              ps: ProcessState[F],
+              errorHandler: Throwable => F[Unit]): F[Unit] = {
+        ps.suspend >>
+          ct.race(fiber.join, ps.interruption.get).flatMap {
+            case Left(_) => ct.unit // note: wont be executed if `fiber.join` failed
+            case Right(_) => fiber.cancel // process was interrupted, cancel current flow
+          }.guarantee(ps.resume >> processRefQueue.enqueue(ps.process.ref))
+            .handleErrorWith(errorHandler) // error handling should not be interrupted even if the process was interrupted
       }
 
       private def handleError(process: Process[F], envelope: Envelope, cause: Throwable): F[Unit] = {
@@ -259,7 +314,7 @@ object Scheduler {
                                         receiver: ProcessRef,
                                         interpreter: Interpreter[F])(implicit flowDsl: FlowOps[F, Dsl[F, ?]]): F[Unit] = {
       interpret_(flowDsl.send(event, receiver), interpreter,
-        FlowState[F](senderRef = sender, selfRef = receiver))
+        FlowState[F](senderRef = sender, selfRef = receiver)).get
     }
 
     private def deliverStopEvent[F[_] : Concurrent](sender: ProcessRef,
@@ -270,13 +325,13 @@ object Scheduler {
         interpret_(
           process(Stop),
           interpreter,
-          FlowState[F](senderRef = sender, selfRef = process.ref))
+          FlowState[F](senderRef = sender, selfRef = process.ref)).get
       } else {
         ct.unit
       }
     }
 
-    private def stopProcess[F[_] : Concurrent : Parallel](parent: ProcessRef,
+    private def stopProcess[F[_] : Concurrent : Parallel](sender: ProcessRef,
                                                           context: Context[F],
                                                           ref: ProcessRef,
                                                           interpreter: Interpreter[F],
@@ -290,8 +345,8 @@ object Scheduler {
 
         stopChildProcesses >>
           (context.getProcess(ref) match {
-            case Some(p) => deliverStopEvent(parent, p, interpreter).handleErrorWith(err => onError(ref, err))
-            case None => ct.unit
+            case Some(p) => deliverStopEvent(sender, p, interpreter).handleErrorWith(err => onError(ref, err))
+            case None => ct.unit // todo: revisit
           })
       }
     }

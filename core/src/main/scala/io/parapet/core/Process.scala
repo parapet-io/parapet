@@ -16,6 +16,8 @@ trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
   private var _handler = Option.empty[Receive]
 
+  val bufferSize = -1 // unbounded
+
   private[core] def handler: Receive = {
     _handler match {
       case Some(s) => s
@@ -87,7 +89,8 @@ object Process {
   class Builder[F[_]](
                        receive: ProcessRef => PartialFunction[Event, DslF[F, Unit]],
                        private var _name: String = "undefined",
-                       private var _ref: ProcessRef = ProcessRef.jdkUUIDRef
+                       private var _ref: ProcessRef = ProcessRef.jdkUUIDRef,
+                       private var _bufferSize: Int = -1
 
                      ) {
     def name(value: String): Builder[F] = {
@@ -100,9 +103,16 @@ object Process {
       this
     }
 
+    def bufferSize(value: Int): Builder[F] = {
+      require(value > 0 || value == -1)
+      _bufferSize = value
+      this
+    }
+
     def build: Process[F] = new Process[F] {
       override val name: String = _name
       override val ref: ProcessRef = _ref
+      override val bufferSize: Int = _bufferSize
 
       override def handle: Receive = receive(ref)
     }

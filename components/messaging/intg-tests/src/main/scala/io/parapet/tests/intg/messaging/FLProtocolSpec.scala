@@ -1,7 +1,5 @@
 package io.parapet.tests.intg.messaging
 
-import java.net.ServerSocket
-
 import cats.effect.Concurrent
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Start, Stop}
@@ -11,11 +9,10 @@ import io.parapet.messaging.api.{FLProtocolApi, HeartbeatAPI, MessagingApi, Serv
 import io.parapet.messaging.{FLProtocol, ZmqAsyncServer}
 import io.parapet.tests.intg.messaging.FLProtocolSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.FunSuite
 import org.scalatest.Matchers._
 
 import scala.concurrent.duration._
-abstract class FLProtocolSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
+abstract class FLProtocolSpec[F[_]] extends BasicZMQSpec with IntegrationSpec[F] {
 
   import dsl._
 
@@ -46,7 +43,7 @@ abstract class FLProtocolSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
     ))
 
 
-    val availableServerPort = new ServerSocket(0).getLocalPort
+    val availableServerPort = 5555
 
     val flprotocol: Process[F] = new FLProtocol[F](encoder)
 

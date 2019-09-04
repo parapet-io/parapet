@@ -2,7 +2,7 @@ package io.parapet.testutils
 
 import java.util.concurrent.atomic.AtomicInteger
 
-import cats.effect.{Concurrent, Timer}
+import cats.effect.{Concurrent, Fiber, Timer}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import com.typesafe.scalalogging.StrictLogging
@@ -41,9 +41,21 @@ class EventStore[F[_], A <: Event] extends StrictLogging {
 
   def size: Int = sizeRef.get()
 
-  def await(expectedSize: Int, op: F[_], delay: FiniteDuration = 100.millis,
-            timeout: FiniteDuration = 1.minutes)
-           (implicit ct: Concurrent[F], timer: Timer[F]): F[Unit] = {
+  def await(expectedSize: Int, op: F[Unit],
+            delay: FiniteDuration = 100.millis,
+            timeout: FiniteDuration = 1.minutes)(implicit ct: Concurrent[F], timer: Timer[F]): F[Unit] = {
+
+    for {
+      fiber <- ct.start(op)
+      _ <- await0(expectedSize, fiber, delay, timeout)
+    } yield ()
+
+  }
+
+  def await0(expectedSize: Int,
+             fiber: Fiber[F, Unit],
+             delay: FiniteDuration = 100.millis,
+             timeout: FiniteDuration = 1.minutes)(implicit ct: Concurrent[F], timer: Timer[F]): F[Unit] = {
 
     def step: F[Unit] = {
       if (size >= expectedSize) ct.unit
@@ -51,7 +63,6 @@ class EventStore[F[_], A <: Event] extends StrictLogging {
     }
 
     for {
-      fiber <- ct.start(op)
       _ <- ct.race(
         ct.guarantee(
           Concurrent.timeoutTo[F, Unit](step, timeout, ct.raiseError(new TimeoutException(timeout.toString))))

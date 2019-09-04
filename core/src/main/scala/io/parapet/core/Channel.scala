@@ -23,6 +23,8 @@ class Channel[F[_] : Concurrent] extends Process[F] {
 
   private var callback: Deferred[F, Try[Event]] = _
 
+  override val ref: ProcessRef = ProcessRef("channel")
+
   private def waitForRequest: Receive = {
     case Start => unit
     case Stop => unit
@@ -54,8 +56,10 @@ class Channel[F[_] : Concurrent] extends Process[F] {
     * @return Unit
     */
   def send(event: Event, receiver: ProcessRef, cb: Try[Event] => DslF[F, Unit]): DslF[F, Unit] = {
-    suspendWith(Deferred[F, Try[Event]]) { d =>
-      Request(event, d, receiver) ~> ref ++ suspendWith(d.get)(cb)
+    blocking {
+      suspendWith(Deferred[F, Try[Event]]) { d =>
+        Request(event, d, receiver) ~> ref ++ suspendWith(d.get)(cb)
+      }
     }
   }
 
