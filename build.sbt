@@ -58,7 +58,8 @@ lazy val global = project
     interopScalazZio,
     interopMonix,
     testUtils,
-    intgTests)
+    intgTests,
+    examples)
 
 lazy val core = project
   .settings(
@@ -68,6 +69,14 @@ lazy val core = project
     libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7",
     libraryDependencies += "io.monix" %% "monix-eval" % "3.0.0-RC3"
   )
+
+lazy val examples = project
+  .in(file("examples"))
+  .settings(
+    name := "examples",
+    libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3",
+    libraryDependencies += "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
+  ).dependsOn(core, interopCats, interopScalazZio, interopMonix)
 
 /*lazy val perfTesting = project
   .in(file("perf-testing"))
@@ -155,6 +164,7 @@ concurrentRestrictions in Global += Tags.limit(Tags.Test, 1)
 
 publishArtifact in global := false
 publishArtifact in intgTests := false
+publishArtifact in examples := false
 
 ThisBuild / scmInfo := Some(
   ScmInfo(

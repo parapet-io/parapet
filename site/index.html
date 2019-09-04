@@ -93,12 +93,13 @@
                             </li>
                             <li><a href="#line4">Process</a>
                                 <ul class="nav">
-                                    <li><a href="#line4_1">Predefined processes and reserved references</a></li>
-                                    <li><a href="#line4_2">Switching process behavior</a></li>
-                                    <li><a href="#line4_3">Direct process call</a></li>
-                                    <li><a href="#line4_4">Process combinators</a></li>
-                                    <li><a href="#line4_5">Testing your processes</a></li>
-                                    <li><a href="#line4_6">Basic patterns and tips</a></li>
+                                     <li><a href="#line4_1">Creating the Process</a></li>
+                                    <li><a href="#line4_2">Predefined processes and reserved references</a></li>
+                                    <li><a href="#line4_3">Switching process behavior</a></li>
+                                    <li><a href="#line4_4">Direct process call</a></li>
+                                    <li><a href="#line4_5">Process combinators</a></li>
+                                    <li><a href="#line4_6">Testing your processes</a></li>
+                                    <li><a href="#line4_7">Basic patterns and tips</a></li>
                                 </ul>
                             </li>
                             <li><a href="#line5">Channel</a></li>
@@ -736,7 +737,68 @@ hello world
                         <hr>
                         <div class="row">
                             <div class="col-md-12">
-                                <h4 id="line4_1">Predefined processes and reserved references - <a href="#top">#back to top</a></h4>
+                                <h4 id="line4_1">Creating the Process - <a href="#top">#back to top</a></h4>
+                                <p>There are there several ways to create the Process.</p>
+                                    <h4>Extending Process trait</h4>
+                                    <pre class="brush: scala">
+  class GenericProcess[F[_]] extends Process[F] {
+
+    import dsl._
+
+    override def handle: Receive = {
+      case Start => unit // TODO
+    }
+  }
+</pre>
+
+<p>or using a specific effect type, e.g. <code>IO</code>:</p>
+<pre class="brush: scala">
+  class IOProcess extends Process[IO] {
+
+    import dsl._
+
+    override def handle: Receive = {
+      case Start => unit // TODO
+    }
+  }
+</pre>
+
+
+                                <h4>Using Process Builder</h4>
+                                <p>You can use Process Builder to create a stateless process:</p>
+                                <p><code>Process.Builder</code> setters:</p>
+
+ <ul>
+                                        <li> <code>name</code> sets a process name; <code>undefined</code> is a default value</li>
+                                        <li> <code>ref</code> sets a process reference; <code>jdk UUID</code> is a default value</li>
+                                        <li> <code>bufferSize</code> sets a process queue size; 
+                                            <code>-1</code> - unbounded (by default) unless it's set globally using<code>ParConfig#processBufferSize</code>; 
+                                            valid values: <code>-1; [1,Int.MaxValue)</code>
+                                             </li>
+                                    </ul>
+                                    <p>Example:</p>
+                                    <pre class="brush: scala">
+  val process: Process[IO] = Process.builder[IO](ref => {
+    case Start => dsl.unit
+  }).ref(ProcessRef("process")) // sets a process reference
+    .name("process") // sets a process name
+    .bufferSize(1000) // set a process queue size limit
+    .build
+</pre>
+
+<p>If you don't need to override any values then you can use <code>Process#apply</code>. Example:</p>
+<pre class="brush: scala">
+  val process: Process[IO] = Process[IO](_ => {
+    case Start => dsl.unit
+  })
+</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line4_2">Predefined processes and reserved references - <a href="#top">#back to top</a></h4>
                                 <p>
                                     Parapet has some reserved process references, e.g.: <code>KernelRef(parapet-kernel)</code>, <code>SystemRef(parapet-system)</code>, <code>DeadLetterRef(parapet-deadletter)</code>, <code>UndefinedRef(parapet-undefined)</code>. The general rule is that any reference that starts with <code>parapet-</code> prefix can be used by the platform code for any purpose.
                                     Parapet has a <code>SystemProcess</code> that cannot be overridden by users. <code>SystemProcess</code> is a starting point, i.e. it's created before any other process. Lifecycle event <code>Start</code> is sent by <code>SystemProcess</code>. Any event sent to the <code>SystemProcess</code> will be ignored and dropped. Don't try to send any events to <code>SystemProcess</code> b/c it can lead to unpredictable errors.
@@ -748,7 +810,7 @@ hello world
                         <hr>
                         <div class="row">
                             <div class="col-md-12">
-                                <h4 id="line4_2">Switching process behavior - <a href="#top">#back to top</a></h4>
+                                <h4 id="line4_3">Switching process behavior - <a href="#top">#back to top</a></h4>
                                 <p>
                                     Sometimes it might be useful to dynamically switch a process behavior, e.g.: from <code>uninitialized</code> to <code>ready</code> state. Thankfully <code>Process</code> provides <code>switch</code> method that does exactly that.</p>
                                 <p>Example (lazy server):</p>
@@ -852,7 +914,7 @@ release resources: close socket and etc.
                         <hr>
                         <div class="row">
                             <div class="col-md-12">
-                                <h4 id="line4_3">Direct process call - <a href="#top">#back to top</a></h4>
+                                <h4 id="line4_4">Direct process call - <a href="#top">#back to top</a></h4>
                                 <p>
                                     Sometimes it may be useful to call a process directly. Especially it's a common case for short living processes. For instance, you may want to create a process, call it and then abandon, garbage collector will do its job. However, if you try to send an event to a process that doesn't exist in the system you will receive <code>Failure</code> event with <code>UnknownProcessException</code>. This is where <code>direct call</code> comes to rescue.</p>
                                 <p>Example:</p>
@@ -890,7 +952,7 @@ Sum(2, 2) ~> calculator <-> new Calculator().apply(ref, Sum(2, 2)) // where ref 
                         <hr>
                         <div class="row">
                             <div class="col-md-12">
-                                <h4 id="line4_4">Process combinators - <a href="#top">#back to top</a></h4>
+                                <h4 id="line4_5">Process combinators - <a href="#top">#back to top</a></h4>
                                 <p>Processes can be combined using two logical operators: <code>or</code> and <code>and</code>.</p>
                                 <p><code>and</code> - combines two processes by producing a new process with <code>ref</code> of the first process; combines flows iff <code>handle</code> function is defined for the given event in both processes. Sends an error to the sender if either of two processes isn't defined for the given event.</p>
                                 <p>Example:</p>
@@ -1004,7 +1066,7 @@ printerA: 1
                         <hr>
                         <div class="row">
                             <div class="col-md-12">
-                                <h4 id="line4_5">Testing your processes - <a href="#top">#back to top</a></h4>
+                                <h4 id="line4_6">Testing your processes - <a href="#top">#back to top</a></h4>
                                 <p>
                                     Integration tests in parapet written in a generic style that we discussed before so that the same tests can be run against any effect system. Let's try to write a simple test for a proxy process. The first thing you need to do is to add <code>test-utils</code> library into your project: </p>
                                 <pre class="brush: scala">
@@ -1062,7 +1124,7 @@ class ProxySpec extends io.parapet.tests.intg.ProxySpec[IO] with BasicCatsIOSpec
                         <hr>
                         <div class="row">
                             <div class="col-md-12">
-                                <h4 id="line4_6">Basic patterns and tips - <a href="#top">#back to top</a></h4>
+                                <h4 id="line4_7">Basic patterns and tips - <a href="#top">#back to top</a></h4>
                                 <strong>Status</strong>
                                 <img src="images/in-progress.png" style="width:32px;height:32px;">
                             </div>
