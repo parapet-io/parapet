@@ -59,6 +59,11 @@ lazy val global = project
     interopMonix,
     testUtils,
     intgTests,
+    algorithms,
+    msgApi,
+    msgZmq,
+    msgIntgTests,
+    algorithmsIntgTest,
     examples)
 
 lazy val core = project
@@ -128,6 +133,37 @@ lazy val intgTests = project
     ),
   ).dependsOn(core, testUtils)
 
+// Algorithms
+lazy val algorithms = project.in(file("./components/algorithms"))
+  .settings(
+    name := "algorithms"
+  ).dependsOn(core)
+
+lazy val algorithmsIntgTest = project.in(file("./components/algorithms-intg-test"))
+  .settings(
+    name := "algorithms-intg-test",
+    publishLocal := {},
+    publish := {}
+  ).dependsOn(algorithms, testUtils)
+
+// Messaging components
+lazy val msgApi = project.in(file("./components/messaging/api"))
+  .settings(
+    name := "messaging-api"
+  ).dependsOn(core)
+
+lazy val msgZmq = project.in(file("./components/messaging/zmq"))
+  .settings(
+    name := "messaging-zmq"
+  ).dependsOn(msgApi)
+
+lazy val msgIntgTests = project.in(file("./components/messaging/intg-tests"))
+  .settings(
+    name := "messaging-intg-tests",
+    publishLocal := {},
+    publish := {}
+  ).dependsOn(msgZmq, testUtils)
+
 lazy val catsDependencies = Seq(dependencies.catsEffect, dependencies.catsFree)
 lazy val commonDependencies = Seq(
   dependencies.shapeless,
@@ -165,6 +201,8 @@ concurrentRestrictions in Global += Tags.limit(Tags.Test, 1)
 publishArtifact in global := false
 publishArtifact in intgTests := false
 publishArtifact in examples := false
+publishArtifact in algorithmsIntgTest := false
+publishArtifact in msgIntgTests := false
 
 ThisBuild / scmInfo := Some(
   ScmInfo(
@@ -174,10 +212,10 @@ ThisBuild / scmInfo := Some(
 )
 ThisBuild / developers := List(
   Developer(
-    id    = "dmgcodevil",
-    name  = "Roman Pleshkov",
+    id = "dmgcodevil",
+    name = "Roman Pleshkov",
     email = "dmgcodevil@gmail.com",
-    url   = url("http://parapet.io/")
+    url = url("http://parapet.io/")
   )
 )
 

@@ -1,7 +1,5 @@
 package io.parapet.tests.intg.messaging
 
-import java.net.ServerSocket
-
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import io.parapet.core.Event.Start
@@ -11,10 +9,9 @@ import io.parapet.messaging.api.ServerAPI.Envelope
 import io.parapet.messaging.{ZmqAsyncClient, ZmqAsyncServer}
 import io.parapet.tests.intg.messaging.AsyncClientsAsyncServerSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.FunSuite
 import org.scalatest.Matchers._
 
-abstract class AsyncClientsAsyncServerSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
+abstract class AsyncClientsAsyncServerSpec[F[_]] extends BasicZMQSpec with IntegrationSpec[F] {
 
   import dsl._
 
@@ -66,7 +63,7 @@ abstract class AsyncClientsAsyncServerSpec[F[_]] extends FunSuite with Integrati
     val eventStore = new EventStore[F, Response]
 
 
-    val port = new ServerSocket(0).getLocalPort
+    val port = 5555
 
     val processes = for {
       asyncServer <- ct.pure(ZmqAsyncServer[F](s"tcp://*:$port", spec.service.ref, encoder, spec.numOfWorkers))

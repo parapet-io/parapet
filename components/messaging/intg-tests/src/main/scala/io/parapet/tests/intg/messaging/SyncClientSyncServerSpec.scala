@@ -1,17 +1,14 @@
 package io.parapet.tests.intg.messaging
 
-import java.net.ServerSocket
-
 import io.parapet.core.Event.Start
 import io.parapet.core.{Encoder, Event, Process, ProcessRef}
-import io.parapet.messaging.{ZmqSyncClient, ZmqSyncServer}
 import io.parapet.messaging.api.MessagingApi.{Failure, Request, Response, Success}
-import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.FunSuite
-import org.scalatest.Matchers._
+import io.parapet.messaging.{ZmqSyncClient, ZmqSyncServer}
 import io.parapet.tests.intg.messaging.SyncClientSyncServerSpec._
+import io.parapet.testutils.{EventStore, IntegrationSpec}
+import org.scalatest.Matchers._
 
-abstract class SyncClientSyncServerSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
+abstract class SyncClientSyncServerSpec[F[_]] extends BasicZMQSpec with IntegrationSpec[F] {
 
   import dsl._
 
@@ -34,7 +31,7 @@ abstract class SyncClientSyncServerSpec[F[_]] extends FunSuite with IntegrationS
     val numberOfEventsPerClient = 10
     val eventStore = new EventStore[F, Response]
 
-    val port = new ServerSocket(0).getLocalPort
+    val port = 5555
 
     val worker: Process[F] = new Process[F] {
       override val name = "worker"
