@@ -2,7 +2,7 @@ package io.parapet.tests.intg.messaging.cats
 
 import cats.effect.IO
 import io.parapet.testutils.BasicCatsIOSpec
-import org.scalatest.Ignore
+import org.scalatest.tags.Slow
 
-@Ignore
+@Slow
 class FLProtocolSpec extends io.parapet.tests.intg.messaging.FLProtocolSpec[IO] with BasicCatsIOSpec

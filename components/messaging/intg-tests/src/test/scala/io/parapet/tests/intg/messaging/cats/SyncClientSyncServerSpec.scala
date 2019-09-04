@@ -2,8 +2,8 @@ package io.parapet.tests.intg.messaging.cats
 
 import cats.effect.IO
 import io.parapet.testutils.BasicCatsIOSpec
-import org.scalatest.Ignore
+import org.scalatest.tags.Slow
 
-@Ignore
+@Slow
 class SyncClientSyncServerSpec extends
   io.parapet.tests.intg.messaging.SyncClientSyncServerSpec[IO] with BasicCatsIOSpec
