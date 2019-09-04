@@ -61,6 +61,9 @@
                             <a href="https://gitter.im/io-parapet/parapet">
                                 <img border="0" src="https://badges.gitter.im/Join%20Chat.svg">
                             </a>
+                            <a href="https://maven-badges.herokuapp.com/maven-central/io.parapet/core_2.12">
+                                <img border="0" src="https://maven-badges.herokuapp.com/maven-central/io.parapet/core_2.12/badge.svg">
+                            </a>
                     </div>
                 </div>
                 <!-- end row -->
@@ -89,11 +92,12 @@
                                         <li><a href="#line3_12">suspendWith</a></li>
                                         <li><a href="#line3_13">eval</a></li>
                                         <li><a href="#line3_14">evalWith</a></li>
+                                        <li><a href="#line3_15">blocking</a></li>
                                     </ul>
                             </li>
                             <li><a href="#line4">Process</a>
                                 <ul class="nav">
-                                     <li><a href="#line4_1">Creating the Process</a></li>
+                                    <li><a href="#line4_1">Creating the Process</a></li>
                                     <li><a href="#line4_2">Predefined processes and reserved references</a></li>
                                     <li><a href="#line4_3">Switching process behavior</a></li>
                                     <li><a href="#line4_4">Direct process call</a></li>
@@ -123,8 +127,13 @@
                                     <li><a href="#line10_8">Election</a></li>
                                 </ul>
                             </li>
-                            <li><a href="#line11">Contribution</a></li>
-                            <li><a href="#line12">Copyright and license</a></li>
+                            <li><a href="#line11">Comparison with Other Frameworks</a>
+                                <ul class="nav">
+                                    <li><a href="#line11_1">Akka</a></li>
+                                </ul>
+                            </li>
+                            <li><a href="#line12">Contribution</a></li>
+                            <li><a href="#line13">Copyright and license</a></li>
                         </ul>
                     </nav>
                 </div>
@@ -139,7 +148,6 @@
                                     <div class="col-md-12 full">
                                         <div class="intro1">
                                             <ul>
-                                                <li><strong>Version : </strong> 0.0.1-RC1</li>
                                                 <li><strong>Author : </strong> Roman Pleshkov (dmgcodevil)</li>
                                                 <li><strong>Github : </strong> <a href="https://github.com/parapet-io/parapet" target="_blank">https://github.com/parapet-io/parapet</a></li>
                                                 <li><strong>License : </strong> <a href="http://www.apache.org/licenses/LICENSE-2.0" target="_blank">Apache License, Version 2.0</a></li>
@@ -184,7 +192,7 @@
                                         <strong>Modular</strong> - almost any component can be replaced with a custom implementation
                                     </li>
                                     <li>
-                                    <strong>DSL</strong> provides a set of operations sufficient to write distributed algorithms
+                                        <strong>DSL</strong> provides a set of operations sufficient to write distributed algorithms
                                     </li>
                                     <li>
                                         <strong>Lightweight and Performant</strong>. The library utilizes resources (CPU and Memory) smartly, the code is optimized to reduce CPU consumption when your application in idle state
@@ -210,7 +218,7 @@
                         <div class="row">
                             <div class="col-md-12">
                                 <p>
-                                The first thing you need to do is to add two dependencies into your project: <code>parapet-core</code> and <code>interop-{effect_library}</code> for a specific effect library. You can find the latest version in maven central.
+                                    The first thing you need to do is to add two dependencies into your project: <code>parapet-core</code> and <code>interop-{effect_library}</code> for a specific effect library. You can find the latest version in maven central.
                                 </p>
                                 <pre class="brush: scala">
                                 libraryDependencies += "io.parapet" %% "core" % version
@@ -344,7 +352,7 @@ object PrinterApp extends CatsApp {
 </pre>
                                 <p>
                                     This is <a href="https://typelevel.org/cats-effect/">Cats Effect</a> specific application, meaning it uses <code>IO</code> type under the hood. If you run your program you should see <code>hello world</code> printed to the console. Also notice that we are using concrete effect type <code>IO</code> to fill the hole in our <code>Printer</code> type, e.g.: <code>new Printer[IO]</code> in practice it can be any other effect type like <code>Task</code>.</p>
-                                    <p>In our example, we created <code>PrinterClient</code> which does nothing but sending <code>Print</code> event at the startup. In my opinion, it doesn't deserve to be a standalone process, would be better if we create a process in place:
+                                <p>In our example, we created <code>PrinterClient</code> which does nothing but sending <code>Print</code> event at the startup. In my opinion, it doesn't deserve to be a standalone process, would be better if we create a process in place:
                                 </p>
                                 <pre class="brush: scala">
 object PrinterApp extends CatsApp {
@@ -455,16 +463,16 @@ def times[F[_]](n: Int) = {
                             <div class="col-md-12">
                                 <h4 id="line3_3">send - <a href="#top">#back to top</a></h4>
                                 <p>
-                                <code>send</code> - sends an event to one or more receivers. Event will be delivered to all receivers in the specified order.
-                                Parapet provides a symbolic name for this operator <code>~></code> although in the current implementation it doesn't allow to send an event to multiple receivers. It will be added in the future releases.
-                               </p>
+                                    <code>send</code> - sends an event to one or more receivers. Event will be delivered to all receivers in the specified order.
+                                    Parapet provides a symbolic name for this operator <code>~></code> although in the current implementation it doesn't allow to send an event to multiple receivers. It will be added in the future releases.
+                                </p>
                                 <p>Examples:</p>
                                 <pre class="brush: scala">
 send(Ping, processA, processB, processC)
 </pre>
                                 <p>
-                                <code>Ping</code> event will be sent to the <code>processA</code> then <code>processB</code> and finaly <code>processC</code>. It's not guaranteed that <code>processA</code> will receive <code>Ping</code> event before <code>processC</code> as it depends on it's processing speed and current workload.
-                            </p>
+                                    <code>Ping</code> event will be sent to the <code>processA</code> then <code>processB</code> and finaly <code>processC</code>. It's not guaranteed that <code>processA</code> will receive <code>Ping</code> event before <code>processC</code> as it depends on it's processing speed and current workload.
+                                </p>
                                 <pre class="brush: scala">
 Ping ~> processA
 </pre>
@@ -488,7 +496,7 @@ Seq(e1, e2, e3) ~> process
                             <div class="col-md-12">
                                 <h4 id="line3_4">forward - <a href="#top">#back to top</a></h4>
                                 <p>
-                                <code>forward</code> - sends an event to the receiver using the original sender reference. This may be useful for implementing a proxy process.</p>
+                                    <code>forward</code> - sends an event to the receiver using the original sender reference. This may be useful for implementing a proxy process.</p>
                                 <p>Example:</p>
                                 <pre class="brush: scala">
 val server = Process[IO](_ => {
@@ -513,7 +521,7 @@ val client = Process.builder[IO](_ => {
                             <div class="col-md-12">
                                 <h4 id="line3_5">par - <a href="#top">#back to top</a></h4>
                                 <p><code>par</code> - executes operations from the given flow in parallel.</p>
-                                 <p>Example:</p>
+                                <p>Example:</p>
                                 <pre class="brush: scala">
 par(eval(print(1)) ++ eval(print(2))) 
 </pre>
@@ -529,7 +537,7 @@ par(eval(print(1)) ++ eval(print(2)))
                             <div class="col-md-12">
                                 <h4 id="line3_6">delay - <a href="#top">#back to top</a></h4>
                                 <p><code>delay</code> - delays every operation in the given flow for the given duration.
-                                For sequential flows the flowing expressions are semantically equivalent:</p>
+                                    For sequential flows the flowing expressions are semantically equivalent:</p>
                                 <pre class="brush: scala">
  delay(duration, x~>p ++ y~>p) <-> delay(duration, x~>p) ++ delay(duration, y~>p)
  delay(duration, x~>p ++ y~>p) <-> delay(duration) ++ x~>p ++ delay(duration) ++ y~>p
@@ -555,10 +563,10 @@ par(delay(duration, eval(print(1))))
                             <div class="col-md-12">
                                 <h4 id="line3_7">withSender - <a href="#top">#back to top</a></h4>
                                 <p>
-                                <code>withSender</code> - accepts a callback function that takes a sender reference and produces a new flow. 
+                                    <code>withSender</code> - accepts a callback function that takes a sender reference and produces a new flow.
                                 </p>
                                 <p>
-                                Example:
+                                    Example:
                                 </p>
                                 <pre class="brush: scala">
 val server = Process[IO](_ => {
@@ -579,7 +587,7 @@ val client = Process.builder[IO](_ => {
                             <div class="col-md-12">
                                 <h4 id="line3_8">fork - <a href="#top">#back to top</a></h4>
                                 <p>
-                                <code>fork</code> - does what exactly the name says, executes the given flow concurrently.
+                                    <code>fork</code> - does what exactly the name says, executes the given flow concurrently.
                                 </p>
                                 <p>Example:</p>
                                 <pre class="brush: scala">
@@ -587,7 +595,8 @@ val process = Process[IO](_ => {
   case Start => fork(eval(print(1))) ++ fork(eval(print(2)))
 })
 </pre>
-                                <p>Possible outputs:</p> <pre>
+                                <p>Possible outputs:</p>
+                                <pre>
 12 or 21
 </pre>
                             </div>
@@ -598,7 +607,7 @@ val process = Process[IO](_ => {
                             <div class="col-md-12">
                                 <h4 id="line3_9">register - <a href="#top">#back to top</a></h4>
                                 <p>
-                                <code>register</code> - registers a child process in the Parapet context. It's guaranteed that a child process will receive <code>Stop</code> event before its parent. 
+                                    <code>register</code> - registers a child process in the Parapet context. It's guaranteed that a child process will receive <code>Stop</code> event before its parent.
                                 </p>
                                 <p>Example:</p>
                                 <pre class="brush: scala">
@@ -646,7 +655,7 @@ winner
                                 <pre class="brush: scala">
 suspend(IO(print("hello world")))
 </pre>
-                                <p>Output:</p> 
+                                <p>Output:</p>
                                 <pre>
 hello world
 </pre>
@@ -664,12 +673,12 @@ suspend {
                         <div class="row">
                             <div class="col-md-12">
                                 <h4 id="line3_12">suspendWith - <a href="#top">#back to top</a></h4>
-                                <p><code>suspendWith</code> - suspends an effect which produces <code>F</code> and then feeds that into a function that takes a normal value and returns a new flow. All operations from produced flow added to the current flow.</p> 
+                                <p><code>suspendWith</code> - suspends an effect which produces <code>F</code> and then feeds that into a function that takes a normal value and returns a new flow. All operations from produced flow added to the current flow.</p>
                                 <p>Example:</p>
                                 <pre class="brush: scala">
 suspend(IO.pure(1))) { i => eval(print(i)) } 
 </pre>
-                                <p>Output:</p> 
+                                <p>Output:</p>
                                 <pre>
 1
 </pre>
@@ -696,14 +705,46 @@ hello world
                         <div class="row">
                             <div class="col-md-12">
                                 <h4 id="line3_14">evalWith - <a href="#top">#back to top</a></h4>
-                                <p><code>evalWith</code> - Suspends a side effect in <code>F</code> and then feeds that into a function that takes a normal value and returns a new flow. All operations from a produced flow will be added to the current flow.</p> 
+                                <p><code>evalWith</code> - Suspends a side effect in <code>F</code> and then feeds that into a function that takes a normal value and returns a new flow. All operations from a produced flow will be added to the current flow.</p>
                                 <p>Example:</p>
                                 <pre class="brush: scala">
 evalWith("hello world")(a => eval(println(a)))
 </pre>
-                                <p>Output:</p> 
+                                <p>Output:</p>
                                 <pre>
 hello world
+</pre>
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line3_15">blocking - <a href="#top">#back to top</a></h4>
+                                <p><code>blocking</code> - marks the given flow as blocking. All blocking operations should be wrapped using this operator to not block a scheduler worker. An example of a blocking operation is a long-running <code>IO</code> operation, e.g. reading data from the network socket.</p>
+                                <p>Example:</p>
+                                <pre class="brush: scala">
+  class Service {
+    def blockingCall: IO[String] = IO.sleep(1.second) >> IO("data")
+  }
+
+  class Client extends Process[IO] {
+
+    import dsl._
+
+    private lazy val service = new Service()
+
+    override def handle: Receive = {
+      case Start =>
+        blocking {
+          suspendWith(service.blockingCall)(data => eval(println(data)))
+        }
+    }
+  }
+</pre>
+                                <p>Output:</p>
+                                <pre>
+data
 </pre>
                             </div>
                         </div>
@@ -739,8 +780,8 @@ hello world
                             <div class="col-md-12">
                                 <h4 id="line4_1">Creating the Process - <a href="#top">#back to top</a></h4>
                                 <p>There are there several ways to create the Process.</p>
-                                    <h4>Extending Process trait</h4>
-                                    <pre class="brush: scala">
+                                <h4>Extending Process trait</h4>
+                                <pre class="brush: scala">
   class GenericProcess[F[_]] extends Process[F] {
 
     import dsl._
@@ -750,9 +791,8 @@ hello world
     }
   }
 </pre>
-
-<p>or using a specific effect type, e.g. <code>IO</code>:</p>
-<pre class="brush: scala">
+                                <p>or using a specific effect type, e.g. <code>IO</code>:</p>
+                                <pre class="brush: scala">
   class IOProcess extends Process[IO] {
 
     import dsl._
@@ -762,22 +802,19 @@ hello world
     }
   }
 </pre>
-
-
                                 <h4>Using Process Builder</h4>
                                 <p>You can use Process Builder to create a stateless process:</p>
                                 <p><code>Process.Builder</code> setters:</p>
-
- <ul>
-                                        <li> <code>name</code> sets a process name; <code>undefined</code> is a default value</li>
-                                        <li> <code>ref</code> sets a process reference; <code>jdk UUID</code> is a default value</li>
-                                        <li> <code>bufferSize</code> sets a process queue size; 
-                                            <code>-1</code> - unbounded (by default) unless it's set globally using<code>ParConfig#processBufferSize</code>; 
-                                            valid values: <code>-1; [1,Int.MaxValue)</code>
-                                             </li>
-                                    </ul>
-                                    <p>Example:</p>
-                                    <pre class="brush: scala">
+                                <ul>
+                                    <li> <code>name</code> sets a process name; <code>undefined</code> is a default value</li>
+                                    <li> <code>ref</code> sets a process reference; <code>jdk UUID</code> is a default value</li>
+                                    <li> <code>bufferSize</code> sets a process queue size;
+                                        <code>-1</code> - unbounded (by default) unless it's set globally using<code>ParConfig#processBufferSize</code>;
+                                        valid values: <code>-1; [1,Int.MaxValue)</code>
+                                    </li>
+                                </ul>
+                                <p>Example:</p>
+                                <pre class="brush: scala">
   val process: Process[IO] = Process.builder[IO](ref => {
     case Start => dsl.unit
   }).ref(ProcessRef("process")) // sets a process reference
@@ -785,9 +822,8 @@ hello world
     .bufferSize(1000) // set a process queue size limit
     .build
 </pre>
-
-<p>If you don't need to override any values then you can use <code>Process#apply</code>. Example:</p>
-<pre class="brush: scala">
+                                <p>If you don't need to override any values then you can use <code>Process#apply</code>. Example:</p>
+                                <pre class="brush: scala">
   val process: Process[IO] = Process[IO](_ => {
     case Start => dsl.unit
   })
@@ -942,10 +978,9 @@ release resources: close socket and etc.
                                 <pre class="brush: scala">
 Sum(2, 2) ~> calculator <-> new Calculator().apply(ref, Sum(2, 2)) // where ref belongs to the same process in both cases
 </pre>
-
-<p>
-    Also, you may be wondering why do we need to pass the process ref as an argument in the apply method. The reason is that the library needs to know the address of a sender so it can send a reply to it. 
-</p>
+                                <p>
+                                    Also, you may be wondering why do we need to pass the process ref as an argument in the apply method. The reason is that the library needs to know the address of a sender so it can send a reply to it.
+                                </p>
                             </div>
                         </div>
                         <!-- end row -->
@@ -1419,9 +1454,8 @@ errorMsg: process [name=undefined, ref=server] has failed to handle event: Reque
                             <div class="col-md-12">
                                 <p>
                                     <code>EventLog</code> can be used to store events on disk. Latter, events can be retrieved and resubmitted.
-                                    In a case, the event queue is full all unsubmitted events will be redirected to <code>EventLog</code>.</p> 
-                                    <p>The default implementation just logs such events. In future releases, more practical implementation will be provided.</p>
-                                
+                                    In a case, the event queue is full all unsubmitted events will be redirected to <code>EventLog</code>.</p>
+                                <p>The default implementation just logs such events. In future releases, more practical implementation will be provided.</p>
                             </div>
                         </div>
                         <!-- end row -->
@@ -1452,20 +1486,63 @@ object ConfigExample extends CatsApp{
   override val config: ParConfig = ParConfig(...)
 }
 </pre>
-                                <code>ParConfig</code> has the following properties
+                                <p><code>ParConfig</code> has the following properties</p>
                                 <ul>
+                                    <li><code>processBufferSize</code> sets a buffer size limit for all processes. If a process created with a different value then that value will be used.
+                                        <p>Examples:</p>
+                                        <p>Example 1:</p>
+                                        <pre class="brush: scala">
+  override val config: ParConfig = ParConfig(-1, SchedulerConfig.default)
+
+  val processA = Process[IO](_ => {
+    case _ => unit
+  })
+
+  val processB = Process.builder[IO](_ => {
+    case _ => unit
+  }).bufferSize(1000).build
+                                        </pre>
+                                        <p><em>processA</em> will be created with unbounded buffer</p>
+                                        <p><em>processB</em> will be created with buffer size limit equals 1000</p>
+                                        <p>Example 2:</p>
+                                        <pre class="brush: scala">
+  override val config: ParConfig = ParConfig(5000, SchedulerConfig.default)
+
+  val processA = Process[IO](_ => {
+    case _ => unit
+  })
+
+  val processB = Process.builder[IO](_ => {
+    case _ => unit
+  }).bufferSize(1000).build
+                                        </pre>
+                                        <p><em>processA</em> will be created with buffer size limit equals 5000</p>
+                                        <p><em>processB</em> will be created with buffer size limit equals 1000</p>
+                                        <p>Example 3:</p>
+                                        <pre class="brush: scala">
+  override val config: ParConfig = ParConfig(5000, SchedulerConfig.default)
+
+  val processA = Process[IO](_ => {
+    case _ => unit
+  })
+
+  val processB = Process.builder[IO](_ => {
+    case _ => unit
+  }).bufferSize(-1).build
+                                        </pre>
+                                        <p><em>processA</em> will be created with buffer size limit equals 5000</p>
+                                        <p><em>processB</em> will be created with unbounded buffer</p>
+                                        <p>
+                                            You should set <code>bufferSize</code> to a value that would match the expected workload. For example, if you are going to send 1M events within the same flow it's recommended to set <code>bufferSize</code> to 1M. However, it depends on how fast your consumer processes and amount of available memory, if that's possible to keep some amount of events in memory - go for it, if not - you will probably need to reconsider your design decisions.
+                                            In a case the process event queue is full all events will be redirected to <code>EventLog</code> (see the corresponding section).
+                                        </p>
+                                    </li>
                                     <li><code>schedulerConfig:</code>
                                         <ul>
-                                            <li><code>queueSize</code> - size of event queue shared by workers; <code>-1</code> - unbounded by default</li>
                                             <li><code>numberOfWorkers</code> - number of workers; default = availableProcessors</li>
-                                            <li><code>processQueueSize</code> - size of event queue per process; <code>-1</code> - unbounded by default</li>
                                         </ul>
                                     </li>
                                 </ul>
-                                <p>
-                                You should set <code>queueSize</code> to a value that would match the expected workload. For example, if you are going to send 1M events within the same flow it's recommended to set <code>queueSize</code> to 1M. However, it depends on how fast your consumer processes and amount of available memory, if that's possible to keep some amount of events in memory - go for it, if not - you will probably need to reconsider your design decisions.
-                                In a case the event queue is full all events will be redirected to <code>EventLog</code> (see the corresponding section).
-                                </p>
                             </div>
                         </div>
                         <!-- end row -->
@@ -1665,7 +1742,7 @@ client-0 received 0
 client-4 received 4
 client-1 received 1
 </pre>
-                                <p/>
+                                <p />
                                 <h4>The Freelance Protocol</h4>
                                 <p>
                                     The Freelance Protocol (FLP) defines brokerless reliable request-reply dialogs across an N-to-N network of clients and servers. <a href="https://rfc.zeromq.org/spec:10/FLP/">Protocol specification</a></p>
@@ -1879,6 +1956,26 @@ Record(World,2)
                     <section id="line11" class="section">
                         <div class="row">
                             <div class="col-md-12 left-align">
+                                <h2 class="dark-text">Comparison with Other Frameworks <a href="#top">#back to top</a></h2>
+                                If you notice an inaccuracy or something that doesn’t seem quite right, please let us know by
+                                <a href="https://github.com/parapet-io/parapet/issues/new?title=Inaccuracy+in+comparisons+guide">opening an issue</a>.
+                            </div>
+                            <hr>
+                            <!-- end row -->
+                        </div>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h4 id="line11_1">Akka - <a href="#top">#back to top</a></h4>
+                                <strong>Status</strong>
+                                <img src="images/in-progress.png" style="width:32px;height:32px;">
+                            </div>
+                        </div>
+                        <!-- end row -->
+                        <hr>
+                    </section>
+                    <section id="line12" class="section">
+                        <div class="row">
+                            <div class="col-md-12 left-align">
                                 <h2 class="dark-text">Contribution <a href="#top">#back to top</a>
                                     <hr>
                                 </h2>
@@ -1896,7 +1993,7 @@ Record(World,2)
                         <!-- end row -->
                         <hr>
                     </section>
-                    <section id="line12" class="section">
+                    <section id="line13" class="section">
                         <div class="row">
                             <div class="col-md-12 left-align">
                                 <h2 class="dark-text">License <a href="#top">#back to top</a>

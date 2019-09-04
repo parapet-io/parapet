@@ -41,6 +41,11 @@ object Scheduler {
     require(numberOfWorkers > 0)
   }
 
+  object SchedulerConfig {
+    val default: SchedulerConfig = SchedulerConfig(
+      numberOfWorkers = Runtime.getRuntime.availableProcessors())
+  }
+
   // todo: revisit
   sealed trait SubmissionResult
 
@@ -63,15 +68,15 @@ object Scheduler {
     private val pa = implicitly[Parallel[F]]
     private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
 
-    override def start: F[Unit] = ct.suspend {
-      val workers = createWorkers
-
-      pa.par(workers.map(w => w.run))
-        .guarantee(
-          stopProcess(ProcessRef.SystemRef,
-            context, ProcessRef.SystemRef, interpreter,
-            (pRef, err) => ct.delay(logger.error(s"An error occurred while stopping process $pRef", err)))) >>
-        ct.delay(logger.info("scheduler has been shut down"))
+    override def start: F[Unit] = {
+      ct.bracket(ct.delay(createWorkers)) { workers =>
+        pa.par(workers.map(w => w.run))
+      } { _ =>
+        stopProcess(ProcessRef.SystemRef,
+          context, ProcessRef.SystemRef, interpreter,
+          (pRef, err) => ct.delay(logger.error(s"An error occurred while stopping process $pRef", err))) >>
+          ct.delay(logger.info("scheduler has been shut down"))
+      }
     }
 
     private def submit(ps: ProcessState[F], task: Deliver[F]): F[SubmissionResult] = {
@@ -92,26 +97,27 @@ object Scheduler {
     override def submit(task: Task[F]): F[SubmissionResult] = {
       task match {
         case deliverTask@Deliver(e@Envelope(sender, event, pRef)) =>
-          context.getProcessState(pRef)
-            .fold[F[SubmissionResult]](send(
-            SystemRef,
-            Failure(e, UnknownProcessException(s"there is no such process with id=$pRef registered in the system")),
-            sender,
-            interpreter) >> ct.pure(UnknownProcess)) { ps =>
-            event match {
-              case Kill =>
-                // interruption is a concurrent operation
-                // i.e. interrupt may be completed but
-                // the actual process may be still performing some computations
-                // we need to submit Stop event here instead of `direct call`
-                // to avoid race condition between interruption and process stop
-                context.interrupt(pRef) >> submit(ps, Deliver(Envelope(sender, Stop, pRef)))
-              case _ => submit(ps, deliverTask)
+          ct.suspend {
+            context.getProcessState(pRef)
+              .fold[F[SubmissionResult]](send(
+              SystemRef,
+              Failure(e, UnknownProcessException(s"there is no such process with id=$pRef registered in the system")),
+              sender,
+              interpreter) >> ct.pure(UnknownProcess)) { ps =>
+              event match {
+                case Kill =>
+                  // interruption is a concurrent operation
+                  // i.e. interrupt may be completed but
+                  // the actual process may be still performing some computations
+                  // we need to submit Stop event here instead of `direct call`
+                  // to avoid race condition between interruption and process stop
+                  context.interrupt(pRef) >> submit(ps, Deliver(Envelope(sender, Stop, pRef)))
+                case _ => submit(ps, deliverTask)
+              }
             }
           }
         case t => ct.raiseError(new RuntimeException(s"unsupported task: $t"))
       }
-
     }
 
     private def createWorkers: List[Worker[F]] = {

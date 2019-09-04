@@ -8,7 +8,7 @@ import com.typesafe.scalalogging.Logger
 import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.core.{Context, EventLog, Parallel, Parapet, Process, ProcessRef, Scheduler}
+import io.parapet.core.{Context, EventLog, Parallel, Process, ProcessRef, Scheduler}
 import io.parapet.syntax.FlowSyntax
 import org.slf4j.LoggerFactory
 
@@ -22,7 +22,7 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
   lazy val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
 
-  val config: ParConfig = Parapet.defaultConfig
+  val config: ParConfig = ParConfig.default
 
   implicit def contextShift: ContextShift[F]
 
@@ -43,20 +43,19 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
   def unsafeRun(f: F[Unit]): Unit
 
   def run: F[Unit] = {
-      for {
-        ps <- processes
-        _ <- if (ps.isEmpty) {
-          ct.raiseError[Unit](new RuntimeException("Initialization error:  at least one process must be provided"))
-        } else ct.unit
-        context <- Context(config, eventLog)
-        interpreter <- ct.pure(flowInterpreter(context))
-        scheduler <- Scheduler.apply[F](config.schedulerConfig, context, interpreter)
-        f <- ct.start(scheduler.start)
-        _ <- context.start(scheduler)
-        dlProcess <- deadLetter
-        _ <- context.registerAll(ProcessRef.SystemRef, ps.toList :+ dlProcess)
-        _ <- f.join
-      } yield ()
+    for {
+      ps <- processes
+      _ <- if (ps.isEmpty) {
+        ct.raiseError[Unit](new RuntimeException("Initialization error:  at least one process must be provided"))
+      } else ct.unit
+      context <- Context(config, eventLog)
+      interpreter <- ct.pure(flowInterpreter(context))
+      scheduler <- Scheduler.apply[F](config.schedulerConfig, context, interpreter)
+      _ <- context.start(scheduler)
+      dlProcess <- deadLetter
+      _ <- context.registerAll(ProcessRef.SystemRef, ps.toList :+ dlProcess)
+      _ <- scheduler.start
+    } yield ()
 
   }
 

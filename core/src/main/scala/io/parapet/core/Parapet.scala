@@ -21,9 +21,10 @@ object Parapet extends StrictLogging {
   val numberOfWorkersLens: Lens[ParConfig, Int] = lens[ParConfig].schedulerConfig.numberOfWorkers
 
 
-  val defaultConfig: ParConfig = ParConfig(
-    processBufferSize = -1, // unbounded
-    schedulerConfig = SchedulerConfig(
-      numberOfWorkers = Runtime.getRuntime.availableProcessors()))
+  object ParConfig {
+    val default: ParConfig = ParConfig(
+      processBufferSize = -1, // unbounded
+      schedulerConfig = SchedulerConfig.default)
+  }
 
 }
