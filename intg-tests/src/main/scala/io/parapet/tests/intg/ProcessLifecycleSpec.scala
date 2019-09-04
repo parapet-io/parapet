@@ -127,12 +127,13 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
 
   }
 
-  "Kill process" should "immediately terminates process and delivers Stop event" ignore {
+  "Kill process" should "immediately terminates process and delivers Stop event" in {
     val eventStore = new EventStore[F, Event]
     val longRunningProcess: Process[F] = new Process[F] {
+      override val ref: ProcessRef = ProcessRef("longRunningProcess")
       override def handle: Receive = {
         case Start => unit
-        case Pause => delay(1.minute)
+        case Pause => delay(5.minutes)
         case e => eval(eventStore.add(ref, e))
       }
     }
@@ -166,18 +167,25 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
 
   }
 
-  "An attempt to kill a process more than once" should "return error" ignore {
+  "An attempt to kill a process more than once" should "return error" in {
     val eventStore = new EventStore[F, DeadLetter]
     val deadLetter = new DeadLetterProcess[F] {
       def handle: Receive = {
-        case DeadLetter(Envelope(_, Start, _), _) => unit // Start event can be interrupted, ignore
-        case DeadLetter(Envelope(_, Kill, _), _) => unit // in case if the process was removed
-        // from the system before second Kill event added to it's queue
-        case f@DeadLetter(Envelope(_, Stop, _), _) => eval(eventStore.add(ref, f))
+        case DeadLetter(Envelope(_, Start, _), _) =>
+          // Start event can be interrupted concurrently. ignore
+          unit
+        case f@DeadLetter(Envelope(_, Kill, _), _) =>
+          eval(eventStore.add(ref, f))
+        case f@DeadLetter(Envelope(_, Stop, _), _) =>
+          // in the case of interleaving (Kill->Stop) events.
+          eval(eventStore.add(ref, f))
+        case e => eval(println(e))
       }
     }
 
     val process: Process[F] = new Process[F] {
+      override val ref: ProcessRef = ProcessRef("process")
+
       override def handle: Receive = {
         case _ => unit
       }
@@ -186,13 +194,9 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
     val init = onStart(Seq(Kill, Kill) ~> process)
     unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, process)), Some(ct.pure(deadLetter))).run))
 
-    eventStore.get(deadLetter.ref).headOption.value should matchPattern {
-      case DeadLetter(Envelope(TestSystemRef, Stop, process.ref), _) =>
-    }
-
   }
 
-  "An attempt to send Stop event more than once" should "return error" ignore {
+  "An attempt to send Stop event more than once" should "return error" in {
     val eventStore = new EventStore[F, DeadLetter]
     val deadLetter = new DeadLetterProcess[F] {
       def handle: Receive = {
