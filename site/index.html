@@ -1957,8 +1957,26 @@ Record(World,2)
                         <div class="row">
                             <div class="col-md-12 left-align">
                                 <h2 class="dark-text">Comparison with Other Frameworks <a href="#top">#back to top</a></h2>
-                                If you notice an inaccuracy or something that doesn’t seem quite right, please let us know by
-                                <a href="https://github.com/parapet-io/parapet/issues/new?title=Inaccuracy+in+comparisons+guide">opening an issue</a>.
+                                <p>
+                                    Before we start comparing any frameworks and libraries I'd like to highlight some unique features in Parapet that might change your perception about how distributed systems can be developed using functional programming in Scala.
+                                </p>
+                                <p>
+                                    In general, regardless of a programming paradigm, we have to deal with <em>side effects</em>. In purely functional languages like Haskell, we would use the <code>I/O</code> system that allows describing the computational effects as pure values. Luckily there are some decent implementations of effect system for Scala: Cats Effect, Monix, FS2, and others. One of the key features of Effect system is that it allows you cleanly separate a side effect actions from a purely functional code. Having a special type that describes computational effects makes it easier to reason about your code. If you see a function that returns <code>IO[A]</code> it should instantly become clear that this function is not pure and performs some side effects, synchronously or asynchronously.
+                                </p>
+                                <p>
+                                    If you aren't familiar with effect system you are probably using Scala <code>Future</code>. However, Future is not <em>referential transparent</em> because it evaluates eagerly and memorizes its results. This is why Future is not a suitable type for encapsulating effects. Constructing a Future that will evaluate a side-effect is itself a side-effect.
+                                </p>
+                                <p>
+                                    Parapet can be viewed as effect system for event-driven and concurrent systems. It provides a set of operations that allow describing program flows as data. Then flows interpreted into low-level effect types such as <code>IO</code> or <code>Task</code>. Since program flows in Parapet represented as data it gives us the ability to verify distributed algorithms without needing to run them. For instance, having this feature made it possible to implement a preemptive model in Scheduler.
+                                    Parapet gives you the freedom to choose an implementation of effect system. If you already using Cats Effect in your project you just need to add <code>interop-cats</code> into your project. If tomorrow you decide that ZIO is more suitable for your needs you only need to replace <code>interop-cats</code> with <code>interop-scalaz-zio
+                                    </code> and change a few lines of code. As a result, it gives you more flexibility and fine-grained control.
+                                </p>
+                                <p>
+                                </p>
+                                <p>
+                                    If you notice an inaccuracy or something that doesn’t seem quite right, please let us know by
+                                    <a href="https://github.com/parapet-io/parapet/issues/new?title=Inaccuracy+in+comparisons+guide">opening an issue</a>.
+                                </p>
                             </div>
                             <hr>
                             <!-- end row -->
