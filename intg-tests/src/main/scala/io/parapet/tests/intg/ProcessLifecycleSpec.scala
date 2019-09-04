@@ -57,7 +57,7 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
     eventStore.get(process.ref) shouldBe Seq(TestEvent, Stop)
   }
 
-  "System shutdown" should "stop child processes first" ignore {
+  "System shutdown" should "stop child processes first" in {
     val eventStore = new EventStore[F, Event]
     val trace = ProcessRef("trace")
 
