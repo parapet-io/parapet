@@ -35,8 +35,6 @@ class ZmqAsyncClient[F[_]](address: String,
 
   private val pendingRequests = mutable.Map[String, ProcessRef]()
 
-  private lazy val worker = new Worker[F](ref, zmqContext, address, requestQueue, encoder)
-
   private val init = eval {
     socket.setIdentity(clientId.getBytes(ZMQ.CHARSET))
     socket.connect(address)

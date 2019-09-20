@@ -72,7 +72,8 @@ lazy val core = project
     libraryDependencies ++= (commonDependencies ++ catsDependencies),
     libraryDependencies += "org.json4s" %% "json4s-native" % "3.6.7",
     libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7",
-    libraryDependencies += "io.monix" %% "monix-eval" % "3.0.0-RC3"
+    libraryDependencies += "io.monix" %% "monix-eval" % "3.0.0-RC3",
+    libraryDependencies += "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion % "compile"
   )
 
 lazy val examples = project
@@ -81,7 +82,7 @@ lazy val examples = project
     name := "examples",
     libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3",
     libraryDependencies += "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
-  ).dependsOn(core, interopCats, interopScalazZio, interopMonix)
+  ).dependsOn(core, interopCats, interopScalazZio, interopMonix, msgZmq)
 
 /*lazy val perfTesting = project
   .in(file("perf-testing"))
@@ -231,3 +232,10 @@ ThisBuild / publishTo := {
   else Some("releases" at nexus + "service/local/staging/deploy/maven2")
 }
 ThisBuild / publishMavenStyle := true
+
+// Protobuf compiler settings
+
+PB.protoSources in Compile := Seq(file("core/src/main/protobuf"))
+PB.targets in Compile := Seq(
+  scalapb.gen() -> (sourceManaged in Compile in core).value
+)

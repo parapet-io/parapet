@@ -1,0 +1,32 @@
+//syntax = "proto3";
+
+package io.parapet.protobuf;
+
+enum CmdType {
+    CONNECT = 0;
+    NEW_STREAM = 1;
+}
+
+//message Header {
+//    required CmdType cmdType = 1;
+//}
+
+message Command {
+    required CmdType cmdType = 1;
+    optional bytes data = 2;
+}
+
+message PeerInfo {
+    required string addr = 1;
+}
+
+message Connect {
+    required PeerInfo peerInfo = 1;
+}
+
+message NewStream {
+
+    // streamId ?
+    required string protocolId = 1;
+
+}
