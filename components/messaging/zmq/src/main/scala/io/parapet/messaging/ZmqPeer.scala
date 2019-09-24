@@ -70,7 +70,6 @@ class ZmqPeer[F[_] : Concurrent](val info: PeerInfo, lock: Lock[F]) extends Peer
               outSocket.connect(newStream.inAddr)
               val stream = new ZmqStream[F](selfAddr, inSocket, outSocket)
               connectedPeers(peerAddr).add(protocolId, stream)
-              println("lol")
             }
 
             val peerSocket = connectedPeers.get(peerAddr).map(_.socket).getOrElse({
