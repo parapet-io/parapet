@@ -7,10 +7,6 @@ enum CmdType {
     NEW_STREAM = 1;
 }
 
-//message Header {
-//    required CmdType cmdType = 1;
-//}
-
 message Command {
     required CmdType cmdType = 1;
     optional bytes data = 2;
@@ -24,9 +20,22 @@ message Connect {
     required PeerInfo peerInfo = 1;
 }
 
+message Connected {
+    required bool ok = 1;
+    optional string msg = 2 [default = ""];
+}
+
+message OpenedStream {
+    required bool ok = 1;
+    optional string msg = 2 [default = ""];
+}
+
 message NewStream {
 
-    // streamId ?
-    required string protocolId = 1;
+    // todo streamId ?
+    required PeerInfo peerInfo = 1;
+    required string protocolId = 2;
+    required string inAddr = 3;
+    required string outAddr = 4;
 
 }

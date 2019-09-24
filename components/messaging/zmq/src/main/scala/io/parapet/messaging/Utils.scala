@@ -4,6 +4,7 @@ import io.parapet.messaging.api.ErrorCodes
 import io.parapet.messaging.api.MessagingApi.{Failure, Response}
 import io.parapet.core.Dsl.{Dsl, DslF, FlowOps}
 import io.parapet.core.Encoder.EncodingException
+import io.parapet.core.Peer.PeerInfo
 import io.parapet.core.ProcessRef
 import org.zeromq.{ZContext, ZMQException}
 
@@ -11,6 +12,12 @@ import scala.concurrent.duration._
 import scala.util.Try
 
 object Utils {
+
+  def getAddress(peerInfo: PeerInfo): String =
+    getAddress(peerInfo.protocol, peerInfo.host, peerInfo.port)
+
+  def getAddress(protocol: String, host: String, port: Int): String = s"$protocol://$host:$port"
+
   def appendZeroByte(data: Array[Byte]): Array[Byte] = {
     val tmp = new Array[Byte](data.length + 1)
     data.copyToArray(tmp)

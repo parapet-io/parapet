@@ -2,20 +2,25 @@ package io.parapet.examples.peer
 
 import cats.effect.IO
 import io.parapet.CatsApp
-import io.parapet.core.Process
+import io.parapet.core.Event.Start
+import io.parapet.core.Peer.PeerInfo
+import io.parapet.core.{Peer, Ports, Process}
 import io.parapet.messaging.ZmqPeer
 
-object Peer2 extends CatsApp {
-  override def processes: IO[Seq[Process[IO]]] = {
-    for {
-      peer <- ZmqPeer[IO]("tcp://*:6666")
-     // _ <- peer.run
-      con <- peer.connect("tcp://localhost:5555")
-      stream <- con.newSteam("text/1.0")
-      peerProcess <- IO(new PeerProcess(peer))
-      //c <- IO(new Consumer[IO](stream))
+object Peer2 extends AbstractPeer {
 
-    } yield Seq(peerProcess)
-  }
+  override val peerInfo: PeerInfo = PeerInfo(
+    protocol = "tcp",
+    host = "localhost",
+    port = 6666,
+    protocols = Set("text/1.0"),
+    ports = Ports(6667, 6766)
+  )
 
+  override def producer(peer: Peer[IO]): Process[IO] =Process[IO](_ => {
+    case _ => dsl.unit
+  })
+
+  override def consumer(peer: Peer[IO]): Process[IO] =
+    new Consumer[IO](peer, "tcp://localhost:5555", "text/1.0")
 }
