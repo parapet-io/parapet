@@ -11,8 +11,7 @@ import io.parapet.core.{Connection, Lock, Peer, Process}
 import io.parapet.protobuf.protocol.{PeerInfo => PBPeerInfo, _}
 import org.zeromq.{SocketType, ZContext, ZMsg}
 
-import scala.collection.mutable
-
+import scala.collection.JavaConverters._
 
 class ZmqPeer[F[_] : Concurrent](val info: PeerInfo, lock: Lock[F]) extends Peer[F] {
   self =>
@@ -21,7 +20,7 @@ class ZmqPeer[F[_] : Concurrent](val info: PeerInfo, lock: Lock[F]) extends Peer
 
   private lazy val zmqContext = new ZContext(1)
   private lazy val socket = zmqContext.createSocket(SocketType.ROUTER)
-  private val connectedPeers = mutable.Map[String, ZmqConnection[F]]()
+  private val connectedPeers = new java.util.concurrent.ConcurrentHashMap[String, ZmqConnection[F]]()
 
   private val selfAddr = Utils.getAddress(info)
 
@@ -36,14 +35,21 @@ class ZmqPeer[F[_] : Concurrent](val info: PeerInfo, lock: Lock[F]) extends Peer
         cmd.cmdType match {
           case CmdType.CONNECT =>
             val connect = Connect.parseFrom(cmd.data.get.toByteArray)
-            println(s"Peer[$selfAddr] received connect command from [${connect.peerInfo.addr}]")
-            // todo validate request (connection exists, encryption, etc.)
+            val peerAddr = connect.peerInfo.addr
+            println(s"Peer[$selfAddr] received 'Connect' from [$peerAddr]")
+            // todo validate request (encryption, etc.)
             val peerSocket = zmqContext.createSocket(SocketType.DEALER)
-            peerSocket.connect(connect.peerInfo.addr)
-            val connection = new ZmqConnection[F](info, zmqContext, peerSocket)
-            println(s"$selfAddr adds conn to map")
-            connectedPeers.put(connect.peerInfo.addr, connection)
-            println(s"$selfAddr sends Connected response to ${connect.peerInfo.addr}")
+            peerSocket.connect(peerAddr)
+            val conn = new ZmqConnection[F](info, zmqContext, peerSocket)
+
+            if (connectedPeers.putIfAbsent(peerAddr, conn) != null) {
+              // concurrent invocation of `connect`
+              // close socket
+              println(s"peer[$selfAddr] connection with $peerAddr already exists. close socket")
+              peerSocket.close()
+            }
+
+            println(s"$selfAddr sends 'Connected' to $peerAddr")
             val response = new ZMsg()
             response.add(clientId)
             response.add(Connected(ok = true).toByteArray)
@@ -69,10 +75,10 @@ class ZmqPeer[F[_] : Concurrent](val info: PeerInfo, lock: Lock[F]) extends Peer
               val outSocket = zmqContext.createSocket(SocketType.DEALER)
               outSocket.connect(newStream.inAddr)
               val stream = new ZmqStream[F](selfAddr, inSocket, outSocket)
-              connectedPeers(peerAddr).add(protocolId, stream)
+              connectedPeers.get(peerAddr).add(protocolId, stream)
             }
 
-            val peerSocket = connectedPeers.get(peerAddr).map(_.socket).getOrElse({
+            val peerSocket = Option(connectedPeers.get(peerAddr)).map(_.socket).getOrElse({
               val peerSocket = zmqContext.createSocket(SocketType.DEALER)
               peerSocket.connect(peerAddr)
               peerSocket
@@ -102,23 +108,25 @@ class ZmqPeer[F[_] : Concurrent](val info: PeerInfo, lock: Lock[F]) extends Peer
     } >> rcvCommand
   }
 
-  // tmp solution
-  // using java ConcurrentHashMap causes a dead lock: connectedPeers.put(connect.peerInfo.addr, connection)
-
   override def connect(addr0: String): F[Connection[F]] = {
-    lock.withPermit {
-      ct.delay {
-        if (connectedPeers.contains(addr0)) {
-          connectedPeers(addr0)
-        } else {
-          val socket = zmqContext.createSocket(SocketType.DEALER)
-          val conStatus = socket.connect(addr0)
-          // todo check conStatus before sending cmd
-          println(s"peer[$selfAddr] socket[$addr0] connected = $conStatus")
+
+    ct.delay {
+      // optimistic check
+      if (connectedPeers.containsKey(addr0)) {
+        connectedPeers.get(addr0)
+      } else {
+        val socket = zmqContext.createSocket(SocketType.DEALER)
+        val newConn = new ZmqConnection[F](info, zmqContext, socket)
+        val conn = connectedPeers.putIfAbsent(addr0, newConn)
+        if (conn == null) {
+
+          val connStatus = socket.connect(addr0)
+          println(s"peer[$selfAddr] opened socket[$addr0, $connStatus]")
 
           val cmd = Command(
             cmdType = CmdType.CONNECT,
-            data = Option(Connect(peerInfo = PBPeerInfo(selfAddr)).toByteString)).toByteArray
+            data = Option(Connect(peerInfo = PBPeerInfo(selfAddr)).toByteString)
+          ).toByteArray
 
           socket.send(cmd)
 
@@ -126,23 +134,23 @@ class ZmqPeer[F[_] : Concurrent](val info: PeerInfo, lock: Lock[F]) extends Peer
           val connected = Connected.parseFrom(res)
           if (connected.ok) {
             println(s"peer[$selfAddr] has successfully connected to $addr0")
-            val con = new ZmqConnection(info, zmqContext, socket)
-            if(!connectedPeers.contains(addr0)) {
-              connectedPeers += (addr0 -> con)
-              con
-            }else connectedPeers(addr0)
+            conn
           } else {
             println(s"peer[$selfAddr] connection request was rejected by $addr0")
             throw new RuntimeException(connected.msg.getOrElse(""))
           }
+        } else {
+          socket.close() // remove socket form ZMQ context
+          conn
         }
+
       }
     }
 
   }
 
   override def stop: F[Unit] = {
-    connectedPeers.values.toList.map(_.close).sequence >>
+    connectedPeers.values.asScala.toList.map(_.close).sequence >>
       ct.delay(zmqContext.close()) // todo handle exceptions
   }
 

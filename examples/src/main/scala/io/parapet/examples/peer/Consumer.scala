@@ -24,9 +24,10 @@ class Consumer[F[_]](peer: Peer[F], target: String, protocolId: String) extends 
   }
 
   override def handle: Receive = {
-    case Start => suspendWith(peer.connect(target)) { con => {
-      suspendWith(con.newSteam(protocolId)) { s => eval(stream = s) }
-    }
-    } ++ rcv
+    case Start => suspend(peer.connect(target))
+//    case Start => suspendWith(peer.connect(target)) { con => {
+//      suspendWith(con.newSteam(protocolId)) { s => eval(stream = s) }
+//    }
+//    } ++ rcv
   }
 }

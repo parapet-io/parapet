@@ -2,13 +2,12 @@ package io.parapet.messaging
 
 import cats.effect.Concurrent
 import io.parapet.core.Peer.PeerInfo
-import io.parapet.core.{Connection, Lock, Stream}
+import io.parapet.core.{Connection, Stream}
 import io.parapet.protobuf.protocol.{CmdType, Command, NewStream, OpenedStream, PeerInfo => PBPeerInfo}
-import org.zeromq.{SocketType, ZContext}
 import org.zeromq.ZMQ.Socket
+import org.zeromq.{SocketType, ZContext}
 
 import scala.collection.mutable
-
 
 class ZmqConnection[F[_] : Concurrent](
                                         peerInfo: PeerInfo,
@@ -78,10 +77,10 @@ class ZmqConnection[F[_] : Concurrent](
 
   // todo refactor
   override def add(protocolId: String, stream: Stream[F]): Boolean = {
-    if(openStreams.contains(protocolId)) {
+    if (openStreams.contains(protocolId)) {
       println(s"stream with $protocolId exists!!!")
       false
-    }else {
+    } else {
       openStreams += (protocolId -> stream)
       true
     }
@@ -89,5 +88,11 @@ class ZmqConnection[F[_] : Concurrent](
 }
 
 object ZmqConnection {
+
+  // todo
+  object Status extends Enumeration {
+    type Status = Value
+    val Connecting, Open, Closed = Value
+  }
 
 }

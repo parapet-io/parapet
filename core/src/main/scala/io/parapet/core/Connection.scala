@@ -8,6 +8,7 @@ trait Connection[F[_]] {
   //  [protocol-name]/[version]
   def newSteam(protocolId: String): F[Stream[F]]
 
+  //
   def add(protocolId: String, stream: Stream[F]): Boolean
 
 }

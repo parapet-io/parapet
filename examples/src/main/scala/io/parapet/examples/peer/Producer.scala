@@ -12,11 +12,12 @@ class Producer[F[_]](peer: Peer[F],
   private var stream: Stream[F] = _
 
   override def handle: Receive = {
-    case Start => suspendWith(peer.connect(target)) { con => {
-      suspendWith(con.newSteam(protocolId)) { s => eval(stream = s) }
-    }
-    } ++ blocking {
-      msgSeq.map(msg => suspend(stream.write(msg.getBytes))).fold(unit)(_ ++ _)
-    }
+    case  Start => suspend(peer.connect(target))
+//    case Start => suspendWith(peer.connect(target)) { con => {
+//      suspendWith(con.newSteam(protocolId)) { s => eval(stream = s) }
+//    }
+//    } ++ blocking {
+//      msgSeq.map(msg => suspend(stream.write(msg.getBytes))).fold(unit)(_ ++ _)
+//    }
   }
 }

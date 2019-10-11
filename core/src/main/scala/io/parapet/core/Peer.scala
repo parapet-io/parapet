@@ -19,6 +19,7 @@ trait Peer[F[_]] {
     * @param addr peer address
     * @return connection
     */
+  // todo return type should be F[Either[Error, Connection[F]]]
   def connect(addr: String): F[Connection[F]]
 
 }
