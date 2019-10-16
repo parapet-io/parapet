@@ -4,7 +4,10 @@ package io.parapet.protobuf;
 
 enum CmdType {
     CONNECT = 0;
-    NEW_STREAM = 1;
+    CONNECTED = 1;
+    NEW_STREAM = 2;
+    OPENED_STREAM = 3;
+    STREAM_READY = 4;
 }
 
 message Command {
@@ -27,7 +30,15 @@ message Connected {
 
 message OpenedStream {
     required bool ok = 1;
-    optional string msg = 2 [default = ""];
+    required string protocolId = 2;
+    required string peerAddr = 3;
+    optional string address = 4 [default = ""]; // stream addr
+    optional string msg = 5 [default = ""];
+}
+
+message StreamReady {
+     required string protocolId = 2;
+     required string peerAddr = 3;
 }
 
 message NewStream {
@@ -35,7 +46,6 @@ message NewStream {
     // todo streamId ?
     required PeerInfo peerInfo = 1;
     required string protocolId = 2;
-    required string inAddr = 3;
-    required string outAddr = 4;
+    required string address = 3;
 
 }

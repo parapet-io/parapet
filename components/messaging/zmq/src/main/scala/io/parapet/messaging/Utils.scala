@@ -1,15 +1,18 @@
 package io.parapet.messaging
 
+import java.net.InetAddress
+
 import io.parapet.messaging.api.ErrorCodes
 import io.parapet.messaging.api.MessagingApi.{Failure, Response}
 import io.parapet.core.Dsl.{Dsl, DslF, FlowOps}
 import io.parapet.core.Encoder.EncodingException
 import io.parapet.core.Peer.PeerInfo
 import io.parapet.core.ProcessRef
+import javax.net.ServerSocketFactory
 import org.zeromq.{ZContext, ZMQException}
 
 import scala.concurrent.duration._
-import scala.util.Try
+import scala.util.{Random, Try}
 
 object Utils {
 
@@ -56,4 +59,40 @@ object Utils {
     val dsl = implicitly[FlowOps[F, Dsl[F, ?]]]
     dsl.send(failure(error), ref)
   }
+
+
+
+
+  def randomPort(minPort: Int, maxPort: Int): Int = {
+    Random.nextInt(maxPort - minPort + 1) + minPort
+  }
+
+  //49152 to 65535
+  def findFreePort(): Int = findFreePort(49152, 65535)
+
+  def findFreePort(minPort: Int, maxPort: Int): Int = {
+    val portRange = maxPort - minPort
+    var attempts = 1
+    var port = randomPort(minPort, maxPort)
+    while (!isPortAvailable(port)) {
+      if (attempts > portRange)
+        throw new IllegalStateException(s"Could not find an available port in the range [$minPort, $maxPort] after $attempts attempts")
+      port = randomPort(minPort, maxPort)
+      attempts = attempts + 1
+
+    }
+    port
+  }
+
+  def isPortAvailable(port: Int): Boolean = {
+    try {
+      val serverSocket = ServerSocketFactory.getDefault.createServerSocket(
+        port, 1, InetAddress.getByName("localhost"))
+      serverSocket.close()
+      true
+    } catch {
+      case _: Exception => false
+    }
+  }
+
 }
