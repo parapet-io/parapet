@@ -2,7 +2,7 @@ package io.parapet.core
 
 trait StreamSource[F[_]] {
 
-  def open: F[Unit]
+  //def open: F[Unit]
 
   def in: F[InStream[F]]
 

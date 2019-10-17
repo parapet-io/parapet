@@ -18,8 +18,8 @@ object Peer1 extends AbstractPeer {
   )
 
   override def producer(peer: Peer[IO]): Process[IO] =
-    new Producer(peer, "tcp://localhost:6666", "text/1.0", Seq("msg-1", "msg-2"))
+    new Producer(peer, "tcp://localhost:6666", "text/2.0", Seq("msg-1", "msg-2"))
 
   override def consumer(peer: Peer[IO], producer: ProcessRef):
-  Process[IO] = new Consumer[IO](peer, "tcp://localhost:6666", "text/1.0", producer)
+  Process[IO] = new Consumer[IO](peer, "tcp://localhost:6666", "text/2.0", producer)
 }

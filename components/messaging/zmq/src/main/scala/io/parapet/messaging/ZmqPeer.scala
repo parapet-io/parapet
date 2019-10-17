@@ -8,13 +8,12 @@ import cats.syntax.functor._
 import cats.syntax.traverse._
 import io.parapet.core.Peer.PeerInfo
 import io.parapet.core.processes.PeerProcess
-import io.parapet.core.{Connection, Lock, Peer, Process, StreamSource}
-import io.parapet.messaging.ZmqConnection.{OutStreamSource, ZmqStreamSource}
+import io.parapet.core.{Connection, Lock, Peer, Process}
+import io.parapet.messaging.ZmqConnection.OutStreamSource
 import io.parapet.protobuf.protocol.{PeerInfo => PBPeerInfo, _}
 import org.zeromq.{SocketType, ZContext, ZFrame, ZMsg}
 
 import scala.collection.JavaConverters._
-import scala.util.Try
 
 class ZmqPeer[F[_] : Concurrent](val info: PeerInfo, lock: Lock[F]) extends Peer[F] {
   self =>
@@ -28,7 +27,7 @@ class ZmqPeer[F[_] : Concurrent](val info: PeerInfo, lock: Lock[F]) extends Peer
   private val selfAddr = Utils.getAddress(info)
 
   def processConnectCmd(clientId: ZFrame, connnectMsg: Connect): F[Unit] = {
-    val peerAddr = connnectMsg.peerInfo.addr
+    val peerAddr = connnectMsg.peerInfo.address
     for {
       ready <- Deferred[F, Unit]
       newConn <- ct.delay {
@@ -59,94 +58,89 @@ class ZmqPeer[F[_] : Concurrent](val info: PeerInfo, lock: Lock[F]) extends Peer
 
   def processNewStreamCmd(clientId: ZFrame, newStream: NewStream): F[Unit] = {
     val protocolId = newStream.protocolId
-    val peerAddr = newStream.peerInfo.addr
-    val peerStreamAddr = newStream.address
+    val peerAddress = newStream.peerAddress
+    val streamAddress = newStream.streamAddress
 
-    println(s"Peer[$selfAddr] recv loop: received NewStream command from peer=$peerAddr, stream addr: $peerStreamAddr")
+    println(s"Peer[$selfAddr] recv loop: received NewStream command from peer=$peerAddress, stream address: $streamAddress")
 
-    val conn = connectedPeers.get(peerAddr)
-    require(conn != null)
+    val conn = connectedPeers.get(peerAddress)
+    require(conn != null, "connection is required")
 
-    for {
-      sourceEither <- conn.createOrGetSource(protocolId)
-      _ <-
-        sourceEither match {
-          case Left(source) =>
-            completeStreamSource(protocolId, source, peerStreamAddr) >>
-              sendStreamOpened(protocolId, clientId, conn, source.inStreamSource.frontend.getLastEndpoint)
-          case Right(source) =>
-              ct.delay(println(s"Peer[$selfAddr] stream source was created from connection")) >>
-              sendStreamOpened(protocolId, clientId, conn, source.inStreamSource.frontend.getLastEndpoint)
-        }
-    } yield ()
-  }
-
-  def completeStreamSource(protocolId: String, streamSource: ZmqStreamSource[F], streamAddr: String): F[Unit] = {
-    streamSource.outStreamSource(new OutStreamSource[F](protocolId, streamAddr, zmqContext)).flatMap {
-      case true => streamSource.open >> ct.delay(println("steam has been opened")) >> log(streamSource)
-      case false => ct.delay(println("impossible"))
+    validateNewStreamRequest(newStream) match {
+      case Right(()) =>
+        for {
+          sourceEither <- conn.createOrGetSource(protocolId)
+          _ <-
+            sourceEither match {
+              case Left(source) =>
+                source.open(new OutStreamSource[F](protocolId, streamAddress, zmqContext)) >>
+                  sendNewStreamSuccessResponse(protocolId, clientId, source.inStreamSource.address)
+              case Right(source) =>
+                ct.delay(println(s"Peer[$selfAddr] stream source was created by client")) >>
+                  sendNewStreamSuccessResponse(protocolId, clientId, source.inStreamSource.address)
+            }
+        } yield ()
+      case Left(err) => sendNewStreamFailureResponse(protocolId, clientId, err)
     }
+
   }
 
-  def log(streamSource: ZmqStreamSource[F]): F[Unit] = {
-    ct.delay {
-      println(s"Peer[addr=$selfAddr]::stream source[in=${streamSource.inStreamSource.frontend.getLastEndpoint}, " +
-        s"out=${streamSource.outStreamSource.backend.getLastEndpoint}]")
-    }
+  // todo combine errors
+  def validateNewStreamRequest(newStream: NewStream): Either[String, Unit] = {
+    if (!info.protocols.contains(newStream.protocolId)) {
+      Left(s"'${newStream.protocolId}' isn't supported by '$selfAddr'")
+    } else Right(())
   }
 
-  def sendStreamOpened(protocolId:String, clientId: ZFrame, connection: ZmqConnection[F], streamAddr: String): F[Unit] = {
-
-    ct.delay(println(s"Peer[$selfAddr] recv loop: created stream source on '$streamAddr' with $clientId ${connection.socket.getLastEndpoint}")) >>
+  def sendNewStreamSuccessResponse(protocolId: String, clientId: ZFrame, streamAddr: String): F[Unit] = {
     ct.delay {
-      val openedStream = OpenedStream(ok = true, address = Option(streamAddr), peerAddr = selfAddr, protocolId =protocolId )
+      val openedStream = NewStreamResponse(
+        ok = true,
+        protocolId = protocolId,
+        peerAddress = selfAddr,
+        streamAddress = Option(streamAddr))
       val msg = new ZMsg()
+
       msg.add(clientId)
-      val cmd = Command(
-        cmdType = CmdType.OPENED_STREAM,
-        data = Option(openedStream.toByteString)
-      ).toByteArray
+      msg.add(openedStream.toByteArray)
 
-      msg.add(cmd)
-      println(s"OPENED_STREAM sent, id = ${clientId.toString}")
       msg.send(socket, true)
-
     }
   }
 
-  def recvCmd: F[(ZFrame, Command)] = {
+  def sendNewStreamFailureResponse(protocolId: String, clientId: ZFrame, reason: String): F[Unit] = {
+    ct.delay {
+      val openedStream = NewStreamResponse(
+        ok = false,
+        protocolId = protocolId,
+        peerAddress = selfAddr,
+        errorMsg = Option(reason)
+      )
+      val msg = new ZMsg()
+
+      msg.add(clientId)
+      msg.add(openedStream.toByteArray)
+
+      msg.send(socket, true)
+    }
+  }
+
+  private def recvCmd: F[(ZFrame, Command)] = {
     ct.delay {
       val zMsg = ZMsg.recvMsg(socket, 0)
-      val clientId = zMsg.pop() // todo check if we need to store clientId for further actions
+      val clientId = zMsg.pop()
       val msgBuf = zMsg.pop().getData
-      val cmd = Try(Command.parseFrom(msgBuf)) match {
-        case scala.util.Success(c) => c
-        case scala.util.Failure(e) =>
-          println(clientId)
-          println(e.getMessage)
-          println(Connected.parseFrom(msgBuf))
-          throw e
-      }
-      //zMsg.destroy()
+      val cmd = Command.parseFrom(msgBuf)
       (clientId, cmd)
     }
   }
 
-  private def processOpenedStream(openedStream: OpenedStream): F[Unit] = {
-    val connection = connectedPeers.get(openedStream.peerAddr)
-    val streamSource = connection.streamSources.get(openedStream.protocolId)
-    streamSource.ready
-  }
-
-  private def rcvCommand: F[Unit] = {
+  private def loop: F[Unit] = {
     def step: F[Unit] = {
       recvCmd.flatMap {
         case (clientId, cmd) => cmd.cmdType match {
           case CmdType.CONNECT => processConnectCmd(clientId, Connect.parseFrom(cmd.data.get.toByteArray))
           case CmdType.NEW_STREAM => processNewStreamCmd(clientId, NewStream.parseFrom(cmd.data.get.toByteArray))
-//          case CmdType.CONNECTED => ct.delay(println(s"Peer[$selfAddr] received CmdType.CONNECTED"))
-         case CmdType.OPENED_STREAM => ct.delay(println("CmdType.OPENED_STREAM")) >>
-             processOpenedStream(OpenedStream.parseFrom(cmd.data.get.toByteArray))
 
         }
       } >> step
@@ -157,10 +151,9 @@ class ZmqPeer[F[_] : Concurrent](val info: PeerInfo, lock: Lock[F]) extends Peer
 
   def run: F[Unit] = {
     ct.delay {
-      //socket.setIdentity(Utils.getAddress(info).getBytes)
       socket.bind(selfAddr)
-      println(s"peer[addr=$selfAddr has been started")
-    } >> rcvCommand
+      println(s"Peer[$selfAddr] has been started")
+    } >> loop
   }
 
   def sendConnectionReq(zmqConnection: ZmqConnection[F]): F[ZmqConnection[F]] = {

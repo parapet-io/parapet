@@ -1,7 +1,7 @@
 package io.parapet.examples.peer
 
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Event.Start
+import io.parapet.core.Event.{Start, Stop}
 import io.parapet.core.{InStream, Peer, Process, ProcessRef}
 import io.parapet.examples.peer.Api.Ready
 import io.parapet.messaging.Utils
@@ -48,5 +48,6 @@ class Consumer[F[_]](peer: Peer[F], target: String, protocolId: String, producer
       }
     }
     } ++ blocking(recv)
+    case  Stop => suspend(stream.close)
   }
 }

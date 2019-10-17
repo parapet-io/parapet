@@ -6,8 +6,7 @@ enum CmdType {
     CONNECT = 0;
     CONNECTED = 1;
     NEW_STREAM = 2;
-    OPENED_STREAM = 3;
-    STREAM_READY = 4;
+    NEW_STREAM_RESPONSE = 3;
 }
 
 message Command {
@@ -16,7 +15,7 @@ message Command {
 }
 
 message PeerInfo {
-    required string addr = 1;
+    required string address = 1;
 }
 
 message Connect {
@@ -28,24 +27,18 @@ message Connected {
     optional string msg = 2 [default = ""];
 }
 
-message OpenedStream {
+message NewStreamResponse {
     required bool ok = 1;
     required string protocolId = 2;
-    required string peerAddr = 3;
-    optional string address = 4 [default = ""]; // stream addr
-    optional string msg = 5 [default = ""];
+    required string peerAddress = 3; // address of peer that sent response
+    optional string streamAddress = 4 [default = ""]; //  streamAddress empty if `ok==false`
+    optional string errorMsg = 5 [default = ""]; // not empty if `ok==false` ; todo list of errors
 }
 
-message StreamReady {
-     required string protocolId = 2;
-     required string peerAddr = 3;
-}
 
 message NewStream {
-
     // todo streamId ?
-    required PeerInfo peerInfo = 1;
+    required string peerAddress = 1;
     required string protocolId = 2;
-    required string address = 3;
-
+    required string streamAddress = 3;
 }

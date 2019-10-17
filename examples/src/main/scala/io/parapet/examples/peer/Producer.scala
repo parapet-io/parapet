@@ -1,7 +1,7 @@
 package io.parapet.examples.peer
 
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Event.Start
+import io.parapet.core.Event.{Start, Stop}
 import io.parapet.core.{OutStream, Peer, Process}
 import io.parapet.examples.peer.Api.Ready
 
@@ -18,10 +18,10 @@ class Producer[F[_]](peer: Peer[F],
   private var ready = false
 
   override def handle: Receive = {
-    case Ready => eval {
-      println("Producer::Ready")
-      ready = true
-    } ++ sendMessages
+//    case Ready => eval {
+//      println("Producer::Ready")
+//      ready = true
+//    } ++ sendMessages
 
     case Start => suspendWith(peer.connect(target)) { conn => {
       require(conn != null)
@@ -32,7 +32,9 @@ class Producer[F[_]](peer: Peer[F],
         }
       }
     }
-    } ++ eval(println("Producer ref=" + ref)) ++ fork(sendReady)  ++ delay(3.second) //++ Ready ~> ref
+    } ++ sendMessages //++ Ready ~> ref
+
+  //  case Stop =>
   }
 
   def sendMessages: DslF[F, Unit] =
