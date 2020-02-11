@@ -72,7 +72,8 @@ lazy val core = project
     libraryDependencies ++= (commonDependencies ++ catsDependencies),
     libraryDependencies += "org.json4s" %% "json4s-native" % "3.6.7",
     libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7",
-    libraryDependencies += "io.monix" %% "monix-eval" % "3.0.0-RC3"
+    libraryDependencies += "io.monix" %% "monix-eval" % "3.0.0-RC3",
+    libraryDependencies += "io.parapet" % "p2p" % "1.0.0-SNAPSHOT",
   )
 
 lazy val examples = project

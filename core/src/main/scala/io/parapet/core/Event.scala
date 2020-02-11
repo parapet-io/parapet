@@ -22,4 +22,8 @@ object Event {
     def apply(f: Failure): DeadLetter = new DeadLetter(f.envelope, f.error)
   }
 
+  trait Marchall {
+    def marshall: Array[Byte]
+  }
+
 }
