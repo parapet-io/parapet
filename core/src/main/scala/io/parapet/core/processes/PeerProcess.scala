@@ -2,7 +2,7 @@ package io.parapet.core.processes
 
 import cats.effect.Concurrent
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Event.Marchall
+import io.parapet.core.Event.{Marchall, Start, Stop}
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.p2p.{Node, Protocol, Config => P2pConfig}
 
@@ -20,24 +20,22 @@ class PeerProcess[F[_] : Concurrent](node: Node) extends Process[F] {
   }
 
   def initialized: Receive = {
-    case e => eval {
-      e match {
-        case marchall: Marchall =>
-          node.send(marchall.marshall)
-        case _ => println(s"event $e doesn't implement Marchall")
-      }
-
-    }
+    case Send(peer, data) => eval(node.send(peer, data.marshall))
+    case Stop => onStop
   }
 
   def uninitialized: Receive = {
-    case Reg(cRef) => eval {
-      client = cRef
-    } ++ Ack ~> cRef ++ fork(receive) ++ switch(initialized)
-    case _ => unit
+    case Start => unit
+    case Reg(cliRef) => eval {
+      client = cliRef
+    } ++ Ack(node.getId) ~> cliRef ++ switch(initialized) ++ fork(receive)
+    case Stop => onStop
   }
 
   override def handle: Receive = uninitialized
+
+  // todo
+  def onStop: DslF[F, Unit] = unit
 }
 
 
@@ -54,6 +52,8 @@ object PeerProcess {
 
   case class Reg(ref: ProcessRef) extends Event
 
-  case object Ack extends Event
+  case class Ack(id: String) extends Event
+
+  case class Send(peerId: String, data: Marchall) extends Event
 
 }
