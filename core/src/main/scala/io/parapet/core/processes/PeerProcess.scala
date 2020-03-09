@@ -34,8 +34,9 @@ class PeerProcess[F[_] : Concurrent](node: Node) extends Process[F] {
 
   override def handle: Receive = uninitialized
 
-  // todo
-  def onStop: DslF[F, Unit] = unit
+  def onStop: DslF[F, Unit] = eval {
+    node.stop()
+  }
 }
 
 
