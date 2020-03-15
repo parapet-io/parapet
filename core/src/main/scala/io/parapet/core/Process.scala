@@ -57,7 +57,6 @@ trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
     override val name: String = _self.name
 
     override val handle: Receive = new Receive {
-
       override def isDefinedAt(x: Event): Boolean = {
         _self.canHandle(x) && that.canHandle(x)
       }
@@ -71,13 +70,29 @@ trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
   def or(that: Process[F]): Process[F] = new Process[F] {
     override val ref: ProcessRef = _self.ref
     override val name: String = _self.name
-    override val handle: Receive = _self.handler.orElse(that.handler)
+    override val handle: Receive =
+      new Receive {
+        override def isDefinedAt(x: Event): Boolean = {
+          _self.canHandle(x) || that.canHandle(x)
+        }
+
+        override def apply(x: Event): DslF[F, Unit] = {
+          if (_self.canHandle(x)) _self(x)
+          else that(x)
+        }
+      }
   }
 
   override def toString: String = s"[name=$name, ref=$ref]"
 }
 
 object Process {
+
+  def unit[F[_]]: Process[F] = new Process[F] {
+    override def handle: Receive = {
+      case _ => dsl.unit
+    }
+  }
 
   def apply[F[_]](receive: ProcessRef => PartialFunction[Event, DslF[F, Unit]]): Process[F] =
     builder(receive).build
