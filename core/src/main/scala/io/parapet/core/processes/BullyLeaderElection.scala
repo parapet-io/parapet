@@ -30,7 +30,7 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
   import BullyLeaderElection._
   import dsl._
 
-  private var leader: Peer = _
+  private var _leader: Peer = _
   private var me: Peer = _
 
   private val answerDelay = 5.seconds
@@ -63,6 +63,8 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
 
   def state: State = _state
 
+  def leader: Option[Peer] = Option(_leader)
+
   def removePeer(peerId: String, cl: Peer => DslF[F, Unit] = _ => unit): DslF[F, Unit] = evalWith {
     val hash = hasher(peerId)
     checkPeer(hash)
@@ -71,7 +73,11 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
 
   def updateTimestamp: DslF[F, Unit] = eval(timestamp = System.nanoTime())
 
-  def waitForPeers: Receive = {
+  def handleEcho: Receive = {
+    case Echo => withSender(Echo ~> _)
+  }
+
+  def waitForPeers: Receive = handleEcho.orElse {
     case PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.JOINED =>
       addPeer(cmd.getPeerId) ++ startElection
     case PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.LEFT =>
@@ -80,12 +86,12 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
         removePeer(cmd.getPeerId, peer => {
           if (!fullQuorum) {
             eval {
-              println(s"$me -- peerManagement - $timestamp - not enough processes in the cluster. discard the leader $leader")
-              leader = null
+              println(s"$me -- peerManagement - $timestamp - not enough processes in the cluster. discard the leader ${_leader}")
+              _leader = null
               // wait for new nodes
             }
-          } else if (leader == peer) {
-            eval(println(s"$me -- peerManagement - $timestamp - the leader $leader has gone. start election")) ++ startElection
+          } else if (_leader == peer) {
+            eval(println(s"$me -- peerManagement - $timestamp - the leader ${_leader} has gone. start election")) ++ startElection
           } else {
             unit
           }
@@ -100,19 +106,18 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
     case Command(Answer(id)) => eval(println(s"$me -- peerManagement - $timestamp - ignore Answer from ${peers.get(id)}")) // ignore
     case AnswerTimeout => unit // ignore
     case Command(Coordinator(id)) => flow {
-      if (leader != null && leader.id < id) {
-        throw new IllegalStateException(s"$me -- peerManagement - received Coordinator from process with higher id. current leader $leader, from message id=$id, ${peers.get(id)}")
+      if (_leader != null && _leader.id < id) {
+        throw new IllegalStateException(s"$me -- peerManagement - received Coordinator from process with higher id. current leader ${_leader}, from message id=$id, ${peers.get(id)}")
       } else {
         unit
       }
     }
-//    case e =>
-//      updateTimestamp ++
-//        eval(println(s"$me -- peerManagement - $timestamp - unsupported event: $e"))
+    case e =>
+      updateTimestamp ++
+        eval(println(s"$me -- peerManagement - $timestamp - unsupported event: $e"))
   }
 
-  def waitForAnswer: Receive = {
-    case GetState => withSender(s => StateEvent(_state) ~> s)
+  def waitForAnswer: Receive = handleEcho.orElse {
     case Command(Answer(id)) =>
       updateTimestamp ++
         eval(println(s"$me -- waitForAnswer - $timestamp - received Answer from ${peers.get(id)}")) ++
@@ -121,7 +126,7 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
     case AnswerTimeout =>
       updateTimestamp ++
         eval(println(s"$me -- waitForAnswer - $timestamp - didn't receive Answer message. set itself as leader")) ++
-        becomeLeader
+        becomeLeader ++ switchToReady
     case Command(Election(id)) =>
       updateTimestamp ++
         eval(checkPeer(id)) ++
@@ -132,22 +137,22 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
         eval {
           checkPeer(id)
           println(s"$me -- waitForAnswer - $timestamp - received Coordinator from ${peers.get(id)}")
-          leader = peers.get(id)
-        } ++ switch(waitForPeers)
+          _leader = peers.get(id)
+        } ++ switchToReady
     case PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.JOINED => addPeer(cmd.getPeerId)
     case PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.LEFT => removePeer(cmd.getPeerId)
-//    case e =>
-//      updateTimestamp ++
-//        eval(println(s"$me -- waitForAnswer - $timestamp - unsupported event: $e"))
+    case e =>
+      updateTimestamp ++
+        eval(println(s"$me -- waitForAnswer - $timestamp - unsupported event: $e"))
   }
 
-  def waitingForCoordinator: Receive = {
+  def waitingForCoordinator: Receive = handleEcho.orElse {
     case Command(Coordinator(id)) =>
       updateTimestamp ++
         eval {
           checkPeer(id)
           println(s"$me -- waitingForCoordinator - $timestamp - received Coordinator from ${peers.get(id)}")
-          leader = peers.get(id)
+          _leader = peers.get(id)
         } ++ switch(waitForPeers)
     case CoordinatorTimeout =>
       updateTimestamp ++
@@ -156,9 +161,9 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
     case Command(Answer(_)) => unit // ignore
     case PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.JOINED => addPeer(cmd.getPeerId)
     case PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.LEFT => removePeer(cmd.getPeerId)
-//    case e =>
-//      updateTimestamp ++
-//        eval(println(s"$me -- waitingForCoordinator - $timestamp - unsupported event: $e"))
+    case e =>
+      updateTimestamp ++
+        eval(println(s"$me -- waitingForCoordinator - $timestamp - unsupported event: $e"))
   }
 
   /**
@@ -168,8 +173,8 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
   def startElection: DslF[F, Unit] = {
     updateTimestamp ++
       eval {
-        println(s"$me -- startElection - $timestamp - old leader: $leader. peers: $peers")
-        leader = null
+        println(s"$me -- startElection - $timestamp - old leader: ${_leader}. peers: $peers")
+        _leader = null
       } ++
       flow {
         if (!fullQuorum) {
@@ -205,9 +210,10 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
   def becomeLeader: DslF[F, Unit] = {
     updateTimestamp ++
       evalWith {
-        leader = me
-        println(s"$me - $timestamp - I became a leader. sending COORDINATOR message")
-        peers.headMap(me.id, false).values().asScala
+        _leader = me
+        val lowerBound = peers.headMap(me.id, false).values().asScala
+        println(s"$me - $timestamp - I became a leader. sending COORDINATOR message to $lowerBound")
+        lowerBound
       }(_.map(p => Send(p.uuid, Coordinator(me.id)) ~> peerProcess).fold(unit)(_ ++ _))
   }
 
@@ -289,15 +295,14 @@ object BullyLeaderElection {
     }
   }
 
-  object GetState extends Event
-  case class StateEvent(s: State) extends Event
-
 
   sealed trait State
   // in Ready state a leader can be null b/c the election process has not started yet or it's gone
   case object Ready extends State
   case object WaitForAnswer extends State
   case object WaitForCoordinator extends State
+
+  object Echo extends Event
 
 
 }
