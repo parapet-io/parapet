@@ -82,16 +82,16 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
       addPeer(cmd.getPeerId) ++ startElection
     case PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.LEFT =>
       updateTimestamp ++
-        eval(println(s"$me -- peerManagement - $timestamp - received $cmd")) ++
+        eval(println(s"$me -- waitForPeers - $timestamp - received $cmd")) ++
         removePeer(cmd.getPeerId, peer => {
           if (!fullQuorum) {
             eval {
-              println(s"$me -- peerManagement - $timestamp - not enough processes in the cluster. discard the leader ${_leader}")
+              println(s"$me -- waitForPeers - $timestamp - not enough processes in the cluster. discard the leader ${_leader}")
               _leader = null
               // wait for new nodes
             }
           } else if (_leader == peer) {
-            eval(println(s"$me -- peerManagement - $timestamp - the leader ${_leader} has gone. start election")) ++ startElection
+            eval(println(s"$me -- waitForPeers - $timestamp - the leader ${_leader} has gone. start election")) ++ startElection
           } else {
             unit
           }
@@ -100,14 +100,16 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
     case Command(Election(id)) =>
       updateTimestamp ++
         eval {
+          println(s"$me -- waitForPeers - $timestamp - received Election from ${peers.get(id)}")
           checkPeer(id)
-          println(s"$me -- peerManagement - $timestamp - received Election from ${peers.get(id)}")
         } ++ Send(peers.get(id).uuid, Answer(me.id)) ~> peerProcess
-    case Command(Answer(id)) => eval(println(s"$me -- peerManagement - $timestamp - ignore Answer from ${peers.get(id)}")) // ignore
+    case Command(Answer(id)) => eval(println(s"$me -- waitForPeers - $timestamp - ignore Answer from ${peers.get(id)}")) // ignore
     case AnswerTimeout => unit // ignore
     case Command(Coordinator(id)) => flow {
-      if (_leader != null && _leader.id < id) {
-        throw new IllegalStateException(s"$me -- peerManagement - received Coordinator from process with higher id. current leader ${_leader}, from message id=$id, ${peers.get(id)}")
+      if (_leader == null || !peers.containsKey(id)) {
+        eval(throw new IllegalStateException(s"$me -- waitForPeers - received Coordinator from unknown process with id=$id or current leader is null"))
+      } else if (id > _leader.id) {
+        eval(_leader = peers.get(id))
       } else {
         unit
       }
@@ -297,9 +299,12 @@ object BullyLeaderElection {
 
 
   sealed trait State
+
   // in Ready state a leader can be null b/c the election process has not started yet or it's gone
   case object Ready extends State
+
   case object WaitForAnswer extends State
+
   case object WaitForCoordinator extends State
 
   object Echo extends Event
