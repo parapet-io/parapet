@@ -1,6 +1,7 @@
 package io.parapet.core.processes
 
 import cats.effect.Concurrent
+import com.typesafe.scalalogging.Logger
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Marchall, Start}
 import io.parapet.core.processes.BullyLeaderElection._
@@ -8,7 +9,9 @@ import io.parapet.core.processes.PeerProcess.{CmdEvent, Send}
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.p2p.Protocol
 import io.parapet.p2p.Protocol.CmdType
-
+import io.parapet.syntax.logger.MDCFields
+import org.slf4j.LoggerFactory
+import io.parapet.syntax.logger._
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
 import scala.util.matching.Regex
@@ -38,18 +41,16 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
 
   private val peers = new java.util.TreeMap[Long, Peer]
 
-  private var timestamp = System.nanoTime()
-
   private var _state: State = Ready
 
+  private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
 
-  // state machine
   def switchToWaitForAnswer: DslF[F, Unit] = {
     eval(_state = WaitForAnswer) ++ switch(waitForAnswer)
   }
 
   def switchToWaitForCoordinator: DslF[F, Unit] = {
-    eval(_state = WaitForCoordinator) ++ switch(waitingForCoordinator) ++ eval(println("switched to waitingForCoordinator"))
+    eval(_state = WaitForCoordinator) ++ switch(waitingForCoordinator)
   }
 
   def switchToReady: DslF[F, Unit] = {
@@ -67,131 +68,148 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
 
   def removePeer(peerId: String, cl: Peer => DslF[F, Unit] = _ => unit): DslF[F, Unit] = evalWith {
     val hash = hasher(peerId)
-    checkPeer(hash)
     peers.remove(hash)
   }(cl)
 
-  def updateTimestamp: DslF[F, Unit] = eval(timestamp = System.nanoTime())
 
   def handleEcho: Receive = {
     case Echo => withSender(Echo ~> _)
   }
 
-  def waitForPeers: Receive = handleEcho.orElse {
-    case PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.JOINED =>
-      addPeer(cmd.getPeerId) ++ startElection
-    case PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.LEFT =>
-      updateTimestamp ++
-        eval(println(s"$me -- waitForPeers - $timestamp - received $cmd")) ++
-        removePeer(cmd.getPeerId, peer => {
-          if (!fullQuorum) {
-            eval {
-              println(s"$me -- waitForPeers - $timestamp - not enough processes in the cluster. discard the leader ${_leader}")
-              _leader = null
-              // wait for new nodes
-            }
-          } else if (_leader == peer) {
-            eval(println(s"$me -- waitForPeers - $timestamp - the leader ${_leader} has gone. start election")) ++ startElection
-          } else {
-            unit
-          }
-        })
+  def createMdc(e: Event): MDCFields =
+    Map(
+      "me" -> me,
+      "state" -> state,
+      "event" -> e,
+      "ts" -> System.nanoTime()
+    )
 
-    case Command(Election(id)) =>
-      updateTimestamp ++
-        eval {
-          println(s"$me -- waitForPeers - $timestamp - received Election from ${peers.get(id)}")
-          checkPeer(id)
-        } ++ Send(peers.get(id).uuid, Answer(me.id)) ~> peerProcess
-    case Command(Answer(id)) => eval(println(s"$me -- waitForPeers - $timestamp - ignore Answer from ${peers.get(id)}")) // ignore
+  def waitForPeers: Receive = handleEcho.orElse {
+    case e@PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.JOINED =>
+      val mdcFields = createMdc(e)
+      eval(logger.mdc(mdcFields) { _ =>
+        logger.debug("received JOINED")
+      }) ++ addPeer(cmd.getPeerId) ++ startElection(mdcFields)
+    case e@PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.LEFT =>
+      val mdcFields = createMdc(e)
+      eval(logger.mdc(mdcFields) { _ =>
+        logger.debug("received LEFT")
+      }) ++ removePeer(cmd.getPeerId, peer => {
+        if (!fullQuorum) {
+          eval {
+            logger.mdc(mdcFields) { _ =>
+              logger.debug(s"not enough processes in the cluster. discard the leader ${_leader}")
+            }
+            _leader = null
+            // wait for new nodes
+          }
+        } else if (_leader == peer) {
+          eval(
+            logger.mdc(mdcFields) { _ =>
+              logger.debug(s"the leader ${_leader} has gone. start election")
+            }) ++ startElection(mdcFields)
+        } else {
+          unit
+        }
+      })
+
+    case e@Command(Election(id)) =>
+      eval(logger.mdc(createMdc(e)) { _ =>
+        logger.debug("received Election")
+      }) ++ Send(peers.get(id).uuid, Answer(me.id)) ~> peerProcess
+    case e@Command(Answer(_)) => eval(logger.mdc(createMdc(e)) { _ =>
+      logger.debug("ignore Answer")
+    })
+
     case AnswerTimeout => unit // ignore
-    case Command(Coordinator(id)) => flow {
-      if (_leader == null || !peers.containsKey(id)) {
-        eval(throw new IllegalStateException(s"$me -- waitForPeers - received Coordinator from unknown process with id=$id or current leader is null"))
-      } else if (id > _leader.id) {
-        eval(_leader = peers.get(id))
-      } else {
-        unit
+    case e@Command(Coordinator(id)) => eval {
+      val mdcFields = createMdc(e)
+      logger.mdc(mdcFields) { _ =>
+        logger.debug("received Coordinator")
+      }
+      if (id > _leader.id) {
+        logger.mdc(mdcFields) { _ =>
+          logger.debug(s"set new leader: ${peers.get(id)}, old leader: ${_leader}")
+        }
+        _leader = peers.get(id)
       }
     }
-    case e =>
-      updateTimestamp ++
-        eval(println(s"$me -- peerManagement - $timestamp - unsupported event: $e"))
   }
 
   def waitForAnswer: Receive = handleEcho.orElse {
-    case Command(Answer(id)) =>
-      updateTimestamp ++
-        eval(println(s"$me -- waitForAnswer - $timestamp - received Answer from ${peers.get(id)}")) ++
-        switchToWaitForCoordinator ++
-        fork(delay(coordinatorDelay, CoordinatorTimeout ~> ref))
-    case AnswerTimeout =>
-      updateTimestamp ++
-        eval(println(s"$me -- waitForAnswer - $timestamp - didn't receive Answer message. set itself as leader")) ++
-        becomeLeader ++ switchToReady
-    case Command(Election(id)) =>
-      updateTimestamp ++
-        eval(checkPeer(id)) ++
-        eval(println(s"$me -- waitForAnswer - $timestamp - received Election from ${peers.get(id)}")) ++
-        Send(peers.get(id).uuid, Answer(me.id)) ~> peerProcess
-    case Command(Coordinator(id)) =>
-      updateTimestamp ++
-        eval {
-          checkPeer(id)
-          println(s"$me -- waitForAnswer - $timestamp - received Coordinator from ${peers.get(id)}")
-          _leader = peers.get(id)
-        } ++ switchToReady
+    case e@Command(Answer(_)) =>
+      eval(logger.mdc(createMdc(e)) { _ =>
+        logger.debug("received Election")
+      }) ++ switchToWaitForCoordinator ++ fork(delay(coordinatorDelay, CoordinatorTimeout ~> ref))
+    case e@AnswerTimeout =>
+      val mdcFields = createMdc(e)
+      eval(logger.mdc(mdcFields) { _ =>
+        logger.debug("didn't receive Answer message. set itself as leader")
+      }) ++ becomeLeader(mdcFields) ++ switchToReady
+    case e@Command(Election(id)) =>
+      eval(logger.mdc(createMdc(e)) { _ =>
+        logger.debug("received Election")
+      }) ++ Send(peers.get(id).uuid, Answer(me.id)) ~> peerProcess
+    case e@Command(Coordinator(id)) =>
+      eval {
+        _leader = peers.get(id)
+        logger.mdc(createMdc(e)) { _ =>
+          logger.debug(s"received Coordinator. ${_leader} elected as leader")
+        }
+      } ++ switchToReady
     case PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.JOINED => addPeer(cmd.getPeerId)
     case PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.LEFT => removePeer(cmd.getPeerId)
-    case e =>
-      updateTimestamp ++
-        eval(println(s"$me -- waitForAnswer - $timestamp - unsupported event: $e"))
   }
 
   def waitingForCoordinator: Receive = handleEcho.orElse {
-    case Command(Coordinator(id)) =>
-      updateTimestamp ++
-        eval {
-          checkPeer(id)
-          println(s"$me -- waitingForCoordinator - $timestamp - received Coordinator from ${peers.get(id)}")
-          _leader = peers.get(id)
-        } ++ switch(waitForPeers)
-    case CoordinatorTimeout =>
-      updateTimestamp ++
-        eval(println(s"$me -- waitingForCoordinator - $timestamp - didn't receive Coordinator message. restart election")) ++
-        startElection
+    case e@Command(Coordinator(id)) =>
+      eval {
+        _leader = peers.get(id)
+        logger.mdc(createMdc(e)) { _ =>
+          logger.debug(s"received Coordinator. ${_leader} elected as leader")
+        }
+      } ++ switchToReady
+    case e@CoordinatorTimeout =>
+      val mdcFields = createMdc(e)
+      eval(
+        logger.mdc(mdcFields) { _ =>
+          logger.debug("didn't receive Coordinator message. restart election")
+        }) ++ startElection(mdcFields)
     case Command(Answer(_)) => unit // ignore
     case PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.JOINED => addPeer(cmd.getPeerId)
     case PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.LEFT => removePeer(cmd.getPeerId)
-    case e =>
-      updateTimestamp ++
-        eval(println(s"$me -- waitingForCoordinator - $timestamp - unsupported event: $e"))
   }
 
   /**
     * If P has the highest process ID, it sends a Coordinator message to all other processes and becomes the new Coordinator.
     * Otherwise, P broadcasts an Election message to all other processes with higher process IDs than itself and waits for Answer.
     */
-  def startElection: DslF[F, Unit] = {
-    updateTimestamp ++
-      eval {
-        println(s"$me -- startElection - $timestamp - old leader: ${_leader}. peers: $peers")
-        _leader = null
-      } ++
+  def startElection(mdc: MDCFields): DslF[F, Unit] = {
+    eval {
+      logger.mdc(mdc) { _ =>
+        logger.debug(s"start election. current leader: ${_leader}, peers: $peers")
+      }
+      _leader = null
+    } ++
       flow {
         if (!fullQuorum) {
-          eval(println(s"$me -- startElection - $timestamp - not enough nodes to start election. waiting for more peers..."))
+          eval(logger.mdc(mdc) { _ =>
+            logger.debug("not enough peers to start election. waiting for more peers...")
+          })
         } else {
           val neighbors = peers.tailMap(me.id, false)
           if (neighbors.isEmpty) {
-            // this process has the highest process ID
-            becomeLeader
+            eval(logger.mdc(mdc) { _ =>
+              logger.debug("I have the highest ID. becomes the new leader")
+            }) ++ becomeLeader(mdc)
           } else {
-            eval(s"$me -- startElection - $timestamp - send Election to ${neighbors.values()}") ++
+            eval(logger.mdc(mdc) { _ => {
+              logger.debug(s"send Election to ${neighbors.values()}")
+            }
+            }) ++
               neighbors.values().asScala.map(p =>
-                Send(p.uuid, Election(me.id)) ~> peerProcess ++
-                  eval(println(s"$me -- startElection - $timestamp - sent Election to $p"))
-              ).fold(unit)(_ ++ _) ++ switchToWaitForAnswer ++ fork(delay(answerDelay, AnswerTimeout ~> ref))
+                Send(p.uuid, Election(me.id)) ~> peerProcess).fold(unit)(_ ++ _) ++
+              switchToWaitForAnswer ++ fork(delay(answerDelay, AnswerTimeout ~> ref))
           }
         }
       }
@@ -205,18 +223,15 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
     } ++ switchToReady
   }
 
-  def checkPeer(id: Long): Unit = {
-    if (!peers.containsKey(id)) throw new IllegalStateException(s"peer with $id doesn't exist")
-  }
-
-  def becomeLeader: DslF[F, Unit] = {
-    updateTimestamp ++
-      evalWith {
-        _leader = me
-        val lowerBound = peers.headMap(me.id, false).values().asScala
-        println(s"$me - $timestamp - I became a leader. sending COORDINATOR message to $lowerBound")
-        lowerBound
-      }(_.map(p => Send(p.uuid, Coordinator(me.id)) ~> peerProcess).fold(unit)(_ ++ _))
+  def becomeLeader(mdc: MDCFields): DslF[F, Unit] = {
+    evalWith {
+      _leader = me
+      val lowerBound = peers.headMap(me.id, false).values().asScala
+      logger.mdc(mdc) { _ =>
+        logger.debug(s"I became a leader. sending COORDINATOR message to $lowerBound")
+      }
+      lowerBound
+    }(_.map(p => Send(p.uuid, Coordinator(me.id)) ~> peerProcess).fold(unit)(_ ++ _))
   }
 
   def fullQuorum: Boolean = peers.size() + 1 >= config.quorumSize
@@ -299,12 +314,9 @@ object BullyLeaderElection {
 
 
   sealed trait State
-
   // in Ready state a leader can be null b/c the election process has not started yet or it's gone
   case object Ready extends State
-
   case object WaitForAnswer extends State
-
   case object WaitForCoordinator extends State
 
   object Echo extends Event
