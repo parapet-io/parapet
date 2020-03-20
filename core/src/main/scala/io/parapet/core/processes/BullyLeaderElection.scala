@@ -1,6 +1,7 @@
 package io.parapet.core.processes
 
 import cats.effect.Concurrent
+import com.google.protobuf.ByteString
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Marchall, Start}
@@ -8,26 +9,33 @@ import io.parapet.core.processes.BullyLeaderElection._
 import io.parapet.core.processes.PeerProcess.{CmdEvent, Send}
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.p2p.Protocol
-import io.parapet.p2p.Protocol.CmdType
 import io.parapet.syntax.logger.MDCFields
 import org.slf4j.LoggerFactory
 import io.parapet.syntax.logger._
+
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
-import scala.util.matching.Regex
+import io.parapet.protobuf.bully.BullyLe
 
 /**
   * Bully leader election algorithm.
-  * Main idea: each node (process) has a unique numeric id, a node with highest id becomes a leader.
+  * Main idea: each node (process) has a unique numeric id, a node with a highest id becomes a leader.
   *
   * Election process:
-  * Wait until the number of nodes >= quorum size
-  * START_ELECTION:
-  * send ELECTION message to every node with higher id and wait for ANSWER message otherwise elect itself
-  * if ANSWER message was received then wait for COORDINATOR message, otherwise elect itself
-  * if COORDINATOR message was received then set leader from the message, otherwise repeat election process
-  */
-class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
+  * Wait until the number of nodes >= quorum size then start election.
+  *
+  * When a process P recovers from failure, or the failure detector indicates that the current coordinator has failed, P performs the following actions:
+  *
+  * If P has the highest process ID, it sends a Victory message to all other processes and becomes the new Coordinator. Otherwise, P broadcasts an Election message to all other processes with higher process IDs than itself.
+  * If P receives no Answer after sending an Election message, then it broadcasts a Victory message to all other processes and becomes the Coordinator.
+  * If P receives an Answer from a process with a higher ID, it sends no further messages for this election and waits for a Victory message. (If there is no Victory message after a period of time, it restarts the process at the beginning.)
+  * If P receives an Election message from another process with a lower ID it sends an Answer message back and starts the election process at the beginning, by sending an Election message to higher-numbered processes.
+  * If P receives a Coordinator message, it treats the sender as the coordinator.
+  *
+  * Message complexity: N^2
+  **/
+class BullyLeaderElection[F[_] : Concurrent](
+                                              peerProcess: ProcessRef,
                                              config: Config, hasher: String => Long) extends Process[F] {
 
   import BullyLeaderElection._
@@ -83,6 +91,17 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
       "event" -> e,
       "ts" -> System.nanoTime()
     )
+
+/*
+
+  Send(data) =>
+   if leader == null reply failure
+   else store sender ref and forward req to leader
+  chan
+
+ */
+
+
 
   def waitForPeers: Receive = handleEcho.orElse {
     case e@PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.JOINED =>
@@ -219,7 +238,7 @@ class BullyLeaderElection[F[_] : Concurrent](peerProcess: ProcessRef,
     case Start => PeerProcess.Reg(ref) ~> peerProcess
     case PeerProcess.Ack(uuid) => eval {
       me = Peer(uuid, hasher(uuid))
-      println(s"Me: $me")
+      logger.info(s"peer created. uuid = $uuid")
     } ++ switchToReady
   }
 
@@ -251,60 +270,59 @@ object BullyLeaderElection {
 
   // API
   sealed trait Timeout extends Event
-
   case object CoordinatorTimeout extends Timeout
-
   case object AnswerTimeout extends Timeout
-
   case object CoordinatorAckTimeout extends Timeout
 
-  sealed trait Command extends Event with Marchall {
-    val id: Long
-  }
+  trait Status
+  object Ok extends Status
+  object Error extends Status
+
+  sealed trait Command extends Event with Marchall
 
   /**
     * Sent to announce election.
     */
   case class Election(id: Long) extends Command {
-    override def marshall: Array[Byte] = s"${CommandType.Election.name}|$id".getBytes()
+    override def marshall: Array[Byte] = election(id)
   }
 
   /**
     * Answer (Alive) Message: Responds to the Election message.
     */
   case class Answer(id: Long) extends Command {
-    override def marshall: Array[Byte] = s"${CommandType.Answer.name}|$id".getBytes
+    override def marshall: Array[Byte] = answer(id)
   }
 
   /**
     * Coordinator (Victory) Message: Sent by winner of the election to announce victory.
     */
   case class Coordinator(id: Long) extends Command {
-    override def marshall: Array[Byte] = s"${CommandType.Coordinator.name}|$id".getBytes
+    override def marshall: Array[Byte] = coordinator(id)
   }
 
-  object CommandType extends Enumeration {
+  case class Req(data: Array[Byte]) extends Command {
+    override def marshall: Array[Byte] = req(0, data)
+  }
 
-    protected case class Val(name: String) extends super.Val
-
-    val Election: Val = Val("ELECTION")
-    val Answer: Val = Val("ANSWER")
-    val Coordinator: Val = Val("COORDINATOR")
+  case class Rep(status: Status, data: Array[Byte]) extends Command {
+    override def marshall: Array[Byte] = rep(0, status, data)
   }
 
   object Command {
-    // regex patterns
-    val electionPattern: Regex = s"${CommandType.Election.name}\\|(\\d*)".r
-    val answerPattern: Regex = s"${CommandType.Answer.name}\\|(\\d*)".r
-    val coordinatorPattern: Regex = s"${CommandType.Coordinator.name}\\|(\\d*)".r
-
     def unapply(event: Event): Option[Command] = {
       event match {
-        case CmdEvent(cmd) if cmd.getCmdType == CmdType.DELIVER =>
-          new String(cmd.getData.toByteArray) match {
-            case electionPattern(id) => Some(Election(id.toLong))
-            case answerPattern(id) => Some(Answer(id.toLong))
-            case coordinatorPattern(id) => Some(Coordinator(id.toLong))
+        case CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.DELIVER =>
+          val bleCmd = BullyLe.Command.parseFrom(cmd.getData)
+          bleCmd.getCmdType match {
+            case BullyLe.CmdType.ELECTION => Some(Election(bleCmd.getPeerId))
+            case BullyLe.CmdType.ANSWER => Some(Answer(bleCmd.getPeerId))
+            case BullyLe.CmdType.COORDINATOR => Some(Coordinator(bleCmd.getPeerId))
+            case BullyLe.CmdType.REQ => Some(Req(bleCmd.getData.toByteArray))
+            case BullyLe.CmdType.REP =>
+              val r = BullyLe.Rep.parseFrom(bleCmd.getData)
+              val s = if (r.getOk) Ok else Error
+              Some(Rep(s, r.getData.toByteArray))
             case _ => None
           }
         case _ => None
@@ -312,6 +330,30 @@ object BullyLeaderElection {
     }
   }
 
+  def election(id: Long): Array[Byte] = {
+    BullyLe.Command.newBuilder().setCmdType(BullyLe.CmdType.ELECTION).setPeerId(id).build().toByteArray
+  }
+
+  def answer(id: Long): Array[Byte] = {
+    BullyLe.Command.newBuilder().setCmdType(BullyLe.CmdType.ANSWER).setPeerId(id).build().toByteArray
+  }
+
+  def coordinator(id: Long): Array[Byte] = {
+    BullyLe.Command.newBuilder().setCmdType(BullyLe.CmdType.COORDINATOR).setPeerId(id).build().toByteArray
+  }
+
+  // sends request to master process
+  def req(id: Long, data: Array[Byte]): Array[Byte] = {
+    BullyLe.Command.newBuilder().setCmdType(BullyLe.CmdType.REQ).setPeerId(id).setData(ByteString.copyFrom(data)).build().toByteArray
+  }
+
+  // sends request to master process
+  def rep(id: Long, status: Status, data: Array[Byte]): Array[Byte] = {
+    BullyLe.Command.newBuilder().setCmdType(BullyLe.CmdType.REP)
+      .setPeerId(id)
+      .setData(BullyLe.Rep.newBuilder().setOk(status == Ok).setData(ByteString.copyFrom(data)).build().toByteString)
+      .build().toByteArray
+  }
 
   sealed trait State
   // in Ready state a leader can be null b/c the election process has not started yet or it's gone

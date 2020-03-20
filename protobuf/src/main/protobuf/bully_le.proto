@@ -1,0 +1,21 @@
+syntax = "proto2";
+package io.parapet.protobuf.bully;
+
+enum CmdType {
+    ELECTION = 0;
+    ANSWER = 1;
+    COORDINATOR = 2;
+    REQ = 3;
+    REP = 4;
+}
+
+message Command {
+    required int64 peerId = 1;
+    required CmdType cmdType = 2;
+    optional bytes data = 3;
+}
+
+message Rep {
+    optional bool ok = 1;
+    optional bytes data = 2;
+}

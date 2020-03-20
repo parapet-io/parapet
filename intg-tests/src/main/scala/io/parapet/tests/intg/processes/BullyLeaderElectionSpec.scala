@@ -210,6 +210,26 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
 
   }
 
+  test("process waitingForCoordinator received Coordinator sets leader") {
+    val eventStore = new EventStore[F, Event]
+    val peerProcess = createPeerProcess(eventStore, {
+      case PeerProcess.Send("1", Coordinator(2)) => ()
+    })
+    val ch = new Channel[F]()
+    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val test = Process[F](ref => {
+      case Start =>
+        register(ref, ch) ++
+          Seq(Ack("1"), joined("2"), deliver("2", Coordinator(2))) ~> ble ++
+          ch.send(BullyLeaderElection.Echo, ble.ref, _ => eval(eventStore.add(ref, BullyLeaderElection.Echo)))
+    })
+
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(test, ble, peerProcess))).run))
+
+    ble.leader.value shouldBe Peer("2", 2)
+
+  }
+
   test("process waitingForCoordinator received timeout restarts election") {
     val eventStore = new EventStore[F, Event]
     val peerProcess = createPeerProcess(eventStore, {
