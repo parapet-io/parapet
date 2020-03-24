@@ -7,7 +7,7 @@ import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Marchall, Start}
 import io.parapet.core.processes.BullyLeaderElection._
 import io.parapet.core.processes.PeerProcess.{CmdEvent, Send}
-import io.parapet.core.{Event, Process, ProcessRef}
+import io.parapet.core.{Channel, Event, Process, ProcessRef}
 import io.parapet.p2p.Protocol
 import io.parapet.syntax.logger.MDCFields
 import org.slf4j.LoggerFactory
@@ -16,6 +16,8 @@ import io.parapet.syntax.logger._
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
 import io.parapet.protobuf.bully.BullyLe
+
+import scala.util.{Failure, Success}
 
 /**
   * Bully leader election algorithm.
@@ -35,21 +37,26 @@ import io.parapet.protobuf.bully.BullyLe
   * Message complexity: N^2
   **/
 class BullyLeaderElection[F[_] : Concurrent](
+                                              clientProcess: ProcessRef,
                                               peerProcess: ProcessRef,
-                                             config: Config, hasher: String => Long) extends Process[F] {
+                                              config: Config, hasher: String => Long) extends Process[F] {
 
   import BullyLeaderElection._
   import dsl._
 
-  private var _leader: Peer = _
+  private[parapet] var _leader: Peer = _
   private var me: Peer = _
 
   private val answerDelay = 5.seconds
   private val coordinatorDelay = 5.seconds
 
-  private val peers = new java.util.TreeMap[Long, Peer]
+  private[parapet] val peers = new java.util.TreeMap[Long, Peer]
 
   private var _state: State = Ready
+
+  private var pendingReq: ProcessRef = _
+
+  private val ch = new Channel[F]()
 
   private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
 
@@ -92,17 +99,6 @@ class BullyLeaderElection[F[_] : Concurrent](
       "ts" -> System.nanoTime()
     )
 
-/*
-
-  Send(data) =>
-   if leader == null reply failure
-   else store sender ref and forward req to leader
-  chan
-
- */
-
-
-
   def waitForPeers: Receive = handleEcho.orElse {
     case e@PeerProcess.CmdEvent(cmd) if cmd.getCmdType == Protocol.CmdType.JOINED =>
       val mdcFields = createMdc(e)
@@ -119,8 +115,7 @@ class BullyLeaderElection[F[_] : Concurrent](
             logger.mdc(mdcFields) { _ =>
               logger.debug(s"not enough processes in the cluster. discard the leader ${_leader}")
             }
-            _leader = null
-            // wait for new nodes
+            _leader = null // wait for new nodes
           }
         } else if (_leader == peer) {
           eval(
@@ -152,6 +147,37 @@ class BullyLeaderElection[F[_] : Concurrent](
         }
         _leader = peers.get(id)
       }
+    }
+
+    case r@Req(data) => flow {
+      if (_leader == null) {
+        withSender(s => Rep(Error, "leader is null".getBytes()) ~> s)
+      } else if (_leader == me) {
+        withSender(s => ch.send(r, clientProcess, {
+          case Success(rep: Rep) => rep ~> s
+          case Failure(e) => Rep(Error, Option(e.getMessage).getOrElse("").getBytes()) ~> s
+        }))
+      } else {
+        withSender(s =>
+          eval(require(pendingReq == null)) ++
+            eval(pendingReq = s) ++ Send(_leader.uuid, ReqWithId(data, me.id)) ~> peerProcess) // forward to leader
+      }
+    }
+    case Command(ReqWithId(data, peerId)) => flow {
+      if (_leader == null) {
+        Send(peers.get(peerId).uuid, Rep(Error, "leader is null".getBytes())) ~> peerProcess
+      } else if (_leader == me) {
+        ch.send(Req(data), clientProcess, {
+          case Success(rep: Rep) => Send(peers.get(peerId).uuid, rep) ~> peerProcess
+          case Failure(e) => Send(peers.get(peerId).uuid, Rep(Error, Option(e.getMessage).getOrElse("").getBytes())) ~> peerProcess
+        })
+      } else {
+        Send(_leader.uuid, ReqWithId(data, me.id)) ~> peerProcess // forward to leader
+      }
+    }
+    case Command(r: Rep) => flow {
+      require(pendingReq != null)
+      r ~> pendingReq ++ eval(pendingReq = null)
     }
   }
 
@@ -235,7 +261,7 @@ class BullyLeaderElection[F[_] : Concurrent](
   }
 
   override def handle: Receive = {
-    case Start => PeerProcess.Reg(ref) ~> peerProcess
+    case Start => register(ref, ch) ++ PeerProcess.Reg(ref) ~> peerProcess
     case PeerProcess.Ack(uuid) => eval {
       me = Peer(uuid, hasher(uuid))
       logger.info(s"peer created. uuid = $uuid")
@@ -278,6 +304,9 @@ object BullyLeaderElection {
   object Ok extends Status
   object Error extends Status
 
+  // Client API
+  case class Req(bytes: Array[Byte]) extends Event
+
   sealed trait Command extends Event with Marchall
 
   /**
@@ -301,8 +330,8 @@ object BullyLeaderElection {
     override def marshall: Array[Byte] = coordinator(id)
   }
 
-  case class Req(data: Array[Byte]) extends Command {
-    override def marshall: Array[Byte] = req(0, data)
+  case class ReqWithId(data: Array[Byte], id: Long) extends Command {
+    override def marshall: Array[Byte] = req(id, data)
   }
 
   case class Rep(status: Status, data: Array[Byte]) extends Command {
@@ -318,7 +347,7 @@ object BullyLeaderElection {
             case BullyLe.CmdType.ELECTION => Some(Election(bleCmd.getPeerId))
             case BullyLe.CmdType.ANSWER => Some(Answer(bleCmd.getPeerId))
             case BullyLe.CmdType.COORDINATOR => Some(Coordinator(bleCmd.getPeerId))
-            case BullyLe.CmdType.REQ => Some(Req(bleCmd.getData.toByteArray))
+            case BullyLe.CmdType.REQ => Some(ReqWithId(bleCmd.getData.toByteArray, bleCmd.getPeerId))
             case BullyLe.CmdType.REP =>
               val r = BullyLe.Rep.parseFrom(bleCmd.getData)
               val s = if (r.getOk) Ok else Error
@@ -362,6 +391,5 @@ object BullyLeaderElection {
   case object WaitForCoordinator extends State
 
   object Echo extends Event
-
 
 }

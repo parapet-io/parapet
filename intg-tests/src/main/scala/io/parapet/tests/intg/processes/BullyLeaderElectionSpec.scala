@@ -1,17 +1,19 @@
 package io.parapet.tests.intg.processes
 
 import com.google.protobuf.ByteString
-import io.parapet.core.Event.{DeadLetter, Start, Stop}
-import io.parapet.core.processes.BullyLeaderElection.{Answer, AnswerTimeout, Coordinator, CoordinatorTimeout, Election, Peer, Ready, WaitForCoordinator}
+import io.parapet.core.Event.{Start, Stop}
+import io.parapet.core.processes.BullyLeaderElection._
 import io.parapet.core.processes.PeerProcess.{Ack, CmdEvent, Reg, Send}
-import io.parapet.core.processes.{BullyLeaderElection, DeadLetterProcess, PeerProcess}
-import io.parapet.core.{Channel, Event, Process}
+import io.parapet.core.processes.{BullyLeaderElection, PeerProcess}
+import io.parapet.core.{Channel, Event, Process, ProcessRef}
 import io.parapet.p2p.Protocol
 import io.parapet.p2p.Protocol.CmdType
 import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.FunSuite
 import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
+
+import scala.util.Success
 
 
 abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
@@ -24,12 +26,13 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     case "3" => 3
   }
 
+
   test("first event sent to peer process should be Reg") {
     val eventStore = new EventStore[F, Event]
     val peerProcess = createPeerProcess(eventStore, {
       case _: PeerProcess.Reg => ()
     })
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
 
     unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(ble, peerProcess))).run))
 
@@ -41,7 +44,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     val peerProcess = createPeerProcess(eventStore, {
       case _: PeerProcess.Send => ()
     })
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
     val test = Process[F](_ => {
       case Start => Seq(Ack("1"), joined("2")) ~> ble
     })
@@ -56,7 +59,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     val peerProcess = createPeerProcess(eventStore, {
       case _ => ()
     })
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
     val ch = new Channel[F]()
     val test = Process[F](ref => {
       case Start =>
@@ -75,7 +78,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     val peerProcess = createPeerProcess(eventStore, {
       case PeerProcess.Send(_, _: Election) => ()
     })
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
     val ch = new Channel[F]()
     val test = Process[F](ref => {
       case Start =>
@@ -97,7 +100,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
   test("process is ready - peer left - incomplete quorum - discard leader") {
     val eventStore = new EventStore[F, Event]
     val peerProcess = Process.unit[F]
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(3), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(3), hasher)
     val ch = new Channel[F]()
     val test = Process[F](ref => {
       case Start =>
@@ -119,7 +122,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     val peerProcess = createPeerProcess(eventStore, {
       case _: PeerProcess.Send => ()
     })
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(3), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(3), hasher)
 
     val test = Process[F](_ => {
       case Start => Seq(Ack("3"), joined("1"), joined("2")) ~> ble
@@ -135,7 +138,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     val peerProcess = Process.unit[F]
     val eventStore = new EventStore[F, Event]
     val ch = new Channel[F]()
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
     val test = Process[F](ref => {
       case Start =>
         register(ref, ch) ++
@@ -153,7 +156,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     val peerProcess = Process.unit[F]
     val eventStore = new EventStore[F, Event]
     val ch = new Channel[F]()
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
     val test = Process[F](ref => {
       case Start =>
         register(ref, ch) ++
@@ -176,7 +179,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
       case PeerProcess.Send("1", Answer(2)) => ()
     })
     val ch = new Channel[F]()
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
     val test = Process[F](ref => {
       case Start =>
         register(ref, ch) ++
@@ -195,7 +198,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
       case PeerProcess.Send("1", Coordinator(2)) => ()
     })
     val ch = new Channel[F]()
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
     val test = Process[F](ref => {
       case Start =>
         register(ref, ch) ++
@@ -216,7 +219,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
       case PeerProcess.Send("1", Coordinator(2)) => ()
     })
     val ch = new Channel[F]()
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
     val test = Process[F](ref => {
       case Start =>
         register(ref, ch) ++
@@ -236,7 +239,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
       case PeerProcess.Send("2", Election(1)) => ()
     })
     val ch = new Channel[F]()
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
     val test = Process[F](ref => {
       case Start =>
         register(ref, ch) ++
@@ -267,7 +270,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
       case PeerProcess.Send("2", Election(1)) => ()
     })
     val ch = new Channel[F]()
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
     val test = Process[F](ref => {
       case Start =>
         register(ref, ch) ++
@@ -285,7 +288,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     val eventStore = new EventStore[F, Event]
     val peerProcess = Process.unit[F]
     val ch = new Channel[F]()
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
     val test = Process[F](ref => {
       case Start =>
         register(ref, ch) ++ Seq(Ack("1"), deliver("3", Coordinator(3))) ~> ble
@@ -312,7 +315,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     val peerProcess = Process.unit[F]
     val eventStore = new EventStore[F, Event]
     val ch = new Channel[F]()
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
     val test = Process[F](ref => {
       case Start =>
         register(ref, ch) ++
@@ -347,7 +350,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     val peerProcess = Process.unit[F]
     val eventStore = new EventStore[F, Event]
     val ch = new Channel[F]()
-    val ble = new BullyLeaderElection[F](peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
     val test = Process[F](ref => {
       case Start =>
         register(ref, ch) ++
@@ -367,6 +370,185 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     ble.leader.value shouldBe Peer("3", 3)
   }
 
+  test("send req to leader receives response") {
+    val eventStore = new EventStore[F, Event]
+
+    val peerProcess = Process(_ => {
+      case _ => unit
+    })
+
+    val clientProcess = Process[F](_ => {
+      case BullyLeaderElection.Req(data) =>
+        withSender(s => BullyLeaderElection.Rep(BullyLeaderElection.Ok, ("rep:" + new String(data)).getBytes()) ~> s)
+    })
+
+    val ble = new BullyLeaderElection[F](clientProcess.ref, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+
+    val ch = new Channel[F]()
+
+    val test = Process[F](ref => {
+      case Start =>
+        register(ref, ch) ++
+          Seq(Ack("2"), joined("1")) ~> ble ++
+          ch.send(BullyLeaderElection.Req("hi".getBytes()), ble.ref, {
+            case Success(res) => eval(eventStore.add(ref, res))
+          })
+    })
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(test, peerProcess, clientProcess, ble))).run))
+
+    eventStore.get(test.ref).headOption.value should matchPattern {
+      case BullyLeaderElection.Rep(BullyLeaderElection.Ok, data) if new String(data) == "rep:hi" =>
+    }
+  }
+
+  test("send req to non-leader forwards request") {
+    val eventStore = new EventStore[F, Event]
+    // refs
+    val peerProcess1Ref = ProcessRef.jdkUUIDRef
+    val peerProcess2Ref = ProcessRef.jdkUUIDRef
+
+    // same client code executed by all processes
+    val clientProcess = Process[F](_ => {
+      case BullyLeaderElection.Req(data) =>
+        withSender(s => BullyLeaderElection.Rep(BullyLeaderElection.Ok, ("rep:" + new String(data)).getBytes()) ~> s)
+    })
+
+    val ble1 = new BullyLeaderElection[F](clientProcess.ref, peerProcess1Ref, BullyLeaderElection.Config(2), hasher)
+    val ble2 = new BullyLeaderElection[F](clientProcess.ref, peerProcess2Ref, BullyLeaderElection.Config(2), hasher)
+
+    val peerProcess1 = Process.builder[F](_ => {
+      case PeerProcess.Send("2", req@BullyLeaderElection.ReqWithId(_, 1)) => deliver("1", req) ~> ble2
+      case _ => unit
+    }).ref(peerProcess1Ref).build
+
+    val peerProcess2 = Process.builder[F](_ => {
+      case PeerProcess.Send("1", rep: BullyLeaderElection.Rep) => deliver("2", rep) ~> ble1
+      case _ => unit
+    }).ref(peerProcess2Ref).build
+
+    val ch = new Channel[F]()
+
+    val test = Process[F](ref => {
+      case Start =>
+        register(ref, ch) ++
+          Seq(Ack("1"),
+            joined("2"),
+            deliver("2", Coordinator(2))) ~> ble1 ++
+          Seq(Ack("2"), joined("1")) ~> ble2 ++
+          ch.send(BullyLeaderElection.Req("hi".getBytes()), ble1.ref, {
+            case Success(res) => eval(eventStore.add(ref, res))
+          })
+
+    })
+
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(test, clientProcess, ble1, ble2, peerProcess1, peerProcess2))).run))
+
+    eventStore.get(test.ref).headOption.value should matchPattern {
+      case BullyLeaderElection.Rep(BullyLeaderElection.Ok, data) if new String(data) == "rep:hi" =>
+    }
+  }
+
+  test("send req to process without leader should return error") {
+    val eventStore = new EventStore[F, Event]
+    val peerProcess = Process(_ => {
+      case _ => unit
+    })
+
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+
+    val ch = new Channel[F]()
+    val test = Process[F](ref => {
+      case Start =>
+        register(ref, ch) ++
+          Seq(Ack("1")) ~> ble ++
+          ch.send(BullyLeaderElection.Req("hi".getBytes()), ble.ref, {
+            case Success(res) => eval(eventStore.add(ref, res))
+          })
+    })
+
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(test, ble, peerProcess))).run))
+
+    eventStore.get(test.ref).headOption.value should matchPattern {
+      case BullyLeaderElection.Rep(BullyLeaderElection.Error, data) if new String(data) == "leader is null" =>
+    }
+
+  }
+
+  test("peer send req to process without leader should return error") {
+    val eventStore = new EventStore[F, Event]
+    val peerProcess = Process(ref => {
+      case PeerProcess.Send("2", rep: BullyLeaderElection.Rep) => eval(eventStore.add(ref, rep))
+      case _ => unit
+    })
+
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    ble.peers.put(2, BullyLeaderElection.Peer("2", 2))
+    val ch = new Channel[F]()
+    val test = Process[F](ref => {
+      case Start =>
+        register(ref, ch) ++
+          Seq(Ack("1")) ~> ble ++
+          deliver("2", BullyLeaderElection.ReqWithId("hi".getBytes(), 2)) ~> ble
+    })
+
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(test, ble, peerProcess))).run))
+
+    eventStore.get(peerProcess.ref).headOption.value should matchPattern {
+      case BullyLeaderElection.Rep(BullyLeaderElection.Error, data) if new String(data) == "leader is null" =>
+    }
+  }
+
+  test("master failed to process req - sender should receive rep") {
+    val eventStore = new EventStore[F, Event]
+
+    val peerProcess = Process(_ => {
+      case _ => unit
+    })
+
+    val clientProcess = Process.builder[F](_ => {
+      case BullyLeaderElection.Req(data) => eval(throw new IllegalStateException(s"client failed to process req: ${new String(data)}"))
+    }).ref(ProcessRef("clientProcess")).build
+
+    val ble = new BullyLeaderElection[F](clientProcess.ref, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+
+    val ch = new Channel[F]()
+
+    val test = Process[F](ref => {
+      case Start =>
+        register(ref, ch) ++
+          Seq(Ack("2"), joined("1")) ~> ble ++
+          ch.send(BullyLeaderElection.Req("hi".getBytes()), ble.ref, {
+            case Success(res) => eval(eventStore.add(ref, res))
+          })
+    })
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(test, peerProcess, clientProcess, ble))).run))
+
+    eventStore.get(test.ref).headOption.value should matchPattern {
+      case BullyLeaderElection.Rep(BullyLeaderElection.Error, data) if new String(data).contains("has failed to handle event: Req") =>
+    }
+  }
+
+  test("peer send req to leader and client failed - reply error") {
+    val eventStore = new EventStore[F, Event]
+    val clientProcess = Process.builder[F](_ => {
+      case BullyLeaderElection.Req(data) => eval(throw new IllegalStateException(s"client failed to process req: ${new String(data)}"))
+    }).ref(ProcessRef("clientProcess")).build
+    val peerProcess = Process(ref => {
+      case PeerProcess.Send("1", rep: BullyLeaderElection.Rep) => eval(eventStore.add(ref, rep))
+      case _ => unit
+    })
+    val ble = new BullyLeaderElection[F](clientProcess.ref, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    ble._leader = Peer("2", 2)
+    ble.peers.put(1, Peer("1", 1))
+    val test = Process[F](ref => {
+      case Start => Ack("2") ~> ble ++
+        deliver("1", ReqWithId("hi".getBytes(), 1)) ~> ble
+    })
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(test, peerProcess, clientProcess, ble))).run))
+    eventStore.get(peerProcess.ref).headOption.value should matchPattern {
+      case BullyLeaderElection.Rep(BullyLeaderElection.Error, data) if new String(data).contains("has failed to handle event: Req") =>
+    }
+  }
 
   test("peer in waitingForAnswer state received join") {
     // todo
@@ -401,6 +583,10 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
   }
 
   def left(id: String): Event = {
+    CmdEvent(Protocol.Command.newBuilder().setPeerId(id).setCmdType(CmdType.LEFT).build())
+  }
+
+  def rep(id: String): Event = {
     CmdEvent(Protocol.Command.newBuilder().setPeerId(id).setCmdType(CmdType.LEFT).build())
   }
 }
