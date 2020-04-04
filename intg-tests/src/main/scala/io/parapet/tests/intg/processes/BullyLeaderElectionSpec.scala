@@ -26,7 +26,6 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     case "3" => 3
   }
 
-
   test("first event sent to peer process should be Reg") {
     val eventStore = new EventStore[F, Event]
     val peerProcess = createPeerProcess(eventStore, {
@@ -52,6 +51,24 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(test, ble, peerProcess))).run))
 
     eventStore.get(peerProcess.ref) shouldBe Seq(Send("2", Election(1)))
+  }
+
+  test("start election if only one process can exist") {
+    val eventStore = new EventStore[F, Event]
+    val peerProcess = Process.unit[F]
+    val ch = new Channel[F]()
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(1), hasher)
+    val test = Process[F](ref => {
+      case Start =>
+        register(ref, ch) ++
+          Seq(Ack("1")) ~> ble ++
+          ch.send(BullyLeaderElection.Echo, ble.ref, _ => eval(eventStore.add(ref, BullyLeaderElection.Echo)))
+    })
+
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(test, ble, peerProcess))).run))
+
+    ble.leader.value shouldBe Peer("1", 1)
+    ble.state shouldBe Ready
   }
 
   test("process is ready - peer left - quorum is full - do nothing") {
@@ -96,7 +113,6 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     ble.leader shouldBe None
   }
 
-
   test("process is ready - peer left - incomplete quorum - discard leader") {
     val eventStore = new EventStore[F, Event]
     val peerProcess = Process.unit[F]
@@ -117,7 +133,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     ble.leader shouldBe None
   }
 
-  test("process with highest id sends Coordinator") {
+  test("process with highest id becomes leader") {
     val eventStore = new EventStore[F, Event]
     val peerProcess = createPeerProcess(eventStore, {
       case _: PeerProcess.Send => ()
@@ -131,7 +147,7 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     unsafeRun(eventStore.await(2, createApp(ct.pure(Seq(test, ble, peerProcess))).run))
 
     eventStore.get(peerProcess.ref) shouldBe Seq(Send("1", Coordinator(3)), Send("2", Coordinator(3)))
-
+    ble.state shouldBe Ready
   }
 
   test("waitForAnswer receive answer switch to waitForCoordinator") {
@@ -172,7 +188,6 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     ble.leader.value shouldBe Peer("2", 2)
   }
 
-
   test("process waitingForAnswer received Election sends ok") {
     val eventStore = new EventStore[F, Event]
     val peerProcess = createPeerProcess(eventStore, {
@@ -190,7 +205,6 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
 
     eventStore.get(peerProcess.ref) shouldBe Seq(PeerProcess.Send("1", Answer(2)))
   }
-
 
   test("process waitingForAnswer received timeout elects itself") {
     val eventStore = new EventStore[F, Event]
@@ -252,6 +266,25 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
 
     ble.leader shouldBe None
 
+  }
+
+  test("proces sent answer and left - process elects itself") {
+    val eventStore = new EventStore[F, Event]
+    val peerProcess = createPeerProcess(eventStore, {
+      case PeerProcess.Send("1", Coordinator(2)) => ()
+    })
+    val ch = new Channel[F]()
+    val ble = new BullyLeaderElection[F](ProcessRef.jdkUUIDRef, peerProcess.ref, BullyLeaderElection.Config(2), hasher)
+    val test = Process[F](ref => {
+      case Start =>
+        register(ref, ch) ++
+          Seq(Ack("2"), joined("1"), joined("3"), deliver("3", Answer(3)), left("3"), CoordinatorTimeout) ~> ble
+    })
+
+    unsafeRun(eventStore.await(2, createApp(ct.pure(Seq(test, ble, peerProcess))).run))
+
+    ble.leader.value shouldBe Peer("2", 2)
+    ble.state shouldBe Ready
   }
 
   // Scenario:
@@ -574,8 +607,8 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
     })
   }
 
-  def deliver(peerId: String, cmd: BullyLeaderElection.Command): Event = {
-    CmdEvent(Protocol.Command.newBuilder().setPeerId(peerId).setCmdType(CmdType.DELIVER).setData(ByteString.copyFrom(cmd.marshall)).build())
+  def deliver(sender: String, cmd: BullyLeaderElection.Command): Event = {
+    CmdEvent(Protocol.Command.newBuilder().setPeerId(sender).setCmdType(CmdType.DELIVER).setData(ByteString.copyFrom(cmd.marshall)).build())
   }
 
   def joined(id: String): Event = {
@@ -589,4 +622,5 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
   def rep(id: String): Event = {
     CmdEvent(Protocol.Command.newBuilder().setPeerId(id).setCmdType(CmdType.LEFT).build())
   }
+
 }

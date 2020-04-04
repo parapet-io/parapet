@@ -74,7 +74,7 @@ lazy val core = project
     libraryDependencies += "org.json4s" %% "json4s-native" % "3.6.7",
     libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7",
     libraryDependencies += "io.monix" %% "monix-eval" % "3.0.0-RC3",
-    libraryDependencies += "io.parapet" % "p2p" % "1.0.0-SNAPSHOT",
+    libraryDependencies += "io.parapet" % "p2p" % "1.0.0",
   ).dependsOn(protobuf)
 
 lazy val examples = project
@@ -214,6 +214,7 @@ parallelExecution in Test := false
 parallelExecution in Slow := false
 concurrentRestrictions in Global += Tags.limit(Tags.Test, 1)
 
+// PUBLISH TO MAVEN
 publishArtifact in global := false
 publishArtifact in intgTests := false
 publishArtifact in examples := false

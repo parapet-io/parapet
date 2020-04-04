@@ -1,10 +1,12 @@
 package io.parapet.core.processes
 
+import java.util.UUID
+
 import cats.effect.Concurrent
 import com.google.protobuf.ByteString
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Event.{Marchall, Start}
+import io.parapet.core.Event.{Marshall, Start}
 import io.parapet.core.processes.BullyLeaderElection._
 import io.parapet.core.processes.PeerProcess.{CmdEvent, Send}
 import io.parapet.core.{Channel, Event, Process, ProcessRef}
@@ -39,7 +41,7 @@ import scala.util.{Failure, Success}
 class BullyLeaderElection[F[_] : Concurrent](
                                               clientProcess: ProcessRef,
                                               peerProcess: ProcessRef,
-                                              config: Config, hasher: String => Long) extends Process[F] {
+                                              config: Config, hasher: String => Long = BullyLeaderElection.hasher) extends Process[F] {
 
   import BullyLeaderElection._
   import dsl._
@@ -143,7 +145,7 @@ class BullyLeaderElection[F[_] : Concurrent](
       }
       if (id > _leader.id) {
         logger.mdc(mdcFields) { _ =>
-          logger.debug(s"set new leader: ${peers.get(id)}, old leader: ${_leader}")
+          logger.debug(s"$id > ${_leader.id} set new leader: ${peers.get(id)}, old leader: ${_leader}")
         }
         _leader = peers.get(id)
       }
@@ -230,12 +232,13 @@ class BullyLeaderElection[F[_] : Concurrent](
     * Otherwise, P broadcasts an Election message to all other processes with higher process IDs than itself and waits for Answer.
     */
   def startElection(mdc: MDCFields): DslF[F, Unit] = {
-    eval {
-      logger.mdc(mdc) { _ =>
-        logger.debug(s"start election. current leader: ${_leader}, peers: $peers")
-      }
-      _leader = null
-    } ++
+    switchToReady ++
+      eval {
+        logger.mdc(mdc) { _ =>
+          logger.debug(s"start election. current leader: ${_leader}, peers: $peers")
+        }
+        _leader = null
+      } ++
       flow {
         if (!fullQuorum) {
           eval(logger.mdc(mdc) { _ =>
@@ -265,7 +268,11 @@ class BullyLeaderElection[F[_] : Concurrent](
     case PeerProcess.Ack(uuid) => eval {
       me = Peer(uuid, hasher(uuid))
       logger.info(s"peer created. uuid = $uuid")
-    } ++ switchToReady
+    } ++ flow {
+      if (config.quorumSize == 1)
+        startElection(createMdc(Start))
+      else switchToReady
+    }
   }
 
   def becomeLeader(mdc: MDCFields): DslF[F, Unit] = {
@@ -296,18 +303,27 @@ object BullyLeaderElection {
 
   // API
   sealed trait Timeout extends Event
+
   case object CoordinatorTimeout extends Timeout
+
   case object AnswerTimeout extends Timeout
+
   case object CoordinatorAckTimeout extends Timeout
 
   trait Status
+
   object Ok extends Status
+
   object Error extends Status
 
   // Client API
   case class Req(bytes: Array[Byte]) extends Event
 
-  sealed trait Command extends Event with Marchall
+  object Req {
+    def apply(m: Marshall): Req = Req(m.marshall)
+  }
+
+  sealed trait Command extends Event with Marshall
 
   /**
     * Sent to announce election.
@@ -336,6 +352,10 @@ object BullyLeaderElection {
 
   case class Rep(status: Status, data: Array[Byte]) extends Command {
     override def marshall: Array[Byte] = rep(0, status, data)
+  }
+
+  object Rep {
+    def apply(status: Status, m: Marshall): Rep = Rep(status, m.marshall)
   }
 
   object Command {
@@ -385,11 +405,18 @@ object BullyLeaderElection {
   }
 
   sealed trait State
+
   // in Ready state a leader can be null b/c the election process has not started yet or it's gone
   case object Ready extends State
+
   case object WaitForAnswer extends State
+
   case object WaitForCoordinator extends State
 
   object Echo extends Event
+
+  def hasher(uuid: String): Long = {
+    UUID.fromString(uuid).getMostSignificantBits & Long.MaxValue
+  }
 
 }

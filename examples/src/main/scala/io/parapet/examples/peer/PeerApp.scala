@@ -2,7 +2,7 @@ package io.parapet.examples.peer
 
 import cats.effect.IO
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Event.{Marchall, Start}
+import io.parapet.core.Event.{Marshall, Start}
 import io.parapet.core.processes.PeerProcess
 import io.parapet.{CatsApp, core}
 import io.parapet.core.{Event, Process}
@@ -35,7 +35,7 @@ object PeerApp extends CatsApp {
   }
 
 
-  object Ping extends Event with Marchall {
+  object Ping extends Event with Marshall {
     override def marshall: Array[Byte] = "PING".getBytes
   }
 

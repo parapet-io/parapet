@@ -2,7 +2,7 @@ package io.parapet.core.processes
 
 import cats.effect.Concurrent
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Event.{Marchall, Start, Stop}
+import io.parapet.core.Event.{Marshall, Start, Stop}
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.p2p.{Node, Protocol, Config => P2pConfig}
 
@@ -55,6 +55,6 @@ object PeerProcess {
 
   case class Ack(id: String) extends Event
 
-  case class Send(peerId: String, data: Marchall) extends Event
+  case class Send(peerId: String, data: Marshall) extends Event
 
 }
