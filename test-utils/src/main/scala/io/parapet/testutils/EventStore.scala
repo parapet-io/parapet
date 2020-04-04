@@ -72,3 +72,9 @@ class EventStore[F[_], A <: Event] extends StrictLogging {
 
   }
 }
+
+object EventStore {
+
+  case object Dummy extends Event
+
+}

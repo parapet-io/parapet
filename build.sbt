@@ -54,6 +54,7 @@ lazy val global = project
   inConfig(Slow)(Defaults.testTasks))
   .aggregate(
     core,
+    protobuf,
     interopCats,
     interopScalazZio,
     interopMonix,
@@ -72,8 +73,9 @@ lazy val core = project
     libraryDependencies ++= (commonDependencies ++ catsDependencies),
     libraryDependencies += "org.json4s" %% "json4s-native" % "3.6.7",
     libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7",
-    libraryDependencies += "io.monix" %% "monix-eval" % "3.0.0-RC3"
-  )
+    libraryDependencies += "io.monix" %% "monix-eval" % "3.0.0-RC3",
+    libraryDependencies += "io.parapet" % "p2p" % "1.0.0",
+  ).dependsOn(protobuf)
 
 lazy val examples = project
   .in(file("examples"))
@@ -132,6 +134,20 @@ lazy val intgTests = project
       "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
     ),
   ).dependsOn(core, testUtils)
+
+lazy val protobuf = project
+  .settings(
+    name := "protobuf",
+    libraryDependencies ++= Seq(
+      "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion % "compile"
+    )
+  )
+
+
+PB.protoSources in protobuf in Compile := Seq(file("protobuf/src/main/protobuf"))
+PB.targets in protobuf in Compile := Seq(
+  PB.gens.java -> (sourceManaged in protobuf in Compile).value
+)
 
 // Algorithms
 lazy val algorithms = project.in(file("./components/algorithms"))
@@ -198,6 +214,7 @@ parallelExecution in Test := false
 parallelExecution in Slow := false
 concurrentRestrictions in Global += Tags.limit(Tags.Test, 1)
 
+// PUBLISH TO MAVEN
 publishArtifact in global := false
 publishArtifact in intgTests := false
 publishArtifact in examples := false

@@ -23,8 +23,6 @@ class Channel[F[_] : Concurrent] extends Process[F] {
 
   private var callback: Deferred[F, Try[Event]] = _
 
-  override val ref: ProcessRef = ProcessRef("channel")
-
   private def waitForRequest: Receive = {
     case Start => unit
     case Stop => unit
@@ -35,10 +33,19 @@ class Channel[F[_] : Concurrent] extends Process[F] {
   }
 
   private def waitForResponse: Receive = {
-    case Stop => suspend(callback.complete(scala.util.Failure(new InterruptedException("channel has been closed"))))
+    case Stop => flow {
+      if (callback != null) {
+        suspend(callback.complete(scala.util.Failure(new InterruptedException("channel has been closed"))))
+      } else {
+        unit
+      }
+    }
     case req: Request[F] =>
       suspend(req.cb.complete(scala.util.Failure(new IllegalStateException("current request is not completed yet"))))
-    case Failure(_, err) => suspend(callback.complete(scala.util.Failure(err))) // receiver has failed to process request
+    case Failure(_, err) =>
+      suspend(callback.complete(scala.util.Failure(err))) ++
+        eval(callback = null) ++
+        switch(waitForRequest)
     case e =>
       suspend(callback.complete(scala.util.Success(e))) ++
         eval(callback = null) ++
