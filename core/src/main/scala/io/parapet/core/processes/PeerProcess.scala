@@ -5,10 +5,15 @@ import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Marshall, Start, Stop}
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.p2p.{Node, Protocol, Config => P2pConfig}
+import io.parapet.core.doc.Doc._
+import PeerProcess._
 
+@Spec(description = "", api = Api(
+  in = Array(classOf[Reg], classOf[Send]),
+  out = Array(classOf[Ack], classOf[CmdEvent]))
+)
 class PeerProcess[F[_] : Concurrent](node: Node) extends Process[F] {
 
-  import PeerProcess._
   import dsl._
 
   private var client: ProcessRef = _
@@ -51,10 +56,20 @@ object PeerProcess {
 
   case class CmdEvent(cmd: Protocol.Command) extends Event
 
-  case class Reg(ref: ProcessRef) extends Event
+  @Doc("subscribes to peer events")
+  case class Reg(
+                  @Doc("client process ref") ref: ProcessRef
+                ) extends Event
 
-  case class Ack(id: String) extends Event
+  @Doc("sent in response to Reg")
+  case class Ack(
+                  @Doc("peer id") id: String
+                ) extends Event
 
-  case class Send(peerId: String, data: Marshall) extends Event
+  @Doc("sends an event to the specified peer")
+  case class Send(
+                   @Doc("receiver (peer) id") peerId: String,
+                   @Doc("data to send") data: Marshall
+                 ) extends Event
 
 }
