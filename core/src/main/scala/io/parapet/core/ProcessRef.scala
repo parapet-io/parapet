@@ -10,9 +10,9 @@ case class ProcessRef(private[core] val ref: String) {
 }
 
 object ProcessRef {
-  val SystemRef = ProcessRef(ParapetPrefix + "-system")
-  val DeadLetterRef = ProcessRef(ParapetPrefix + "-deadletter")
-  val UndefinedRef = ProcessRef(ParapetPrefix + "-undefined")
+  val SystemRef: ProcessRef = ProcessRef(ParapetPrefix + "-system")
+  val DeadLetterRef: ProcessRef = ProcessRef(ParapetPrefix + "-deadletter")
+  val UndefinedRef: ProcessRef = ProcessRef(ParapetPrefix + "-undefined")
 
   def jdkUUIDRef: ProcessRef = new ProcessRef(UUID.randomUUID().toString)
 }

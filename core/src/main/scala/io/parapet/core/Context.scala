@@ -1,6 +1,7 @@
 package io.parapet.core
 
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.locks.ReentrantLock
 
 import cats.effect.concurrent.Deferred
 import cats.effect.{Concurrent, ContextShift}
@@ -143,6 +144,8 @@ object Context {
 
     def stopped: F[Boolean] = ct.pure(_stopped.get())
 
+    def isStopped: Boolean = _stopped.get
+
     def acquired: F[Boolean] = pLock.acquired
 
     def acquire: F[Boolean] = pLock.acquire
@@ -176,43 +179,67 @@ object Context {
       val processBufferSize = if (process.bufferSize != -1) process.bufferSize else config.processBufferSize
       for {
         queue <-
-        if (processBufferSize == -1) Queue.unbounded[F, Task[F]]()
-        else Queue.bounded[F, Task[F]](processBufferSize, ChannelType.SPSC)
+          if (processBufferSize == -1) Queue.unbounded[F, Task[F]]()
+          else Queue.bounded[F, Task[F]](processBufferSize, ChannelType.SPSC)
         lock <- Lock[F]
         terminated <- Deferred[F, Unit]
       } yield new ProcessState[F](queue, lock, process, terminated)
     }
 
     class ProcessLock[F[_] : Concurrent](ref: ProcessRef) {
+      private val mutex: ReentrantLock = new ReentrantLock()
       private[this] val ct = implicitly[Concurrent[F]]
       private[this] val lock = new java.util.concurrent.ConcurrentHashMap[ProcessRef, Integer]()
 
       def acquired: F[Boolean] = ct.delay {
-        lock.computeIfPresent(ref, (_: ProcessRef, c: Integer) => c + 1) != null
+        mutex.lock()
+        val res = lock.computeIfPresent(ref, (_: ProcessRef, c: Integer) => c + 1) != null
+        mutex.unlock()
+        res
+        //        false
       }
 
       def acquire: F[Boolean] = ct.delay {
-        lock.putIfAbsent(ref, 0) == null
+        mutex.lock()
+        val res = lock.putIfAbsent(ref, 0) == null
+        println(s"${System.nanoTime()} $ref acquired lock")
+        mutex.unlock()
+        res
       }
 
       def releaseNow: F[Unit] = ct.delay {
-        if (lock.remove(ref) == null) {
-          throw new IllegalStateException("process cannot be released because it's not acquired")
+        try {
+          mutex.lock()
+          if (lock.remove(ref) == null) {
+            throw new IllegalStateException("process cannot be released because it's not acquired")
+          }
+        } finally {
+          mutex.unlock()
         }
+
       }
 
       // release and reset
-      def release: F[Boolean] = ct.delay {
-        if (!lock.containsKey(ref)) {
-          throw new IllegalStateException("process cannot be released because it's not acquired")
-        }
+      def release: F[Boolean] =
 
-        val res = lock.remove(ref, 0)
-        if (!res) {
-          lock.put(ref, 0) // reset
+        ct.delay {
+          var res = false
+          try {
+            mutex.lock()
+            println(s"Context::release process[$ref]")
+            if (!lock.containsKey(ref)) {
+              println("process cannot be released because it's not acquired")
+              throw new IllegalStateException("process cannot be released because it's not acquired")
+            }
+
+            res = lock.remove(ref, 0)
+            lock.remove(ref)
+            println(s"${System.nanoTime()} $ref released lock")
+            res
+          } finally {
+            mutex.unlock()
+          }
         }
-        res
-      }
     }
 
   }

@@ -42,19 +42,18 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
 
         val eventStore = new EventStore[F, Request]
 
-        val consumer = Process[F](ref => {
-          case req: Request => eval(eventStore.add(ref, req))
-        })
+        val consumer = Process.builder[F](ref => {
+          case req: Request => eval(println(s"client received $req")) ++ eval(eventStore.add(ref, req))
+        }).ref(ProcessRef("consumer")).build
 
-        val producer = Process[F](_ => {
+        val producer = Process.builder[F](_ => {
           case Start =>
             Request("1") ~> consumer.ref ++
               Request("2") ~> consumer.ref ++
               Request("3") ~> consumer.ref
-        })
-        unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(consumer, producer))).run))
+        }).ref(ProcessRef("producer")).build
+        unsafeRun(eventStore.await(2, createApp(ct.pure(Seq(consumer, producer))).run))
         eventStore.get(consumer.ref) shouldBe Seq(Request("1"), Request("2"), Request("3"))
-
       }
     }
   }
@@ -110,17 +109,21 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
       "execute operations in parallel" in {
         val eventStore = new EventStore[F, Request]
 
-        val consumer = Process[F](ref => {
-          case req: Request => eval(eventStore.add(ref, req))
-        })
+        val consumerRef = ProcessRef("consumer")
+        val producerRef = ProcessRef("producer")
 
-        val producer = Process[F](_ => {
+        val consumer = Process.builder[F](ref => {
+          case req: Request => eval(eventStore.add(ref, req))
+          case e => eval(println(s"consumer[$ref] received: $e"))
+        }).ref(consumerRef).build
+
+        val producer = Process.builder[F](_ => {
           case Start => par {
-            delay(4.seconds, Request("1") ~> consumer.ref) ++
-              delay(3.seconds, Request("2") ~> consumer.ref) ++
-              delay(2.seconds, Request("3") ~> consumer.ref)
+            delay(4.seconds, Request("1") ~> consumerRef) ++
+              delay(3.seconds, Request("2") ~> consumerRef) ++
+              delay(2.seconds, Request("3") ~> consumerRef)
           }
-        })
+        }).ref(producerRef).build
 
         unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(consumer, producer))).run))
         eventStore.get(consumer.ref) shouldBe Seq(Request("3"), Request("2"), Request("1"))

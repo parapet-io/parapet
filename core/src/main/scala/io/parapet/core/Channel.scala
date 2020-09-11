@@ -24,9 +24,10 @@ class Channel[F[_] : Concurrent] extends Process[F] {
   private var callback: Deferred[F, Try[Event]] = _
 
   private def waitForRequest: Receive = {
-    case Start => unit
+    case Start => eval(println("channel received Start"))
     case Stop => unit
     case req: Request[F] =>
+      eval(println("channel received request")) ++
       eval {
         callback = req.cb
       } ++ req.e ~> req.receiver ++ switch(waitForResponse)
@@ -63,10 +64,11 @@ class Channel[F[_] : Concurrent] extends Process[F] {
     * @return Unit
     */
   def send(event: Event, receiver: ProcessRef, cb: Try[Event] => DslF[F, Unit]): DslF[F, Unit] = {
-    blocking {
+
       suspendWith(Deferred[F, Try[Event]]) { d =>
-        Request(event, d, receiver) ~> ref ++ suspendWith(d.get)(cb)
-      }
+        Request(event, d, receiver) ~> ref ++ eval(println("channel sent to itself")) ++ suspendWith(d.get)(cb)
+
+
     }
   }
 

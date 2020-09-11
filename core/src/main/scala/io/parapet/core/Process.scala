@@ -129,7 +129,7 @@ object Process {
       override val ref: ProcessRef = _ref
       override val bufferSize: Int = _bufferSize
 
-      override def handle: Receive = receive(ref)
+      override def handle: Receive = receive(_ref)
     }
   }
 

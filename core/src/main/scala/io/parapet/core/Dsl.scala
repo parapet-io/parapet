@@ -360,38 +360,6 @@ object Dsl {
     def evalWith[A](thunk: => A)(bind: A => Free[C, Unit]): Free[C, Unit] =
       Free.inject[FlowOp[F, ?], C](Eval(() => thunk, Option(bind)))
 
-    /**
-      * Marks the given flow as blocking.
-      * All blocking operations should be wrapped using this operator to not block a scheduler worker.
-      * An example of a blocking operation is a long-running `IO` operation,
-      * e.g. reading data from the network socket.
-      *
-      * Example:
-      * {{{
-      * class Service {
-      *   def blockingCall: IO[String] = IO.sleep(1.second) >> IO("data")
-      * }
-      *
-      * class Client extends Process[IO] {
-      *
-      *   import dsl._
-      *
-      *   private lazy val service = new Service()
-      *
-      *   override def handle: Receive = {
-      *     case Start =>
-      *       blocking {
-      *         suspendWith(service.blockingCall)(data => eval(println(data)))
-      *       }
-      *   }
-      * }
-      * }}}
-      *
-      * @param flow the blocking flow
-      * @return Unit
-      */
-    def blocking(flow: Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Blocking(flow))
-
   }
 
   object FlowOps {
