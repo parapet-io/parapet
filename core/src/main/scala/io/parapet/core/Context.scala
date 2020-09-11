@@ -196,13 +196,11 @@ object Context {
         val res = lock.computeIfPresent(ref, (_: ProcessRef, c: Integer) => c + 1) != null
         mutex.unlock()
         res
-        //        false
       }
 
       def acquire: F[Boolean] = ct.delay {
         mutex.lock()
         val res = lock.putIfAbsent(ref, 0) == null
-        println(s"${System.nanoTime()} $ref acquired lock")
         mutex.unlock()
         res
       }
@@ -221,20 +219,16 @@ object Context {
 
       // release and reset
       def release: F[Boolean] =
-
         ct.delay {
           var res = false
           try {
             mutex.lock()
-            println(s"Context::release process[$ref]")
             if (!lock.containsKey(ref)) {
-              println("process cannot be released because it's not acquired")
               throw new IllegalStateException("process cannot be released because it's not acquired")
             }
 
             res = lock.remove(ref, 0)
             lock.remove(ref)
-            println(s"${System.nanoTime()} $ref released lock")
             res
           } finally {
             mutex.unlock()
