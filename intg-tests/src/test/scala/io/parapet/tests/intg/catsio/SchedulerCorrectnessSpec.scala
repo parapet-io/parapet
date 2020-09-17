@@ -14,7 +14,7 @@ class SchedulerCorrectnessSpec extends io.parapet.tests.intg.SchedulerCorrectnes
   }
 
   def withFixture(test: NoArgTest, count: Int): Outcome = {
-    println(s"run-$count")
+    //println(s"run-$count")  todo logger
     val outcome = super.withFixture(test)
     outcome match {
       case _ => if (count == 1) super.withFixture(test) else withFixture(test, count - 1)

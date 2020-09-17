@@ -5,4 +5,4 @@ import org.scalatest.Ignore
 import scalaz.zio.Task
 
 @Ignore
-class ProcessLifecycleSpec extends io.parapet.tests.intg.ProcessLifecycleSpec[Task] with BasicZioTaskSpec
+class ProcessLifecycleSpec //extends io.parapet.tests.intg.ProcessLifecycleSpec[Task] with BasicZioTaskSpec
