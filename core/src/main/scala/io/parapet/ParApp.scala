@@ -3,9 +3,9 @@ package io.parapet
 import cats.effect.{Concurrent, ContextShift, Timer}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import cats.~>
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.Dsl.{DslF, WithDsl}
+import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.{Context, EventLog, ParAsync, Parallel, Process, ProcessRef, Scheduler}
@@ -17,7 +17,6 @@ import scala.language.{higherKinds, implicitConversions, reflectiveCalls}
 trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
   type FlowOp[A] = io.parapet.core.Dsl.FlowOp[F, A]
-  type Flow[A] = io.parapet.core.DslInterpreter.Flow[F, A]
   type Program = DslF[F, Unit]
 
   lazy val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
@@ -40,7 +39,7 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
   def deadLetter: F[DeadLetterProcess[F]] = ct.pure(DeadLetterProcess.logging)
 
-  def flowInterpreter(context: Context[F]): FlowOp ~> Flow
+  def flowInterpreter(context: Context[F]): Interpreter[F]
 
   def unsafeRun(f: F[Unit]): Unit
 

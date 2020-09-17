@@ -37,7 +37,8 @@ case class Trace(delimiter: String, private val trace: MsgThunk[String], private
 object Trace {
   private val DEBUG_MODE = false
   type MsgThunk[+A] = Eval[A]
-  val empty: MsgThunk[String] = Eval.now("")
+
+  val Empty: Trace = Trace("\n")
 
   def apply(): Trace = apply("\n")
 

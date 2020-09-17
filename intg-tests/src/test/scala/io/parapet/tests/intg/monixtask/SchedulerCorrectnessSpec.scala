@@ -7,5 +7,5 @@ import monix.eval.Task
 
 class SchedulerCorrectnessSpec extends io.parapet.tests.intg.SchedulerCorrectnessSpec[Task] with BasicMonixTaskSpec {
   override def interpreter(context: Context[Task]): Task[Interpreter[Task]] =
-    Task(DslInterpreter[Task](context)(ct, parallel, timer))
+    Task(DslInterpreter[Task](context)(ct, timer))
 }

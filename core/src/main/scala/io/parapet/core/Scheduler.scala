@@ -2,7 +2,7 @@ package io.parapet.core
 
 import java.util.concurrent.ConcurrentHashMap
 
-import cats.effect.{Concurrent, ContextShift}
+import cats.effect.{Concurrent, ContextShift, Timer}
 import cats.syntax.applicativeError._
 import cats.syntax.flatMap._
 import cats.syntax.functor._
@@ -10,7 +10,7 @@ import cats.syntax.semigroupal._
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.Context.ProcessState
 import io.parapet.core.Dsl.{Dsl, FlowOps}
-import io.parapet.core.DslInterpreter._
+import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Event._
 import io.parapet.core.ProcessRef._
 import io.parapet.core.Queue.ChannelType
@@ -104,9 +104,9 @@ object Scheduler {
 
   type TaskQueue[F[_]] = Queue[F, Task[F]]
 
-  def apply[F[_] : Concurrent : ParAsync : Parallel : ContextShift](config: SchedulerConfig,
-                                                                    context: Context[F],
-                                                                    interpreter: Interpreter[F]): F[Scheduler[F]] = {
+  def apply[F[_] : Concurrent : Timer : ParAsync : Parallel : ContextShift](config: SchedulerConfig,
+                                                                            context: Context[F],
+                                                                            interpreter: Interpreter[F]): F[Scheduler[F]] = {
     SchedulerImpl(config, context, interpreter)
   }
 
@@ -166,11 +166,11 @@ object Scheduler {
 
   import SchedulerImpl._
 
-  class SchedulerImpl[F[_] : Concurrent : ParAsync : Parallel : ContextShift](
-                                                                               config: SchedulerConfig,
-                                                                               context: Context[F],
-                                                                               processRefQueue: Queue[F, Signal],
-                                                                               interpreter: Interpreter[F]) extends Scheduler[F] {
+  class SchedulerImpl[F[_] : Concurrent : Timer : ParAsync : Parallel : ContextShift](
+                                                                                       config: SchedulerConfig,
+                                                                                       context: Context[F],
+                                                                                       processRefQueue: Queue[F, Signal],
+                                                                                       interpreter: Interpreter[F]) extends Scheduler[F] {
 
     private val ct = Concurrent[F]
     private val pa = implicitly[Parallel[F]]
@@ -213,7 +213,7 @@ object Scheduler {
           send(ProcessRef.SystemRef, Failure(task.envelope,
             EventDeliveryException(s"System failed to deliver an event to process ${ps.process}",
               EventQueueIsFullException(s"process ${ps.process} event queue is full"))),
-            task.envelope.sender, interpreter) >> ct.pure(ProcessQueueIsFull)
+            context.getProcessState(task.envelope.sender).get, interpreter) >> ct.pure(ProcessQueueIsFull)
       }
     }
 
@@ -221,7 +221,7 @@ object Scheduler {
       send(
         SystemRef,
         Failure(e, UnknownProcessException(s"there is no such process with id=${e.receiver} registered in the system")),
-        e.sender,
+        context.getProcessState(e.sender).get,
         interpreter)
     }
 
@@ -229,7 +229,7 @@ object Scheduler {
       send(
         SystemRef,
         Failure(e, TerminatedProcessException(s"process  ${e.receiver} was terminated via Stop or Kill")),
-        e.sender,
+        context.getProcessState(e.sender).get,
         interpreter)
     }
 
@@ -269,10 +269,10 @@ object Scheduler {
 
   object SchedulerImpl {
 
-    def apply[F[_] : Concurrent : ParAsync : Parallel : ContextShift](
-                                                                       config: SchedulerConfig,
-                                                                       context: Context[F],
-                                                                       interpreter: Interpreter[F]): F[Scheduler[F]] =
+    def apply[F[_] : Concurrent : Timer : ParAsync : Parallel : ContextShift](
+                                                                               config: SchedulerConfig,
+                                                                               context: Context[F],
+                                                                               interpreter: Interpreter[F]): F[Scheduler[F]] =
       for {
         processRefQueue <- Queue.unbounded[F, Signal](ChannelType.MPMC)
       } yield
@@ -284,10 +284,10 @@ object Scheduler {
 
     val pLockHistory: java.util.Map[ProcessRef, Trace] = new ConcurrentHashMap() // todo tmp solution for troubleshooting
 
-    class Worker[F[_] : Concurrent : ParAsync : Parallel : ContextShift](name: String,
-                                                                         context: Context[F],
-                                                                         processRefQueue: Queue[F, Signal],
-                                                                         interpreter: Interpreter[F]) {
+    class Worker[F[_] : Concurrent : Timer : ParAsync : Parallel : ContextShift](name: String,
+                                                                                 context: Context[F],
+                                                                                 processRefQueue: Queue[F, Signal],
+                                                                                 interpreter: Interpreter[F]) {
       private val logger = LoggerWrapper(Logger(LoggerFactory.getLogger(s"parapet-$name")))
       private val ct = implicitly[Concurrent[F]]
 
@@ -374,7 +374,7 @@ object Scheduler {
                     (_, err) => handleError(process, envelope, err)) >> context.remove(process.ref).void >>
                     releaseWithOptNotify(ps, thisTrace.append("stop_process")) // do we need to notify ?
                 case false => sendToDeadLetter(
-                  DeadLetter(envelope, new IllegalStateException(s"process=$process is already stopped")), interpreter) // >>
+                  DeadLetter(envelope, new IllegalStateException(s"process=$process is already stopped")), context, interpreter) // >>
                 // releaseWithOptNotify("ps.stop()->false", ps) // do we need to notify ?
                 // if notify then switch behaviour and dynamic process creation fails
               }
@@ -382,13 +382,15 @@ object Scheduler {
               ps.interrupted.product(ps.stopped).flatMap {
                 case (_, true) | (true, _) =>
                   sendToDeadLetter(
-                    DeadLetter(envelope, new IllegalStateException(s"process=$process is terminated")), interpreter) >>
+                    DeadLetter(envelope, new IllegalStateException(s"process=$process is terminated")), context, interpreter) >>
                     releaseAndNotify(ps, thisTrace.append("terminated"))
                 case _ =>
                   if (process.canHandle(event)) {
+                    val transform = interpreter.create(sender, ps)
+
                     for {
                       flow <- ct.delay(process(event))
-                      effect <- ct.pure(interpret_(flow, interpreter, FlowState[F](senderRef = sender, selfRef = receiver)))
+                      effect <- ct.pure(flow.foldMap[F](transform))
                       _ <- runEffect(effect, envelope, ps, err => handleError(process, envelope, err), thisTrace.append("canHandle"))
                     } yield ()
 
@@ -398,11 +400,12 @@ object Scheduler {
                     val whenUndefined = event match {
                       case f: Failure =>
                         // no error handling, send to dead letter
-                        sendToDeadLetter(DeadLetter(f), interpreter)
+                        sendToDeadLetter(DeadLetter(f), context, interpreter)
                       case Start => ct.unit // ignore lifecycle events
                       case _ =>
                         send(ProcessRef.SystemRef,
-                          Failure(envelope, EventMatchException(errorMsg)), envelope.sender, interpreter)
+                          Failure(envelope, EventMatchException(errorMsg)),
+                          context.getProcessState(envelope.sender).get, interpreter)
                       // sendToDeadLetter(DeadLetter(envelope, EventMatchException(errorMsg)), interpreter)
                     }
                     val logMsg = event match {
@@ -468,7 +471,7 @@ object Scheduler {
         event match {
           case f: Failure =>
             ct.delay(logger.error(s"process $process has failed to handle Failure event. send to deadletter", cause)) >>
-              sendToDeadLetter(DeadLetter(f), interpreter)
+              sendToDeadLetter(DeadLetter(f), context,interpreter)
           case _ =>
             val errMsg = s"process $process has failed to handle event: $event"
             ct.delay(logger.error(errMsg, cause)) >>
@@ -477,33 +480,31 @@ object Scheduler {
       }
 
       private def sendErrorToSender(envelope: Envelope, err: Throwable): F[Unit] = {
-        send(SystemRef, Failure(envelope, err), envelope.sender, interpreter)
+        send(SystemRef, Failure(envelope, err), context.getProcessState(envelope.sender).get, interpreter)
       }
 
     }
 
-    private def sendToDeadLetter[F[_] : Concurrent](dl: DeadLetter, interpreter: Interpreter[F])
+    private def sendToDeadLetter[F[_] : Concurrent](dl: DeadLetter,
+                                                    context: Context[F],
+                                                    interpreter: Interpreter[F])
                                                    (implicit flowDsl: FlowOps[F, Dsl[F, ?]]): F[Unit] = {
-      send(SystemRef, dl, DeadLetterRef, interpreter)
+      send(SystemRef, dl, context.getProcessState(DeadLetterRef).get, interpreter)
     }
 
     private def send[F[_] : Concurrent](sender: ProcessRef,
                                         event: Event,
-                                        receiver: ProcessRef,
+                                        receiver: ProcessState[F],
                                         interpreter: Interpreter[F])(implicit flowDsl: FlowOps[F, Dsl[F, ?]]): F[Unit] = {
-      interpret_(flowDsl.send(event, receiver), interpreter,
-        FlowState[F](senderRef = sender, selfRef = receiver))
+      flowDsl.send(event, receiver.process.ref).foldMap[F](interpreter.create(sender, receiver))
     }
 
     private def deliverStopEvent[F[_] : Concurrent](sender: ProcessRef,
-                                                    process: Process[F],
+                                                    ps: ProcessState[F],
                                                     interpreter: Interpreter[F]): F[Unit] = {
       val ct = implicitly[Concurrent[F]]
-      if (process.canHandle(Stop)) {
-        interpret_(
-          process(Stop),
-          interpreter,
-          FlowState[F](senderRef = sender, selfRef = process.ref))
+      if (ps.process.canHandle(Stop)) {
+        ps.process(Stop).foldMap[F](interpreter.create(sender, ps))
       } else {
         ct.unit
       }
@@ -527,7 +528,7 @@ object Scheduler {
 
 
         stopChildProcesses >>
-          (context.getProcess(ref) match {
+          (context.getProcessState(ref) match {
             case Some(p) => deliverStopEvent(sender, p, interpreter).handleErrorWith(err => onError(ref, err))
             case None => ct.unit // todo: revisit
           })

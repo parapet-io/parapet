@@ -13,10 +13,13 @@ class PeerProcess[F[_] : Concurrent](node: Node) extends Process[F] {
 
   private var client: ProcessRef = _
 
-  def receive: DslF[F, Unit] = {
-    flow {
-      evalWith(node.receive()) { cmd => CmdEvent(cmd) ~> client } ++ receive
-    }
+  def receive: DslF[F, Unit] = flow {
+    def step = for {
+      cmd <- eval(node.receive())
+      _ <- CmdEvent(cmd) ~> client
+    } yield ()
+
+    step ++ receive
   }
 
   def initialized: Receive = {

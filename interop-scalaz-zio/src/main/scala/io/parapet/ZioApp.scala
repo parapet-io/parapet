@@ -30,7 +30,8 @@ trait ZioApp extends ParApp[Task] with DefaultRuntime {
 
   override val parAsync: ParAsync[Task] = ParAsync[Task]
 
-  override def flowInterpreter(context: Context[Task]): FlowOp ~> Flow = DslInterpreter[Task](context)
+  override def flowInterpreter(context: Context[Task]): DslInterpreter.Interpreter[Task] =
+    DslInterpreter[Task](context)
 
   override def unsafeRun(task: Task[Unit]): Unit = {
     runtime.unsafeRunSync(task.fork.flatMap { fiber =>

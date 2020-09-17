@@ -64,12 +64,12 @@ class Channel[F[_] : Concurrent] extends Process[F] {
     * @return Unit
     */
   def send(event: Event, receiver: ProcessRef, cb: Try[Event] => DslF[F, Unit]): DslF[F, Unit] = {
-
-      suspendWith(Deferred[F, Try[Event]]) { d =>
-        Request(event, d, receiver) ~> ref ++ eval(println("channel sent to itself")) ++ suspendWith(d.get)(cb)
-
-
-    }
+    for {
+      d <- suspend(Deferred[F, Try[Event]])
+      _ <- Request(event, d, receiver) ~> ref
+      res <- suspend(d.get)
+      _ <- cb(res)
+    } yield ()
   }
 
 }

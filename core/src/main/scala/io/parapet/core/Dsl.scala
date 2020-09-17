@@ -25,17 +25,17 @@ object Dsl {
 
   case class WithSender[F[_], G[_]](f: ProcessRef => Free[G, Unit]) extends FlowOp[F, Unit]
 
-  case class Invoke[F[_], G[_]](caller: ProcessRef, body: Free[G, Unit], callee: ProcessRef) extends FlowOp[F, Unit]
-
   case class Fork[F[_], G[_]](flow: Free[G, Unit]) extends FlowOp[F, Unit]
 
   case class Register[F[_]](parent: ProcessRef, child: Process[F]) extends FlowOp[F, Unit]
 
-  case class Race[F[_], C[_]](first: Free[C, Unit], second: Free[C, Unit]) extends FlowOp[F, Unit]
+  case class Race[F[_], C[_], A, B](first: Free[C, A], second: Free[C, B]) extends FlowOp[F, Either[A, B]]
 
-  case class Suspend[F[_], C[_], A](thunk: () => F[A], bind: Option[A => Free[C, Unit]]) extends FlowOp[F, Unit]
+  case class Suspend[F[_], C[_], A](thunk: () => F[A]) extends FlowOp[F, A]
 
-  case class Eval[F[_], C[_], A](thunk: () => A, bind: Option[A => Free[C, Unit]]) extends FlowOp[F, Unit]
+  case class SuspendF[F[_], C[_], A](thunk: () => Free[C, A]) extends FlowOp[F, A]
+
+  case class Eval[F[_], C[_], A](thunk: () => A) extends FlowOp[F, A]
 
   case class Blocking[F[_], C[_]](flow: Free[C, Unit]) extends FlowOp[F, Unit]
 
@@ -104,7 +104,7 @@ object Dsl {
       * @param f a flow to suspend
       * @return Unit
       */
-    def flow(f: => Free[C, Unit]): Free[C, Unit] = evalWith(())(_ => f)
+    def flow[A](f: => Free[C, A]): Free[C, A] = Free.inject[FlowOp[F, ?], C](SuspendF(() => f))
 
     /**
       * Sends an event to one or more receivers.
@@ -170,7 +170,8 @@ object Dsl {
       * @param flow the flow which operations should be executed in parallel.
       * @return Unit
       */
-    def par(flow: Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Par(flow))
+
+    def par(flows: Free[C, Unit]*): Free[C, Unit] = flows.map(fork).fold(unit)((a, b) => a.flatMap(_ => b))
 
     /**
       * Delays every operation in the given flow for the given duration.
@@ -199,6 +200,7 @@ object Dsl {
       * @param flow     the flow which operations should be delayed
       * @return Unit
       */
+    @deprecated
     def delay(duration: FiniteDuration, flow: Free[C, Unit]): Free[C, Unit] =
       Free.inject[FlowOp[F, ?], C](Delay(duration, Some(flow)))
 
@@ -236,33 +238,6 @@ object Dsl {
       * @return Unit
       */
     def withSender(f: ProcessRef => Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](WithSender(f))
-
-    /**
-      * Internal operator that allows to invoke processes explicitly.
-      * See [[Process.apply(event, caller)]].
-      *
-      * Example:
-      *
-      * {{{
-      * val server = Process[F](_ => {
-      *   case Request(data) => withSender(sender => Response(s"echo-$data") ~> sender)
-      * })
-      *
-      * val client = Process[F](ref => {
-      *   case Start => server(ref, Request("hello"))
-      *   case res: Response => eval(println(res))
-      * })
-      * }}}
-      *
-      * The code above will print: {{{ echo-hello }}}
-      *
-      * @param caller the caller process
-      * @param body   the flow that is produced by callee process
-      * @param callee the callee process
-      * @return Unit
-      */
-    private[core] def invoke(caller: ProcessRef, body: Free[C, Unit], callee: ProcessRef): Free[C, Unit] =
-      Free.inject[FlowOp[F, ?], C](Invoke(caller, body, callee))
 
     /**
       * Executes the given flow concurrently.
@@ -311,7 +286,7 @@ object Dsl {
       * @param second the second flow
       * @return Unit
       */
-    def race(first: Free[C, Unit], second: Free[C, Unit]): Free[C, Unit] =
+    def race[A, B](first: Free[C, A], second: Free[C, B]): Free[C, Either[A, B]] =
       Free.inject[FlowOp[F, ?], C](Race(first, second))
 
     /**
@@ -323,21 +298,7 @@ object Dsl {
       * @tparam A value type
       * @return Unit
       */
-    def suspend[A](thunk: => F[A]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Suspend(() => thunk, Option.empty))
-
-    /**
-      * Suspends an effect which produces `F` and then feeds that into a function that takes
-      * normal value and returns a new flow. All operations from a produced flow added to the current flow.
-      *
-      * {{{ suspend(IO.pure(1))) { i => eval(print(i)) } }}}
-      *
-      * @param thunk an effect which produces `F`
-      * @param bind  a function that takes a value of type `A` and produces a new flow
-      * @tparam A value type
-      * @return Unit
-      */
-    def suspendWith[A](thunk: => F[A])(bind: A => Free[C, Unit]): Free[C, Unit] =
-      Free.inject[FlowOp[F, ?], C](Suspend(() => thunk, Option(bind)))
+    def suspend[A](thunk: => F[A]): Free[C, A] = Free.inject[FlowOp[F, ?], C](Suspend(() => thunk))
 
     /**
       * Suspends a side effect in `F` and then adds that to the current flow.
@@ -346,19 +307,7 @@ object Dsl {
       * @tparam A value type
       * @return Unit
       */
-    def eval[A](thunk: => A): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Eval(() => thunk, Option.empty))
-
-    /**
-      * Suspends a side effect in `F` and then feeds that into a function that takes
-      * normal value and returns a new flow. All operations from a produced flow added to the current flow.
-      *
-      * @param thunk a side effect
-      * @param bind  a function that takes a value of type `A` and produces a new flow
-      * @tparam A value type
-      * @return Unit
-      */
-    def evalWith[A](thunk: => A)(bind: A => Free[C, Unit]): Free[C, Unit] =
-      Free.inject[FlowOp[F, ?], C](Eval(() => thunk, Option(bind)))
+    def eval[A](thunk: => A): Free[C, A] = Free.inject[FlowOp[F, ?], C](Eval(() => thunk))
 
   }
 

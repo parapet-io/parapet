@@ -1,8 +1,6 @@
 package io.parapet
 
 import cats.effect._
-import cats.~>
-import io.parapet.catsnstances.ParAsyncInstances
 import io.parapet.catsnstances.all._
 import io.parapet.core.{Context, DslInterpreter, ParAsync, Parallel}
 
@@ -18,7 +16,7 @@ trait CatsApp extends ParApp[IO] {
   override lazy val parAsync: ParAsync[IO] = ParAsync[IO]
   implicit lazy val timer: Timer[IO] = IO.timer(ec)
 
-  override def flowInterpreter(context: Context[IO]): FlowOp ~> Flow = {
+  override def flowInterpreter(context: Context[IO]): DslInterpreter.Interpreter[IO] = {
     DslInterpreter[IO](context)
   }
 

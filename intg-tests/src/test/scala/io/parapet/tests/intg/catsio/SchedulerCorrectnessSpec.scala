@@ -1,7 +1,6 @@
 package io.parapet.tests.intg.catsio
 
 import cats.effect.IO
-import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.{Context, DslInterpreter}
 import io.parapet.testutils.BasicCatsIOSpec
 import org.scalatest.{Outcome, Retries}
@@ -22,6 +21,6 @@ class SchedulerCorrectnessSpec extends io.parapet.tests.intg.SchedulerCorrectnes
     }
   }
 
-  override def interpreter(context: Context[IO]): IO[Interpreter[IO]] =
-    IO.pure(DslInterpreter[IO](context)(ct, parallel, timer))
+  override def interpreter(context: Context[IO]): IO[DslInterpreter.Interpreter[IO]] =
+    IO.pure(DslInterpreter[IO](context))
 }

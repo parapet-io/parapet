@@ -1,7 +1,6 @@
 package io.parapet.core
 
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.locks.ReentrantLock
 
 import cats.effect.concurrent.Deferred
 import cats.effect.{Concurrent, ContextShift}
@@ -187,52 +186,29 @@ object Context {
     }
 
     class ProcessLock[F[_] : Concurrent](ref: ProcessRef) {
-      private val mutex: ReentrantLock = new ReentrantLock()
+      private val lock = new AtomicBoolean()
+      private val nLock = new AtomicBoolean()
       private[this] val ct = implicitly[Concurrent[F]]
-      private[this] val lock = new java.util.concurrent.ConcurrentHashMap[ProcessRef, Integer]()
 
       def acquired: F[Boolean] = ct.delay {
-        mutex.lock()
-        val res = lock.computeIfPresent(ref, (_: ProcessRef, c: Integer) => c + 1) != null
-        mutex.unlock()
-        res
+        nLock.set(true)
+        lock.get()
       }
 
       def acquire: F[Boolean] = ct.delay {
-        mutex.lock()
-        val res = lock.putIfAbsent(ref, 0) == null
-        mutex.unlock()
-        res
+        lock.compareAndSet(false,  true)
       }
 
       def releaseNow: F[Unit] = ct.delay {
-        try {
-          mutex.lock()
-          if (lock.remove(ref) == null) {
-            throw new IllegalStateException("process cannot be released because it's not acquired")
-          }
-        } finally {
-          mutex.unlock()
-        }
+        throw new UnsupportedOperationException()
 
       }
 
       // release and reset
       def release: F[Boolean] =
         ct.delay {
-          var res = false
-          try {
-            mutex.lock()
-            if (!lock.containsKey(ref)) {
-              throw new IllegalStateException("process cannot be released because it's not acquired")
-            }
-
-            res = lock.remove(ref, 0)
-            lock.remove(ref)
-            res
-          } finally {
-            mutex.unlock()
-          }
+          lock.compareAndSet(true, false)
+          !nLock.compareAndSet(true, false)
         }
     }
 

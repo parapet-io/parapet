@@ -1,7 +1,6 @@
 package io.parapet
 
 import cats.effect.{Concurrent, ContextShift, Fiber, Timer}
-import cats.~>
 import io.parapet.core.{Context, DslInterpreter, ParAsync, Parallel}
 import io.parapet.monixinstances.all._
 import monix.eval.Task
@@ -20,9 +19,8 @@ trait MonixApp extends ParApp[Task] {
   override lazy val parAsync: ParAsync[Task] = ParAsync[Task]
   implicit lazy val timer: Timer[Task] = Task.timer(scheduler)
 
-  override def flowInterpreter(context: Context[Task]): FlowOp ~> Flow = {
+  override def flowInterpreter(context: Context[Task]): DslInterpreter.Interpreter[Task] =
     DslInterpreter[Task](context)
-  }
 
   override def unsafeRun(task: Task[Unit]): Unit = {
     task.start.flatMap { fiber =>
