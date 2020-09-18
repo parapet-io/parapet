@@ -22,7 +22,10 @@ object BlockingExample extends CatsApp {
 
     override def handle: Receive = {
       case Start =>
-          suspendWith(service.blockingCall)(data => eval(println(data)))
+        for {
+          data <- suspend(service.blockingCall)
+          _ <- eval(println(data))
+        } yield ()
     }
   }
 

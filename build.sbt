@@ -60,11 +60,11 @@ lazy val global = project
     interopMonix,
     testUtils,
     intgTests,
-    algorithms,
-    msgApi,
-    msgZmq,
-    msgIntgTests,
-    algorithmsIntgTest,
+   // algorithms,
+   // msgApi,
+   // msgZmq,
+    //msgIntgTests,
+   // algorithmsIntgTest,
     examples)
 
 lazy val core = project
