@@ -89,7 +89,6 @@ class BullyLeaderElection[F[_] : Concurrent](
   }
 
 
-
   def handleEcho: Receive = {
     case Echo => withSender(Echo ~> _)
   }
@@ -170,10 +169,12 @@ class BullyLeaderElection[F[_] : Concurrent](
       if (_leader == null) {
         Send(peers.get(peerId).uuid, Rep(Error, "leader is null".getBytes())) ~> peerProcess
       } else if (_leader == me) {
-        ch.send(Req(data), clientProcess, {
-          case Success(rep: Rep) => Send(peers.get(peerId).uuid, rep) ~> peerProcess
-          case Failure(e) => Send(peers.get(peerId).uuid, Rep(Error, Option(e.getMessage).getOrElse("").getBytes())) ~> peerProcess
-        })
+        blocking {
+          ch.send(Req(data), clientProcess, {
+            case Success(rep: Rep) => Send(peers.get(peerId).uuid, rep) ~> peerProcess
+            case Failure(e) => Send(peers.get(peerId).uuid, Rep(Error, Option(e.getMessage).getOrElse("").getBytes())) ~> peerProcess
+          })
+        }
       } else {
         Send(_leader.uuid, ReqWithId(data, me.id)) ~> peerProcess // forward to leader
       }

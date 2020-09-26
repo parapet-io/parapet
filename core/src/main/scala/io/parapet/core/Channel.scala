@@ -28,9 +28,9 @@ class Channel[F[_] : Concurrent] extends Process[F] {
     case Stop => unit
     case req: Request[F] =>
       eval(println("channel received request")) ++
-      eval {
-        callback = req.cb
-      } ++ req.e ~> req.receiver ++ switch(waitForResponse)
+        eval {
+          callback = req.cb
+        } ++ req.e ~> req.receiver ++ switch(waitForResponse)
   }
 
   private def waitForResponse: Receive = {

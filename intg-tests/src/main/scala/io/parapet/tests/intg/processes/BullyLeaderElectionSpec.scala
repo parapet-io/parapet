@@ -423,9 +423,9 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
       case Start =>
         register(ref, ch) ++
           Seq(Ack("2"), joined("1")) ~> ble ++
-          ch.send(BullyLeaderElection.Req("hi".getBytes()), ble.ref, {
-            case Success(res) => eval(eventStore.add(ref, res))
-          })
+         blocking(ch.send(BullyLeaderElection.Req("hi".getBytes()), ble.ref, {
+           case Success(res) => eval(eventStore.add(ref, res))
+         }))
     })
     unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(test, peerProcess, clientProcess, ble))).run))
 
@@ -550,9 +550,9 @@ abstract class BullyLeaderElectionSpec[F[_]] extends FunSuite with IntegrationSp
       case Start =>
         register(ref, ch) ++
           Seq(Ack("2"), joined("1")) ~> ble ++
-          ch.send(BullyLeaderElection.Req("hi".getBytes()), ble.ref, {
+          blocking(ch.send(BullyLeaderElection.Req("hi".getBytes()), ble.ref, {
             case Success(res) => eval(eventStore.add(ref, res))
-          })
+          }))
     })
     unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(test, peerProcess, clientProcess, ble))).run))
 

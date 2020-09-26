@@ -4,7 +4,7 @@ import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Start, Stop}
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Scheduler.SchedulerConfig
-import io.parapet.core.{Channel, Event, Process}
+import io.parapet.core.{Channel, Event, Process, ProcessRef}
 import io.parapet.tests.intg.ChannelSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.FunSuite
@@ -22,12 +22,15 @@ abstract class ChannelSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
 
     val numOfRequests = 5
 
-    val server = Process[F](_ => {
-      case Request(seq) => withSender(sender => Response(seq) ~> sender)
-    })
+    val server = Process.builder[F](_ => {
+      case Request(seq) =>
+        eval(println(s"server received $seq")) ++
+          withSender(sender => Response(seq) ~> sender)
+    }).name("server").ref(ProcessRef("server")).build
 
     val client: Process[F] = new Process[F] {
-
+      override val name = "client"
+      override val ref = ProcessRef("client")
       var seq = 0
 
       val ch = new Channel[F]()
@@ -38,10 +41,13 @@ abstract class ChannelSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
           case Success(res) => eval(eventStore.add(ref, res))
         })
 
+
       override def handle: Receive = {
         case Start =>
           register(ref, ch) ++
-            (0 until numOfRequests).map(i => sendRequest(Request(i))).reduce(_ ++ _)
+            blocking {
+              (0 until numOfRequests).map(i => sendRequest(Request(i))).reduce(_ ++ _)
+            }
         case Stop => unit
       }
     }

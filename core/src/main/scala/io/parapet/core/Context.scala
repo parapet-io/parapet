@@ -1,13 +1,10 @@
 package io.parapet.core
 
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 
 import cats.effect.concurrent.Deferred
 import cats.effect.{Concurrent, ContextShift}
-import cats.instances.list._
-import cats.syntax.flatMap._
-import cats.syntax.functor._
-import cats.syntax.traverse._
+import cats.implicits._
 import io.parapet.core.Context._
 import io.parapet.core.Event.{Envelope, Start}
 import io.parapet.core.Queue.ChannelType
@@ -107,6 +104,25 @@ object Context {
     implicitly[Concurrent[F]].delay(new Context[F](config, eventLog))
   }
 
+  class AsyncOps[F[_] : Concurrent] {
+    private val signals = new AtomicReference[List[Deferred[F, Unit]]](List.empty)
+    private val ct = implicitly[Concurrent[F]]
+
+    def add(d: Deferred[F, Unit]): F[Unit] = {
+      ct.delay(signals.updateAndGet(l => l :+ d))
+    }
+
+    def waitForCompletion: F[Unit] = {
+      signals.get().map(d => d.get >> ct.delay(println("completed"))).sequence_
+    }
+
+    def clear: F[Unit] = {
+      ct.delay(signals.set(List.empty))
+    }
+
+    def size: F[Int] = ct.pure(signals.get.size)
+  }
+
   class ProcessState[F[_] : Concurrent](
                                          queue: TaskQueue[F],
                                          lock: Lock[F],
@@ -120,6 +136,7 @@ object Context {
     private[this] val _interrupted: AtomicBoolean = new AtomicBoolean(false)
     private[this] val _stopped: AtomicBoolean = new AtomicBoolean(false)
     private[this] val _suspended: AtomicBoolean = new AtomicBoolean(false)
+    val blocking: AsyncOps[F] = new AsyncOps()
     private[this] val pLock = new ProcessLock[F](process.ref)
 
     def tryPut(t: Task[F]): F[Boolean] = {
@@ -152,6 +169,7 @@ object Context {
     def release: F[Boolean] = pLock.release
 
     def releaseNow: F[Unit] = pLock.releaseNow
+
 
     /**
       * returns `true` if this process performing some blocking operations, other `false`
@@ -196,7 +214,7 @@ object Context {
       }
 
       def acquire: F[Boolean] = ct.delay {
-        lock.compareAndSet(false,  true)
+        lock.compareAndSet(false, true)
       }
 
       def releaseNow: F[Unit] = ct.delay {

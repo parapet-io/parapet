@@ -321,14 +321,39 @@ object Scheduler {
         step
       }
 
+      private def waitForCompletion(deliver: Deliver[F], ps: ProcessState[F], trace: Trace): F[Unit] = {
+        logger.debug(trace.value) >>
+          ct.start(
+            runEffect(ps.blocking.waitForCompletion, deliver.envelope, ps,
+              err => handleError(ps.process, deliver.envelope, err), trace
+            ) >> ps.blocking.clear >> releaseAndNotify(ps, trace)
+          ).void
+      }
+
       private def run(ps: ProcessState[F], trace: Trace): F[Unit] = {
         val nextTrace = trace.append(s"worker[$name]::run(${ps.process})")
-        logger.debug(nextTrace.value) >>
+
+        def step: F[Unit] = {
           ps.tryTakeTask >>= {
-          case Some(t: Deliver[F]) => deliver(ps, t.envelope, nextTrace)
-          case Some(t) => ct.raiseError(new RuntimeException(s"unsupported task: $t"))
-          case None => releaseWithOptNotify(ps, nextTrace)
+            case Some(t: Deliver[F]) =>
+              for {
+                _ <- deliver(ps, t.envelope, nextTrace)
+                size <- ps.blocking.size
+                _ <- if (size > 0) {
+                  ct.delay(println(s"blocking size = $size")) >>
+                  waitForCompletion(t, ps, nextTrace.append(s"worker[$name]::waitForCompletion(${ps.process})"))
+                } else {
+                  step
+                }
+              } yield ()
+            case Some(t) => ct.raiseError(new RuntimeException(s"unsupported task: $t"))
+            case None => releaseWithOptNotify(ps, nextTrace)
+          }
+
         }
+
+        step
+
       }
 
       def releaseWithOptNotify(ps: ProcessState[F], trace: Trace): F[Unit] = {
@@ -371,8 +396,8 @@ object Scheduler {
               ps.stop().flatMap {
                 case true =>
                   stopProcess(sender, context, process.ref, interpreter,
-                    (_, err) => handleError(process, envelope, err)) >> context.remove(process.ref).void >>
-                    releaseWithOptNotify(ps, thisTrace.append("stop_process")) // do we need to notify ?
+                    (_, err) => handleError(process, envelope, err)) >> context.remove(process.ref).void // >>
+                    //releaseWithOptNotify(ps, thisTrace.append("stop_process")) // do we need to notify ?
                 case false => sendToDeadLetter(
                   DeadLetter(envelope, new IllegalStateException(s"process=$process is already stopped")), context, interpreter) // >>
                 // releaseWithOptNotify("ps.stop()->false", ps) // do we need to notify ?
@@ -382,8 +407,8 @@ object Scheduler {
               ps.interrupted.product(ps.stopped).flatMap {
                 case (_, true) | (true, _) =>
                   sendToDeadLetter(
-                    DeadLetter(envelope, new IllegalStateException(s"process=$process is terminated")), context, interpreter) >>
-                    releaseAndNotify(ps, thisTrace.append("terminated"))
+                    DeadLetter(envelope, new IllegalStateException(s"process=$process is terminated")), context, interpreter) //>>
+                   // releaseAndNotify(ps, thisTrace.append("terminated"))
                 case _ =>
                   if (process.canHandle(event)) {
                     val transform = interpreter.create(sender, ps)
@@ -412,7 +437,7 @@ object Scheduler {
                       case Start | Stop => ct.unit
                       case _ => logger.warn(errorMsg)
                     }
-                    logMsg >> whenUndefined >> releaseAndNotify(ps, thisTrace.append("cannot handle"))
+                    logMsg >> whenUndefined //>> releaseAndNotify(ps, thisTrace.append("cannot handle"))
                   }
               }
 
@@ -424,46 +449,17 @@ object Scheduler {
                     ps: ProcessState[F],
                     errorHandler: Throwable => F[Unit], trace: Trace): F[Unit] = {
         val thisTrace = trace.append(s"runEffect(ps=${ps.process}, envelope=$envelope)")
-        logger.debug(thisTrace.value) >> runAsync(effect, envelope, ps, errorHandler, thisTrace)
+        logger.debug(thisTrace.value) >> runSync(effect, envelope, ps, errorHandler, thisTrace)
       }
 
 
-      def runAsync(flow: F[Unit],
-                   envelope: Envelope,
-                   ps: ProcessState[F],
-                   errorHandler: Throwable => F[Unit], trace: Trace): F[Unit] = {
-        val parAsync = implicitly[ParAsync[F]]
-
-
-        val res = for {
-          fiber <- ct.start(flow)
-          _ <- parAsync.runAsync[Either[Unit, Unit]](ct.race(ps.interruption.get, fiber.join), {
-            case Left(th) => errorHandler(th) >> releaseAndNotify(ps, trace.append(s"error=${th.getMessage}"))
-            case Right(Left(_)) =>
-              fiber.cancel >> releaseAndNotify(ps, trace.append("canceled"))
-            case Right(Right(_)) => releaseAndNotify(ps, trace.append("completed"))
-          })
-        } yield ()
-
-        res
-
-
-
-        //        for {
-        //          fiber <- ct.start(flow)
-        //          _ <- ct.start(run(fiber, ps, errorHandler)) // run and forget
-        //        } yield ()
+      def runSync(flow: F[Unit],
+                  envelope: Envelope,
+                  ps: ProcessState[F],
+                  errorHandler: Throwable => F[Unit], trace: Trace): F[Unit] = {
+        ct.race(flow, ps.interruption.get).void.handleErrorWith(errorHandler)
       }
 
-      //      def run(fiber: Fiber[F, Unit],
-      //              ps: ProcessState[F],
-      //              errorHandler: Throwable => F[Unit]): F[Unit] = {
-      //        ct.race(fiber.join, ps.interruption.get).flatMap {
-      //          case Left(_) => ct.unit // note: wont be executed if `fiber.join` failed
-      //          case Right(_) => fiber.cancel // process was interrupted, cancel current flow
-      //        }.guarantee(ps.release >> processRefQueue.enqueue(ps.process.ref))
-      //          .handleErrorWith(errorHandler) // error handling should not be interrupted even if the process was interrupted
-      //      }
 
       private def handleError(process: Process[F], envelope: Envelope, cause: Throwable): F[Unit] = {
         val event = envelope.event
@@ -471,7 +467,7 @@ object Scheduler {
         event match {
           case f: Failure =>
             ct.delay(logger.error(s"process $process has failed to handle Failure event. send to deadletter", cause)) >>
-              sendToDeadLetter(DeadLetter(f), context,interpreter)
+              sendToDeadLetter(DeadLetter(f), context, interpreter)
           case _ =>
             val errMsg = s"process $process has failed to handle event: $event"
             ct.delay(logger.error(errMsg, cause)) >>
