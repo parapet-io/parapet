@@ -2,7 +2,7 @@ package io.parapet
 
 import cats.effect._
 import io.parapet.catsnstances.all._
-import io.parapet.core.{Context, DslInterpreter, ParAsync, Parallel}
+import io.parapet.core.{Context, DslInterpreter, Parallel}
 
 import scala.concurrent.ExecutionContext
 
@@ -13,7 +13,6 @@ trait CatsApp extends ParApp[IO] {
   implicit lazy val contextShift: ContextShift[IO] = IO.contextShift(ec)
   override lazy val ct: Concurrent[IO] = Concurrent[IO]
   override lazy val parallel: Parallel[IO] = Parallel[IO]
-  override lazy val parAsync: ParAsync[IO] = ParAsync[IO]
   implicit lazy val timer: Timer[IO] = IO.timer(ec)
 
   override def flowInterpreter(context: Context[IO]): DslInterpreter.Interpreter[IO] = {

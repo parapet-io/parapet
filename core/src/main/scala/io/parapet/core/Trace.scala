@@ -9,9 +9,15 @@ import io.parapet.core.Trace._
   * @param delimiter delimiter used to concatenate strings
   * @param trace     thunk that produces a message
   */
-case class Trace(delimiter: String, private val trace: MsgThunk[String], private val _id: String) {
+case class Trace(delimiter: String, private var trace: MsgThunk[String], private val _id: String) {
 
   def id: String = _id
+
+  private lazy val _value: String = {
+    val tmp = trace.value
+    trace = Monad[MsgThunk].pure("") // to fix OOM
+    tmp
+  }
 
   // pure
   def append(f: => Any): Trace = {
@@ -27,7 +33,7 @@ case class Trace(delimiter: String, private val trace: MsgThunk[String], private
     * @return trace message
     */
   def value: String = {
-    if (DEBUG_MODE) trace.value
+    if (DEBUG_MODE) _value
     else "Tracing is disabled"
   }
 

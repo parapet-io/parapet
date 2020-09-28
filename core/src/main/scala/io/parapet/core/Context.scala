@@ -113,7 +113,7 @@ object Context {
     }
 
     def waitForCompletion: F[Unit] = {
-      signals.get().map(d => d.get >> ct.delay(println("completed"))).sequence_
+      signals.get().map(d => d.get).sequence_
     }
 
     def clear: F[Unit] = {

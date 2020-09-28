@@ -18,73 +18,6 @@ import io.parapet.core.Scheduler._
 import io.parapet.core.exceptions._
 import org.slf4j.LoggerFactory
 
-/*
-  NQ - notification queue
-  PQ - process queue
-  flow:
-  (1) Scheduler.submit(deliver)
-    (1.1) add to PQ
-    (1.2) check a process's lock
-      - if lock is already taken
-           increment lock count and return true
-        else
-           return false
-    if (1.1) false, add pref to NQ
-  (2) Worker dequeues pref from NQ
-    (2.1) acquire a process lock
-    (2.2) if (2.1) = true
-            asynchronously process event
-          else
-            go to (2)
-
-
-
- lock states: Ø lock is not taken. 0...n lock is taken
- syntax:
- {action} -> result |  result, {new_state}
-
- NQ - notification queue
- e - event
- ex - execution
- p - process
- w - worker
- e1 ~> p1 - Scheduler.submit(e1, p1)
-
- Invariants:
- 1.)
- // given
- processes: [p1]
- workers: [w1, w2]
- NQ - empty
- p1.lock = Ø
-
- // executions
- e1 ~> p1
-    p1.queue.add(e1) -> true, {p1.queue=[e1]}
-    p1.lock.acquired -> false
-    NQ.add(p1) -> (), {PQ=[p1]}
- w1 removes p1 from NQ -> p1, {NQ=[]}
-   w1 p1.lock.acquire -> true, {p1.lock=0}
-   w1 removes e1 from p1.queue -> e1, {p1.queue=[]}
-   w1 submitted task to p1 for execution -> exe1
- e2 ~> p1
-    p1.queue.add(e2) -> true, {p1.queue=[e2]}
-    p1.lock.acquired -> true, {p1.lock=1}
- (w1 | w2) removes p1 from PQ -> p1, {PQ=[]}
-    w1 p1.lock.acquire -> false, {p1.lock=1}
- exe1 completed
-    p1.lock.release -> lock_count=1, {p1.lock=Ø}
-    if lock_count > 0
-       NQ.add(p1) -> (), {PQ=[p1]}
-
-
- sometimes lock released with value  == 0, no interference, no  notification
- but there are more messages waiting in the queue
- example:  immediately terminates process and delivers Stop event
- use release only for the case when pq.queue is Ø
- otherwise always use  release2
-
- */
 trait Scheduler[F[_]] {
   def start: F[Unit]
 
@@ -104,7 +37,7 @@ object Scheduler {
 
   type TaskQueue[F[_]] = Queue[F, Task[F]]
 
-  def apply[F[_] : Concurrent : Timer : ParAsync : Parallel : ContextShift](config: SchedulerConfig,
+  def apply[F[_] : Concurrent : Timer : Parallel : ContextShift](config: SchedulerConfig,
                                                                             context: Context[F],
                                                                             interpreter: Interpreter[F]): F[Scheduler[F]] = {
     SchedulerImpl(config, context, interpreter)
@@ -116,7 +49,7 @@ object Scheduler {
 
   object SchedulerConfig {
     val default: SchedulerConfig = SchedulerConfig(
-      numberOfWorkers = 2)
+      numberOfWorkers = Runtime.getRuntime.availableProcessors())
   }
 
   // todo temporary solution
@@ -166,7 +99,7 @@ object Scheduler {
 
   import SchedulerImpl._
 
-  class SchedulerImpl[F[_] : Concurrent : Timer : ParAsync : Parallel : ContextShift](
+  class SchedulerImpl[F[_] : Concurrent : Timer : Parallel : ContextShift](
                                                                                        config: SchedulerConfig,
                                                                                        context: Context[F],
                                                                                        processRefQueue: Queue[F, Signal],
@@ -269,7 +202,7 @@ object Scheduler {
 
   object SchedulerImpl {
 
-    def apply[F[_] : Concurrent : Timer : ParAsync : Parallel : ContextShift](
+    def apply[F[_] : Concurrent : Timer : Parallel : ContextShift](
                                                                                config: SchedulerConfig,
                                                                                context: Context[F],
                                                                                interpreter: Interpreter[F]): F[Scheduler[F]] =
@@ -284,7 +217,7 @@ object Scheduler {
 
     val pLockHistory: java.util.Map[ProcessRef, Trace] = new ConcurrentHashMap() // todo tmp solution for troubleshooting
 
-    class Worker[F[_] : Concurrent : Timer : ParAsync : Parallel : ContextShift](name: String,
+    class Worker[F[_] : Concurrent : Timer : Parallel : ContextShift](name: String,
                                                                                  context: Context[F],
                                                                                  processRefQueue: Queue[F, Signal],
                                                                                  interpreter: Interpreter[F]) {
@@ -340,7 +273,6 @@ object Scheduler {
                 _ <- deliver(ps, t.envelope, nextTrace)
                 size <- ps.blocking.size
                 _ <- if (size > 0) {
-                  ct.delay(println(s"blocking size = $size")) >>
                   waitForCompletion(t, ps, nextTrace.append(s"worker[$name]::waitForCompletion(${ps.process})"))
                 } else {
                   step

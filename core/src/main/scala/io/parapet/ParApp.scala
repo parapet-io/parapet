@@ -8,7 +8,7 @@ import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.core.{Context, EventLog, ParAsync, Parallel, Process, ProcessRef, Scheduler}
+import io.parapet.core.{Context, EventLog, Parallel, Process, ProcessRef, Scheduler}
 import io.parapet.syntax.FlowSyntax
 import org.slf4j.LoggerFactory
 
@@ -26,8 +26,6 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
   implicit def contextShift: ContextShift[F]
 
   implicit def ct: Concurrent[F]
-
-  implicit def parAsync: ParAsync[F]
 
   implicit def parallel: Parallel[F]
 

@@ -2,7 +2,7 @@ package io.parapet
 
 package object catsnstances {
 
-  object all extends ParallelInstances with ParAsyncInstances
+  object all extends ParallelInstances
 
   object parallel extends ParallelInstances
 
