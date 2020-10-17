@@ -83,7 +83,7 @@ abstract class EventDeliverySpec[F[_]]
     eventStore.get(consumer.ref) shouldBe Seq(NumEvent(1))
   }
 
-  "Event" should "be evaluated eagerly using syntax" in {
+  "Event" should "be evaluated lazily using syntax" in {
 
     var i = 0
     val eventStore = new EventStore[F, NumEvent]
@@ -100,7 +100,7 @@ abstract class EventDeliverySpec[F[_]]
 
     unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(producer, consumer))).run))
 
-    eventStore.get(consumer.ref) shouldBe Seq(NumEvent(0))
+    eventStore.get(consumer.ref) shouldBe Seq(NumEvent(1))
   }
 
   "Unmatched event" should "be sent to deadletter" in {

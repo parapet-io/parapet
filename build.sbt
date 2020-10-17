@@ -208,7 +208,7 @@ def testUntilFailed = Command.args("testUntilFailed", "") { (state, args) =>
   s"testOnly $argsList" :: s"testUntilFailed $argsList" :: state
 }
 
-commands += testUntilFailed
+ThisBuild / commands += testUntilFailed
 
 parallelExecution in Test := false
 parallelExecution in Slow := false

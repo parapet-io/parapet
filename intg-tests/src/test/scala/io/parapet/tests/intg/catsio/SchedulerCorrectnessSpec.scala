@@ -21,6 +21,5 @@ class SchedulerCorrectnessSpec extends io.parapet.tests.intg.SchedulerCorrectnes
     }
   }
 
-  override def interpreter(context: Context[IO]): IO[DslInterpreter.Interpreter[IO]] =
-    IO.pure(DslInterpreter[IO](context))
+  override def interpreter(context: Context[IO]): DslInterpreter.Interpreter[IO] = DslInterpreter[IO](context)
 }

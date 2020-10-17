@@ -5,13 +5,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import io.parapet.core.Event._
-import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.tests.intg.ProcessLifecycleSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
-import org.scalatest.OptionValues._
 
 import scala.concurrent.duration._
 
@@ -126,29 +124,28 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
 
   }
 
-  //  fixme
-//  "Kill process" should "immediately terminates process and delivers Stop event" in {
-//    val eventStore = new EventStore[F, Event]
-//    val longRunningProcess: Process[F] = new Process[F] {
-//      override val ref: ProcessRef = ProcessRef("longRunningProcess")
-//
-//      override def handle: Receive = {
-//        case Start => unit
-//        case Pause => delay(5.minutes)
-//        case Stop => eval(println("received Stop event")) ++ eval(eventStore.add(ref, Stop))
-//        case e => eval(eventStore.add(ref, e))
-//      }
-//    }
-//
-//    val init = onStart(Seq(Pause, TestEvent, TestEvent, TestEvent) ~> longRunningProcess.ref ++
-//      delay(1.second, Kill ~> longRunningProcess.ref))
-//
-//
-//    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, longRunningProcess))).run))
-//    eventStore.get(longRunningProcess.ref) shouldBe Seq(Stop)
-//    eventStore.size shouldBe 1
-//
-//  }
+  "Kill process" should "immediately terminates process and delivers Stop event" in {
+    val eventStore = new EventStore[F, Event]
+    val longRunningProcess: Process[F] = new Process[F] {
+      override val ref: ProcessRef = ProcessRef("longRunningProcess")
+
+      override def handle: Receive = {
+        case Start => unit
+        case Pause => eval(while (true) {})
+        case Stop => eval(println("received Stop event")) ++ eval(eventStore.add(ref, Stop))
+        case e => eval(eventStore.add(ref, e))
+      }
+    }
+
+    val init = onStart(Seq(Pause, TestEvent, TestEvent, TestEvent) ~> longRunningProcess.ref ++
+      delay(1.second) ++ Kill ~> longRunningProcess.ref)
+
+
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, longRunningProcess))).run))
+    eventStore.get(longRunningProcess.ref) shouldBe Seq(Stop)
+    eventStore.size shouldBe 1
+
+  }
 
   "Stop" should "deliver Stop event and remove process" in {
     val eventStore = new EventStore[F, Event]
@@ -168,59 +165,59 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
     eventStore.get(process.ref) shouldBe Seq(TestEvent, TestEvent, Stop)
 
   }
-//  todo revisit
-//  "An attempt to kill a process more than once" should "return error" in {
-//    val eventStore = new EventStore[F, DeadLetter]
-//    val deadLetter = new DeadLetterProcess[F] {
-//      def handle: Receive = {
-//        case DeadLetter(Envelope(_, Start, _), _) =>
-//          // Start event can be interrupted concurrently. ignore
-//          unit
-//        case f@DeadLetter(Envelope(_, Kill, _), _) =>
-//          eval(eventStore.add(ref, f))
-//        case f@DeadLetter(Envelope(_, Stop, _), _) =>
-//          // in the case of interleaving (Kill->Stop) events.
-//          eval(eventStore.add(ref, f))
-//        case e => eval(println(e))
-//      }
-//    }
-//
-//    val process: Process[F] = new Process[F] {
-//      override val ref: ProcessRef = ProcessRef("process")
-//
-//      override def handle: Receive = {
-//        case _ => unit
-//      }
-//    }
-//
-//    val init = onStart(Seq(Kill, Kill) ~> process)
-//    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, process)), Some(ct.pure(deadLetter))).run))
-//
-//  }
+  //  todo revisit
+  //  "An attempt to kill a process more than once" should "return error" in {
+  //    val eventStore = new EventStore[F, DeadLetter]
+  //    val deadLetter = new DeadLetterProcess[F] {
+  //      def handle: Receive = {
+  //        case DeadLetter(Envelope(_, Start, _), _) =>
+  //          // Start event can be interrupted concurrently. ignore
+  //          unit
+  //        case f@DeadLetter(Envelope(_, Kill, _), _) =>
+  //          eval(eventStore.add(ref, f))
+  //        case f@DeadLetter(Envelope(_, Stop, _), _) =>
+  //          // in the case of interleaving (Kill->Stop) events.
+  //          eval(eventStore.add(ref, f))
+  //        case e => eval(println(e))
+  //      }
+  //    }
+  //
+  //    val process: Process[F] = new Process[F] {
+  //      override val ref: ProcessRef = ProcessRef("process")
+  //
+  //      override def handle: Receive = {
+  //        case _ => unit
+  //      }
+  //    }
+  //
+  //    val init = onStart(Seq(Kill, Kill) ~> process)
+  //    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, process)), Some(ct.pure(deadLetter))).run))
+  //
+  //  }
 
   // todo revisit
-//  "An attempt to send Stop event more than once" should "return error" in {
-//    val eventStore = new EventStore[F, DeadLetter]
-//    val deadLetter = new DeadLetterProcess[F] {
-//      def handle: Receive = {
-//        case f: DeadLetter => eval(eventStore.add(ref, f))
-//      }
-//    }
-//
-//    val process: Process[F] = new Process[F] {
-//      override def handle: Receive = {
-//        case _ => unit
-//      }
-//    }
-//
-//    val init = onStart(Seq(Stop, Stop) ~> process)
-//
-//    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, process)), Some(ct.pure(deadLetter))).run))
-//
-//    eventStore.get(deadLetter.ref).headOption.value should matchPattern {
-//      case DeadLetter(Envelope(TestSystemRef, Stop, process.`ref`), _) =>
-//    }
-//  }
+  //  "An attempt to send Stop event more than once" should "return error" in {
+  //    val eventStore = new EventStore[F, DeadLetter]
+  //    val deadLetter = new DeadLetterProcess[F] {
+  //      def handle: Receive = {
+  //        case f: DeadLetter => eval(eventStore.add(ref, f))
+  //      }
+  //    }
+  //
+  //    val process: Process[F] = new Process[F] {
+  //      override def handle: Receive = {
+  //        case _ => unit
+  //      }
+  //    }
+  //
+  //    val init = onStart(Seq(Stop, Stop) ~> process)
+  //
+  //    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, process)), Some(ct.pure(deadLetter))).run))
+  //
+  //    eventStore.get(deadLetter.ref).headOption.value should matchPattern {
+  //      case DeadLetter(Envelope(TestSystemRef, Stop, process.`ref`), _) =>
+  //    }
+  //  }
 
 }
 

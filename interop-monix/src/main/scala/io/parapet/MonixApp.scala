@@ -18,7 +18,7 @@ trait MonixApp extends ParApp[Task] {
   override lazy val parallel: Parallel[Task] = Parallel[Task]
   implicit lazy val timer: Timer[Task] = Task.timer(scheduler)
 
-  override def flowInterpreter(context: Context[Task]): DslInterpreter.Interpreter[Task] =
+  override def interpreter(context: Context[Task]): DslInterpreter.Interpreter[Task] =
     DslInterpreter[Task](context)
 
   override def unsafeRun(task: Task[Unit]): Unit = {

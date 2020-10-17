@@ -27,7 +27,7 @@ trait ZioApp extends ParApp[Task] with DefaultRuntime {
 
   override lazy val timer: Timer[Task] = Timer[Task]
 
-  override def flowInterpreter(context: Context[Task]): DslInterpreter.Interpreter[Task] =
+  override def interpreter(context: Context[Task]): DslInterpreter.Interpreter[Task] =
     DslInterpreter[Task](context)
 
   override def unsafeRun(task: Task[Unit]): Unit = {

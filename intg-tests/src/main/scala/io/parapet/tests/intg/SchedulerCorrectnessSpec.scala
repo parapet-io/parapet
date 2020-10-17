@@ -4,7 +4,6 @@ import java.util.concurrent.TimeUnit
 
 import cats.effect.Concurrent
 import cats.implicits._
-import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Event._
 import io.parapet.core.Scheduler._
 import io.parapet.core.{Context, Event, EventLog, Parapet, Process, ProcessRef, Scheduler}
@@ -24,8 +23,6 @@ import scala.util.Random
 
 
 abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
-
-  def interpreter(context: Context[F]): F[Interpreter[F]]
 
   test("scheduler correctness under normal conditions", Slow, Correctness) {
     val specs = Seq(
@@ -199,8 +196,7 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
       val program = for {
         context <- Context[F](Parapet.ParConfig(processBufferSize = -1,
           schedulerConfig = spec.config), EventLog.stub)(ct, contextShift)
-        it <- interpreter(context)
-        scheduler <- Scheduler[F](spec.config, context, it)
+        scheduler <- Scheduler[F](spec.config, context, interpreter(context))
         fiber <- ct.start(scheduler.start)
         _ <- context.start(scheduler)
         _ <- context.registerAll(ProcessRef.SystemRef, processes.toList)

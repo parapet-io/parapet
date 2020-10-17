@@ -53,7 +53,7 @@ class Channel[F[_] : Concurrent] extends Process[F] {
   def handle: Receive = waitForRequest
 
   /**
-    * Sends an event to the receiver and blocks asynchronously until it receives a response.
+    * Sends an event to the receiver and blocks until it receives a response.
     *
     * @param event    the event to send
     * @param receiver the receiver

@@ -273,7 +273,7 @@ object Scheduler {
                 _ <- deliver(ps, t.envelope, nextTrace)
                 size <- ps.blocking.size
                 _ <- if (size > 0) {
-                  waitForCompletion(t, ps, nextTrace.append(s"worker[$name]::waitForCompletion(${ps.process})"))
+                  waitForCompletion(t, ps, nextTrace.append(s"worker[$name]::waitForCompletion(${ps.process}), size = $size"))
                 } else {
                   step
                 }
@@ -343,7 +343,7 @@ object Scheduler {
                    // releaseAndNotify(ps, thisTrace.append("terminated"))
                 case _ =>
                   if (process.canHandle(event)) {
-                    val transform = interpreter.create(sender, ps)
+                    val transform = interpreter.interpret(sender, ps)
 
                     for {
                       flow <- ct.delay(process(event))
@@ -424,7 +424,7 @@ object Scheduler {
                                         event: Event,
                                         receiver: ProcessState[F],
                                         interpreter: Interpreter[F])(implicit flowDsl: FlowOps[F, Dsl[F, ?]]): F[Unit] = {
-      flowDsl.send(event, receiver.process.ref).foldMap[F](interpreter.create(sender, receiver))
+      flowDsl.send(event, receiver.process.ref).foldMap[F](interpreter.interpret(sender, receiver))
     }
 
     private def deliverStopEvent[F[_] : Concurrent](sender: ProcessRef,
@@ -432,7 +432,7 @@ object Scheduler {
                                                     interpreter: Interpreter[F]): F[Unit] = {
       val ct = implicitly[Concurrent[F]]
       if (ps.process.canHandle(Stop)) {
-        ps.process(Stop).foldMap[F](interpreter.create(sender, ps))
+        ps.process(Stop).foldMap[F](interpreter.interpret(sender, ps))
       } else {
         ct.unit
       }

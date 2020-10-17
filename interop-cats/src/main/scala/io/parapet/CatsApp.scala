@@ -15,7 +15,7 @@ trait CatsApp extends ParApp[IO] {
   override lazy val parallel: Parallel[IO] = Parallel[IO]
   implicit lazy val timer: Timer[IO] = IO.timer(ec)
 
-  override def flowInterpreter(context: Context[IO]): DslInterpreter.Interpreter[IO] = {
+  override def interpreter(context: Context[IO]): DslInterpreter.Interpreter[IO] = {
     DslInterpreter[IO](context)
   }
 

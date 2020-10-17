@@ -12,7 +12,7 @@ import io.parapet.core.Scheduler.{Deliver, ProcessQueueIsFull}
 object DslInterpreter {
 
   trait Interpreter[F[_]] {
-    def create(sender: ProcessRef, ps: ProcessState[F]): FlowOp[F, *] ~> F
+    def interpret(sender: ProcessRef, ps: ProcessState[F]): FlowOp[F, *] ~> F
   }
 
   def apply[F[_] : Concurrent : Timer](context: Context[F]): Interpreter[F] = new Impl(context)
@@ -21,7 +21,7 @@ object DslInterpreter {
     private val ct = implicitly[Concurrent[F]]
     private val timer = implicitly[Timer[F]]
 
-    def create(sender: ProcessRef, ps: ProcessState[F]): FlowOp[F, *] ~> F =
+    def interpret(sender: ProcessRef, ps: ProcessState[F]): FlowOp[F, *] ~> F =
       new (FlowOp[F, *] ~> F) {
         override def apply[A](fa: FlowOp[F, A]): F[A] = {
           fa match {
@@ -32,16 +32,16 @@ object DslInterpreter {
               receivers.map(receiver => send(Envelope(ps.process.ref, event(), receiver))).toList.sequence_
             //--------------------------------------------------------------
             case reply: WithSender[F, Dsl[F, ?], A]@unchecked =>
-              reply.f(sender).foldMap[F](create(sender, ps))
+              reply.f(sender).foldMap[F](interpret(sender, ps))
             //--------------------------------------------------------------
             case Forward(event, receivers) =>
               receivers.map(receiver => send(Envelope(sender, event(), receiver))).toList.sequence_
             //--------------------------------------------------------------
             case par: Par[F, Dsl[F, ?]]@unchecked =>
-              par.flow.foldMap[F](create(sender, ps))
+              par.flow.foldMap[F](interpret(sender, ps))
             //--------------------------------------------------------------
             case fork: Fork[F, Dsl[F, ?]]@unchecked =>
-              ct.start(fork.flow.foldMap[F](create(sender, ps))).void
+              ct.start(fork.flow.foldMap[F](interpret(sender, ps))).void
             //--------------------------------------------------------------
             case delay: Delay[F]@unchecked =>
               timer.sleep(delay.duration)
@@ -53,18 +53,18 @@ object DslInterpreter {
               ct.suspend(suspend.thunk())
             //--------------------------------------------------------------
             case suspend: SuspendF[F, Dsl[F, ?], A]@unchecked =>
-              ct.suspend(suspend.thunk().foldMap[F](create(sender, ps)))
+              ct.suspend(suspend.thunk().foldMap[F](interpret(sender, ps)))
             //--------------------------------------------------------------
             case race: Race[F, Dsl[F, ?], Any, Any] =>
-              val fa = race.first.foldMap[F](create(sender, ps))
-              val fb = race.second.foldMap[F](create(sender, ps))
+              val fa = race.first.foldMap[F](interpret(sender, ps))
+              val fb = race.second.foldMap[F](interpret(sender, ps))
               ct.race(fa, fb)
             //--------------------------------------------------------------
             case blocking: Blocking[F, Dsl[F, ?], A] => {
               for {
                 d <- Deferred[F, Unit]
                 _ <- ps.blocking.add(d)
-                _ <- ct.start(blocking.body().foldMap[F](create(sender, ps)).flatMap(_ => d.complete(())))
+                _ <- ct.start(blocking.body().foldMap[F](interpret(sender, ps)).flatMap(_ => d.complete(())))
               } yield ()
             }
             //--------------------------------------------------------------
