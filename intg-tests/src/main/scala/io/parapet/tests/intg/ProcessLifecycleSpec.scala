@@ -132,7 +132,7 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
       override def handle: Receive = {
         case Start => unit
         case Pause => eval(while (true) {})
-        case Stop => eval(println("received Stop event")) ++ eval(eventStore.add(ref, Stop))
+        case Stop => eval(eventStore.add(ref, Stop))
         case e => eval(eventStore.add(ref, e))
       }
     }

@@ -23,9 +23,7 @@ abstract class ChannelSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
     val numOfRequests = 5
 
     val server = Process.builder[F](_ => {
-      case Request(seq) =>
-        eval(println(s"server received $seq")) ++
-          withSender(sender => Response(seq) ~> sender)
+      case Request(seq) => withSender(sender => Response(seq) ~> sender)
     }).name("server").ref(ProcessRef("server")).build
 
     val client: Process[F] = new Process[F] {

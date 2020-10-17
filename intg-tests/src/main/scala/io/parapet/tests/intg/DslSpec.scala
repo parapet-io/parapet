@@ -43,7 +43,7 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
         val eventStore = new EventStore[F, Request]
 
         val consumer = Process.builder[F](ref => {
-          case req: Request => eval(println(s"client received $req")) ++ eval(eventStore.add(ref, req))
+          case req: Request => eval(eventStore.add(ref, req))
         }).ref(ProcessRef("consumer")).build
 
         val producer = Process.builder[F](_ => {
@@ -119,7 +119,6 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
 
         val consumer = Process.builder[F](ref => {
           case req: Request => eval(eventStore.add(ref, req))
-          case e => eval(println(s"consumer[$ref] received: $e"))
         }).ref(consumerRef).build
 
         val producer = Process.builder[F](_ => {
