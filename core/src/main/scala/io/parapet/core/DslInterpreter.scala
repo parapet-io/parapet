@@ -31,7 +31,7 @@ object DslInterpreter {
             case Send(event, receivers) =>
               receivers.map(receiver => send(Envelope(ps.process.ref, event(), receiver))).toList.sequence_
             //--------------------------------------------------------------
-            case reply: WithSender[F, Dsl[F, ?]]@unchecked =>
+            case reply: WithSender[F, Dsl[F, ?], A]@unchecked =>
               reply.f(sender).foldMap[F](create(sender, ps))
             //--------------------------------------------------------------
             case Forward(event, receivers) =>
@@ -43,11 +43,8 @@ object DslInterpreter {
             case fork: Fork[F, Dsl[F, ?]]@unchecked =>
               ct.start(fork.flow.foldMap[F](create(sender, ps))).void
             //--------------------------------------------------------------
-            case delay: Delay[F, Dsl[F, ?]]@unchecked =>
-              delay.flow match {
-                case Some(_) => ct.raiseError(new UnsupportedOperationException("delay(time, flow) is not supported"))
-                case None => timer.sleep(delay.duration)
-              }
+            case delay: Delay[F]@unchecked =>
+              timer.sleep(delay.duration)
             //--------------------------------------------------------------
             case eval: Eval[F, Dsl[F, ?], A]@unchecked =>
               ct.delay(eval.thunk())

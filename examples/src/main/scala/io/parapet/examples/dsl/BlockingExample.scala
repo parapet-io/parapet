@@ -1,34 +1,20 @@
 package io.parapet.examples.dsl
 
 import cats.effect.IO
-import cats.syntax.flatMap._
 import io.parapet.CatsApp
 import io.parapet.core.Event.Start
 import io.parapet.core.Process
 
-import scala.concurrent.duration._
-
 object BlockingExample extends CatsApp {
 
-  class Service {
-    def blockingCall: IO[String] = IO.sleep(1.second) >> IO("data")
-  }
+  import dsl._
 
-  class Client extends Process[IO] {
-
-    import dsl._
-
-    private lazy val service = new Service()
-
+  class BlockingProcess extends Process[IO] {
     override def handle: Receive = {
-      case Start =>
-        for {
-          data <- suspend(service.blockingCall)
-          _ <- eval(println(data))
-        } yield ()
+      case Start => blocking(eval(while (true) {})) ++ eval(println("now"))
     }
   }
 
 
-  override def processes: IO[Seq[Process[IO]]] = IO(Seq(new Client))
+  override def processes: IO[Seq[Process[IO]]] = IO(Seq(new BlockingProcess))
 }

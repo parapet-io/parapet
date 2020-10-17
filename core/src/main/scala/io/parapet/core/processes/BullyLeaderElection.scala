@@ -189,7 +189,7 @@ class BullyLeaderElection[F[_] : Concurrent](
     case e@Command(Answer(_)) =>
       eval(logger.mdc(createMdc(e)) { _ =>
         logger.debug("received Election")
-      }) ++ switchToWaitForCoordinator ++ fork(delay(coordinatorDelay, CoordinatorTimeout ~> ref))
+      }) ++ switchToWaitForCoordinator ++ fork(delay(coordinatorDelay) ++ CoordinatorTimeout ~> ref) // fixme: never executed
     case e@AnswerTimeout =>
       val mdcFields = createMdc(e)
       eval(logger.mdc(mdcFields) { _ =>
@@ -259,7 +259,7 @@ class BullyLeaderElection[F[_] : Concurrent](
             }) ++
               neighbors.values().asScala.map(p =>
                 Send(p.uuid, Election(me.id)) ~> peerProcess).fold(unit)(_ ++ _) ++
-              switchToWaitForAnswer ++ fork(delay(answerDelay, AnswerTimeout ~> ref))
+              switchToWaitForAnswer ++ fork(delay(answerDelay) ++ AnswerTimeout ~> ref) // fixme never executed
           }
         }
       }

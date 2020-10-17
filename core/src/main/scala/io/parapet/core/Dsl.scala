@@ -21,9 +21,9 @@ object Dsl {
 
   case class Par[F[_], G[_]](flow: Free[G, Unit]) extends FlowOp[F, Unit]
 
-  case class Delay[F[_], G[_]](duration: FiniteDuration, flow: Option[Free[G, Unit]]) extends FlowOp[F, Unit]
+  case class Delay[F[_]](duration: FiniteDuration) extends FlowOp[F, Unit]
 
-  case class WithSender[F[_], G[_]](f: ProcessRef => Free[G, Unit]) extends FlowOp[F, Unit]
+  case class WithSender[F[_], G[_], A](f: ProcessRef => Free[G, A]) extends FlowOp[F, A]
 
   case class Fork[F[_], G[_]](flow: Free[G, Unit]) extends FlowOp[F, Unit]
 
@@ -107,7 +107,7 @@ object Dsl {
     def flow[A](f: => Free[C, A]): Free[C, A] = Free.inject[FlowOp[F, ?], C](SuspendF(() => f))
 
     /**
-      * Sends an event to one or more receivers.
+      * Lazily constructs and sends an event to one or more receivers.
       * Event must be delivered to all receivers in the specified order.
       *
       * Example:
@@ -118,7 +118,7 @@ object Dsl {
       *
       * `Ping` event will be sent to the `processA` then `processB` and finally `processC`.
       * It's not guaranteed that `processA` will receive `Ping` event before `processC`
-      * as it depends on it's processing speed and current workload.
+      * as it depends on it's processing speed and the current workload.
       *
       * @param e        event to send
       * @param receiver the receiver
@@ -174,38 +174,7 @@ object Dsl {
     def par(flows: Free[C, Unit]*): Free[C, Unit] = flows.map(fork).fold(unit)((a, b) => a.flatMap(_ => b))
 
     /**
-      * Delays every operation in the given flow for the given duration.
-      *
-      * For sequential flows the flowing expressions are semantically equivalent:
-      * {{{
-      *   delay(duration, x~>p ++ y~>p) <-> delay(duration, x~>p) ++ delay(duration, y~>p)
-      *   delay(duration, x~>p ++ y~>p) <-> delay(duration) ++ x~>p ++ delay(duration) ++ y~>p
-      * }}}
-      *
-      * For parallel flows:
-      *
-      * {{{
-      *    delay(duration, par(x~>p ++ y~>p)) <-> delay(duration) ++ par(x~>p ++ y~>p)
-      * }}}
-      *
-      * Note: since the following flow will be executed in parallel the second operation won't be delayed
-      *
-      * {{{
-      *    par(delay(duration) ++ eval(print(1)))
-      * }}}
-      *
-      * Instead use {{{ par(delay(duration, eval(print(1)))) }}}
-      *
-      * @param duration is the time span to wait before executing flow operations
-      * @param flow     the flow which operations should be delayed
-      * @return Unit
-      */
-    @deprecated
-    def delay(duration: FiniteDuration, flow: Free[C, Unit]): Free[C, Unit] =
-      Free.inject[FlowOp[F, ?], C](Delay(duration, Some(flow)))
-
-    /**
-      * Delays any operation that follows this operation.
+      * Delays any operation that follows this operator.
       *
       * Example:
       *
@@ -216,7 +185,7 @@ object Dsl {
       * @param duration is the time span to wait before executing next operation
       * @return Unit
       */
-    def delay(duration: FiniteDuration): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Delay(duration, None))
+    def delay(duration: FiniteDuration): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Delay(duration))
 
     /**
       * Accepts a callback function that takes a sender reference and produces a new flow.
@@ -235,9 +204,10 @@ object Dsl {
       * }}}
       *
       * @param f a callback function
-      * @return Unit
+      * @tparam A value type
+      * @return a value
       */
-    def withSender(f: ProcessRef => Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](WithSender(f))
+    def withSender[A](f: ProcessRef => Free[C, A]): Free[C, A] = Free.inject[FlowOp[F, ?], C](WithSender(f))
 
     /**
       * Executes the given flow concurrently.
@@ -251,6 +221,8 @@ object Dsl {
       * }}}
       *
       * Possible outputs: {{{  12 or 21  }}}
+      *
+      * NOTE: it's a fire and forget operator, a process can receive new events immediately
       *
       * @param flow the flow to run concurrently
       * @return Unit
@@ -284,7 +256,7 @@ object Dsl {
       *
       * @param first  the first flow
       * @param second the second flow
-      * @return Unit
+      * @return either[A, B]
       */
     def race[A, B](first: Free[C, A], second: Free[C, B]): Free[C, Either[A, B]] =
       Free.inject[FlowOp[F, ?], C](Race(first, second))
@@ -296,7 +268,7 @@ object Dsl {
       *
       * @param thunk an effect
       * @tparam A value type
-      * @return Unit
+      * @return value
       */
     def suspend[A](thunk: => F[A]): Free[C, A] = Free.inject[FlowOp[F, ?], C](Suspend(() => thunk))
 
@@ -305,10 +277,35 @@ object Dsl {
       *
       * @param thunk a side effect
       * @tparam A value type
-      * @return Unit
+      * @return value
       */
     def eval[A](thunk: => A): Free[C, A] = Free.inject[FlowOp[F, ?], C](Eval(() => thunk))
 
+    /**
+      * Asynchronously executes a flow produced by the given thunk w/o blocking a worker.
+      *
+      * Example:
+      * {{{
+      *
+      *   class BlockingProcess extends Process[IO] {
+      *     override def handle: Receive = {
+      *       case Start => blocking(eval(while (true) {})) ++ eval(println("now"))
+      *     }
+      *   }
+      *
+      * }}}
+      *
+      *
+      * output {{{ now }}}
+      *
+      * Note: there is a significant difference between fork and blocking. fork is fire and forget ,
+      * i.e. a process will be available for new events; however, when using blocking it wont receive any events until an
+      * operation withing blocking is completed.
+      *
+      * @param thunk blocking code
+      * @tparam A value type
+      * @return Unit
+      */
     def blocking[A](thunk: => Free[C, A]): Free[C, Unit] =
       Free.inject[FlowOp[F, ?], C](Blocking(() => thunk))
   }

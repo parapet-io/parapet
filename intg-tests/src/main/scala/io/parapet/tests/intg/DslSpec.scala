@@ -89,7 +89,12 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
         val eventStore = new EventStore[F, Response]
 
         val server = Process[F](_ => {
-          case Request(data) => withSender(sender => Response(s"echo-$data") ~> sender)
+          case Request(data) => {
+            for {
+              sender <- withSender(sender => eval(sender))
+              _ <- Response(s"echo-$data") ~> sender
+            } yield ()
+          }
         })
 
         val client: Process[F] = Process[F](ref => {
