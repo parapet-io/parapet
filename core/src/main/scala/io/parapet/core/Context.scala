@@ -3,7 +3,7 @@ package io.parapet.core
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 
 import cats.effect.concurrent.Deferred
-import cats.effect.{Concurrent, ContextShift}
+import cats.effect.{Concurrent, ContextShift, Fiber}
 import cats.implicits._
 import io.parapet.core.Context._
 import io.parapet.core.Event.{Envelope, Start}
@@ -104,16 +104,21 @@ object Context {
     implicitly[Concurrent[F]].delay(new Context[F](config, eventLog))
   }
 
-  class AsyncOps[F[_] : Concurrent] {
-    private val signals = new AtomicReference[List[Deferred[F, Unit]]](List.empty)
+
+  case class BlockingOp[F[_] : Concurrent](fiber: Fiber[F, Unit], deferred: Deferred[F, Unit])
+
+  class AsyncOps[F[_] : Concurrent](process: Process[F]) {
+
+
+    private val signals = new AtomicReference[List[BlockingOp[F]]](List.empty)
     private val ct = implicitly[Concurrent[F]]
 
-    def add(d: Deferred[F, Unit]): F[Unit] = {
-      ct.delay(signals.updateAndGet(l => l :+ d))
+    def add(f: Fiber[F, Unit], d: Deferred[F, Unit]): F[Unit] = {
+      ct.delay(signals.updateAndGet(l => l :+ BlockingOp(f, d)))
     }
 
     def waitForCompletion: F[Unit] = {
-      signals.get().map(d => d.get).sequence_
+      signals.get().map(o => o.deferred.get).sequence_
     }
 
     def clear: F[Unit] = {
@@ -121,6 +126,12 @@ object Context {
     }
 
     def size: F[Int] = ct.pure(signals.get.size)
+
+    def completeAll: F[Unit] = for {
+      _ <- ct.delay(println(s"ps[${process.name}] completing ${signals.get.size}"))
+      _ <- signals.get.map(_.fiber.cancel).sequence_
+      _ <- signals.get.map(_.deferred.complete(())).sequence_
+    } yield ()
   }
 
   class ProcessState[F[_] : Concurrent](
@@ -136,7 +147,7 @@ object Context {
     private[this] val _interrupted: AtomicBoolean = new AtomicBoolean(false)
     private[this] val _stopped: AtomicBoolean = new AtomicBoolean(false)
     private[this] val _suspended: AtomicBoolean = new AtomicBoolean(false)
-    val blocking: AsyncOps[F] = new AsyncOps()
+    val blocking: AsyncOps[F] = new AsyncOps(process)
     private[this] val pLock = new ProcessLock[F](process.ref)
 
     def tryPut(t: Task[F]): F[Boolean] = {

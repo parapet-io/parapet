@@ -38,7 +38,6 @@ abstract class BlockingSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
     eventStore.get(fastProcess.ref).headOption.value shouldBe TestEvent
   }
 
-
   test("multiple blocking") {
     val eventStore = new EventStore[F, Event]
     val total = 10
@@ -58,7 +57,6 @@ abstract class BlockingSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
     eventStore.get(process.ref) shouldBe Seq(NumEvent(10))
 
   }
-
 
 }
 

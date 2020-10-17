@@ -167,7 +167,7 @@ object Dsl {
       *
       * possible outputs: {{{ 12 or 21 }}}
       *
-      * @param flow the flow which operations should be executed in parallel.
+      * @param flows the flow which operations should be executed in parallel.
       * @return Unit
       */
 
@@ -303,7 +303,6 @@ object Dsl {
       * operation withing blocking is completed.
       *
       * @param thunk blocking code
-      * @tparam A value type
       * @return Unit
       */
     def blocking[A](thunk: => Free[C, A]): Free[C, Unit] =

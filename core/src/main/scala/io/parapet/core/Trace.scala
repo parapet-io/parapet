@@ -33,7 +33,7 @@ case class Trace(delimiter: String, private var trace: MsgThunk[String], private
     * @return trace message
     */
   def value: String = {
-    if (DEBUG_MODE) _value
+    if (Parapet.DEBUG_MODE) _value
     else "Tracing is disabled"
   }
 
@@ -41,7 +41,7 @@ case class Trace(delimiter: String, private var trace: MsgThunk[String], private
 }
 
 object Trace {
-  private val DEBUG_MODE = false
+
   type MsgThunk[+A] = Eval[A]
 
   val Empty: Trace = Trace("\n")

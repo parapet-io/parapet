@@ -38,8 +38,8 @@ object Scheduler {
   type TaskQueue[F[_]] = Queue[F, Task[F]]
 
   def apply[F[_] : Concurrent : Timer : Parallel : ContextShift](config: SchedulerConfig,
-                                                                            context: Context[F],
-                                                                            interpreter: Interpreter[F]): F[Scheduler[F]] = {
+                                                                 context: Context[F],
+                                                                 interpreter: Interpreter[F]): F[Scheduler[F]] = {
     SchedulerImpl(config, context, interpreter)
   }
 
@@ -53,8 +53,9 @@ object Scheduler {
   }
 
   // todo temporary solution
-  case class LoggerWrapper[F[_] : Concurrent](logger: Logger, stdio: Boolean = false) {
+  case class LoggerWrapper[F[_] : Concurrent](logger: Logger) {
     private val ct = Concurrent[F]
+    val stdio = Parapet.DEBUG_MODE
 
     def debug(msg: => String): F[Unit] = {
       if (stdio) ct.delay(println(msg))
@@ -100,10 +101,10 @@ object Scheduler {
   import SchedulerImpl._
 
   class SchedulerImpl[F[_] : Concurrent : Timer : Parallel : ContextShift](
-                                                                                       config: SchedulerConfig,
-                                                                                       context: Context[F],
-                                                                                       processRefQueue: Queue[F, Signal],
-                                                                                       interpreter: Interpreter[F]) extends Scheduler[F] {
+                                                                            config: SchedulerConfig,
+                                                                            context: Context[F],
+                                                                            processRefQueue: Queue[F, Signal],
+                                                                            interpreter: Interpreter[F]) extends Scheduler[F] {
 
     private val ct = Concurrent[F]
     private val pa = implicitly[Parallel[F]]
@@ -203,9 +204,9 @@ object Scheduler {
   object SchedulerImpl {
 
     def apply[F[_] : Concurrent : Timer : Parallel : ContextShift](
-                                                                               config: SchedulerConfig,
-                                                                               context: Context[F],
-                                                                               interpreter: Interpreter[F]): F[Scheduler[F]] =
+                                                                    config: SchedulerConfig,
+                                                                    context: Context[F],
+                                                                    interpreter: Interpreter[F]): F[Scheduler[F]] =
       for {
         processRefQueue <- Queue.unbounded[F, Signal](ChannelType.MPMC)
       } yield
@@ -218,9 +219,9 @@ object Scheduler {
     val pLockHistory: java.util.Map[ProcessRef, Trace] = new ConcurrentHashMap() // todo tmp solution for troubleshooting
 
     class Worker[F[_] : Concurrent : Timer : Parallel : ContextShift](name: String,
-                                                                                 context: Context[F],
-                                                                                 processRefQueue: Queue[F, Signal],
-                                                                                 interpreter: Interpreter[F]) {
+                                                                      context: Context[F],
+                                                                      processRefQueue: Queue[F, Signal],
+                                                                      interpreter: Interpreter[F]) {
       private val logger = LoggerWrapper(Logger(LoggerFactory.getLogger(s"parapet-$name")))
       private val ct = implicitly[Concurrent[F]]
 
@@ -257,9 +258,9 @@ object Scheduler {
       private def waitForCompletion(deliver: Deliver[F], ps: ProcessState[F], trace: Trace): F[Unit] = {
         logger.debug(trace.value) >>
           ct.start(
-            runEffect(ps.blocking.waitForCompletion, deliver.envelope, ps,
+            ct.guarantee(runEffect(ps.blocking.waitForCompletion, deliver.envelope, ps,
               err => handleError(ps.process, deliver.envelope, err), trace
-            ) >> ps.blocking.clear >> releaseAndNotify(ps, trace)
+            ))(logger.debug(trace.append("waitForCompletion::done").value) >> ps.blocking.clear >> releaseAndNotify(ps, trace))
           ).void
       }
 
@@ -329,7 +330,7 @@ object Scheduler {
                 case true =>
                   stopProcess(sender, context, process.ref, interpreter,
                     (_, err) => handleError(process, envelope, err)) >> context.remove(process.ref).void // >>
-                    //releaseWithOptNotify(ps, thisTrace.append("stop_process")) // do we need to notify ?
+                //releaseWithOptNotify(ps, thisTrace.append("stop_process")) // do we need to notify ?
                 case false => sendToDeadLetter(
                   DeadLetter(envelope, new IllegalStateException(s"process=$process is already stopped")), context, interpreter) // >>
                 // releaseWithOptNotify("ps.stop()->false", ps) // do we need to notify ?
@@ -340,7 +341,7 @@ object Scheduler {
                 case (_, true) | (true, _) =>
                   sendToDeadLetter(
                     DeadLetter(envelope, new IllegalStateException(s"process=$process is terminated")), context, interpreter) //>>
-                   // releaseAndNotify(ps, thisTrace.append("terminated"))
+                // releaseAndNotify(ps, thisTrace.append("terminated"))
                 case _ =>
                   if (process.canHandle(event)) {
                     val transform = interpreter.interpret(sender, ps)
@@ -457,7 +458,10 @@ object Scheduler {
 
         stopChildProcesses >>
           (context.getProcessState(ref) match {
-            case Some(p) => deliverStopEvent(sender, p, interpreter).handleErrorWith(err => onError(ref, err))
+            case Some(p) =>
+              p.blocking.completeAll >>
+                ct.delay(println(s"p[${p.process.name}] blocking.completeAll")) >>
+                deliverStopEvent(sender, p, interpreter).handleErrorWith(err => onError(ref, err))
             case None => ct.unit // todo: revisit
           })
       }

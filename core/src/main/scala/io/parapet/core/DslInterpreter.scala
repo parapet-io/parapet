@@ -63,8 +63,8 @@ object DslInterpreter {
             case blocking: Blocking[F, Dsl[F, ?], A] => {
               for {
                 d <- Deferred[F, Unit]
-                _ <- ps.blocking.add(d)
-                _ <- ct.start(blocking.body().foldMap[F](interpret(sender, ps)).flatMap(_ => d.complete(())))
+                fiber <- ct.start(blocking.body().foldMap[F](interpret(sender, ps)).flatMap(_ => d.complete(())))
+                _ <- ps.blocking.add(fiber, d)
               } yield ()
             }
             //--------------------------------------------------------------
