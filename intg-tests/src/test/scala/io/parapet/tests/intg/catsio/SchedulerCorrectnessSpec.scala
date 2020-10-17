@@ -3,8 +3,10 @@ package io.parapet.tests.intg.catsio
 import cats.effect.IO
 import io.parapet.core.{Context, DslInterpreter}
 import io.parapet.testutils.BasicCatsIOSpec
+import io.parapet.testutils.tags.CatsTest
 import org.scalatest.{Outcome, Retries}
 
+@CatsTest
 class SchedulerCorrectnessSpec extends io.parapet.tests.intg.SchedulerCorrectnessSpec[IO]
   with BasicCatsIOSpec with Retries {
   val retries = 1
