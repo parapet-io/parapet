@@ -4,4 +4,4 @@ import io.parapet.testutils.BasicMonixTaskSpec
 import monix.eval.Task
 
 
-class SchedulerSpec //extends io.parapet.tests.intg.SchedulerSpec[Task] with BasicMonixTaskSpec
+class SchedulerSpec extends io.parapet.tests.intg.SchedulerSpec[Task] with BasicMonixTaskSpec

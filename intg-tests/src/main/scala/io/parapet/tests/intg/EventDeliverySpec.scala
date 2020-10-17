@@ -39,6 +39,70 @@ abstract class EventDeliverySpec[F[_]]
 
   }
 
+
+  "Event" should "be evaluated lazily" in {
+
+    var i = 0
+    val eventStore = new EventStore[F, NumEvent]
+    val consumer = Process[F](ref => {
+      case e@NumEvent(_) => eval(eventStore.add(ref, e))
+    })
+
+    val producer = Process[F](_ => {
+      case Start => eval {
+        i = i + 1
+      } ++ send(NumEvent(i), consumer.ref)
+    })
+
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(producer, consumer))).run))
+
+    eventStore.get(consumer.ref) shouldBe Seq(NumEvent(1))
+  }
+
+  "Event" should "be evaluated lazily using for_comprehension" in {
+
+    var i = 0
+    val eventStore = new EventStore[F, NumEvent]
+    val consumer = Process[F](ref => {
+      case e@NumEvent(_) => eval(eventStore.add(ref, e))
+    })
+
+    val producer = Process[F](_ => {
+      case Start =>
+        for {
+          v <- eval {
+            i = i + 1
+            i
+          }
+          _ <- NumEvent(v) ~> consumer.ref
+        } yield ()
+    })
+
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(producer, consumer))).run))
+
+    eventStore.get(consumer.ref) shouldBe Seq(NumEvent(1))
+  }
+
+  "Event" should "be evaluated eagerly using syntax" in {
+
+    var i = 0
+    val eventStore = new EventStore[F, NumEvent]
+    val consumer = Process[F](ref => {
+      case e@NumEvent(_) => eval(eventStore.add(ref, e))
+    })
+
+    val producer = Process[F](_ => {
+      case Start =>
+        eval {
+          i = i + 1
+        } ++ NumEvent(i) ~> consumer.ref
+    })
+
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(producer, consumer))).run))
+
+    eventStore.get(consumer.ref) shouldBe Seq(NumEvent(0))
+  }
+
   "Unmatched event" should "be sent to deadletter" in {
     val eventStore = new EventStore[F, DeadLetter]
     val deadLetter = new DeadLetterProcess[F] {
@@ -74,6 +138,8 @@ object EventDeliverySpec {
   case class QualifiedEvent(pRef: ProcessRef) extends Event
 
   object UnknownEvent extends Event
+
+  case class NumEvent(i: Int) extends Event
 
   def createProcesses[F[_]](numOfProcesses: Int, eventStore: EventStore[F, QualifiedEvent]): Seq[Process[F]] = {
     (0 until numOfProcesses).map { i =>

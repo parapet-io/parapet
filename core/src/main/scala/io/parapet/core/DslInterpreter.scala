@@ -29,13 +29,13 @@ object DslInterpreter {
               ct.unit
             //--------------------------------------------------------------
             case Send(event, receivers) =>
-              receivers.map(receiver => send(Envelope(ps.process.ref, event, receiver))).toList.sequence_
+              receivers.map(receiver => send(Envelope(ps.process.ref, event(), receiver))).toList.sequence_
             //--------------------------------------------------------------
             case reply: WithSender[F, Dsl[F, ?]]@unchecked =>
               reply.f(sender).foldMap[F](create(sender, ps))
             //--------------------------------------------------------------
             case Forward(event, receivers) =>
-              receivers.map(receiver => send(Envelope(sender, event, receiver))).toList.sequence_
+              receivers.map(receiver => send(Envelope(sender, event(), receiver))).toList.sequence_
             //--------------------------------------------------------------
             case par: Par[F, Dsl[F, ?]]@unchecked =>
               par.flow.foldMap[F](create(sender, ps))

@@ -15,9 +15,9 @@ object Dsl {
 
   case class UnitFlow[F[_]]() extends FlowOp[F, Unit]
 
-  case class Send[F[_]](e: Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
+  case class Send[F[_]](e: () => Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
 
-  case class Forward[F[_]](e: Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
+  case class Forward[F[_]](e: () => Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
 
   case class Par[F[_], G[_]](flow: Free[G, Unit]) extends FlowOp[F, Unit]
 
@@ -125,8 +125,8 @@ object Dsl {
       * @param other    optional receivers
       * @return Unit
       */
-    def send(e: Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
-      Free.inject[FlowOp[F, ?], C](Send(e, receiver +: other))
+    def send(e: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
+      Free.inject[FlowOp[F, ?], C](Send(() => e, receiver +: other))
 
     /**
       * Sends an event to the receiver using original sender reference.
@@ -155,8 +155,8 @@ object Dsl {
       * @param other    optional receivers
       * @return Unit
       */
-    def forward(e: Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
-      Free.inject[FlowOp[F, ?], C](Forward(e, receiver +: other))
+    def forward(e: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
+      Free.inject[FlowOp[F, ?], C](Forward(() => e, receiver +: other))
 
     /**
       * Executes operations from the given flow in parallel.
