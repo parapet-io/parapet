@@ -55,7 +55,7 @@ object Scheduler {
   // todo temporary solution
   case class LoggerWrapper[F[_] : Concurrent](logger: Logger) {
     private val ct = Concurrent[F]
-    val stdio = Parapet.DEBUG_MODE
+    private val stdio = Parapet.DEBUG_MODE
 
     def debug(msg: => String): F[Unit] = {
       if (stdio) ct.delay(println(msg))
@@ -329,12 +329,9 @@ object Scheduler {
               ps.stop().flatMap {
                 case true =>
                   stopProcess(sender, context, process.ref, interpreter,
-                    (_, err) => handleError(process, envelope, err)) >> context.remove(process.ref).void // >>
-                //releaseWithOptNotify(ps, thisTrace.append("stop_process")) // do we need to notify ?
+                    (_, err) => handleError(process, envelope, err)) >> context.remove(process.ref).void
                 case false => sendToDeadLetter(
-                  DeadLetter(envelope, new IllegalStateException(s"process=$process is already stopped")), context, interpreter) // >>
-                // releaseWithOptNotify("ps.stop()->false", ps) // do we need to notify ?
-                // if notify then switch behaviour and dynamic process creation fails
+                  DeadLetter(envelope, new IllegalStateException(s"process=$process is already stopped")), context, interpreter)
               }
             case _ =>
               ps.interrupted.product(ps.stopped).flatMap {
@@ -364,13 +361,12 @@ object Scheduler {
                         send(ProcessRef.SystemRef,
                           Failure(envelope, EventMatchException(errorMsg)),
                           context.getProcessState(envelope.sender).get, interpreter)
-                      // sendToDeadLetter(DeadLetter(envelope, EventMatchException(errorMsg)), interpreter)
                     }
                     val logMsg = event match {
                       case Start | Stop => ct.unit
                       case _ => logger.warn(errorMsg)
                     }
-                    logMsg >> whenUndefined //>> releaseAndNotify(ps, thisTrace.append("cannot handle"))
+                    logMsg >> whenUndefined
                   }
               }
 
@@ -460,7 +456,6 @@ object Scheduler {
           (context.getProcessState(ref) match {
             case Some(p) =>
               p.blocking.completeAll >>
-                ct.delay(println(s"p[${p.process.name}] blocking.completeAll")) >>
                 deliverStopEvent(sender, p, interpreter).handleErrorWith(err => onError(ref, err))
             case None => ct.unit // todo: revisit
           })

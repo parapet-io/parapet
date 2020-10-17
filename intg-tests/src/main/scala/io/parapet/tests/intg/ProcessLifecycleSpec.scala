@@ -124,6 +124,7 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
 
   }
 
+  // todo properly stop workers
   "Kill process" should "immediately terminates process and delivers Stop event" in {
     val eventStore = new EventStore[F, Event]
     val longRunningProcess: Process[F] = new Process[F] {
@@ -131,7 +132,7 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
 
       override def handle: Receive = {
         case Start => unit
-        case Pause => eval(while (true) {})
+        case Pause => delay(5.seconds)
         case Stop => eval(eventStore.add(ref, Stop))
         case e => eval(eventStore.add(ref, e))
       }
@@ -144,7 +145,6 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
     unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, longRunningProcess))).run))
     eventStore.get(longRunningProcess.ref) shouldBe Seq(Stop)
     eventStore.size shouldBe 1
-
   }
 
   "Stop" should "deliver Stop event and remove process" in {

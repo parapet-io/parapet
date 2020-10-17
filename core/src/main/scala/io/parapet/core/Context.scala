@@ -128,7 +128,6 @@ object Context {
     def size: F[Int] = ct.pure(signals.get.size)
 
     def completeAll: F[Unit] = for {
-      _ <- ct.delay(println(s"ps[${process.name}] completing ${signals.get.size}"))
       _ <- signals.get.map(_.fiber.cancel).sequence_
       _ <- signals.get.map(_.deferred.complete(())).sequence_
     } yield ()
