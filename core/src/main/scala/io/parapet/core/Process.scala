@@ -1,8 +1,6 @@
 package io.parapet.core
 
 import io.parapet.core.Dsl.{DslF, WithDsl}
-import io.parapet.core.Event.{Envelope, Failure}
-import io.parapet.core.exceptions.EventMatchException
 import io.parapet.syntax.FlowSyntax
 
 trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
