@@ -60,11 +60,11 @@ lazy val global = project
     interopMonix,
     testUtils,
     intgTests,
-    algorithms,
-    msgApi,
-    msgZmq,
-    msgIntgTests,
-    algorithmsIntgTest,
+   // algorithms,
+   // msgApi,
+   // msgZmq,
+    //msgIntgTests,
+   // algorithmsIntgTest,
     examples)
 
 lazy val core = project
@@ -199,6 +199,7 @@ addCompilerPlugin("org.typelevel" % "kind-projector" % "0.10.0" cross CrossVersi
 
 testOptions in ThisBuild in Test += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports")
 testOptions in ThisBuild in Test += Tests.Argument(TestFrameworks.ScalaTest, "-l", "org.scalatest.tags.Slow")
+testOptions in intgTests in Test += Tests.Argument(TestFrameworks.ScalaTest, "-n", "io.parapet.testutils.tags.CatsTest")
 
 testOptions in ThisBuild in Slow -= Tests.Argument("-l", "org.scalatest.tags.Slow")
 testOptions in ThisBuild in Slow += Tests.Argument("-n", "org.scalatest.tags.Slow")
@@ -208,7 +209,7 @@ def testUntilFailed = Command.args("testUntilFailed", "") { (state, args) =>
   s"testOnly $argsList" :: s"testUntilFailed $argsList" :: state
 }
 
-commands += testUntilFailed
+ThisBuild / commands += testUntilFailed
 
 parallelExecution in Test := false
 parallelExecution in Slow := false

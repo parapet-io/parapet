@@ -1,8 +1,6 @@
 package io.parapet.core
 
 import io.parapet.core.Dsl.{DslF, WithDsl}
-import io.parapet.core.Event.{Envelope, Failure}
-import io.parapet.core.exceptions.EventMatchException
 import io.parapet.syntax.FlowSyntax
 
 trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
@@ -30,15 +28,6 @@ trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
   // default handler
   def handle: this.Receive
-
-  def apply(caller: ProcessRef, e: Event): Program = {
-    if (canHandle(e)) {
-      dsl.invoke(caller, apply(e), ref)
-    } else {
-      dsl.send(Failure(Envelope(caller, e, ref),
-        EventMatchException(s"process ${_self} handler is not defined for event: $e")), caller)
-    }
-  }
 
   def apply(e: Event): Program = handler(e)
 
@@ -129,7 +118,7 @@ object Process {
       override val ref: ProcessRef = _ref
       override val bufferSize: Int = _bufferSize
 
-      override def handle: Receive = receive(ref)
+      override def handle: Receive = receive(_ref)
     }
   }
 

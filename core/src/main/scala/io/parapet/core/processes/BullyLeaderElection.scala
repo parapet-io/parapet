@@ -11,14 +11,12 @@ import io.parapet.core.processes.BullyLeaderElection._
 import io.parapet.core.processes.PeerProcess.{CmdEvent, Send}
 import io.parapet.core.{Channel, Event, Process, ProcessRef}
 import io.parapet.p2p.Protocol
-import io.parapet.syntax.logger.MDCFields
+import io.parapet.protobuf.bully.BullyLe
+import io.parapet.syntax.logger.{MDCFields, _}
 import org.slf4j.LoggerFactory
-import io.parapet.syntax.logger._
 
 import scala.collection.JavaConverters._
 import scala.concurrent.duration._
-import io.parapet.protobuf.bully.BullyLe
-
 import scala.util.{Failure, Success}
 
 /**
@@ -83,10 +81,12 @@ class BullyLeaderElection[F[_] : Concurrent](
 
   def leader: Option[Peer] = Option(_leader)
 
-  def removePeer(peerId: String, cl: Peer => DslF[F, Unit] = _ => unit): DslF[F, Unit] = evalWith {
-    val hash = hasher(peerId)
-    peers.remove(hash)
-  }(cl)
+  def removePeer(peerId: String, cl: Peer => DslF[F, Unit] = _ => unit): DslF[F, Unit] = {
+    for {
+      p <- eval(peers.remove(hasher(peerId)))
+      _ <- cl(p)
+    } yield ()
+  }
 
 
   def handleEcho: Receive = {
@@ -169,17 +169,19 @@ class BullyLeaderElection[F[_] : Concurrent](
       if (_leader == null) {
         Send(peers.get(peerId).uuid, Rep(Error, "leader is null".getBytes())) ~> peerProcess
       } else if (_leader == me) {
-        ch.send(Req(data), clientProcess, {
-          case Success(rep: Rep) => Send(peers.get(peerId).uuid, rep) ~> peerProcess
-          case Failure(e) => Send(peers.get(peerId).uuid, Rep(Error, Option(e.getMessage).getOrElse("").getBytes())) ~> peerProcess
-        })
+        blocking {
+          ch.send(Req(data), clientProcess, {
+            case Success(rep: Rep) => Send(peers.get(peerId).uuid, rep) ~> peerProcess
+            case Failure(e) => Send(peers.get(peerId).uuid, Rep(Error, Option(e.getMessage).getOrElse("").getBytes())) ~> peerProcess
+          })
+        }
       } else {
         Send(_leader.uuid, ReqWithId(data, me.id)) ~> peerProcess // forward to leader
       }
     }
     case Command(r: Rep) => flow {
       require(pendingReq != null)
-      r ~> pendingReq ++ eval(pendingReq = null)
+      r ~> pendingReq ++ eval(pendingReq = null).map(_ => ())
     }
   }
 
@@ -187,7 +189,7 @@ class BullyLeaderElection[F[_] : Concurrent](
     case e@Command(Answer(_)) =>
       eval(logger.mdc(createMdc(e)) { _ =>
         logger.debug("received Election")
-      }) ++ switchToWaitForCoordinator ++ fork(delay(coordinatorDelay, CoordinatorTimeout ~> ref))
+      }) ++ switchToWaitForCoordinator ++ fork(delay(coordinatorDelay) ++ CoordinatorTimeout ~> ref) // fixme: never executed
     case e@AnswerTimeout =>
       val mdcFields = createMdc(e)
       eval(logger.mdc(mdcFields) { _ =>
@@ -257,7 +259,7 @@ class BullyLeaderElection[F[_] : Concurrent](
             }) ++
               neighbors.values().asScala.map(p =>
                 Send(p.uuid, Election(me.id)) ~> peerProcess).fold(unit)(_ ++ _) ++
-              switchToWaitForAnswer ++ fork(delay(answerDelay, AnswerTimeout ~> ref))
+              switchToWaitForAnswer ++ fork(delay(answerDelay) ++ AnswerTimeout ~> ref) // fixme never executed
           }
         }
       }
@@ -276,14 +278,17 @@ class BullyLeaderElection[F[_] : Concurrent](
   }
 
   def becomeLeader(mdc: MDCFields): DslF[F, Unit] = {
-    evalWith {
-      _leader = me
-      val lowerBound = peers.headMap(me.id, false).values().asScala
-      logger.mdc(mdc) { _ =>
-        logger.debug(s"I became a leader. sending COORDINATOR message to $lowerBound")
+    for {
+      peers <- eval {
+        _leader = me
+        val lowerBound = peers.headMap(me.id, false).values().asScala
+        logger.mdc(mdc) { _ =>
+          logger.debug(s"I became a leader. sending COORDINATOR message to $lowerBound")
+        }
+        lowerBound
       }
-      lowerBound
-    }(_.map(p => Send(p.uuid, Coordinator(me.id)) ~> peerProcess).fold(unit)(_ ++ _))
+      _ <- peers.map(p => Send(p.uuid, Coordinator(me.id)) ~> peerProcess).fold(unit)(_ ++ _)
+    } yield ()
   }
 
   def fullQuorum: Boolean = peers.size() + 1 >= config.quorumSize

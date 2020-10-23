@@ -12,7 +12,12 @@ object Event {
   case object Kill extends Event
 
   // System events
-  case class Envelope(sender: ProcessRef, event: Event, receiver: ProcessRef) extends Event
+  case class Envelope(sender: ProcessRef, event: Event, receiver: ProcessRef) extends Event {
+    // timestamp in nanos for debugging purposes
+    val ts: Long = System.nanoTime()
+
+    override def toString: String = s"Envelope(sender=$sender, event=$event, receiver=$receiver, ts=$ts)"
+  }
 
   case class Failure(envelope: Envelope, error: Throwable) extends Event
 

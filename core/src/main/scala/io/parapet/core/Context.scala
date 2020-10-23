@@ -1,13 +1,10 @@
 package io.parapet.core
 
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 
 import cats.effect.concurrent.Deferred
-import cats.effect.{Concurrent, ContextShift}
-import cats.instances.list._
-import cats.syntax.flatMap._
-import cats.syntax.functor._
-import cats.syntax.traverse._
+import cats.effect.{Concurrent, ContextShift, Fiber}
+import cats.implicits._
 import io.parapet.core.Context._
 import io.parapet.core.Event.{Envelope, Start}
 import io.parapet.core.Queue.ChannelType
@@ -107,6 +104,35 @@ object Context {
     implicitly[Concurrent[F]].delay(new Context[F](config, eventLog))
   }
 
+
+  case class BlockingOp[F[_] : Concurrent](fiber: Fiber[F, Unit], deferred: Deferred[F, Unit])
+
+  class AsyncOps[F[_] : Concurrent](process: Process[F]) {
+
+
+    private val signals = new AtomicReference[List[BlockingOp[F]]](List.empty)
+    private val ct = implicitly[Concurrent[F]]
+
+    def add(f: Fiber[F, Unit], d: Deferred[F, Unit]): F[Unit] = {
+      ct.delay(signals.updateAndGet(l => l :+ BlockingOp(f, d)))
+    }
+
+    def waitForCompletion: F[Unit] = {
+      signals.get().map(o => o.deferred.get).sequence_
+    }
+
+    def clear: F[Unit] = {
+      ct.delay(signals.set(List.empty))
+    }
+
+    def size: F[Int] = ct.pure(signals.get.size)
+
+    def completeAll: F[Unit] = for {
+      _ <- signals.get.map(_.fiber.cancel).sequence_
+      _ <- signals.get.map(_.deferred.complete(())).sequence_
+    } yield ()
+  }
+
   class ProcessState[F[_] : Concurrent](
                                          queue: TaskQueue[F],
                                          lock: Lock[F],
@@ -120,6 +146,7 @@ object Context {
     private[this] val _interrupted: AtomicBoolean = new AtomicBoolean(false)
     private[this] val _stopped: AtomicBoolean = new AtomicBoolean(false)
     private[this] val _suspended: AtomicBoolean = new AtomicBoolean(false)
+    val blocking: AsyncOps[F] = new AsyncOps(process)
     private[this] val pLock = new ProcessLock[F](process.ref)
 
     def tryPut(t: Task[F]): F[Boolean] = {
@@ -143,6 +170,8 @@ object Context {
 
     def stopped: F[Boolean] = ct.pure(_stopped.get())
 
+    def isStopped: Boolean = _stopped.get
+
     def acquired: F[Boolean] = pLock.acquired
 
     def acquire: F[Boolean] = pLock.acquire
@@ -150,6 +179,7 @@ object Context {
     def release: F[Boolean] = pLock.release
 
     def releaseNow: F[Unit] = pLock.releaseNow
+
 
     /**
       * returns `true` if this process performing some blocking operations, other `false`
@@ -176,43 +206,38 @@ object Context {
       val processBufferSize = if (process.bufferSize != -1) process.bufferSize else config.processBufferSize
       for {
         queue <-
-        if (processBufferSize == -1) Queue.unbounded[F, Task[F]]()
-        else Queue.bounded[F, Task[F]](processBufferSize, ChannelType.SPSC)
+          if (processBufferSize == -1) Queue.unbounded[F, Task[F]]()
+          else Queue.bounded[F, Task[F]](processBufferSize, ChannelType.SPSC)
         lock <- Lock[F]
         terminated <- Deferred[F, Unit]
       } yield new ProcessState[F](queue, lock, process, terminated)
     }
 
     class ProcessLock[F[_] : Concurrent](ref: ProcessRef) {
+      private val lock = new AtomicBoolean()
+      private val nLock = new AtomicBoolean()
       private[this] val ct = implicitly[Concurrent[F]]
-      private[this] val lock = new java.util.concurrent.ConcurrentHashMap[ProcessRef, Integer]()
 
       def acquired: F[Boolean] = ct.delay {
-        lock.computeIfPresent(ref, (_: ProcessRef, c: Integer) => c + 1) != null
+        nLock.set(true)
+        lock.get()
       }
 
       def acquire: F[Boolean] = ct.delay {
-        lock.putIfAbsent(ref, 0) == null
+        lock.compareAndSet(false, true)
       }
 
       def releaseNow: F[Unit] = ct.delay {
-        if (lock.remove(ref) == null) {
-          throw new IllegalStateException("process cannot be released because it's not acquired")
-        }
+        throw new UnsupportedOperationException()
+
       }
 
       // release and reset
-      def release: F[Boolean] = ct.delay {
-        if (!lock.containsKey(ref)) {
-          throw new IllegalStateException("process cannot be released because it's not acquired")
+      def release: F[Boolean] =
+        ct.delay {
+          lock.compareAndSet(true, false)
+          !nLock.compareAndSet(true, false)
         }
-
-        val res = lock.remove(ref, 0)
-        if (!res) {
-          lock.put(ref, 0) // reset
-        }
-        res
-      }
     }
 
   }

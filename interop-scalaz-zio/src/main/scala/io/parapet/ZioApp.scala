@@ -1,9 +1,8 @@
 package io.parapet
 
 import cats.effect.{Concurrent, ContextShift, Timer}
-import cats.~>
 import io.parapet.core.{Context, DslInterpreter, Parallel}
-import io.parapet.zioinstances.parallel._
+import io.parapet.zioinstances.all._
 import scalaz.zio.internal.{Platform, PlatformLive}
 import scalaz.zio.interop.catz._
 import scalaz.zio.interop.catz.implicits._
@@ -28,7 +27,8 @@ trait ZioApp extends ParApp[Task] with DefaultRuntime {
 
   override lazy val timer: Timer[Task] = Timer[Task]
 
-  override def flowInterpreter(context: Context[Task]): FlowOp ~> Flow = DslInterpreter[Task](context)
+  override def interpreter(context: Context[Task]): DslInterpreter.Interpreter[Task] =
+    DslInterpreter[Task](context)
 
   override def unsafeRun(task: Task[Unit]): Unit = {
     runtime.unsafeRunSync(task.fork.flatMap { fiber =>

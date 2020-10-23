@@ -71,7 +71,7 @@ abstract class SchedulerSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
         val client = new Process[F] {
           override def handle: Receive = {
             case Start => NamedRequest("1") ~> slowServer ++
-              delay(5.second, Seq(NamedRequest("2"), NamedRequest("3")) ~> slowServer)
+              delay(5.seconds) ++ NamedRequest("2") ~> slowServer ++ NamedRequest("3") ~> slowServer
           }
         }
 

@@ -19,7 +19,7 @@ object PeerApp extends CatsApp {
     val peerProcess = PeerProcess[IO]()
 
     def sendPing: DslF[IO, Unit] = flow {
-      delay(3.seconds, Ping ~> peerProcess.ref) ++ sendPing
+      delay(3.seconds) ++ Ping ~> peerProcess.ref ++ sendPing
     }
 
     val client = Process[IO](ref => {

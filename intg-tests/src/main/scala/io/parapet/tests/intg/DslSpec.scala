@@ -42,19 +42,18 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
 
         val eventStore = new EventStore[F, Request]
 
-        val consumer = Process[F](ref => {
+        val consumer = Process.builder[F](ref => {
           case req: Request => eval(eventStore.add(ref, req))
-        })
+        }).ref(ProcessRef("consumer")).build
 
-        val producer = Process[F](_ => {
+        val producer = Process.builder[F](_ => {
           case Start =>
             Request("1") ~> consumer.ref ++
               Request("2") ~> consumer.ref ++
               Request("3") ~> consumer.ref
-        })
-        unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(consumer, producer))).run))
+        }).ref(ProcessRef("producer")).build
+        unsafeRun(eventStore.await(2, createApp(ct.pure(Seq(consumer, producer))).run))
         eventStore.get(consumer.ref) shouldBe Seq(Request("1"), Request("2"), Request("3"))
-
       }
     }
   }
@@ -90,7 +89,12 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
         val eventStore = new EventStore[F, Response]
 
         val server = Process[F](_ => {
-          case Request(data) => withSender(sender => Response(s"echo-$data") ~> sender)
+          case Request(data) => {
+            for {
+              sender <- withSender(sender => eval(sender))
+              _ <- Response(s"echo-$data") ~> sender
+            } yield ()
+          }
         })
 
         val client: Process[F] = Process[F](ref => {
@@ -110,17 +114,20 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
       "execute operations in parallel" in {
         val eventStore = new EventStore[F, Request]
 
-        val consumer = Process[F](ref => {
-          case req: Request => eval(eventStore.add(ref, req))
-        })
+        val consumerRef = ProcessRef("consumer")
+        val producerRef = ProcessRef("producer")
 
-        val producer = Process[F](_ => {
-          case Start => par {
-            delay(4.seconds, Request("1") ~> consumer.ref) ++
-              delay(3.seconds, Request("2") ~> consumer.ref) ++
-              delay(2.seconds, Request("3") ~> consumer.ref)
-          }
-        })
+        val consumer = Process.builder[F](ref => {
+          case req: Request => eval(eventStore.add(ref, req))
+        }).ref(consumerRef).build
+
+        val producer = Process.builder[F](_ => {
+          case Start => par(
+            delay(4.seconds) ++ Request("1") ~> consumerRef,
+            delay(3.seconds) ++ Request("2") ~> consumerRef,
+            delay(2.seconds) ++ Request("3") ~> consumerRef
+          )
+        }).ref(producerRef).build
 
         unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(consumer, producer))).run))
         eventStore.get(consumer.ref) shouldBe Seq(Request("3"), Request("2"), Request("1"))
@@ -148,27 +155,28 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
     }
   }
 
-  "Delay operator" when {
-    "applied to a sequential flow" should {
-      "delay every operation inside that flow for the given duration" in {
-        val eventStore = new EventStore[F, Delayed]
-        val durationInMillis = 1000
-        val process = Process[F](ref => {
-          case Start => delay(durationInMillis.millis,
-            eval(eventStore.add(ref, Delayed(System.currentTimeMillis()))) ++
-              eval(eventStore.add(ref, Delayed(System.currentTimeMillis()))) ++
-              eval(eventStore.add(ref, Delayed(System.currentTimeMillis())))
-          )
-        })
-
-        val start = System.currentTimeMillis()
-        unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(process))).run))
-        eventStore.get(process.ref).foreach { e =>
-          e.ts shouldBe >=(start + durationInMillis)
-        }
-      }
-    }
-  }
+  // todo not supported
+  //  "Delay operator" when {
+  //    "applied to a sequential flow" should {
+  //      "delay every operation inside that flow for the given duration" in {
+  //        val eventStore = new EventStore[F, Delayed]
+  //        val durationInMillis = 1000
+  //        val process = Process[F](ref => {
+  //          case Start => delay(durationInMillis.millis,
+  //            eval(eventStore.add(ref, Delayed(System.currentTimeMillis()))) ++
+  //              eval(eventStore.add(ref, Delayed(System.currentTimeMillis()))) ++
+  //              eval(eventStore.add(ref, Delayed(System.currentTimeMillis())))
+  //          )
+  //        })
+  //
+  //        val start = System.currentTimeMillis()
+  //        unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(process))).run))
+  //        eventStore.get(process.ref).foreach { e =>
+  //          e.ts shouldBe >=(start + durationInMillis)
+  //        }
+  //      }
+  //    }
+  //  }
 
   "Event" when {
     "send using forward" should {
@@ -223,25 +231,6 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
     }
   }
 
-  "A process" when {
-    "explicitly calls another process" should {
-      "provide the same behaviour as send" in {
-        val eventStore = new EventStore[F, Response]
-
-        val server: Process[F] = Process[F](_ => {
-          case Request(data) => withSender(sender => Response(s"echo-$data") ~> sender)
-        })
-
-        val client: Process[F] = Process[F](ref => {
-          case Start => server(ref, Request("hello"))
-          case res: Response => eval(eventStore.add(ref, res))
-        })
-        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(client, server))).run))
-        eventStore.get(client.ref).headOption.value shouldBe Response("echo-hello")
-      }
-    }
-  }
-
   "A flow" when {
     "forked" should {
       "should be executed concurrently" in {
@@ -266,10 +255,17 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
 
         val eventStore = new EventStore[F, Request]
 
-        val longRunningTask = delay(1.minute)
+        val longRunningTask = delay(10.minutes)
 
         val process: Process[F] = Process[F](ref => {
-          case Start => race(longRunningTask, eval(eventStore.add(ref, Request("end"))))
+          case Start =>
+            for {
+              res <- race(longRunningTask, eval("now"))
+              _ <- res match {
+                case Left(_) => suspend(ct.raiseError(new RuntimeException("longRunningTask should be canceled")))
+                case Right(_) => eval(eventStore.add(ref, Request("end")))
+              }
+            } yield ()
         })
         unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
       }

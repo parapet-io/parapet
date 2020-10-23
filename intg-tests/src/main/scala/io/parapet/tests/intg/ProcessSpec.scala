@@ -14,55 +14,6 @@ abstract class ProcessSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
 
   import dsl._
 
-  "A process" when {
-    "invoking other process" should {
-      "receive response" in {
-        val eventStore = new EventStore[F, Event]
-
-        val process: Process[F] = new Process[F] {
-          val multiplier = new Multiplier[F]
-          override val handle: Receive = {
-            case Start => multiplier(ref, Multiply(2, 3))
-            case r: Result => eval(eventStore.add(ref, r))
-          }
-        }
-
-        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
-
-        eventStore.size shouldBe 1
-        eventStore.get(process.ref).headOption.value should matchPattern {
-          case Result(6) =>
-        }
-
-      }
-    }
-  }
-
-  "A process" when {
-    "invoking other process fails to match event" should {
-      "receive Failure event" in {
-        val eventStore = new EventStore[F, Event]
-
-        val process: Process[F] = new Process[F] {
-          val multiplier = new Multiplier[F]
-          override val handle: Receive = {
-            case Start => multiplier(ref, Result(42))
-            case r: Result => eval(eventStore.add(ref, r))
-            case f: Failure => eval(eventStore.add(ref, f))
-          }
-        }
-
-        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
-
-        eventStore.size shouldBe 1
-        eventStore.get(process.ref).headOption.value should matchPattern {
-          case Failure(Envelope(process.`ref`, Result(42), Multiplier.ref), _: EventMatchException) =>
-        }
-
-      }
-    }
-  }
-
   "A process p1 composed with process p2 using `or`" when {
     "p1 can't match event" should {
       "invoke p2" in {

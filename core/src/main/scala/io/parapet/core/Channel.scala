@@ -4,7 +4,7 @@ import cats.effect.Concurrent
 import cats.effect.concurrent.Deferred
 import io.parapet.core.Channel.Request
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Event.{Failure, Start, Stop}
+import io.parapet.core.Event.{Failure, Stop}
 
 import scala.util.Try
 
@@ -24,8 +24,6 @@ class Channel[F[_] : Concurrent] extends Process[F] {
   private var callback: Deferred[F, Try[Event]] = _
 
   private def waitForRequest: Receive = {
-    case Start => unit
-    case Stop => unit
     case req: Request[F] =>
       eval {
         callback = req.cb
@@ -55,7 +53,7 @@ class Channel[F[_] : Concurrent] extends Process[F] {
   def handle: Receive = waitForRequest
 
   /**
-    * Sends an event to the receiver and blocks asynchronously until it receives a response.
+    * Sends an event to the receiver and blocks until it receives a response.
     *
     * @param event    the event to send
     * @param receiver the receiver
@@ -63,11 +61,12 @@ class Channel[F[_] : Concurrent] extends Process[F] {
     * @return Unit
     */
   def send(event: Event, receiver: ProcessRef, cb: Try[Event] => DslF[F, Unit]): DslF[F, Unit] = {
-    blocking {
-      suspendWith(Deferred[F, Try[Event]]) { d =>
-        Request(event, d, receiver) ~> ref ++ suspendWith(d.get)(cb)
-      }
-    }
+    for {
+      d <- suspend(Deferred[F, Try[Event]])
+      _ <- Request(event, d, receiver) ~> ref
+      res <- suspend(d.get)
+      _ <- cb(res)
+    } yield ()
   }
 
 }

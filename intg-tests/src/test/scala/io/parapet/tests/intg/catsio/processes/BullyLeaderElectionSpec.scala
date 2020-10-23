@@ -5,7 +5,9 @@ import io.parapet.core.Parapet
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Scheduler.SchedulerConfig
 import io.parapet.testutils.BasicCatsIOSpec
+import io.parapet.testutils.tags.CatsTest
 
+@CatsTest
 class BullyLeaderElectionSpec extends io.parapet.tests.intg.processes.BullyLeaderElectionSpec[IO] with BasicCatsIOSpec {
   override val config: Parapet.ParConfig = ParConfig(-1, SchedulerConfig(1))
 }
