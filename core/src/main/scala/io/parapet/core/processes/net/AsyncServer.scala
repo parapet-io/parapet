@@ -5,7 +5,7 @@ import io.parapet.core.Event.{Start, Stop}
 import io.parapet.core.{Encoder, ProcessRef}
 import org.zeromq.{SocketType, ZContext}
 
-class AsyncServer[F[_]](address: String, sink: ProcessRef, encoder: Encoder) extends io.parapet.core.Process[F] {
+class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: ProcessRef, encoder: Encoder) extends io.parapet.core.Process[F] {
 
   import dsl._
 
@@ -34,6 +34,6 @@ class AsyncServer[F[_]](address: String, sink: ProcessRef, encoder: Encoder) ext
 }
 
 object AsyncServer {
-  def apply[F[_]](address: String, sink: ProcessRef, encoder: Encoder): AsyncServer[F] =
-    new AsyncServer(address, sink, encoder)
+  def apply[F[_]](ref: ProcessRef, address: String, sink: ProcessRef, encoder: Encoder): AsyncServer[F] =
+    new AsyncServer(ref, address, sink, encoder)
 }

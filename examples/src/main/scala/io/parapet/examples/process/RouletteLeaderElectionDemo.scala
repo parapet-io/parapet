@@ -1,12 +1,15 @@
 package io.parapet.examples.process
 
 import cats.effect.IO
+import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.ProcessRef
 import io.parapet.core.processes.RouletteLeaderElection
 import io.parapet.core.processes.net.{AsyncClient, AsyncServer}
 import io.parapet.{CatsApp, core}
 
 object RouletteLeaderElectionDemo extends CatsApp {
+
+  override val config: ParConfig = ParConfig.tracingLens.set(ParConfig.default)(true)
 
   val p1 = ProcessRef("p1")
   val p2 = ProcessRef("p2")
@@ -19,11 +22,11 @@ object RouletteLeaderElectionDemo extends CatsApp {
   )
 
   val netClients: Map[ProcessRef, AsyncClient[IO]] = peers.map {
-    case (r, p) => r -> AsyncClient[IO](ProcessRef("net-" + r), p.connect, RouletteLeaderElection.encoder)
+    case (r, p) => r -> AsyncClient[IO](ProcessRef(r + "-net-client"), p.connect, RouletteLeaderElection.encoder)
   }
 
   val netServers = peers.map {
-    case (p, addr) => AsyncServer[IO](addr.bind, p, RouletteLeaderElection.encoder)
+    case (p, addr) => AsyncServer[IO](ProcessRef(p + "-net-server"), addr.bind, p, RouletteLeaderElection.encoder)
   }
 
   override def processes: IO[Seq[core.Process[IO]]] = IO {

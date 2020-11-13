@@ -114,6 +114,7 @@ object Scheduler {
       ct.bracket(ct.delay(createWorkers)) { workers =>
         pa.par(workers.map(w => w.run))
       } { _ =>
+        context.saveTrace >>
         stopProcess(ProcessRef.SystemRef,
           context, ProcessRef.SystemRef, interpreter,
           (pRef, err) => logger.error(s"An error occurred while stopping process $pRef", err)) >>

@@ -15,18 +15,22 @@ object Parapet extends StrictLogging {
 
   case class ParConfig(
                         processBufferSize: Int,
-                        schedulerConfig: SchedulerConfig)
-
-  val processBufferSizeLens: Lens[ParConfig, Int] = lens[ParConfig].processBufferSize
-
-  // Scheduler config lenses
-  val numberOfWorkersLens: Lens[ParConfig, Int] = lens[ParConfig].schedulerConfig.numberOfWorkers
+                        schedulerConfig: SchedulerConfig,
+                        tracing: Boolean = false)
 
 
   object ParConfig {
+
     val default: ParConfig = ParConfig(
       processBufferSize = -1, // unbounded
       schedulerConfig = SchedulerConfig.default)
+
+    val processBufferSizeLens: Lens[ParConfig, Int] = lens[ParConfig].processBufferSize
+    val tracingLens: Lens[ParConfig, Boolean] = lens[ParConfig].tracing
+
+    // Scheduler config lenses
+    val numberOfWorkersLens: Lens[ParConfig, Int] = lens[ParConfig].schedulerConfig.numberOfWorkers
   }
+
 
 }

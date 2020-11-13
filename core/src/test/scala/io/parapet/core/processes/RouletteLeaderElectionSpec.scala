@@ -8,8 +8,14 @@ import io.parapet.core.processes.RouletteLeaderElection.ResponseCodes.AckCode
 import io.parapet.core.processes.RouletteLeaderElection._
 import org.scalatest.FunSuite
 import org.scalatest.Matchers._
+import org.scalatest.OptionValues._
 
 
+/**
+  * todo:
+  * 1. more than once process generates a num > threshold
+  * 2. Timeout messages must be created with current ts (lastHeartbeat) value
+  */
 class RouletteLeaderElectionSpec extends FunSuite {
 
   test("a node satisfying the launch condition") {
@@ -154,6 +160,7 @@ class RouletteLeaderElectionSpec extends FunSuite {
 
     execution.trace shouldBe Seq(
       Message(Ack(p1, 0.86, AckCode.OK), p2),
+      Message(Timeout(Leader, 0), p1),
       Message(Ack(p1, 0.86, AckCode.VOTED), p3),
     )
   }
@@ -214,4 +221,51 @@ class RouletteLeaderElectionSpec extends FunSuite {
     state.num shouldBe 0
     state.roundNum shouldBe 0
   }
+
+  test("a node received heartbeat with old timestamp") {
+    // given
+    val p1 = ProcessRef("p1")
+    val state = new State(p1, peers = Vector.empty)
+    state.roundNum = 1
+    state.lastHeartbeat = 1
+
+    // when
+    val le = new RouletteLeaderElection[Id](state)
+    val execution = new Execution()
+
+    le(Timeout(Leader, 1)).foldMap(IdInterpreter(execution))
+
+    // then
+    execution.print()
+    execution.trace shouldBe Seq(
+      Message(Start, p1)
+    )
+    state.roundNum shouldBe 0
+  }
+
+  test("a node received heartbeat with new timestamp") {
+    // given
+    val p1 = ProcessRef("p1")
+    val p2 = ProcessRef("p2")
+    val state = new State(p1, peers = Vector.empty)
+    state.roundNum = 1
+    val lastHeartbeat = 1
+    state.lastHeartbeat = lastHeartbeat
+
+    // when
+    val le = new RouletteLeaderElection[Id](state)
+    val execution = new Execution()
+
+    le(Heartbeat(p2)).foldMap(IdInterpreter(execution))
+
+    // then
+    execution.print()
+    execution.trace.size shouldBe 1
+    execution.trace.headOption.value should matchPattern {
+      case Message(t@Timeout(Leader, _), _) if t.ts == state.lastHeartbeat => ()
+    }
+
+    state.lastHeartbeat shouldNot equal(lastHeartbeat)
+  }
+
 }

@@ -25,6 +25,8 @@ class Context[F[_] : Concurrent : ContextShift](
 
   private val graph = new java.util.concurrent.ConcurrentHashMap[ProcessRef, Vector[ProcessRef]]
 
+  private val execTrace = new ExecutionTrace
+
   private var _scheduler: Scheduler[F] = _
 
   def start(scheduler: Scheduler[F]): F[Unit] = {
@@ -93,6 +95,26 @@ class Context[F[_] : Concurrent : ContextShift](
 
   def remove(pRef: ProcessRef): F[Option[Process[F]]] = {
     ct.delay(Option(processes.remove(pRef)).map(_.process))
+  }
+
+  def record(e: Envelope): F[Unit] = {
+    if (config.tracing) {
+      ct.delay(execTrace.add(e.sender, e.event, e.receiver))
+    } else {
+      ct.unit
+    }
+  }
+
+  def saveTrace: F[Unit] = {
+    if (config.tracing) {
+      ct.delay {
+        execTrace.close()
+        println(ExecutionTrace.Cytoscape.toJson(execTrace)) // todo store to file
+      }
+    } else {
+      ct.unit
+    }
+
   }
 
 }

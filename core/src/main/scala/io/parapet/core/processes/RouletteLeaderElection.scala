@@ -1,6 +1,7 @@
 package io.parapet.core.processes
 
 import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicInteger
 
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.Start
@@ -17,6 +18,8 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
   import dsl._
 
   override val ref: ProcessRef = state.ref
+
+  private val opCounter = new AtomicInteger()
 
   override def handle: Receive = {
     case Start =>
@@ -52,7 +55,7 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
           eval {
             state.voted = true
             state.roundNum = num
-          } ++ Ack(ref, state.num, AckCode.OK) ~> peer ++ waitForLeader
+          } ++ Ack(ref, state.num, AckCode.OK) ~> peer ++ waitForHeartbeat
         } else {
           Ack(ref, state.num, AckCode.HIGH) ~> peer
         }
@@ -76,8 +79,8 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
                     println(s"$info became coordinator")
                   }
                   _ <- Announce(ref) ~> leader
-                  _ <- eval(println(s"$info elected $leader"))
-                  _ <- fork(delay(state.timeouts.leader) ++ Timeout(Leader) ~> ref)
+                  _ <- eval(println(s"$info send announce to $leader"))
+                  _ <- waitForHeartbeat
                 } yield ()
               } else {
                 unit
@@ -94,23 +97,42 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
       eval(println(s"$info :: received Ack($num, $code)")) ++ action
 
     case Announce(_) =>
-      eval(println(s"$info :: received Announce")) ++
-        eval(state.leader = ref) ++
-        state.peers.map(p => Heartbeat(ref) ~> p).fold(unit)(_ ++ _)
+      eval {
+        println(s"$info :: received Announce")
+        state.lastHeartbeat = System.nanoTime()
+        state.leader = ref
+      } ++ sendHeartbeat
 
-    case Timeout(Coordinator) =>
-      if (!state.coordinator) restart
-      else unit
+    // both timeout are identical
+    case Timeout(Coordinator, ts) =>
+      if (state.lastHeartbeat == ts) {
+        eval(println(s"$info did not receive majority, leader is not available, ts=$ts")) ++ restart
+      } else {
+        unit
+      }
 
-    case Timeout(Leader) =>
-      if (state.leader == null) restart
-      else unit
+    case Timeout(Leader, ts) =>
+      if (state.lastHeartbeat == ts) {
+        eval(println(s"$info leader is not available, ts=$ts")) ++ restart
+      } else {
+        unit
+      }
 
     case Heartbeat(leader) =>
       eval {
-        state.leader = leader
-        println(s"$info received Heartbeat($leader)")
-      }
+        val oldTs = state.lastHeartbeat
+        state.lastHeartbeat = System.nanoTime()
+        println(s"$info received Heartbeat($leader), old_ts = $oldTs, new_ts = ${state.lastHeartbeat}")
+        if (state.leader != leader) {
+          println(s"$info new leader '$leader' elected, old = '${state.leader}'")
+          state.leader = leader
+        }
+      } ++ waitForHeartbeat
+  }
+
+  def sendHeartbeat: Program = flow {
+    state.peers.map(p => Heartbeat(ref) ~> p).fold(unit)(_ ++ _) ++
+      delay(state.timeouts.heartbeat.div(2)) ++ sendHeartbeat
   }
 
   private[core] def hasMajority: Boolean = state.votes >= state.peers.length / 2 + 1
@@ -121,11 +143,19 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
   }
 
   private def waitForCoordinator: DslF[F, Unit] = {
-    fork(delay(state.timeouts.coordinator) ++ Timeout(Coordinator) ~> ref)
+    for {
+      _ <- eval(println(s"$info wait for majority or heartbeat from leader"))
+      ts <- eval(state.lastHeartbeat) // todo pure
+      _ <- fork(delay(state.timeouts.coordinator) ++ Timeout(Coordinator, ts) ~> ref)
+    } yield ()
   }
 
-  private def waitForLeader: DslF[F, Unit] = {
-    fork(delay(state.timeouts.leader) ++ Timeout(Leader) ~> ref)
+  private def waitForHeartbeat: DslF[F, Unit] = {
+    for {
+      _ <- eval(println(s"$info wait for heartbeat"))
+      ts <- eval(state.lastHeartbeat) // todo pure
+      _ <- fork(delay(state.timeouts.heartbeat) ++ Timeout(Leader, ts) ~> ref)
+    } yield ()
   }
 
   private def restart: DslF[F, Unit] = reset ++ Start ~> ref
@@ -142,8 +172,9 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
   }
 
   def info: String = {
-    val parts = Map(
+    val parts = mutable.LinkedHashMap(
       "ref" -> ref,
+      "c" -> opCounter.getAndIncrement(),
       "round" -> state.round,
       "num" -> state.num,
       "roundNum" -> state.roundNum,
@@ -162,14 +193,14 @@ object RouletteLeaderElection {
 
   type RandomNum = Int => VoteNum
 
-  case class Timeouts(coordinator: FiniteDuration, leader: FiniteDuration)
+  case class Timeouts(coordinator: FiniteDuration, heartbeat: FiniteDuration)
 
   class State(
                val ref: ProcessRef,
                val peers: Vector[ProcessRef],
                val random: RandomNum = RandomNumGen,
                val roulette: Vector[ProcessRef] => ProcessRef = Roulette,
-               val timeouts: Timeouts = Timeouts(30.seconds, 30.seconds),
+               val timeouts: Timeouts = Timeouts(coordinator = 30.seconds, heartbeat = 60.seconds),
                val genNumAttempts: Int = GenNumAttempts,
                val threshold: Double = GenNumThreshold) {
     var num: Double = 0.0
@@ -182,6 +213,8 @@ object RouletteLeaderElection {
     var coordinator = false
     // this flag indicates that this process has already voted in the current round
     var voted = false
+
+    var lastHeartbeat = 0L // a timestamp when last heartbeat was received
   }
 
   val GenNumAttempts = 1
@@ -215,7 +248,7 @@ object RouletteLeaderElection {
   case class Ack(ref: ProcessRef, num: Double, code: AckCode) extends API
   case class Announce(ref: ProcessRef) extends API
   case class Heartbeat(ref: ProcessRef) extends API
-  case class Timeout(phase: Phase) extends API
+  case class Timeout(phase: Phase, ts: Long = 0) extends API
 
   object ResponseCodes {
 

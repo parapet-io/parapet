@@ -75,6 +75,7 @@ lazy val core = project
     libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7",
     libraryDependencies += "io.monix" %% "monix-eval" % "3.0.0-RC3",
     libraryDependencies += "io.parapet" % "p2p" % "1.0.0",
+    libraryDependencies +=  "com.typesafe.play" %% "play-json" % "2.9.1"
   ).dependsOn(protobuf)
 
 lazy val examples = project
