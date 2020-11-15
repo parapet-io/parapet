@@ -1,7 +1,7 @@
 package io.parapet.core
 
 import cats.{Id, Monad, ~>}
-import io.parapet.core.Dsl.{Delay, Dsl, Eval, FlowOp, Fork, Send, UnitFlow}
+import io.parapet.core.Dsl.{Delay, Dsl, Eval, FlowOp, Fork, Send, SuspendF, UnitFlow}
 
 import scala.collection.mutable.ListBuffer
 
@@ -31,6 +31,7 @@ object TestUtils {
           })
         case fork: Fork[Id, Dsl[Id, ?]] => fork.flow.foldMap(new IdInterpreter(execution))
         case _: Delay[Id] => ()
+        case _: SuspendF[Id, Dsl[Id, ?], A] => ().asInstanceOf[A] // s.thunk().foldMap(new IdInterpreter(execution))
       }
     }
   }

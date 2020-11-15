@@ -33,7 +33,7 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
   val eventLog: EventLog[F] = EventLog.stub
 
-  def processes: F[Seq[Process[F]]]
+  def processes(args: Array[String]): F[Seq[Process[F]]]
 
   def deadLetter: F[DeadLetterProcess[F]] = ct.pure(DeadLetterProcess.logging)
 
@@ -41,9 +41,9 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
   def unsafeRun(f: F[Unit]): Unit
 
-  def run: F[Unit] = {
+  def run(args: Array[String]): F[Unit] = {
     for {
-      ps <- processes
+      ps <- processes(args)
       _ <- if (ps.isEmpty) {
         ct.raiseError[Unit](new RuntimeException("Initialization error:  at least one process must be provided"))
       } else ct.unit
@@ -58,6 +58,6 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
   }
 
   def main(args: Array[String]): Unit = {
-    unsafeRun(run)
+    unsafeRun(run(args))
   }
 }

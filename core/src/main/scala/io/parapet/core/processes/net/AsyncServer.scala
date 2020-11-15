@@ -3,7 +3,7 @@ package io.parapet.core.processes.net
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Start, Stop}
 import io.parapet.core.{Encoder, ProcessRef}
-import org.zeromq.{SocketType, ZContext}
+import org.zeromq.{SocketType, ZContext, ZMQException}
 
 class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: ProcessRef, encoder: Encoder) extends io.parapet.core.Process[F] {
 
@@ -13,7 +13,7 @@ class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: Pro
   private lazy val server = zmqContext.createSocket(SocketType.ROUTER)
 
   private def loop: DslF[F, Unit] = flow {
-    eval{
+    eval {
       val clientId = server.recvStr()
       val data = server.recv()
       data
@@ -22,7 +22,15 @@ class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: Pro
 
   override def handle: Receive = {
     case Start => eval {
-      server.bind(address)
+      try {
+        server.bind(address)
+        println(s"$ref server started on $address")
+      } catch {
+        case e: ZMQException => if (e.getErrorCode == 48) {
+          println(s"address: '$address' in use")
+        }
+      }
+
     } ++ loop
 
     case Stop => eval {
