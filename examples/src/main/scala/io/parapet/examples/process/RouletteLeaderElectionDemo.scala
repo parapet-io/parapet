@@ -21,6 +21,7 @@ object RouletteLeaderElectionDemo extends CatsApp {
     p3 -> Peer("127.0.0.1", 7777),
   )
 
+  /*
   val netClients: Map[ProcessRef, AsyncClient[IO]] = peers.map {
     case (r, p) => r -> AsyncClient[IO](ProcessRef(r + "-net-client"), p.connect, RouletteLeaderElection.encoder)
   }
@@ -36,9 +37,10 @@ object RouletteLeaderElectionDemo extends CatsApp {
   }
 
   def createLeaderElection(ref: ProcessRef, netClients0: Map[ProcessRef, AsyncClient[IO]]): RouletteLeaderElection[IO] = {
-    val peers0 = netClients0.filterKeys(_ != ref).values.map(_.ref).toVector
+    val peers0 = netClients0.filterKeys(_ != ref).ma
     new RouletteLeaderElection[IO](new RouletteLeaderElection.State(ref, peers0))
   }
+  */
 
   case class Peer(
                    ip: String,
@@ -47,6 +49,8 @@ object RouletteLeaderElectionDemo extends CatsApp {
 
     val connect = s"tcp://$ip:$port"
     val bind = s"tcp://*:$port"
+    val addr = s"$ip:$port"
   }
 
+  override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] = IO.unit
 }

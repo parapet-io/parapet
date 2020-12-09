@@ -21,7 +21,7 @@ class RouletteLeaderElectionSpec extends FunSuite {
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
 
-    val state = new State(p1, "p1", Map("p2" -> p2), _ => VoteNum(0.86, 0.86), threshold = 0.85)
+    val state = new State(p1, "p1", Peers(Map("p2" -> p2)), _ => VoteNum(0.86, 0.86), threshold = 0.85)
     val execution = new Execution()
     val le = new RouletteLeaderElection[Id](state)
 
@@ -42,7 +42,7 @@ class RouletteLeaderElectionSpec extends FunSuite {
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
 
-    val state = new State(p1, "p1", Map("p2" -> p2))
+    val state = new State(p1, "p1", Peers(Map("p2" -> p2)))
     state.num = 0.6
     val execution = new Execution()
     val le = new RouletteLeaderElection[Id](state)
