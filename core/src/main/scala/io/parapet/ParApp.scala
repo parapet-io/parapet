@@ -41,6 +41,9 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
   def unsafeRun(f: F[Unit]): Unit
 
+  // todo for backward compatibility
+  def run(): F[Unit] = run(Array.empty)
+
   def run(args: Array[String]): F[Unit] = {
     for {
       ps <- processes(args)

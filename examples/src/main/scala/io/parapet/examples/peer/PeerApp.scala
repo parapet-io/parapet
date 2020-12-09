@@ -14,7 +14,7 @@ object PeerApp extends CatsApp {
 
   import dsl._
 
-  override def processes: IO[Seq[core.Process[IO]]] = {
+  override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] = {
 
     val peerProcess = PeerProcess[IO]()
 

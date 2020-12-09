@@ -52,5 +52,5 @@ object RouletteLeaderElectionDemo extends CatsApp {
     val addr = s"$ip:$port"
   }
 
-  override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] = IO.unit
+  override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] = IO.pure(Seq.empty)
 }

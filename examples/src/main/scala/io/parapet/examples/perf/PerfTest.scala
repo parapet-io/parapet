@@ -67,7 +67,7 @@ abstract class PerfTest[F[_]](nMessages: Int, nProcesses: Int) extends ParApp[F]
     }
   }
 
-  override def processes: F[Seq[Process[F]]] = {
+  override def processes(args: Array[String]): F[Seq[Process[F]]] = {
 
     val consumers = new Array[Process[F]](nProcesses)
     val allProcesses = new Array[Process[F]](nProcesses + 1)
