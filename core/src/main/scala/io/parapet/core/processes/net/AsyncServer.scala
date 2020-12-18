@@ -16,8 +16,10 @@ class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: Pro
     eval {
       val clientId = server.recvStr()
       val data = server.recv()
-      data
-    }.map(encoder.read).flatMap(e => e ~> sink) ++ loop
+      val msg = encoder.read(data)
+      println(s"AsyncServer($ref): received message = $msg from client: $clientId")
+      msg
+    }.flatMap(e => e ~> sink) ++ loop
   }
 
   override def handle: Receive = {

@@ -20,7 +20,7 @@ class AsyncClient[F[_]](override val ref: ProcessRef, address: String, encoder: 
     case Start => eval {
       client.setIdentity(clientId.getBytes(ZMQ.CHARSET))
       client.connect(address)
-      println(s"client[$ref] connected")
+      println(s"client[ref=$ref, id=$clientId] connected")
     }
 
     case Stop => eval {
