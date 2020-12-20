@@ -7,12 +7,14 @@ import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.Start
 import io.parapet.core.processes.RouletteLeaderElection.ResponseCodes.AckCode
 import io.parapet.core.processes.RouletteLeaderElection._
-import io.parapet.core.{Encoder, Event, ProcessRef}
+import io.parapet.core.{Clock, Encoder, Event, ProcessRef}
 
 import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.util.Random
 
+// This class implements the modified version of https://arxiv.org/ftp/arxiv/papers/1703/1703.02247.pdf
+// lemmas:
 // todo associate peer with net client
 // a cluster with elected leader receives propose (should reject)
 // if quorum is not complete, reset the leader. one quorum is complete - start election
@@ -36,6 +38,7 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
   private val opCounter = new AtomicInteger()
 
   val logFields = Seq(
+    "addr",
     "num",
     "roundNum",
     "leader",
@@ -46,7 +49,7 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
   )
 
   override def handle: Receive = {
-    case Start => fork(sendHeartbeat) ++ monitorClusterAsync
+    case Start => heartbeatLoopAsync ++ monitorClusterLoopAsync
 
     // ------------------------BEGIN------------------------------ //
     case Begin =>
@@ -86,8 +89,7 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
           Ack(state.addr, state.num, AckCode.VOTED) ~> peer.netClient
         } else if (state.hasLeader) {
           Ack(state.addr, state.num, AckCode.ELECTED) ~> peer.netClient
-        }
-        else if (num > state.roundNum) {
+        } else if (num > state.roundNum) {
           eval {
             state.voted = true
             state.roundNum = num
@@ -176,7 +178,7 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
                 val msg = createLogMsg(s"WARNING: new leader '$leaderAddr', current = '${state.leader}'. the current leader must be discarded")
                 println(msg)
                 throw new IllegalStateException(msg)
-              case _ => ()
+              case _ => () // todo debug
             }
           case None => ()
         }
@@ -191,11 +193,22 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
     }.fold(unit)(_ ++ _)
   }
 
-  private def sendHeartbeat: DslF[F, Unit] = flow {
+  private def heartbeatLoopAsync: DslF[F, Unit] = fork(heartbeatLoop)
+
+  private def heartbeatLoop: DslF[F, Unit] = {
+    def step: DslF[F, Unit] = flow {
+      sendHeartbeat ++ delay(state.delays.heartbeat) ++ step
+    }
+
+    step
+  }
+
+  private[core] def sendHeartbeat: DslF[F, Unit] = {
     state.peers.all.map {
       case (addr, peer) => debug(s"send heartbeat to $addr") ++ Heartbeat(state.addr, state.leader) ~> peer.netClient
-    }.fold(unit)(_ ++ _) ++ delay(state.delays.heartbeat) ++ sendHeartbeat
+    }.fold(unit)(_ ++ _)
   }
+
 
   private def waitForCoordinator: DslF[F, Unit] = {
     for {
@@ -214,11 +227,19 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
   }
 
 
-  private[core] def monitorClusterAsync: DslF[F, Unit] = fork(monitorCluster)
+  private[core] def monitorClusterLoopAsync: DslF[F, Unit] = fork(monitorClusterLoop)
 
-  private[core] def monitorCluster: DslF[F, Unit] = flow {
+  private[core] def monitorClusterLoop: DslF[F, Unit] = {
+    def step: DslF[F, Unit] = flow {
+      monitorCluster ++ delay(state.delays.monitor) ++ step
+    }
 
+    step
+  }
+
+  private[core] def monitorCluster: DslF[F, Unit] = {
     var action = eval(println("monitorCluster: no action"))
+
     try {
       val quorumComplete = state.peers.hasMajority
 
@@ -240,7 +261,7 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
         action = eval(e.printStackTrace())
     }
 
-    eval(println("monitorCluster:\n")) ++ action ++ delay(state.delays.monitor) ++ monitorCluster
+    eval(println("monitorCluster:\n")) ++ action
   }
 
   def reset: DslF[F, Unit] =
@@ -473,21 +494,24 @@ object RouletteLeaderElection {
   class Peer(
               val addr: Addr,
               val netClient: NetClient,
-              val timeoutMs: Long
+              val timeoutMs: Long,
+              val clock: Clock
             ) {
     private var lastPingAt: Long = 0
 
     def update(): Unit = {
-      update(System.currentTimeMillis())
+      update(clock.currentTimeMillis)
     }
 
     private[core] def update(pingAt: Long): Unit = {
       lastPingAt = pingAt
     }
 
-    def isAlive: Boolean = isAlive(System.currentTimeMillis())
+    def isAlive: Boolean = isAlive(clock.currentTimeMillis)
 
-    private[core] def isAlive(cur: Long): Boolean = lastPingAt >= cur - timeoutMs
+    private[core] def isAlive(cur: Long): Boolean = {
+      lastPingAt >= cur - timeoutMs
+    }
 
     override def toString: String = {
       s"addr=$addr, netClientRef=$netClient"
@@ -512,7 +536,10 @@ object RouletteLeaderElection {
 
     def size: Int = peers.size
 
-    def hasMajority: Boolean = alive.size >= peers.size / 2 // not need to + 1 since itself process is alive
+    def hasMajority: Boolean = {
+      val liveNodes = alive.size + 1
+      liveNodes >= (peers.size + 1) / 2 + 1
+    }
 
     def info: String = map.map {
       case (_, v) =>
@@ -522,9 +549,9 @@ object RouletteLeaderElection {
   }
 
   object Peers {
-    def apply(peers: Map[Addr, NetClient], timeoutMs: Long = 10000): Peers = {
+    def apply(peers: Map[Addr, NetClient], timeoutMs: Long = 10000, clock: Clock = Clock()): Peers = {
       new Peers(peers.map {
-        case (peerAddr, netClient) => new Peer(peerAddr, netClient, timeoutMs)
+        case (peerAddr, netClient) => new Peer(peerAddr, netClient, timeoutMs, clock)
       }.toVector)
     }
   }

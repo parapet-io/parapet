@@ -23,7 +23,7 @@ class RouletteLeaderElectionProtocolSpec extends FunSuite {
   }
 
   test("heartbeat") {
-    val data = RouletteLeaderElection.encoder.write(Heartbeat("Heartbeat"))
-    RouletteLeaderElection.encoder.read(data) shouldBe Heartbeat("Heartbeat")
+      val data = RouletteLeaderElection.encoder.write(Heartbeat("Heartbeat", Option.empty))
+    RouletteLeaderElection.encoder.read(data) shouldBe Heartbeat("Heartbeat", Option.empty)
   }
 }

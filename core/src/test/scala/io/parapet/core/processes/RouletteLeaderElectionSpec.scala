@@ -1,29 +1,32 @@
 package io.parapet.core.processes
 
 import cats.Id
+import io.parapet.core
 import io.parapet.core.ProcessRef
 import io.parapet.core.TestUtils._
 import io.parapet.core.processes.RouletteLeaderElection.ResponseCodes.AckCode
+import io.parapet.core.processes.RouletteLeaderElection.ResponseCodes.AckCode.ELECTED
 import io.parapet.core.processes.RouletteLeaderElection._
-import org.scalatest.FunSuite
+import io.parapet.core.processes.RouletteLeaderElectionSpec._
 import org.scalatest.Matchers._
+import org.scalatest.{FunSuite, Tag}
 
+import scala.concurrent.duration._
 
-/**
-  * todo:
-  * 1. more than once process generates a num > threshold
-  * 2. Timeout messages must be created with current ts (lastHeartbeat) value
-  */
 class RouletteLeaderElectionSpec extends FunSuite {
 
-  test("a node satisfying the launch condition") {
+  test("a node satisfying the launch condition", Lemma1) {
+
     // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p1:6666"
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
 
-    val state = new State(p1, "p1", Peers(Map("p2" -> p2)), _ => VoteNum(0.86, 0.86), threshold = 0.85)
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2)), _ => VoteNum(0.86, 0.86), threshold = 0.85)
     val execution = new Execution()
     val le = new RouletteLeaderElection[Id](state)
+    updatePeers(state)
 
     // when
     le(Begin).foldMap(IdInterpreter(execution))
@@ -32,94 +35,108 @@ class RouletteLeaderElectionSpec extends FunSuite {
     execution.print()
 
     execution.trace shouldBe Seq(
-      Message(Propose("p1", 0.86), p2),
+      Message(Propose(p1Addr, 0.86), p2),
       Message(Timeout(io.parapet.core.processes.RouletteLeaderElection.Coordinator), p1)
     )
   }
 
-  test("a node receives propose with higher number") {
+  test("a node receives propose with higher number", Lemma2) {
     // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p1:6666"
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
 
-    val state = new State(p1, "p1", Peers(Map("p2" -> p2)))
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2)))
     state.num = 0.6
+    updatePeers(state)
     val execution = new Execution()
     val le = new RouletteLeaderElection[Id](state)
 
     // when
-    le(Propose("p2", 0.86)).foldMap(IdInterpreter(execution))
+    le(Propose(p2Addr, 0.86)).foldMap(IdInterpreter(execution))
 
     // then
     execution.print()
 
     execution.trace.exists {
-      case Message(Ack("p1", 0.6, AckCode.OK), ProcessRef("p2")) => true
+      case Message(Ack(p1Addr, 0.6, AckCode.OK), ProcessRef("p2")) => true
       case _ => false
     } shouldBe true
     state.roundNum shouldBe 0.86
+    state.num shouldBe 0.6
     state.voted shouldBe true
   }
 
-  /*
 
-  test("a node with higher num receives proposal") {
+  test("a node with higher number receives propose", Lemma3) {
     // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p2:6666"
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
 
-    val state = new State(p1, Vector(p2))
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2)))
     state.num = 0.86
     state.roundNum = 0.86
+    updatePeers(state)
     val le = new RouletteLeaderElection[Id](state)
     val execution = new Execution()
 
     // when
-    le(Propose(p2, 0.6)).foldMap(IdInterpreter(execution))
+    le(Propose(p2Addr, 0.6)).foldMap(IdInterpreter(execution))
 
     // then
     execution.print()
 
     execution.trace.exists {
-      case Message(Ack(ProcessRef("p1"), 0.86, AckCode.HIGH), ProcessRef("p2")) => true
+      case Message(Ack(p1Addr, 0.86, AckCode.HIGH), ProcessRef("p2")) => true
       case _ => false
     } shouldBe true
   }
 
-  test("a node has the majority of positive responses") {
+  test("a node has the majority of positive responses", Lemma4) {
     // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p2:6666"
+    val p3Addr = "p3:7777"
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
     val p3 = ProcessRef("p3")
 
     val execution = new Execution()
-    val state = new State(p1, Vector(p2, p3), _ => VoteNum(0.86, 0.86), threshold = 0.85, roulette = _ => p3)
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2, p3Addr -> p3)), _ => VoteNum(0.86, 0.86), threshold = 0.85, roulette = _ => p3)
+    updatePeers(state)
     val le = new RouletteLeaderElection[Id](state)
 
     // when
-    le(Start).foldMap(IdInterpreter(execution))
-    le(Ack(ProcessRef("p2"), 0.5, AckCode.OK)).foldMap(IdInterpreter(execution))
-    le(Ack(ProcessRef("p3"), 0.3, AckCode.OK)).foldMap(IdInterpreter(execution))
+    le(Begin).foldMap(IdInterpreter(execution))
+    le(Ack(p2Addr, 0.5, AckCode.OK)).foldMap(IdInterpreter(execution))
+    le(Ack(p3Addr, 0.3, AckCode.OK)).foldMap(IdInterpreter(execution))
 
     // then
     execution.print()
 
     state.coordinator shouldBe true
+    state.votes shouldBe 3
+    state.peerNum shouldBe Map(p2Addr -> 0.5, p3Addr -> 0.3)
 
     execution.trace shouldBe Seq(
-      Message(Propose(p1, 0.86), p2),
-      Message(Propose(p1, 0.86), p3),
+      Message(Propose(p1Addr, 0.86), p2),
+      Message(Propose(p1Addr, 0.86), p3),
       Message(Timeout(Coordinator), p1),
-      Message(Announce(p1), p3),
+      Message(Announce(p1Addr), p3),
       Message(Timeout(Leader), p1)
     )
   }
 
-  test("a coordinator node receives proposal") {
+  test("a coordinator node receives proposal", Lemma5) {
     // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p2:6666"
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
-    val state = new State(p1, Vector(p2))
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2)))
     state.num = 0.86
     state.roundNum = 0.86
     state.coordinator = true
@@ -128,65 +145,71 @@ class RouletteLeaderElectionSpec extends FunSuite {
     val execution = new Execution()
 
     // when
-    le(Propose(p2, 0.87)).foldMap(IdInterpreter(execution))
+    le(Propose(p2Addr, 0.87)).foldMap(IdInterpreter(execution))
 
     // then
     execution.print()
 
     execution.trace shouldBe Seq(
-      Message(Ack(p1, 0.86, AckCode.COORDINATOR), p2)
+      Message(Ack(p1Addr, 0.86, AckCode.COORDINATOR), p2)
     )
   }
 
-  test("a node that already voted receives proposal") {
+  test("a node that already voted receives proposal", Lemma6) {
     // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p2:6666"
+    val p3Addr = "p2:7777"
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
     val p3 = ProcessRef("p3")
 
-    val state = new State(p1, Vector(p2, p3))
-    state.num = 0.86
-    state.roundNum = 0.86
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2, p3Addr -> p3)))
+    state.num = 0.1
 
     val le = new RouletteLeaderElection[Id](state)
     val execution = new Execution()
 
     // when
-    le(Propose(p2, 0.87)).foldMap(IdInterpreter(execution))
-    le(Propose(p3, 0.88)).foldMap(IdInterpreter(execution))
+    le(Propose(p2Addr, 0.87)).foldMap(IdInterpreter(execution))
+    le(Propose(p3Addr, 0.88)).foldMap(IdInterpreter(execution))
 
     // then
     execution.print()
 
+    state.roundNum shouldBe 0.87
+    state.voted shouldBe true
+
     execution.trace shouldBe Seq(
-      Message(Ack(p1, 0.86, AckCode.OK), p2),
-      Message(Timeout(Leader, 0), p1),
-      Message(Ack(p1, 0.86, AckCode.VOTED), p3),
+      Message(Ack(p1Addr, 0.1, AckCode.OK), p2),
+      Message(Timeout(Leader), p1),
+      Message(Ack(p1Addr, 0.1, AckCode.VOTED), p3),
     )
   }
 
   test("a node that voted waiting for a leader receives timeout") {
     // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p2:6666"
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
 
-    val state = new State(p1, Vector(p2))
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2)))
     state.num = 0.6
 
     val le = new RouletteLeaderElection[Id](state)
     val execution = new Execution()
 
     // when
-    le(Propose(p2, 0.87)).foldMap(IdInterpreter(execution))
+    le(Propose(p2Addr, 0.87)).foldMap(IdInterpreter(execution))
     le(Timeout(Leader)).foldMap(IdInterpreter(execution))
 
     // then
     execution.print()
 
     execution.trace shouldBe Seq(
-      Message(Ack(p1, 0.6, AckCode.OK), p2),
-      Message(Timeout(io.parapet.core.processes.RouletteLeaderElection.Leader), p1),
-      Message(Start, p1)
+      Message(Ack(p1Addr, 0.6, AckCode.OK), p2),
+      Message(Timeout(io.parapet.core.processes.RouletteLeaderElection.Leader), p1)
     )
 
     state.voted shouldBe false
@@ -194,27 +217,29 @@ class RouletteLeaderElectionSpec extends FunSuite {
     state.roundNum shouldBe 0
   }
 
-  test("a node that voted waiting for majority acks receives timeout") {
+  test("a candidate node waiting for majority acks receives timeout", Lemma7) {
     // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p2:6666"
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
 
-    val state = new State(p1, Vector(p2), _ => VoteNum(0.86, 0.86))
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2)), random = _ => VoteNum(0.86, 0.86), threshold = 0.85)
+    updatePeers(state)
 
     val le = new RouletteLeaderElection[Id](state)
     val execution = new Execution()
 
     // when
-    le(Start).foldMap(IdInterpreter(execution))
+    le(Begin).foldMap(IdInterpreter(execution))
     le(Timeout(Coordinator)).foldMap(IdInterpreter(execution))
 
     // then
     execution.print()
 
     execution.trace shouldBe Seq(
-      Message(Propose(p1, 0.86), p2),
+      Message(Propose(p1Addr, 0.86), p2),
       Message(Timeout(Coordinator), p1),
-      Message(Start, p1)
     )
 
     state.coordinator shouldBe false
@@ -222,50 +247,254 @@ class RouletteLeaderElectionSpec extends FunSuite {
     state.roundNum shouldBe 0
   }
 
-  test("a node received heartbeat with old timestamp") {
+  test("a node that received announce", Lemma8) {
     // given
-    val p1 = ProcessRef("p1")
-    val state = new State(p1, peers = Vector.empty)
-    state.roundNum = 1
-    state.lastHeartbeat = 1
+    val p1Addr = "p1:5555"
+    val p2Addr = "p2:6666"
 
-    // when
+    val p1 = ProcessRef("p1")
+    val p2 = ProcessRef("p2")
+
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2)))
+    updatePeers(state)
+
     val le = new RouletteLeaderElection[Id](state)
     val execution = new Execution()
 
-    le(Timeout(Leader, 1)).foldMap(IdInterpreter(execution))
+    // when
+    le(Announce(p2Addr)).foldMap(IdInterpreter(execution))
+    le.sendHeartbeat.foldMap(IdInterpreter(execution))
 
     // then
     execution.print()
     execution.trace shouldBe Seq(
-      Message(Start, p1)
+      Message(Heartbeat(p1Addr, Option(p1Addr)), p2)
     )
-    state.roundNum shouldBe 0
   }
 
-  test("a node received heartbeat with new timestamp") {
+  test("a leader crashed and cluster is complete", Lemma9) {
     // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p2:6666"
+    val p3Addr = "p3:7777"
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
-    val state = new State(p1, peers = Vector.empty)
-    state.roundNum = 1
-    val lastHeartbeat = 1
-    state.lastHeartbeat = lastHeartbeat
+    val p3 = ProcessRef("p3")
 
-    // when
+    val peerHeartbeatTimeout = 1.second.toMillis
+    val clock = new core.Clock.Mock(1.second)
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
+
+    // todo separate test case
+    state.peers.alive.map(p => p.addr -> p.netClient).toMap shouldBe Map(p2Addr -> p2, p3Addr -> p3)
+
     val le = new RouletteLeaderElection[Id](state)
     val execution = new Execution()
 
-    le(Heartbeat(p2)).foldMap(IdInterpreter(execution))
+    // when
+    le(Heartbeat(p2Addr, Option(p2Addr))).foldMap(IdInterpreter(execution))
+    state.leader shouldBe Some(p2Addr) // todo separate test case
+    state.hasLeader shouldBe true // todo separate test case
+    clock.tick(2.second)
+    state.leader shouldBe Some(p2Addr)
+    state.hasLeader shouldBe false
+    state.peers.get(p3Addr).update(clock.currentTimeMillis)
+    le.monitorCluster.foldMap(IdInterpreter(execution))
 
     // then
     execution.print()
-    execution.trace.size shouldBe 1
-    execution.trace.headOption.value should matchPattern {
-      case Message(t@Timeout(Leader, _), _) if t.ts == state.lastHeartbeat => ()
+    state.peers.alive.map(p => p.addr -> p.netClient).toMap shouldBe Map(p3Addr -> p3)
+    state.leader shouldBe Option.empty
+    execution.trace shouldBe Seq(
+      Message(Begin, p1)
+    )
+  }
+
+  test("a leader crashed and cluster is not complete", Lemma9) {
+    // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p2:6666"
+    val p3Addr = "p3:7777"
+    val p1 = ProcessRef("p1")
+    val p2 = ProcessRef("p2")
+    val p3 = ProcessRef("p3")
+
+    val peerHeartbeatTimeout = 1.second.toMillis
+    val clock = new core.Clock.Mock(1.second)
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
+
+    // todo separate test case
+    state.peers.alive.map(p => p.addr -> p.netClient).toMap shouldBe Map(p2Addr -> p2, p3Addr -> p3)
+
+    val le = new RouletteLeaderElection[Id](state)
+    val execution = new Execution()
+
+    // when
+    le(Heartbeat(p2Addr, Option(p2Addr))).foldMap(IdInterpreter(execution))
+    state.leader shouldBe Some(p2Addr) // todo separate test case
+    state.hasLeader shouldBe true // todo separate test case
+    clock.tick(2.second)
+    state.leader shouldBe Some(p2Addr)
+    state.hasLeader shouldBe false
+    le.monitorCluster.foldMap(IdInterpreter(execution))
+
+    // then
+    execution.print()
+    state.peers.alive shouldBe Vector.empty
+    state.leader shouldBe Option.empty
+    execution.trace shouldBe Seq.empty
+  }
+
+  test("a node sends propose to healthy cluster") {
+    // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p2:6666"
+    val p3Addr = "p2:7777"
+    val p1 = ProcessRef("p1")
+    val p2 = ProcessRef("p2")
+    val p3 = ProcessRef("p3")
+    val peerHeartbeatTimeout = 1.second.toMillis
+    val clock = new core.Clock.Mock(1.second)
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
+
+    state.leader = Option(p2Addr)
+    val le = new RouletteLeaderElection[Id](state)
+    val execution = new Execution()
+    // when
+
+    le(Propose(p3Addr, 0.9)).foldMap(IdInterpreter(execution))
+    // then
+    execution.print()
+    execution.trace shouldBe Seq(
+      Message(Ack(p1Addr, 0.0, ELECTED), p3)
+    )
+  }
+
+  test("a node joins complete cluster with active leader and receives heartbeat from leader", Lemma11) {
+    // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p2:6666"
+    val p3Addr = "p2:7777"
+    val p1 = ProcessRef("p1")
+    val p2 = ProcessRef("p2")
+    val p3 = ProcessRef("p3")
+    val peerHeartbeatTimeout = 1.second.toMillis
+    val clock = new core.Clock.Mock(1.second)
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
+
+    val le = new RouletteLeaderElection[Id](state)
+    val execution = new Execution()
+
+    // when
+    le(Heartbeat(p3Addr, Some(p3Addr))).foldMap(IdInterpreter(execution))
+
+    // then
+    execution.print()
+    state.peers.alive.map(p => p.addr -> p.netClient).toMap shouldBe Map(p2Addr -> p2, p3Addr -> p3)
+    state.leader shouldBe Some(p3Addr)
+    execution.trace shouldBe Seq.empty
+  }
+
+  test("a node joins incomplete cluster with active leader and receives heartbeat from leader", Lemma11) {
+    // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p2:6666"
+    val p3Addr = "p3:7777"
+    val p4Addr = "p4:8888"
+    val p1 = ProcessRef("p1")
+    val p2 = ProcessRef("p2")
+    val p3 = ProcessRef("p3")
+    val p4 = ProcessRef("p4")
+    val peerHeartbeatTimeout = 1.second.toMillis
+    val clock = new core.Clock.Mock(1.second)
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2, p3Addr -> p3, p4Addr -> p4), peerHeartbeatTimeout, clock))
+
+    val le = new RouletteLeaderElection[Id](state)
+    val execution = new Execution()
+
+    // when
+    clock.tick(1.second)
+    le(Heartbeat(p3Addr, Some(p3Addr))).foldMap(IdInterpreter(execution))
+
+    // then
+    execution.print()
+    state.peers.alive.map(p => p.addr -> p.netClient).toMap shouldBe Map(p3Addr -> p3)
+    state.leader shouldBe Option.empty
+    execution.trace shouldBe Seq.empty
+  }
+
+  test("a node joins complete cluster with active leader and receives heartbeat from non leader", Lemma11) {
+    // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p2:6666"
+    val p3Addr = "p3:7777"
+    val p4Addr = "p4:8888"
+    val p1 = ProcessRef("p1")
+    val p2 = ProcessRef("p2")
+    val p3 = ProcessRef("p3")
+    val p4 = ProcessRef("p4")
+    val peerHeartbeatTimeout = 1.second.toMillis
+    val clock = new core.Clock.Mock(1.second)
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2, p3Addr -> p3, p4Addr -> p4), peerHeartbeatTimeout, clock))
+
+    val le = new RouletteLeaderElection[Id](state)
+    val execution = new Execution()
+
+    // when
+    clock.tick(1.second)
+    state.peers.all.values.foreach(_.update(clock.currentTimeMillis))
+    le(Heartbeat(p3Addr, Some(p2Addr))).foldMap(IdInterpreter(execution))
+
+    // then
+    execution.print()
+    state.peers.alive.map(p => p.addr -> p.netClient).toMap shouldBe Map(p2Addr -> p2, p3Addr -> p3, p4Addr -> p4)
+    state.leader shouldBe Option.empty
+    execution.trace shouldBe Seq.empty
+  }
+
+  test("a node received a heartbeat with a different leader") {
+    // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p2:6666"
+    val p3Addr = "p3:6666"
+    val p1 = ProcessRef("p1")
+    val p2 = ProcessRef("p2")
+    val p3 = ProcessRef("p3")
+
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2, p3Addr -> p3)))
+    state.leader = Some(p2Addr)
+    val le = new RouletteLeaderElection[Id](state)
+    val execution = new Execution()
+
+    // when
+    assertThrows[IllegalStateException] {
+      le(Heartbeat(p3Addr, Some(p3Addr))).foldMap(IdInterpreter(execution))
     }
 
-    state.lastHeartbeat shouldNot equal(lastHeartbeat)
   }
-*/
+
+}
+
+object RouletteLeaderElectionSpec {
+
+  import io.parapet.core.doc.RouletteLeaderElectionDoc.Lemmas
+
+  // @formatter:off
+  object Lemma1  extends  Tag(Lemmas.Lemma1.description)
+  object Lemma2  extends  Tag(Lemmas.Lemma2.description)
+  object Lemma3  extends  Tag(Lemmas.Lemma3.description)
+  object Lemma4  extends  Tag(Lemmas.Lemma4.description)
+  object Lemma5  extends  Tag(Lemmas.Lemma5.description)
+  object Lemma6  extends  Tag(Lemmas.Lemma6.description)
+  object Lemma7  extends  Tag(Lemmas.Lemma7.description)
+  object Lemma8  extends  Tag(Lemmas.Lemma8.description)
+  object Lemma9  extends  Tag(Lemmas.Lemma9.description)
+  object Lemma10 extends  Tag(Lemmas.Lemma10.description)
+  object Lemma11 extends  Tag(Lemmas.Lemma11.description)
+  // @formatter:on
+
+  def updatePeers(s: State, ts: Long = System.currentTimeMillis()): Unit = {
+    s.peers.peers.foreach(_.update(ts))
+  }
+
 }
