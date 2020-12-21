@@ -473,6 +473,28 @@ class RouletteLeaderElectionSpec extends FunSuite {
 
   }
 
+  test("leader crashed and joined the cluster", Lemma12) {
+    // given
+    val p1Addr = "p1:5555"
+    val p2Addr = "p2:6666"
+    val p1 = ProcessRef("p1")
+    val p2 = ProcessRef("p2")
+
+    val state = new State(p1, p1Addr, Peers(Map(p2Addr -> p2)))
+    state.voted = true
+    state.leader = Some(p2Addr)
+
+    val execution = new Execution()
+    val le = new RouletteLeaderElection[Id](state)
+
+    // when
+    le(Heartbeat(p2Addr, Option.empty)).foldMap(IdInterpreter(execution))
+
+    // then
+
+    state.leader shouldBe Option.empty
+  }
+
 }
 
 object RouletteLeaderElectionSpec {
@@ -491,6 +513,7 @@ object RouletteLeaderElectionSpec {
   object Lemma9  extends  Tag(Lemmas.Lemma9.description)
   object Lemma10 extends  Tag(Lemmas.Lemma10.description)
   object Lemma11 extends  Tag(Lemmas.Lemma11.description)
+  object Lemma12 extends  Tag(Lemmas.Lemma12.description)
   // @formatter:on
 
   def updatePeers(s: State, ts: Long = System.currentTimeMillis()): Unit = {

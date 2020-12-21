@@ -87,6 +87,13 @@ object RouletteLeaderElectionDoc {
           |""".stripMargin
     }
 
+    case object Lemma12 extends Lemma {
+      override val description: String =
+        """
+          | leader crash must trigger new election.
+          |""".stripMargin
+    }
+
   }
 
 }

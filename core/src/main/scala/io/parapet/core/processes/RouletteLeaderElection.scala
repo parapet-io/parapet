@@ -29,6 +29,7 @@ import scala.util.Random
 // 1) kill a random node , then kill the leader, last node should print: 'cluster is not complete. leader is not reachable'
 // 2) kill a two non leader nodes, leader should print: 'cluster is not complete. leader is reachable'
 // 3) kill the leader: both nodes should print: 'quorum is complete. start election'
+// TODO: leader crashed and quickly recovered
 class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, State](state) {
 
   import dsl._
@@ -180,7 +181,13 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
                 throw new IllegalStateException(msg)
               case _ => () // todo debug
             }
-          case None => ()
+          case None =>
+            state.leader match {
+              case Some(leaderAddr) if leaderAddr == addr =>
+                println(createLogMsg(s"leader $leaderAddr crashed and recovered"))
+                reset0()
+              case _ => ()
+            }
         }
       }
   }
@@ -264,17 +271,19 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
     eval(println("monitorCluster:\n")) ++ action
   }
 
-  def reset: DslF[F, Unit] =
-    debug("reset state, start a new round") ++
-      eval {
-        state.votes = 0
-        state.num = 0.0
-        state.roundNum = 0.0
-        state.coordinator = false
-        state.peerNum.clear()
-        state.leader = Option.empty[String]
-        state.voted = false
-      }
+  def reset: DslF[F, Unit] = {
+    debug("reset state, start a new round") ++ eval(reset0())
+  }
+
+  def reset0(): Unit = {
+    state.votes = 0
+    state.num = 0.0
+    state.roundNum = 0.0
+    state.coordinator = false
+    state.peerNum.clear()
+    state.leader = Option.empty[String]
+    state.voted = false
+  }
 
   def debug(msg: String): DslF[F, Unit] = {
     eval(println(createLogMsg(msg)))
@@ -510,7 +519,7 @@ object RouletteLeaderElection {
     def isAlive: Boolean = isAlive(clock.currentTimeMillis)
 
     private[core] def isAlive(cur: Long): Boolean = {
-      lastPingAt >= cur - timeoutMs
+      lastPingAt > cur - timeoutMs
     }
 
     override def toString: String = {
