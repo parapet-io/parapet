@@ -13,7 +13,14 @@ object TestUtils {
     override def toString: String = trace.toString()
 
     def print(): Unit = {
-      println(trace.zipWithIndex.foldLeft(new StringBuilder("Trace:\n"))((b, p) => b.append(s"${p._2}: ${p._1}\n")).toString())
+      val margin = "=" * 20
+      val title = " TRACE "
+      println(trace.zipWithIndex.foldLeft(new StringBuilder("\n")
+        .append(margin)
+        .append(title)
+        .append(margin)
+        .append("\n"))
+      ((b, p) => b.append(s"${p._2}: ${p._1}\n")).append(margin * 2 + "=" * title.length).toString())
     }
   }
 
@@ -25,7 +32,6 @@ object TestUtils {
         case eval: Eval[Id, Dsl[Id, ?], A]@unchecked =>
           implicitly[Monad[Id]].pure(eval.thunk())
         case send: Send[Id]@unchecked =>
-          println("send")
           send.receivers.foreach(p => {
             execution.trace.append(Message(send.e(), p))
           })

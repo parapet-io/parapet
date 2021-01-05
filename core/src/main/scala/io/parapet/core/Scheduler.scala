@@ -53,9 +53,9 @@ object Scheduler {
   }
 
   // todo temporary solution
-  case class LoggerWrapper[F[_] : Concurrent](logger: Logger) {
+  case class LoggerWrapper[F[_] : Concurrent](logger: Logger, devMode: Boolean) {
     private val ct = Concurrent[F]
-    private val stdio = Parapet.DEBUG_MODE
+    private val stdio = devMode
 
     def debug(msg: => String): F[Unit] = {
       if (stdio) ct.delay(println(msg))
@@ -108,7 +108,7 @@ object Scheduler {
 
     private val ct = Concurrent[F]
     private val pa = implicitly[Parallel[F]]
-    private val logger = LoggerWrapper(Logger(LoggerFactory.getLogger(getClass.getCanonicalName)))
+    private val logger = LoggerWrapper(Logger(LoggerFactory.getLogger(getClass.getCanonicalName)), context.devMode)
 
     override def start: F[Unit] = {
       ct.bracket(ct.delay(createWorkers)) { workers =>
@@ -137,7 +137,7 @@ object Scheduler {
               case true => logger.debug(s"Scheduler::submit(ps=${ps.process}, task=$task) - lock is already acquired. don't notify")
               case false =>
                 for {
-                  sig <- ct.pure(Signal(ps.process.ref, Trace().append(s"Scheduler::submit(ps=${ps.process}, task=$task)")))
+                  sig <- ct.pure(Signal(ps.process.ref, Trace(context.devMode).append(s"Scheduler::submit(ps=${ps.process}, task=$task)")))
                   _ <- processRefQueue.enqueue(sig)
                   _ <- logger.debug(s"Scheduler::submit(ps=${ps.process}, task=$task) - added to notification queue. trace_id=${sig.trace.id}")
                 } yield ()
@@ -223,7 +223,7 @@ object Scheduler {
                                                                       context: Context[F],
                                                                       processRefQueue: Queue[F, Signal],
                                                                       interpreter: Interpreter[F]) {
-      private val logger = LoggerWrapper(Logger(LoggerFactory.getLogger(s"parapet-$name")))
+      private val logger = LoggerWrapper(Logger(LoggerFactory.getLogger(s"parapet-$name")), context.devMode)
       private val ct = implicitly[Concurrent[F]]
 
       def run: F[Unit] = {

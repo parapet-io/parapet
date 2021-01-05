@@ -18,6 +18,7 @@ class Context[F[_] : Concurrent : ContextShift](
                                                  config: Parapet.ParConfig,
                                                  val eventLog: EventLog[F]) {
 
+  val devMode: Boolean = config.devMode
 
   private val ct = implicitly[Concurrent[F]]
 

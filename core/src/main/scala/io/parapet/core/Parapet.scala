@@ -9,15 +9,13 @@ import shapeless.{Lens, lens}
   */
 object Parapet extends StrictLogging {
 
-  val DEBUG_MODE = false
-
   val ParapetPrefix = "parapet"
 
   case class ParConfig(
                         processBufferSize: Int,
                         schedulerConfig: SchedulerConfig,
+                        devMode: Boolean = false,
                         tracing: Boolean = false)
-
 
   object ParConfig {
 
@@ -31,6 +29,5 @@ object Parapet extends StrictLogging {
     // Scheduler config lenses
     val numberOfWorkersLens: Lens[ParConfig, Int] = lens[ParConfig].schedulerConfig.numberOfWorkers
   }
-
 
 }
