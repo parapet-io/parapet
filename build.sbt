@@ -31,7 +31,7 @@ lazy val dependencies =
     val scalaTest = "org.scalatest" %% "scalatest" % "3.0.7" % Test
     val pegdown = "org.pegdown" % "pegdown" % "1.6.0" % Test
     val logstashLogbackEncoder = "net.logstash.logback" % "logstash-logback-encoder" % "5.3" % Test
-    val logbackContrib= "ch.qos.logback.contrib" % "logback-json-classic" % "0.1.5" % Test
+    val logbackContrib = "ch.qos.logback.contrib" % "logback-json-classic" % "0.1.5" % Test
     val logbackJackson = "ch.qos.logback.contrib" % "logback-jackson" % "0.1.5" % Test
     // utils
     val sourcecode = "com.lihaoyi" %% "sourcecode" % "0.2.1"
@@ -63,13 +63,7 @@ lazy val global = project
     interopScalazZio,
     interopMonix,
     testUtils,
-    intgTests,
-   // algorithms,
-   // msgApi,
-   // msgZmq,
-    //msgIntgTests,
-   // algorithmsIntgTest,
-    examples)
+    intgTests)
 
 lazy val core = project
   .settings(
@@ -78,25 +72,9 @@ lazy val core = project
     libraryDependencies += "org.json4s" %% "json4s-native" % "3.6.7",
     libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7",
     libraryDependencies += "io.monix" %% "monix-eval" % "3.0.0-RC3",
-    libraryDependencies += "io.parapet" % "p2p" % "1.0.0",
-    libraryDependencies +=  "com.typesafe.play" %% "play-json" % "2.9.1"
+    libraryDependencies += "com.typesafe.play" %% "play-json" % "2.9.1",
+    libraryDependencies += "org.zeromq" % "jeromq" % "0.5.1"
   ).dependsOn(protobuf)
-
-lazy val examples = project
-  .in(file("examples"))
-  .settings(
-    name := "examples",
-    libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3",
-    libraryDependencies += "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
-  ).dependsOn(core, interopCats, interopScalazZio, interopMonix)
-
-/*lazy val perfTesting = project
-  .in(file("perf-testing"))
-  .settings(
-    name := "perf-testing",
-    libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3",
-    libraryDependencies += "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
-  ).dependsOn(core, interopCats, interopScalazZio, interopMonix)*/
 
 lazy val testUtils = project
   .in(file("test-utils"))
@@ -227,7 +205,6 @@ concurrentRestrictions in Global += Tags.limit(Tags.Test, 1)
 // PUBLISH TO MAVEN
 publishArtifact in global := false
 publishArtifact in intgTests := false
-publishArtifact in examples := false
 publishArtifact in algorithmsIntgTest := false
 publishArtifact in msgIntgTests := false
 
