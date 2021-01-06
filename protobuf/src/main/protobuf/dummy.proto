@@ -1,0 +1,5 @@
+syntax = "proto2";
+package io.parapet.protobuf;
+
+message Dummy {
+}
