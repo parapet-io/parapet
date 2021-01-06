@@ -132,37 +132,6 @@ PB.targets in protobuf in Compile := Seq(
   PB.gens.java -> (sourceManaged in protobuf in Compile).value
 )
 
-// Algorithms
-lazy val algorithms = project.in(file("./components/algorithms"))
-  .settings(
-    name := "algorithms"
-  ).dependsOn(core)
-
-lazy val algorithmsIntgTest = project.in(file("./components/algorithms-intg-test"))
-  .settings(
-    name := "algorithms-intg-test",
-    publishLocal := {},
-    publish := {}
-  ).dependsOn(algorithms, testUtils)
-
-// Messaging components
-lazy val msgApi = project.in(file("./components/messaging/api"))
-  .settings(
-    name := "messaging-api"
-  ).dependsOn(core)
-
-lazy val msgZmq = project.in(file("./components/messaging/zmq"))
-  .settings(
-    name := "messaging-zmq"
-  ).dependsOn(msgApi)
-
-lazy val msgIntgTests = project.in(file("./components/messaging/intg-tests"))
-  .settings(
-    name := "messaging-intg-tests",
-    publishLocal := {},
-    publish := {}
-  ).dependsOn(msgZmq, testUtils)
-
 lazy val catsDependencies = Seq(dependencies.catsEffect, dependencies.catsFree)
 lazy val commonDependencies = Seq(
   dependencies.shapeless,
@@ -205,8 +174,6 @@ concurrentRestrictions in Global += Tags.limit(Tags.Test, 1)
 // PUBLISH TO MAVEN
 publishArtifact in global := false
 publishArtifact in intgTests := false
-publishArtifact in algorithmsIntgTest := false
-publishArtifact in msgIntgTests := false
 
 ThisBuild / scmInfo := Some(
   ScmInfo(
