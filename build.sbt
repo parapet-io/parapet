@@ -72,7 +72,8 @@ lazy val core = project
     libraryDependencies += "org.json4s" %% "json4s-native" % "3.6.7",
     libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7",
     libraryDependencies += "io.monix" %% "monix-eval" % "3.0.0-RC3",
-    libraryDependencies += "com.typesafe.play" %% "play-json" % "2.9.1"
+    libraryDependencies += "com.typesafe.play" %% "play-json" % "2.9.1",
+    libraryDependencies += "org.zeromq" % "jeromq" % "0.5.1"
   ).dependsOn(protobuf)
 
 lazy val testUtils = project
