@@ -31,6 +31,10 @@ lazy val dependencies =
     val scalaTest = "org.scalatest" %% "scalatest" % "3.0.7" % Test
     val pegdown = "org.pegdown" % "pegdown" % "1.6.0" % Test
     val logstashLogbackEncoder = "net.logstash.logback" % "logstash-logback-encoder" % "5.3" % Test
+    val logbackContrib= "ch.qos.logback.contrib" % "logback-json-classic" % "0.1.5" % Test
+    val logbackJackson = "ch.qos.logback.contrib" % "logback-jackson" % "0.1.5" % Test
+    // utils
+    val sourcecode = "com.lihaoyi" %% "sourcecode" % "0.2.1"
   }
 
 libraryDependencies in ThisBuild += dependencies.pegdown
@@ -75,6 +79,7 @@ lazy val core = project
     libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7",
     libraryDependencies += "io.monix" %% "monix-eval" % "3.0.0-RC3",
     libraryDependencies += "io.parapet" % "p2p" % "1.0.0",
+    libraryDependencies +=  "com.typesafe.play" %% "play-json" % "2.9.1"
   ).dependsOn(protobuf)
 
 lazy val examples = project
@@ -186,7 +191,11 @@ lazy val commonDependencies = Seq(
   dependencies.scalaLogging,
   dependencies.logbackClassic,
   dependencies.logstashLogbackEncoder,
-  dependencies.scalaTest)
+  dependencies.logbackContrib,
+  dependencies.logbackJackson,
+  dependencies.scalaTest,
+  dependencies.sourcecode
+)
 
 resolvers += Resolver.sonatypeRepo("releases")
 

@@ -16,5 +16,5 @@ object BlockingExample extends CatsApp {
   }
 
 
-  override def processes: IO[Seq[Process[IO]]] = IO(Seq(new BlockingProcess))
+  override def processes(args: Array[String]): IO[Seq[Process[IO]]] = IO(Seq(new BlockingProcess))
 }

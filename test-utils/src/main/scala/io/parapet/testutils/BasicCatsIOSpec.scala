@@ -16,11 +16,11 @@ trait BasicCatsIOSpec extends IntegrationSpec[IO] with CatsApp { self =>
 
     override val config: Parapet.ParConfig = config0
 
-    override def processes: IO[Seq[core.Process[IO]]] = processes0
+    override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] = processes0
 
     override def deadLetter: IO[DeadLetterProcess[IO]] = deadLetter0.getOrElse(super.deadLetter)
   }
 
-  override def processes: IO[Seq[core.Process[IO]]] = IO.pure(Seq.empty)
+  override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] = IO.pure(Seq.empty)
 
 }

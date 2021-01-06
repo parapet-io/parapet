@@ -9,7 +9,7 @@ import io.parapet.core.Trace._
   * @param delimiter delimiter used to concatenate strings
   * @param trace     thunk that produces a message
   */
-case class Trace(delimiter: String, private var trace: MsgThunk[String], private val _id: String) {
+case class Trace(delimiter: String, devMode: Boolean, private var trace: MsgThunk[String], private val _id: String) {
 
   def id: String = _id
 
@@ -21,11 +21,10 @@ case class Trace(delimiter: String, private var trace: MsgThunk[String], private
 
   // pure
   def append(f: => Any): Trace = {
-    Trace(delimiter, Monad[MsgThunk].flatMap(trace)(s => {
+    Trace(delimiter, devMode, Monad[MsgThunk].flatMap(trace)(s => {
       Eval.later(s + delimiter + f)
     }).memoize, _id)
   }
-
 
   /**
     * Evaluates the message thunk and memorizes the result of computation.
@@ -33,7 +32,7 @@ case class Trace(delimiter: String, private var trace: MsgThunk[String], private
     * @return trace message
     */
   def value: String = {
-    if (Parapet.DEBUG_MODE) _value
+    if (devMode) _value
     else "Tracing is disabled"
   }
 
@@ -44,13 +43,15 @@ object Trace {
 
   type MsgThunk[+A] = Eval[A]
 
-  val Empty: Trace = Trace("\n")
+  val None: Trace = Trace(devMode = false)
 
-  def apply(): Trace = apply("\n")
+  def apply(devMode: Boolean): Trace = {
+    Trace("\n", devMode)
+  }
 
-  def apply(delimiter: String): Trace = {
+  def apply(delimiter: String, devMode: Boolean): Trace = {
     val id = System.nanoTime().toString
-    Trace(delimiter, Eval.later(header(id)), id)
+    Trace(delimiter, devMode, Eval.later(header(id)), id)
   }
 
   def header(id: String): String = {

@@ -52,7 +52,7 @@ object ProcessCreation extends CatsApp {
     .bufferSize(1000) // set a process queue size limit
     .build
 
-  override def processes: IO[Seq[Process[IO]]] = {
+  override def processes(args: Array[String]): IO[Seq[Process[IO]]] = {
     IO(Seq(
       new GenericProcess[IO](),
       anonymousProcess,

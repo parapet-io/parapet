@@ -76,11 +76,12 @@ object DslInterpreter {
       }
 
     def send(e: Envelope): F[Unit] = {
-      // todo move to context
-      context.schedule(Deliver(e)).flatMap {
-        case ProcessQueueIsFull => context.eventLog.write(e)
-        case _ => ct.unit
-      }
+      context.record(e) >>
+        // todo move to context
+        context.schedule(Deliver(e)).flatMap {
+          case ProcessQueueIsFull => context.eventLog.write(e)
+          case _ => ct.unit
+        }
     }
   }
 

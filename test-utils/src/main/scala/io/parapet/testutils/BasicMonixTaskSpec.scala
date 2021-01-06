@@ -17,11 +17,11 @@ trait BasicMonixTaskSpec extends IntegrationSpec[Task] with MonixApp { self =>
 
     override val config: Parapet.ParConfig = config0
 
-    override def processes: Task[Seq[core.Process[Task]]] = processes0
+    override def processes(args: Array[String]): Task[Seq[core.Process[Task]]] = processes0
 
     override def deadLetter: Task[DeadLetterProcess[Task]] = deadLetter0.getOrElse(super.deadLetter)
   }
 
-  override def processes: Task[Seq[core.Process[Task]]] = Task.pure(Seq.empty)
+  override def processes(args: Array[String]): Task[Seq[core.Process[Task]]] = Task.pure(Seq.empty)
 
 }

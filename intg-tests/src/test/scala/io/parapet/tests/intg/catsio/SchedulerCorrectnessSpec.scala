@@ -4,9 +4,11 @@ import cats.effect.IO
 import io.parapet.core.{Context, DslInterpreter}
 import io.parapet.testutils.BasicCatsIOSpec
 import io.parapet.testutils.tags.CatsTest
+import org.scalatest.tags.Slow
 import org.scalatest.{Outcome, Retries}
 
 @CatsTest
+@Slow
 class SchedulerCorrectnessSpec extends io.parapet.tests.intg.SchedulerCorrectnessSpec[IO]
   with BasicCatsIOSpec with Retries {
   val retries = 1
