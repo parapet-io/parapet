@@ -461,7 +461,7 @@ object Scheduler {
     }
 
     private def sendToDeadLetter[F[_]: Concurrent](dl: DeadLetter, context: Context[F], interpreter: Interpreter[F])(
-        implicit flowDsl: FlowOps[F, Dsl[F, ?]],
+        implicit flowDsl: FlowOps[F, Dsl[F, *]],
     ): F[Unit] =
       send(SystemRef, dl, context.getProcessState(DeadLetterRef).get, interpreter)
 
@@ -470,7 +470,7 @@ object Scheduler {
         event: Event,
         receiver: ProcessState[F],
         interpreter: Interpreter[F],
-    )(implicit flowDsl: FlowOps[F, Dsl[F, ?]]): F[Unit] =
+    )(implicit flowDsl: FlowOps[F, Dsl[F, *]]): F[Unit] =
       flowDsl.send(event, receiver.process.ref).foldMap[F](interpreter.interpret(sender, receiver))
 
     private def deliverStopEvent[F[_]: Concurrent](

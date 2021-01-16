@@ -4,7 +4,7 @@ ThisBuild / organization := "io.parapet"
 ThisBuild / organizationName := "parapet"
 ThisBuild / organizationHomepage := Some(url("http://parapet.io/"))
 
-scalaVersion := "2.12.8"
+scalaVersion := "2.13.4"
 
 scalacOptions in ThisBuild ++= Seq(
   "-Ypartial-unification",
@@ -13,6 +13,9 @@ scalacOptions in ThisBuild ++= Seq(
   "-deprecation"
 )
 
+resolvers += Resolver.sonatypeRepo("releases")
+resolvers in ThisBuild += "maven2" at "https://repo1.maven.org/maven2/"
+
 useGpg := false
 
 credentials += Credentials(Path.userHome / ".sbt" / "sonatype_credential")
@@ -20,8 +23,8 @@ credentials += Credentials(Path.userHome / ".sbt" / "sonatype_credential")
 lazy val dependencies =
   new {
     // Cats
-    val catsEffect = "org.typelevel" %% "cats-effect" % "1.3.1"
-    val catsFree = "org.typelevel" %% "cats-free" % "1.6.1"
+    val catsEffect = "org.typelevel" %% "cats-effect" % "2.3.1"
+    val catsFree = "org.typelevel" %% "cats-free" % "2.3.1"
     // Shapless
     val shapeless = "com.chuusai" %% "shapeless" % "2.3.3"
     // logging
@@ -39,9 +42,9 @@ lazy val dependencies =
 
 libraryDependencies in ThisBuild += dependencies.pegdown
 
-libraryDependencies in ThisBuild += compilerPlugin("org.typelevel" %% "kind-projector" % "0.10.0")
+libraryDependencies in ThisBuild += compilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3")
 // if your project uses multiple Scala versions, use this for cross building
-libraryDependencies in ThisBuild += compilerPlugin("org.typelevel" % "kind-projector" % "0.10.0" cross CrossVersion.binary)
+libraryDependencies in ThisBuild += compilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3" cross CrossVersion.binary)
 // if your project uses both 2.10 and polymorphic lambdas
 libraryDependencies in ThisBuild ++= (scalaBinaryVersion.value match {
   case "2.10" =>
@@ -60,7 +63,6 @@ lazy val global = project
     core,
     protobuf,
     interopCats,
-    interopScalazZio,
     interopMonix,
     testUtils,
     intgTests)
@@ -71,7 +73,7 @@ lazy val core = project
     libraryDependencies ++= (commonDependencies ++ catsDependencies),
     libraryDependencies += "org.json4s" %% "json4s-native" % "3.6.7",
     libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7",
-    libraryDependencies += "io.monix" %% "monix-eval" % "3.0.0-RC3",
+    libraryDependencies += "io.monix" %% "monix-eval" % "3.3.0",
     libraryDependencies += "com.typesafe.play" %% "play-json" % "2.9.1",
     libraryDependencies += "org.zeromq" % "jeromq" % "0.5.1"
   ).dependsOn(protobuf)
@@ -81,7 +83,7 @@ lazy val testUtils = project
   .settings(
     name := "test-utils",
     libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.7"
-  ).dependsOn(core, interopCats, interopScalazZio, interopMonix)
+  ).dependsOn(core, interopCats, interopMonix)
 
 lazy val interopCats = project
   .in(file("interop-cats"))
@@ -89,19 +91,20 @@ lazy val interopCats = project
     name := "interop-cats"
   ).dependsOn(core)
 
-lazy val interopScalazZio = project
-  .in(file("interop-scalaz-zio"))
-  .settings(
-    name := "interop-scalaz-zio",
-    libraryDependencies ++= Seq("org.scalaz" %% "scalaz-zio-interop-cats" % "1.0-RC5")
-  ).dependsOn(core)
+// todo uncomment once scalaz-zio-interop-cats supports scala 2.13
+//lazy val interopScalazZio = project
+//  .in(file("interop-scalaz-zio"))
+//  .settings(
+//    name := "interop-scalaz-zio",
+//    libraryDependencies ++= Seq("org.scalaz" %% "scalaz-zio-interop-cats" % "1.0-RC5")
+//  ).dependsOn(core)
 
 lazy val interopMonix = project
   .in(file("interop-monix"))
   .settings(
     name := "interop-monix",
     libraryDependencies ++= Seq(
-      "io.monix" %% "monix-eval" % "3.0.0-RC3")
+      "io.monix" %% "monix-eval" % "3.3.0")
   ).dependsOn(core)
 
 lazy val intgTests = project
@@ -143,15 +146,6 @@ lazy val commonDependencies = Seq(
   dependencies.scalaTest,
   dependencies.sourcecode
 )
-
-resolvers += Resolver.sonatypeRepo("releases")
-
-addCompilerPlugin("org.typelevel" %% "kind-projector" % "0.10.0")
-
-// if your project uses multiple Scala versions, use this for cross building
-addCompilerPlugin("org.typelevel" % "kind-projector" % "0.10.0" cross CrossVersion.binary)
-
-
 
 testOptions in ThisBuild in Test += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports")
 testOptions in ThisBuild in Test += Tests.Argument(TestFrameworks.ScalaTest, "-l", "org.scalatest.tags.Slow")

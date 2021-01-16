@@ -8,7 +8,7 @@ import scala.concurrent.duration.FiniteDuration
 object Dsl {
 
   type Dsl[F[_], A] = FlowOp[F, A]
-  type DslF[F[_], A] = Free[Dsl[F, ?], A]
+  type DslF[F[_], A] = Free[Dsl[F, *], A]
 
   // <----------- Flow ADT ----------->
   sealed trait FlowOp[F[_], A]
@@ -45,7 +45,7 @@ object Dsl {
     * @tparam F an effect type
     * @tparam C a coproduct of FlowOp and other algebras
     */
-  class FlowOps[F[_], C[_]](implicit I: InjectK[FlowOp[F, ?], C]) {
+  class FlowOps[F[_], C[_]](implicit I: InjectK[FlowOp[F, *], C]) {
 
     /** Semantically this operator is equivalent with `Monad.unit` and obeys the same laws.
       *
@@ -55,7 +55,7 @@ object Dsl {
       *   event ~> process <-> event ~> process ++ unit
       * }}}
       */
-    val unit: Free[C, Unit] = Free.inject[FlowOp[F, ?], C](UnitFlow())
+    val unit: Free[C, Unit] = Free.inject[FlowOp[F, *], C](UnitFlow())
 
     /** Suspends the given flow. Semantically this operator is equivalent with `suspend` for effects.
       * This is useful for recursive flows.
@@ -101,7 +101,7 @@ object Dsl {
       * @param f a flow to suspend
       * @return Unit
       */
-    def flow[A](f: => Free[C, A]): Free[C, A] = Free.inject[FlowOp[F, ?], C](SuspendF(() => f))
+    def flow[A](f: => Free[C, A]): Free[C, A] = Free.inject[FlowOp[F, *], C](SuspendF(() => f))
 
     /** Lazily constructs and sends an event to one or more receivers.
       * Event must be delivered to all receivers in the specified order.
@@ -122,7 +122,7 @@ object Dsl {
       * @return Unit
       */
     def send(e: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
-      Free.inject[FlowOp[F, ?], C](Send(() => e, receiver +: other))
+      Free.inject[FlowOp[F, *], C](Send(() => e, receiver +: other))
 
     /** Sends an event to the receiver using original sender reference.
       * This is useful for implementing a proxy process.
@@ -151,7 +151,7 @@ object Dsl {
       * @return Unit
       */
     def forward(e: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
-      Free.inject[FlowOp[F, ?], C](Forward(() => e, receiver +: other))
+      Free.inject[FlowOp[F, *], C](Forward(() => e, receiver +: other))
 
     /** Executes operations from the given flow in parallel.
       *
@@ -178,7 +178,7 @@ object Dsl {
       * @param duration is the time span to wait before executing next operation
       * @return Unit
       */
-    def delay(duration: FiniteDuration): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Delay(duration))
+    def delay(duration: FiniteDuration): Free[C, Unit] = Free.inject[FlowOp[F, *], C](Delay(duration))
 
     /** Accepts a callback function that takes a sender reference and produces a new flow.
       *
@@ -199,7 +199,7 @@ object Dsl {
       * @tparam A value type
       * @return a value
       */
-    def withSender[A](f: ProcessRef => Free[C, A]): Free[C, A] = Free.inject[FlowOp[F, ?], C](WithSender(f))
+    def withSender[A](f: ProcessRef => Free[C, A]): Free[C, A] = Free.inject[FlowOp[F, *], C](WithSender(f))
 
     /** Executes the given flow concurrently.
       *
@@ -218,7 +218,7 @@ object Dsl {
       * @param flow the flow to run concurrently
       * @return Unit
       */
-    def fork(flow: Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Fork(flow))
+    def fork(flow: Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, *], C](Fork(flow))
 
     /** Registers a child process in the parapet context.
       *
@@ -227,7 +227,7 @@ object Dsl {
       * @return Unit
       */
     def register(parent: ProcessRef, child: Process[F]): Free[C, Unit] =
-      Free.inject[FlowOp[F, ?], C](Register(parent, child))
+      Free.inject[FlowOp[F, *], C](Register(parent, child))
 
     /** Runs two flows concurrently. The loser of the race is canceled.
       *
@@ -248,7 +248,7 @@ object Dsl {
       * @return either[A, B]
       */
     def race[A, B](first: Free[C, A], second: Free[C, B]): Free[C, Either[A, B]] =
-      Free.inject[FlowOp[F, ?], C](Race(first, second))
+      Free.inject[FlowOp[F, *], C](Race(first, second))
 
     /** Adds an effect which produces `F` to the current flow.
       *
@@ -258,7 +258,7 @@ object Dsl {
       * @tparam A value type
       * @return value
       */
-    def suspend[A](thunk: => F[A]): Free[C, A] = Free.inject[FlowOp[F, ?], C](Suspend(() => thunk))
+    def suspend[A](thunk: => F[A]): Free[C, A] = Free.inject[FlowOp[F, *], C](Suspend(() => thunk))
 
     /** Suspends a side effect in `F` and then adds that to the current flow.
       *
@@ -266,7 +266,7 @@ object Dsl {
       * @tparam A value type
       * @return value
       */
-    def eval[A](thunk: => A): Free[C, A] = Free.inject[FlowOp[F, ?], C](Eval(() => thunk))
+    def eval[A](thunk: => A): Free[C, A] = Free.inject[FlowOp[F, *], C](Eval(() => thunk))
 
     /** Asynchronously executes a flow produced by the given thunk w/o blocking a worker.
       *
@@ -291,15 +291,15 @@ object Dsl {
       * @return Unit
       */
     def blocking[A](thunk: => Free[C, A]): Free[C, Unit] =
-      Free.inject[FlowOp[F, ?], C](Blocking(() => thunk))
+      Free.inject[FlowOp[F, *], C](Blocking(() => thunk))
   }
 
   object FlowOps {
-    implicit def flowOps[F[_], G[_]](implicit I: InjectK[FlowOp[F, ?], G]): FlowOps[F, G] = new FlowOps[F, G]
+    implicit def flowOps[F[_], G[_]](implicit I: InjectK[FlowOp[F, *], G]): FlowOps[F, G] = new FlowOps[F, G]
   }
 
   trait WithDsl[F[_]] {
-    protected val dsl: FlowOps[F, Dsl[F, ?]] = implicitly[FlowOps[F, Dsl[F, ?]]]
+    protected val dsl: FlowOps[F, Dsl[F, *]] = implicitly[FlowOps[F, Dsl[F, *]]]
   }
 
 }
