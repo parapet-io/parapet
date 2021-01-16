@@ -39,8 +39,7 @@ object Dsl {
 
   case class Blocking[F[_], C[_], A](body: () => Free[C, A]) extends FlowOp[F, Unit]
 
-  /**
-    * Smart constructors for FlowOp[F, _].
+  /** Smart constructors for FlowOp[F, _].
     *
     * @param I an injection from type constructor `F` into type constructor `C`
     * @tparam F an effect type
@@ -48,8 +47,7 @@ object Dsl {
     */
   class FlowOps[F[_], C[_]](implicit I: InjectK[FlowOp[F, ?], C]) {
 
-    /**
-      * Semantically this operator is equivalent with `Monad.unit` and obeys the same laws.
+    /** Semantically this operator is equivalent with `Monad.unit` and obeys the same laws.
       *
       * The following expressions are equivalent:
       * {{{
@@ -59,8 +57,7 @@ object Dsl {
       */
     val unit: Free[C, Unit] = Free.inject[FlowOp[F, ?], C](UnitFlow())
 
-    /**
-      * Suspends the given flow. Semantically this operator is equivalent with `suspend` for effects.
+    /** Suspends the given flow. Semantically this operator is equivalent with `suspend` for effects.
       * This is useful for recursive flows.
       *
       * Recursive flow example for some `F[_]`:
@@ -106,8 +103,7 @@ object Dsl {
       */
     def flow[A](f: => Free[C, A]): Free[C, A] = Free.inject[FlowOp[F, ?], C](SuspendF(() => f))
 
-    /**
-      * Lazily constructs and sends an event to one or more receivers.
+    /** Lazily constructs and sends an event to one or more receivers.
       * Event must be delivered to all receivers in the specified order.
       *
       * Example:
@@ -128,8 +124,7 @@ object Dsl {
     def send(e: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
       Free.inject[FlowOp[F, ?], C](Send(() => e, receiver +: other))
 
-    /**
-      * Sends an event to the receiver using original sender reference.
+    /** Sends an event to the receiver using original sender reference.
       * This is useful for implementing a proxy process.
       *
       * Proxy example for some `F[_]`:
@@ -158,8 +153,7 @@ object Dsl {
     def forward(e: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
       Free.inject[FlowOp[F, ?], C](Forward(() => e, receiver +: other))
 
-    /**
-      * Executes operations from the given flow in parallel.
+    /** Executes operations from the given flow in parallel.
       *
       * Example:
       *
@@ -173,8 +167,7 @@ object Dsl {
 
     def par(flows: Free[C, Unit]*): Free[C, Unit] = flows.map(fork).fold(unit)((a, b) => a.flatMap(_ => b))
 
-    /**
-      * Delays any operation that follows this operator.
+    /** Delays any operation that follows this operator.
       *
       * Example:
       *
@@ -187,8 +180,7 @@ object Dsl {
       */
     def delay(duration: FiniteDuration): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Delay(duration))
 
-    /**
-      * Accepts a callback function that takes a sender reference and produces a new flow.
+    /** Accepts a callback function that takes a sender reference and produces a new flow.
       *
       * The code below will print `client says hello` :
       * {{{
@@ -209,8 +201,7 @@ object Dsl {
       */
     def withSender[A](f: ProcessRef => Free[C, A]): Free[C, A] = Free.inject[FlowOp[F, ?], C](WithSender(f))
 
-    /**
-      * Executes the given flow concurrently.
+    /** Executes the given flow concurrently.
       *
       * Example:
       *
@@ -229,8 +220,7 @@ object Dsl {
       */
     def fork(flow: Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, ?], C](Fork(flow))
 
-    /**
-      * Registers a child process in the parapet context.
+    /** Registers a child process in the parapet context.
       *
       * @param parent the parent process
       * @param child  the child process
@@ -239,8 +229,7 @@ object Dsl {
     def register(parent: ProcessRef, child: Process[F]): Free[C, Unit] =
       Free.inject[FlowOp[F, ?], C](Register(parent, child))
 
-    /**
-      * Runs two flows concurrently. The loser of the race is canceled.
+    /** Runs two flows concurrently. The loser of the race is canceled.
       *
       * Example:
       *
@@ -261,8 +250,7 @@ object Dsl {
     def race[A, B](first: Free[C, A], second: Free[C, B]): Free[C, Either[A, B]] =
       Free.inject[FlowOp[F, ?], C](Race(first, second))
 
-    /**
-      * Adds an effect which produces `F` to the current flow.
+    /** Adds an effect which produces `F` to the current flow.
       *
       * {{{ suspend(IO(print("hi"))) }}}
       *
@@ -272,8 +260,7 @@ object Dsl {
       */
     def suspend[A](thunk: => F[A]): Free[C, A] = Free.inject[FlowOp[F, ?], C](Suspend(() => thunk))
 
-    /**
-      * Suspends a side effect in `F` and then adds that to the current flow.
+    /** Suspends a side effect in `F` and then adds that to the current flow.
       *
       * @param thunk a side effect
       * @tparam A value type
@@ -281,8 +268,7 @@ object Dsl {
       */
     def eval[A](thunk: => A): Free[C, A] = Free.inject[FlowOp[F, ?], C](Eval(() => thunk))
 
-    /**
-      * Asynchronously executes a flow produced by the given thunk w/o blocking a worker.
+    /** Asynchronously executes a flow produced by the given thunk w/o blocking a worker.
       *
       * Example:
       * {{{
@@ -294,7 +280,6 @@ object Dsl {
       *   }
       *
       * }}}
-      *
       *
       * output {{{ now }}}
       *

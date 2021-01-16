@@ -23,7 +23,6 @@ trait EventSyntax[F[_]] {
 }
 
 object EventSyntax {
-  def send[F[_]](events: Seq[Event], pRef: ProcessRef)(implicit dsl: FlowOps[F, Dsl[F, ?]]): Free[Dsl[F, ?], Unit] = {
+  def send[F[_]](events: Seq[Event], pRef: ProcessRef)(implicit dsl: FlowOps[F, Dsl[F, ?]]): Free[Dsl[F, ?], Unit] =
     events.map(e => dsl.send(e, pRef)).reduce(_ >> _)
-  }
 }

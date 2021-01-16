@@ -19,25 +19,25 @@ object DeadLetterProcess {
     import dsl._
     private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
     override val name: String = DeadLetterRef.ref + "-logging"
-    override val handle: Receive = {
-      case DeadLetter(Envelope(sender, event, receiver), error) =>
-        val mdcFields: MDCFields = Map(
-          "processRef" -> ref,
-          "processName" -> name,
-          "sender" -> sender,
-          "receiver" -> receiver,
-         // "eventId" -> event.id, todo add WithId
-          "event" ->  event)
+    override val handle: Receive = { case DeadLetter(Envelope(sender, event, receiver), error) =>
+      val mdcFields: MDCFields = Map(
+        "processRef" -> ref,
+        "processName" -> name,
+        "sender" -> sender,
+        "receiver" -> receiver,
+        // "eventId" -> event.id, todo add WithId
+        "event" -> event,
+      )
 
-        eval {
-          logger.mdc(mdcFields) { _ =>
-            logger.error(s"event cannot be processed", error)
-          }
+      eval {
+        logger.mdc(mdcFields) { _ =>
+          logger.error(s"event cannot be processed", error)
         }
+      }
     }
 
   }
 
-  def logging[F[_] : Concurrent]: DeadLetterProcess[F] = new DeadLetterLoggingProcess()
+  def logging[F[_]: Concurrent]: DeadLetterProcess[F] = new DeadLetterLoggingProcess()
 
 }

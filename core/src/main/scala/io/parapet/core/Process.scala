@@ -16,7 +16,7 @@ trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
   val bufferSize = -1 // unbounded
 
-  private[core] def handler: Receive = {
+  private[core] def handler: Receive =
     _handler match {
       case Some(s) => s
       case None =>
@@ -24,7 +24,6 @@ trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
         _handler = Some(default)
         default
     }
-  }
 
   // default handler
   def handle: this.Receive
@@ -33,11 +32,10 @@ trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
   def canHandle(e: Event): Boolean = handler.isDefinedAt(e)
 
-  def switch(newHandler: => Receive): Program = {
+  def switch(newHandler: => Receive): Program =
     dsl.eval {
       _handler = Some(newHandler)
     }
-  }
 
   def ++[B](that: Process[F]): Process[F] = this.and(that)
 
@@ -46,13 +44,11 @@ trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
     override val name: String = _self.name
 
     override val handle: Receive = new Receive {
-      override def isDefinedAt(x: Event): Boolean = {
+      override def isDefinedAt(x: Event): Boolean =
         _self.canHandle(x) && that.canHandle(x)
-      }
 
-      override def apply(v1: Event): DslF[F, Unit] = {
+      override def apply(v1: Event): DslF[F, Unit] =
         _self(v1) ++ that(v1)
-      }
     }
   }
 
@@ -61,14 +57,12 @@ trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
     override val name: String = _self.name
     override val handle: Receive =
       new Receive {
-        override def isDefinedAt(x: Event): Boolean = {
+        override def isDefinedAt(x: Event): Boolean =
           _self.canHandle(x) || that.canHandle(x)
-        }
 
-        override def apply(x: Event): DslF[F, Unit] = {
+        override def apply(x: Event): DslF[F, Unit] =
           if (_self.canHandle(x)) _self(x)
           else that(x)
-        }
       }
   }
 
@@ -78,8 +72,8 @@ trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 object Process {
 
   def unit[F[_]]: Process[F] = new Process[F] {
-    override def handle: Receive = {
-      case _ => dsl.unit
+    override def handle: Receive = { case _ =>
+      dsl.unit
     }
   }
 
@@ -89,14 +83,12 @@ object Process {
   def builder[F[_]](receive: ProcessRef => PartialFunction[Event, DslF[F, Unit]]): Builder[F] =
     new Builder[F](receive)
 
-
   class Builder[F[_]](
-                       receive: ProcessRef => PartialFunction[Event, DslF[F, Unit]],
-                       private var _name: String = "undefined",
-                       private var _ref: ProcessRef = ProcessRef.jdkUUIDRef,
-                       private var _bufferSize: Int = -1
-
-                     ) {
+      receive: ProcessRef => PartialFunction[Event, DslF[F, Unit]],
+      private var _name: String = "undefined",
+      private var _ref: ProcessRef = ProcessRef.jdkUUIDRef,
+      private var _bufferSize: Int = -1,
+  ) {
     def name(value: String): Builder[F] = {
       _name = value
       this
@@ -121,6 +113,5 @@ object Process {
       override def handle: Receive = receive(_ref)
     }
   }
-
 
 }

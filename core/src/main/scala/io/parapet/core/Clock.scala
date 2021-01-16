@@ -22,22 +22,18 @@ object Clock {
 
   class Mock(private var time: FiniteDuration) extends Clock {
 
-    def update(value: FiniteDuration): Unit = {
+    def update(value: FiniteDuration): Unit =
       time = value
-    }
 
     // number of units to add to the current value
-    def tick(delta: FiniteDuration): Unit = {
+    def tick(delta: FiniteDuration): Unit =
       time = time + delta
-    }
 
-    override def currentTimeMillis: Long = {
+    override def currentTimeMillis: Long =
       time.toMillis
-    }
 
-    override def nanoTime: Long = {
+    override def nanoTime: Long =
       time.toNanos
-    }
   }
 
 }
