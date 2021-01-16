@@ -14,16 +14,15 @@ trait Lock[F[_]] {
 
   def release: F[Unit]
 
-  def withPermit[A](body: => F[A])(implicit ct: Concurrent[F]): F[A] = {
+  def withPermit[A](body: => F[A])(implicit ct: Concurrent[F]): F[A] =
     (acquire >> body).guaranteeCase(_ => release)
-  }
 
   def isAcquired: F[Boolean]
 
 }
 
 object Lock {
-  def apply[F[_] : Concurrent]: F[Lock[F]] = Semaphore(1).map { s =>
+  def apply[F[_]: Concurrent]: F[Lock[F]] = Semaphore(1).map { s =>
     new Lock[F] {
       override def acquire: F[Unit] = s.acquire
 
@@ -35,7 +34,7 @@ object Lock {
     }
   }
 
-  def mvar[F[_] : Concurrent]: F[Lock[F]] = MVar.of[F, Unit](()).map{ s =>
+  def mvar[F[_]: Concurrent]: F[Lock[F]] = MVar.of[F, Unit](()).map { s =>
     new Lock[F] {
       override def acquire: F[Unit] = s.take
 

@@ -25,13 +25,11 @@ object Encoder {
     private implicit val formats: Formats =
       Serialization.formats(FullTypeHints(typeHints))
 
-    override def write(e: Event): Array[Byte] = {
-      try {
-        Serialization.write(e).getBytes()
-      } catch {
+    override def write(e: Event): Array[Byte] =
+      try Serialization.write(e).getBytes()
+      catch {
         case ex: Throwable => throw EncodingException(s"failed to encode event: $e", ex)
       }
-    }
 
     override def read(data: Array[Byte]): Event = {
       val jsonString = new String(data)

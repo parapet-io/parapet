@@ -6,7 +6,7 @@ import io.parapet.core.{Encoder, ProcessRef}
 import org.zeromq.{SocketType, ZContext, ZMQException}
 
 class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: ProcessRef, encoder: Encoder)
-  extends io.parapet.core.Process[F] {
+    extends io.parapet.core.Process[F] {
 
   import dsl._
 
@@ -24,22 +24,25 @@ class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: Pro
   }
 
   override def handle: Receive = {
-    case Start => eval {
-      try {
-        server.bind(address)
-        println(s"$ref server started on $address")
-      } catch {
-        case e: ZMQException => if (e.getErrorCode == 48) {
-          println(s"address: '$address' in use")
+    case Start =>
+      eval {
+        try {
+          server.bind(address)
+          println(s"$ref server started on $address")
+        } catch {
+          case e: ZMQException =>
+            if (e.getErrorCode == 48) {
+              println(s"address: '$address' in use")
+            }
         }
+
+      } ++ loop
+
+    case Stop =>
+      eval {
+        server.close()
+        zmqContext.close()
       }
-
-    } ++ loop
-
-    case Stop => eval {
-      server.close()
-      zmqContext.close()
-    }
 
   }
 }

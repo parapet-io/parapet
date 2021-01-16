@@ -3,8 +3,7 @@ package io.parapet.core
 import cats.{Eval, Monad}
 import io.parapet.core.Trace._
 
-/**
-  * Helper class to store an execution trace in stack safe, lazy fashion
+/** Helper class to store an execution trace in stack safe, lazy fashion
   *
   * @param delimiter delimiter used to concatenate strings
   * @param trace     thunk that produces a message
@@ -20,21 +19,25 @@ case class Trace(delimiter: String, devMode: Boolean, private var trace: MsgThun
   }
 
   // pure
-  def append(f: => Any): Trace = {
-    Trace(delimiter, devMode, Monad[MsgThunk].flatMap(trace)(s => {
-      Eval.later(s + delimiter + f)
-    }).memoize, _id)
-  }
+  def append(f: => Any): Trace =
+    Trace(
+      delimiter,
+      devMode,
+      Monad[MsgThunk]
+        .flatMap(trace) { s =>
+          Eval.later(s + delimiter + f)
+        }
+        .memoize,
+      _id,
+    )
 
-  /**
-    * Evaluates the message thunk and memorizes the result of computation.
+  /** Evaluates the message thunk and memorizes the result of computation.
     *
     * @return trace message
     */
-  def value: String = {
+  def value: String =
     if (devMode) _value
     else "Tracing is disabled"
-  }
 
   override def toString: String = value
 }
@@ -45,9 +48,8 @@ object Trace {
 
   val None: Trace = Trace(devMode = false)
 
-  def apply(devMode: Boolean): Trace = {
+  def apply(devMode: Boolean): Trace =
     Trace("\n", devMode)
-  }
 
   def apply(delimiter: String, devMode: Boolean): Trace = {
     val id = System.nanoTime().toString

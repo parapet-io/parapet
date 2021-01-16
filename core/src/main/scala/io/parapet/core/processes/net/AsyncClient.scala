@@ -6,8 +6,8 @@ import io.parapet.core.Event.{Start, Stop}
 import io.parapet.core.{Encoder, ProcessRef}
 import org.zeromq.{SocketType, ZContext, ZMQ}
 
-
-class AsyncClient[F[_]](override val ref: ProcessRef, address: String, encoder: Encoder) extends io.parapet.core.Process[F] {
+class AsyncClient[F[_]](override val ref: ProcessRef, address: String, encoder: Encoder)
+    extends io.parapet.core.Process[F] {
 
   import dsl._
 
@@ -17,16 +17,18 @@ class AsyncClient[F[_]](override val ref: ProcessRef, address: String, encoder: 
   private lazy val client = zmqContext.createSocket(SocketType.DEALER)
 
   override def handle: Receive = {
-    case Start => eval {
-      client.setIdentity(clientId.getBytes(ZMQ.CHARSET))
-      client.connect(address)
-      println(s"client[ref=$ref, id=$clientId] connected")
-    }
+    case Start =>
+      eval {
+        client.setIdentity(clientId.getBytes(ZMQ.CHARSET))
+        client.connect(address)
+        println(s"client[ref=$ref, id=$clientId] connected")
+      }
 
-    case Stop => eval {
-      client.close()
-      zmqContext.close()
-    }
+    case Stop =>
+      eval {
+        client.close()
+        zmqContext.close()
+      }
 
     case e =>
       eval {
@@ -37,6 +39,6 @@ class AsyncClient[F[_]](override val ref: ProcessRef, address: String, encoder: 
 }
 
 object AsyncClient {
-  def apply[F[_]](ref: ProcessRef, address: String, encoder: Encoder):
-  AsyncClient[F] = new AsyncClient(ref, address, encoder)
+  def apply[F[_]](ref: ProcessRef, address: String, encoder: Encoder): AsyncClient[F] =
+    new AsyncClient(ref, address, encoder)
 }

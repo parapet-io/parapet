@@ -23,7 +23,8 @@ object Queue {
   trait Enqueue[F[_], A] {
     def enqueue(a: A): F[Unit]
 
-    def enqueueAll(elements: Seq[A])(implicit M: Monad[F]): F[Unit] = elements.map(e => enqueue(e)).foldLeft(M.unit)(_ >> _)
+    def enqueueAll(elements: Seq[A])(implicit M: Monad[F]): F[Unit] =
+      elements.map(e => enqueue(e)).foldLeft(M.unit)(_ >> _)
 
     def tryEnqueue(a: A): F[Boolean]
 
@@ -34,12 +35,11 @@ object Queue {
 
     def tryDequeue: F[Option[A]]
 
-    def dequeueThrough[B](f: A => F[B])(implicit M: Monad[F]): F[B] = {
+    def dequeueThrough[B](f: A => F[B])(implicit M: Monad[F]): F[B] =
       implicitly[Monad[F]].flatMap(dequeue)(a => f(a))
-    }
   }
 
-  class MonixBasedQueue[F[_] : Concurrent, A](q: ConcurrentQueue[F, A]) extends Queue[F, A] {
+  class MonixBasedQueue[F[_]: Concurrent, A](q: ConcurrentQueue[F, A]) extends Queue[F, A] {
     val ct: Concurrent[F] = implicitly[Concurrent[F]]
 
     override def dequeue: F[A] = q.poll
@@ -53,40 +53,38 @@ object Queue {
 
   object MonixBasedQueue {
 
-    def toMonix(ct: ChannelType): monix.execution.ChannelType = {
+    def toMonix(ct: ChannelType): monix.execution.ChannelType =
       ct match {
         case ChannelType.MPMC => monix.execution.ChannelType.MPMC
         case ChannelType.MPSC => monix.execution.ChannelType.MPSC
         case ChannelType.SPMC => monix.execution.ChannelType.SPMC
         case ChannelType.SPSC => monix.execution.ChannelType.SPSC
       }
-    }
 
-    def bounded[F[_] : Concurrent : ContextShift, A](capacity: Int, channelType: ChannelType): F[Queue[F, A]] = {
+    def bounded[F[_]: Concurrent: ContextShift, A](capacity: Int, channelType: ChannelType): F[Queue[F, A]] =
       for {
         q <- ConcurrentQueue[F].withConfig[A](
           capacity = Bounded(capacity),
-          channelType = toMonix(channelType)
+          channelType = toMonix(channelType),
         )
       } yield new MonixBasedQueue[F, A](q)
-    }
 
-    def unbounded[F[_] : Concurrent : ContextShift, A](channelType: ChannelType): F[Queue[F, A]] = {
+    def unbounded[F[_]: Concurrent: ContextShift, A](channelType: ChannelType): F[Queue[F, A]] =
       for {
         q <- ConcurrentQueue[F].withConfig[A](
           capacity = Unbounded(),
-          channelType = toMonix(channelType)
+          channelType = toMonix(channelType),
         )
       } yield new MonixBasedQueue[F, A](q)
-    }
   }
 
-
-  def bounded[F[_] : Concurrent : ContextShift, A](capacity: Int,
-                                                   channelType: ChannelType = ChannelType.MPMC): F[Queue[F, A]] =
+  def bounded[F[_]: Concurrent: ContextShift, A](
+      capacity: Int,
+      channelType: ChannelType = ChannelType.MPMC,
+  ): F[Queue[F, A]] =
     MonixBasedQueue.bounded(capacity, channelType)
 
-  def unbounded[F[_] : Concurrent : ContextShift, A](channelType: ChannelType = ChannelType.MPMC): F[Queue[F, A]] =
+  def unbounded[F[_]: Concurrent: ContextShift, A](channelType: ChannelType = ChannelType.MPMC): F[Queue[F, A]] =
     MonixBasedQueue.unbounded(channelType)
 
 }

@@ -44,12 +44,13 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
   // todo for backward compatibility
   def run(): F[Unit] = run(Array.empty)
 
-  def run(args: Array[String]): F[Unit] = {
+  def run(args: Array[String]): F[Unit] =
     for {
       ps <- processes(args)
-      _ <- if (ps.isEmpty) {
-        ct.raiseError[Unit](new RuntimeException("Initialization error:  at least one process must be provided"))
-      } else ct.unit
+      _ <-
+        if (ps.isEmpty) {
+          ct.raiseError[Unit](new RuntimeException("Initialization error:  at least one process must be provided"))
+        } else ct.unit
       context <- Context(config, eventLog)
       scheduler <- Scheduler.apply[F](config.schedulerConfig, context, interpreter(context))
       _ <- context.start(scheduler)
@@ -58,9 +59,6 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
       _ <- scheduler.start
     } yield ()
 
-  }
-
-  def main(args: Array[String]): Unit = {
+  def main(args: Array[String]): Unit =
     unsafeRun(run(args))
-  }
 }

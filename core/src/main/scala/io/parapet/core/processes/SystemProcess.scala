@@ -8,7 +8,7 @@ class SystemProcess[F[_]] extends Process[F] {
 
   override val name: String = SystemRef.ref
   override val ref: ProcessRef = SystemRef
-  override val handle: Receive = {
-    case f: Failure => dsl.send(DeadLetter(f), DeadLetterRef)
+  override val handle: Receive = { case f: Failure =>
+    dsl.send(DeadLetter(f), DeadLetterRef)
   }
 }

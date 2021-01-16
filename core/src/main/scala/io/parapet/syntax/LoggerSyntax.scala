@@ -9,8 +9,8 @@ trait LoggerSyntax {
 
   implicit class LoggerOps(logger: Logger) {
     def mdc(fields: MDCFields)(log: MDCFields => Unit): Unit = {
-      fields.foreach {
-        case (key, value) => MDC.put(key, Option(value).fold("null")(_.toString))
+      fields.foreach { case (key, value) =>
+        MDC.put(key, Option(value).fold("null")(_.toString))
       }
       log(fields)
 
