@@ -73,9 +73,9 @@ object Scheduler {
 
     def info(msg: => String): F[Unit] =
       if (stdio) ct.delay(println(msg))
-      else ct.delay(logger.error(msg))
+      else ct.delay(logger.info(msg))
 
-    def warn(msg: String): F[Unit] =
+    def warn(msg: => String): F[Unit] =
       if (stdio) ct.delay(println(msg))
       else ct.delay(logger.warn(msg))
   }
