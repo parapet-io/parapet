@@ -47,36 +47,36 @@ object DslInterpreter {
             case Send(event, receivers) =>
               receivers.map(receiver => send(Envelope(ps.process.ref, event(), receiver))).toList.sequence_
             //--------------------------------------------------------------
-            case reply: WithSender[F, Dsl[F, ?], A] @unchecked =>
+            case reply: WithSender[F, Dsl[F, *], A] @unchecked =>
               reply.f(sender).foldMap[F](interpret(sender, ps))
             //--------------------------------------------------------------
             case Forward(event, receivers) =>
               receivers.map(receiver => send(Envelope(sender, event(), receiver))).toList.sequence_
             //--------------------------------------------------------------
-            case par: Par[F, Dsl[F, ?]] @unchecked =>
+            case par: Par[F, Dsl[F, *]] @unchecked =>
               par.flow.foldMap[F](interpret(sender, ps))
             //--------------------------------------------------------------
-            case fork: Fork[F, Dsl[F, ?]] @unchecked =>
+            case fork: Fork[F, Dsl[F, *]] @unchecked =>
               ct.start(fork.flow.foldMap[F](interpret(sender, ps))).void
             //--------------------------------------------------------------
             case delay: Delay[F] @unchecked =>
               timer.sleep(delay.duration)
             //--------------------------------------------------------------
-            case eval: Eval[F, Dsl[F, ?], A] @unchecked =>
+            case eval: Eval[F, Dsl[F, *], A] @unchecked =>
               ct.delay(eval.thunk())
             //--------------------------------------------------------------
-            case suspend: Suspend[F, Dsl[F, ?], A] @unchecked =>
+            case suspend: Suspend[F, Dsl[F, *], A] @unchecked =>
               ct.suspend(suspend.thunk())
             //--------------------------------------------------------------
-            case suspend: SuspendF[F, Dsl[F, ?], A] @unchecked =>
+            case suspend: SuspendF[F, Dsl[F, *], A] @unchecked =>
               ct.suspend(suspend.thunk().foldMap[F](interpret(sender, ps)))
             //--------------------------------------------------------------
-            case race: Race[F, Dsl[F, ?], Any, Any] =>
+            case race: Race[F, Dsl[F, *], _, _] @unchecked =>
               val fa = race.first.foldMap[F](interpret(sender, ps))
               val fb = race.second.foldMap[F](interpret(sender, ps))
               ct.race(fa, fb)
             //--------------------------------------------------------------
-            case blocking: Blocking[F, Dsl[F, ?], A] =>
+            case blocking: Blocking[F, Dsl[F, *], A] @unchecked =>
               for {
                 d <- Deferred[F, Unit]
                 fiber <- ct.start(blocking.body().foldMap[F](interpret(sender, ps)).flatMap(_ => d.complete(())))
