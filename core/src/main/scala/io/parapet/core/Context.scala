@@ -1,7 +1,6 @@
 package io.parapet.core
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
-
 import cats.effect.concurrent.Deferred
 import cats.effect.{Concurrent, ContextShift, Fiber}
 import cats.implicits._
@@ -12,11 +11,14 @@ import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.SystemProcess
 
+import java.util.UUID
 import scala.collection.JavaConverters._
 
-class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eventLog: EventLog[F]) {
+class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eventStore: EventStore[F]) {
 
   val devMode: Boolean = config.devMode
+
+  val tracingEnabled: Boolean = config.tracingEnabled
 
   private val ct = implicitly[Concurrent[F]]
 
@@ -24,7 +26,7 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eve
 
   private val graph = new java.util.concurrent.ConcurrentHashMap[ProcessRef, Vector[ProcessRef]]
 
-  private val execTrace = new ExecutionTrace
+  private val eventLog = new EventLog()
 
   private var _scheduler: Scheduler[F] = _
 
@@ -60,8 +62,10 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eve
   def registerAndStart(parent: ProcessRef, process: Process[F]): F[SubmissionResult] =
     register(parent, process) >> sendStartEvent(process.ref)
 
-  private def sendStartEvent(processRef: ProcessRef): F[SubmissionResult] =
-    _scheduler.submit(Deliver(Envelope(ProcessRef.SystemRef, Start, processRef)))
+  private def sendStartEvent(processRef: ProcessRef): F[SubmissionResult] = {
+    val e = Envelope(ProcessRef.SystemRef, Start, processRef)
+    _scheduler.submit(Deliver(e, createTrace(e.id)))
+  }
 
   def registerAll(parent: ProcessRef, processes: List[Process[F]]): F[List[ProcessRef]] =
     for {
@@ -86,18 +90,22 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eve
   def remove(pRef: ProcessRef): F[Option[Process[F]]] =
     ct.delay(Option(processes.remove(pRef)).map(_.process))
 
-  def record(e: Envelope): F[Unit] =
-    if (config.tracing) {
-      ct.delay(execTrace.add(e.sender, e.event, e.receiver))
-    } else {
-      ct.unit
-    }
+  def createTrace: ExecutionTrace =
+    createTrace(UUID.randomUUID().toString)
 
-  def saveTrace: F[Unit] =
-    if (config.tracing) {
+  def createTrace(id: String): ExecutionTrace =
+    if (tracingEnabled) ExecutionTrace(id)
+    else ExecutionTrace.Dummy
+
+  def addToEventLog(e: Envelope): F[Unit] =
+    if (config.eventLogEnabled) ct.delay(eventLog.add(e))
+    else ct.unit
+
+  def saveEventLog: F[Unit] =
+    if (config.eventLogEnabled) {
       ct.delay {
-        execTrace.close()
-        println(ExecutionTrace.Cytoscape.toJson(execTrace)) // todo store to file
+        eventLog.close()
+        println(EventLog.Cytoscape.toJson(eventLog)) // todo store to file
       }
     } else {
       ct.unit
@@ -107,9 +115,15 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eve
 
 object Context {
 
-  def apply[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, eventLog: EventLog[F]): F[Context[F]] =
+  def apply[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, eventLog: EventStore[F]): F[Context[F]] =
     implicitly[Concurrent[F]].delay(new Context[F](config, eventLog))
 
+  /** Represents a blocking operation started by a process.
+    *
+    * @param fiber a forked blocking operation. Also this fiber is used to cancel a blocking operation.
+    * @param deferred a promise that will be completed once the blocking operation has finished.
+    * @tparam F effect type
+    */
   case class BlockingOp[F[_]: Concurrent](fiber: Fiber[F, Unit], deferred: Deferred[F, Unit])
 
   class AsyncOps[F[_]: Concurrent](process: Process[F]) {
@@ -172,6 +186,8 @@ object Context {
 
     def isStopped: Boolean = _stopped.get
 
+    def isBlocking: F[Boolean] = blocking.size.map(_ > 0)
+
     def acquired: F[Boolean] = pLock.acquired
 
     def acquire: F[Boolean] = pLock.acquire
@@ -212,11 +228,14 @@ object Context {
 
     class ProcessLock[F[_]: Concurrent](ref: ProcessRef) {
       private val lock = new AtomicBoolean()
-      private val nLock = new AtomicBoolean()
+
+      /** used to track whenever the lock is checked via [[acquired]] or released via [[release]]
+        */
+      private val lockSentinel = new AtomicBoolean()
       private[this] val ct = implicitly[Concurrent[F]]
 
       def acquired: F[Boolean] = ct.delay {
-        nLock.set(true)
+        lockSentinel.set(true)
         lock.get()
       }
 
@@ -233,7 +252,7 @@ object Context {
       def release: F[Boolean] =
         ct.delay {
           lock.compareAndSet(true, false)
-          !nLock.compareAndSet(true, false)
+          !lockSentinel.compareAndSet(true, false)
         }
     }
 

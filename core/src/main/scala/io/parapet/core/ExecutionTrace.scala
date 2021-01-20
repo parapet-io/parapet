@@ -1,152 +1,47 @@
 package io.parapet.core
 
-import java.util.UUID
-import java.util.concurrent.atomic.AtomicReference
-import java.util.concurrent.{ConcurrentHashMap => JMap}
+import cats.data.NonEmptyList
 
-import io.parapet.core.ExecutionTrace._
+trait ExecutionTrace {
 
-import scala.collection.JavaConverters._
-import scala.collection.mutable.ListBuffer
+  val values: List[String]
 
-class ExecutionTrace {
+  /** Gets the most recently added value in this trace or `"disabled"` if [[ExecutionTrace.Dummy]] implementation is used.
+    * @return the most recently in this trace or `"disabled"` if [[ExecutionTrace.Dummy]] implementation is used.
+    */
+  val last: String
 
-  private val graph: JMap[ProcessRef, ListBuffer[Node]] = new JMap()
-  private val edges: AtomicReference[List[Edge]] = new AtomicReference(List.empty)
-
-  def add(source: ProcessRef, e: Event, target: ProcessRef): Unit = {
-    val sourceNode = EventNode(UUID.randomUUID().toString, in = false)
-    val targetNode = EventNode(UUID.randomUUID().toString, e.toString, in = true)
-    addNode(source, sourceNode)
-    addNode(target, targetNode)
-    edges.updateAndGet(xs => xs :+ Edge(sourceNode.id, targetNode.id))
-  }
-
-  private def addNode(ref: ProcessRef, n: Node): Unit =
-    graph.compute(
-      ref,
-      (_, v) => {
-        var l = v
-        if (l == null) {
-          l = new ListBuffer[Node]()
-          l += PNode(ref.ref, ref.ref, start = true)
-        }
-        l += n
-      },
-    )
-
-  def close(): Unit =
-    // append final nodes
-    graph.entrySet().forEach(entry => entry.getValue += PNode(entry.getKey + "-end", "", start = false))
+  /** Creates a new trace and appends the given value.
+    * @param value value to append to this trace
+    * @return new trace
+    */
+  def add(value: String): ExecutionTrace
 
 }
 
 object ExecutionTrace {
 
-  sealed class Node(val id: String, val name: String)
+  def apply(x: String): ExecutionTrace = new Impl(NonEmptyList(x, List.empty))
 
-  case class EventNode(override val id: String, override val name: String = "", in: Boolean) extends Node(id, name)
+  class Impl(_values: NonEmptyList[String]) extends ExecutionTrace {
 
-  case class PNode(override val id: String, override val name: String = "", start: Boolean) extends Node(id, name)
+    override val values: List[String] = _values.toList
 
-  case class Edge(source: String, target: String)
+    override def add(value: String): ExecutionTrace = new Impl(_values :+ value)
 
-  object Cytoscape {
+    override val last: String = values.last
 
-    import play.api.libs.json.{JsObject, Json}
+    override def toString: String = s"Trace(${values.mkString("->")})"
+  }
 
-    def toJson(t: ExecutionTrace): String = {
-      var y = 100
-      val xStep = 100
-      val yStep = 30
-      val data = ListBuffer.empty[JsObject]
+  object Dummy extends ExecutionTrace { self =>
+    override val values: List[String] = List.empty
 
-      t.graph.asScala.foreach { case (p, nodes) =>
-        var x = 100
-        val parent = p.ref + "-parent"
-        data += Json.obj("data" -> Json.obj("id" -> parent))
+    override def add(value: String): ExecutionTrace = self
 
-        data ++= nodes.map { n =>
-          val obj = n match {
-            case PNode(id, name, true) =>
-              Json.obj(
-                "data" -> Json.obj("id" -> id, "label" -> name, "parent" -> parent),
-                "position" -> Json.obj("x" -> x, "y" -> y),
-              )
-            case PNode(id, name, false) =>
-              Json.obj(
-                "data" -> Json.obj("id" -> id, "label" -> name, "type" -> "rectangle", "parent" -> parent),
-                "position" -> Json.obj("x" -> x, "y" -> y),
-              )
-            case EventNode(id, name, false) =>
-              Json.obj(
-                "data" -> Json.obj("id" -> id, "label" -> name, "type" -> "star", "parent" -> parent),
-                "position" -> Json.obj("x" -> x, "y" -> y),
-              )
-            case EventNode(id, name, true) =>
-              Json.obj(
-                "data" -> Json.obj("id" -> id, "label" -> name, "type" -> "diamond", "parent" -> parent),
-                "position" -> Json.obj("x" -> x, "y" -> y),
-              )
-          }
+    override val last: String = "disabled"
 
-          x = x + xStep
-          obj
-        }
-
-        def group(in: List[Node], out: List[(Node, Node)]): List[(Node, Node)] =
-          in match {
-            case f :: s :: Nil => out :+ (f, s)
-            case f :: s :: xs => group(s +: xs, out :+ (f, s))
-            case Nil => out
-          }
-
-        val pairs = group(nodes.toList, List.empty)
-        data ++= pairs.slice(0, pairs.size - 1).map { pair =>
-          val (n0, n1) = pair
-          Json.obj(
-            "data" ->
-              Json.obj(
-                "id" -> UUID.randomUUID().toString,
-                "source" -> n0.id,
-                "target" -> n1.id,
-              ),
-          )
-        }
-
-        val (n0, n1) = pairs.last
-
-        // final edge
-        data += Json.obj(
-          "data" ->
-            Json.obj(
-              "id" -> UUID.randomUUID().toString,
-              "source" -> n0.id,
-              "target" -> n1.id,
-              "arrow" -> "tee",
-            ),
-        )
-
-        y = y + yStep
-
-      }
-      var arr = Json.arr()
-      data.foreach(v => arr = arr.append(v))
-      t.edges.get().foreach { edge =>
-        arr = arr.append(
-          Json.obj(
-            "data" ->
-              Json.obj(
-                "id" -> UUID.randomUUID().toString,
-                "source" -> edge.source,
-                "target" -> edge.target,
-                "arrow" -> "triangle",
-              ),
-          ),
-        )
-      }
-      Json.stringify(arr)
-    }
+    override def toString: String = "disabled"
   }
 
 }

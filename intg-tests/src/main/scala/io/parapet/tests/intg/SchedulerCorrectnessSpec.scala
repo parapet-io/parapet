@@ -1,12 +1,11 @@
 package io.parapet.tests.intg
 
 import java.util.concurrent.TimeUnit
-
 import cats.effect.Concurrent
 import cats.implicits._
 import io.parapet.core.Event._
 import io.parapet.core.Scheduler._
-import io.parapet.core.{Context, Event, EventLog, Parapet, Process, ProcessRef, Scheduler}
+import io.parapet.core.{Context, Event, ExecutionTrace, Parapet, Process, ProcessRef, Scheduler}
 import io.parapet.implicits._
 import io.parapet.syntax.logger.MDCFields
 import io.parapet.tests.intg.SchedulerCorrectnessSpec.TaskProcessingTime._
@@ -195,7 +194,7 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationS
 
       val program = for {
         context <- Context[F](Parapet.ParConfig(processBufferSize = -1,
-          schedulerConfig = spec.config), EventLog.stub)(ct, contextShift)
+          schedulerConfig = spec.config), io.parapet.core.EventStore.stub)(ct, contextShift)
         scheduler <- Scheduler[F](spec.config, context, interpreter(context))
         fiber <- ct.start(scheduler.start)
         _ <- context.start(scheduler)
@@ -389,7 +388,7 @@ object SchedulerCorrectnessSpec {
       override def createTasks[F[_]](n: Int, processes: Array[Process[F]]): Seq[Deliver[F]] = {
         val rnd = scala.util.Random
         (1 to n).map(i => Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(i),
-          processes(rnd.nextInt(processes.length)).ref)))
+          processes(rnd.nextInt(processes.length)).ref), ExecutionTrace.Dummy))
       }
     }
 
@@ -401,7 +400,7 @@ object SchedulerCorrectnessSpec {
         def create(i: Int, offset: Int, n: Int, tasks: Seq[Deliver[F]]): Seq[Deliver[F]] = {
           if (i < processes.length) {
             create(i + 1, offset + n, n, tasks ++ (1 to n).map(j =>
-              Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(offset + j), processes(i).ref))))
+              Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(offset + j), processes(i).ref), ExecutionTrace.Dummy)))
           } else tasks
         }
 

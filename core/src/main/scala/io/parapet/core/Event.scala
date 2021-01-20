@@ -1,5 +1,7 @@
 package io.parapet.core
 
+import java.util.UUID
+
 trait Event
 
 object Event {
@@ -12,11 +14,14 @@ object Event {
   case object Kill extends Event
 
   // System events
-  case class Envelope(sender: ProcessRef, event: Event, receiver: ProcessRef) extends Event {
+  case class Envelope(sender: ProcessRef, event: Event, receiver: ProcessRef) { self =>
     // timestamp in nanos for debugging purposes
     val ts: Long = System.nanoTime()
+    val id: String = UUID.randomUUID().toString
 
-    override def toString: String = s"Envelope(sender=$sender, event=$event, receiver=$receiver, ts=$ts)"
+    def event(value: Event): Envelope = self.copy(event = value)
+
+    override def toString: String = s"Envelope(id:$id, sender:$sender, event:$event, receiver:$receiver, ts:$ts)"
   }
 
   case class Failure(envelope: Envelope, error: Throwable) extends Event

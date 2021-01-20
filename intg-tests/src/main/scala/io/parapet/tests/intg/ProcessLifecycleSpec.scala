@@ -5,13 +5,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import io.parapet.core.Event._
+import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.tests.intg.ProcessLifecycleSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.FlatSpec
 import org.scalatest.Matchers._
-
-import scala.concurrent.duration._
 
 abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[F] {
 
@@ -106,7 +105,7 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
 
   }
 
-  "Send an event to the registered precess within the same flow" should "deliver" in {
+  "Send an event to the registered process within the same flow" should "deliver" in {
     val eventStore = new EventStore[F, Event]
 
     val child = Process.builder[F](r => {
@@ -150,21 +149,23 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
   "Stop" should "deliver Stop event and remove process" in {
     val eventStore = new EventStore[F, Event]
     val process: Process[F] = new Process[F] {
+      override val ref: ProcessRef = ProcessRef("process")
+
       override def handle: Receive = {
-        case Start => unit // ignore
         case e => eval(eventStore.add(ref, e))
       }
     }
 
-    val init = onStart(Seq(TestEvent, TestEvent, Stop) ~> process.ref)
+    val init = onStart(Seq(DataEvent(1), DataEvent(2), Stop) ~> process.ref)
+    val config = ParConfig.numberOfWorkersLens.set(ParConfig.default.enableTracing.withDevMode)(1)
 
-    unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(init, process))).run))
+    unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(init, process)), config0 = config).run))
 
-
-    eventStore.size shouldBe 3
-    eventStore.get(process.ref) shouldBe Seq(TestEvent, TestEvent, Stop)
+    eventStore.size shouldBe 4
+    eventStore.get(process.ref) shouldBe Seq(Start, DataEvent(1), DataEvent(2), Stop)
 
   }
+
   //  todo revisit
   //  "An attempt to kill a process more than once" should "return error" in {
   //    val eventStore = new EventStore[F, DeadLetter]
@@ -224,6 +225,8 @@ abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[
 object ProcessLifecycleSpec {
 
   object TestEvent extends Event
+
+  case class DataEvent(value: Int) extends Event
 
   object Pause extends Event
 
