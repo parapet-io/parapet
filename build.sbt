@@ -144,6 +144,7 @@ lazy val commonDependencies = Seq(
 )
 
 testOptions in ThisBuild in Test += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports")
+testOptions in intgTests in Test += Tests.Argument(TestFrameworks.ScalaTest, "-n", "io.parapet.testutils.tags.CatsTest")
 
 def testUntilFailed = Command.args("testUntilFailed", "") { (state, args) =>
   val argsList = args.mkString(" ")
