@@ -1,1 +1,2 @@
 language: scala
+script: sbt ++$TRAVIS_SCALA_VERSION testOnly -- -l org.scalatest.tags.Slow -n io.parapet.testutils.tags.CatsTest

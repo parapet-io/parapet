@@ -4,6 +4,12 @@ package object exceptions {
 
   case class UnknownProcessException(message: String) extends RuntimeException(message)
 
+  object UnknownProcessException {
+    def apply(ref: ProcessRef): UnknownProcessException = {
+      new UnknownProcessException(s"process: '$ref' doesn't exist")
+    }
+  }
+
   case class EventHandlingException(message: String = "", cause: Throwable = null)
       extends RuntimeException(message, cause)
 
@@ -16,6 +22,12 @@ package object exceptions {
 
   case class UninitializedProcessException(message: String) extends RuntimeException(message)
 
-  case class TerminatedProcessException(message: String) extends RuntimeException(message)
+  case class ProcessStoppedException(message: String) extends RuntimeException(message)
+
+  object ProcessStoppedException {
+    def apply(ref: ProcessRef): ProcessStoppedException = {
+      new ProcessStoppedException(s"process: '$ref' is already stopped")
+    }
+  }
 
 }

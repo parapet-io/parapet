@@ -54,7 +54,7 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
       scheduler <- Scheduler.apply[F](config.schedulerConfig, context, interpreter(context))
       _ <- context.start(scheduler)
       dlProcess <- deadLetter
-      _ <- context.registerAll(ProcessRef.SystemRef, ps.toList :+ dlProcess)
+      _ <- context.registerAll(ps.toList :+ dlProcess)
       _ <- scheduler.start
     } yield ()
 

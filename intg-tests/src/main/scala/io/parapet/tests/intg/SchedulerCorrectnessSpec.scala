@@ -1,6 +1,5 @@
 package io.parapet.tests.intg
 
-import java.util.concurrent.TimeUnit
 import cats.effect.Concurrent
 import cats.implicits._
 import io.parapet.core.Event._
@@ -10,12 +9,11 @@ import io.parapet.implicits._
 import io.parapet.syntax.logger.MDCFields
 import io.parapet.tests.intg.SchedulerCorrectnessSpec.TaskProcessingTime._
 import io.parapet.tests.intg.SchedulerCorrectnessSpec._
-import io.parapet.testutils.Tags.Correctness
 import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.FunSuite
 import org.scalatest.Matchers._
-import org.scalatest.tagobjects.Slow
 
+import java.util.concurrent.TimeUnit
 import scala.annotation.tailrec
 import scala.concurrent.duration.{FiniteDuration, _}
 import scala.util.Random
@@ -23,7 +21,7 @@ import scala.util.Random
 
 abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
 
-  test("scheduler correctness under normal conditions", Slow, Correctness) {
+  test("scheduler correctness under normal conditions") {
     val specs = Seq(
       // random work distribution
       StabilitySpec(

@@ -53,12 +53,8 @@ libraryDependencies in ThisBuild ++= (scalaBinaryVersion.value match {
     Nil
 })
 
-lazy val Slow = config("slow").extend(Test)
-
 lazy val global = project
   .in(file("."))
-  .configs(Slow).settings(
-  inConfig(Slow)(Defaults.testTasks))
   .aggregate(
     core,
     protobuf,
@@ -148,11 +144,6 @@ lazy val commonDependencies = Seq(
 )
 
 testOptions in ThisBuild in Test += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports")
-testOptions in ThisBuild in Test += Tests.Argument(TestFrameworks.ScalaTest, "-l", "org.scalatest.tags.Slow")
-testOptions in intgTests in Test += Tests.Argument(TestFrameworks.ScalaTest, "-n", "io.parapet.testutils.tags.CatsTest")
-
-testOptions in ThisBuild in Slow -= Tests.Argument("-l", "org.scalatest.tags.Slow")
-testOptions in ThisBuild in Slow += Tests.Argument("-n", "org.scalatest.tags.Slow")
 
 def testUntilFailed = Command.args("testUntilFailed", "") { (state, args) =>
   val argsList = args.mkString(" ")
@@ -162,7 +153,6 @@ def testUntilFailed = Command.args("testUntilFailed", "") { (state, args) =>
 ThisBuild / commands += testUntilFailed
 
 parallelExecution in Test := false
-parallelExecution in Slow := false
 concurrentRestrictions in Global += Tags.limit(Tags.Test, 1)
 
 // PUBLISH TO MAVEN

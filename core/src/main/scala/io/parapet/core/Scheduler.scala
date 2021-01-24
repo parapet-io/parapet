@@ -50,7 +50,7 @@ object Scheduler {
     val default: SchedulerConfig = SchedulerConfig(numberOfWorkers = Runtime.getRuntime.availableProcessors())
   }
 
-  // todo temporary solution
+  // todo temporary solution for debugging
   case class LoggerWrapper[F[_]: Concurrent](logger: Logger, devMode: Boolean) {
     private val ct = Concurrent[F]
     private val stdio = devMode
@@ -109,16 +109,15 @@ object Scheduler {
       ct.bracket(ct.delay(createWorkers)) { workers =>
         pa.par(workers.map(w => w.run))
       } { _ =>
-        context.saveEventLog >>
-          stopProcess(
-            ProcessRef.SystemRef,
-            context,
-            ProcessRef.SystemRef,
-            interpreter,
-            context.createTrace,
-            (pRef, err) => logger.error(s"An error occurred while stopping process $pRef", err),
-          ) >>
-          logger.info("scheduler has been shut down")
+        stopProcess(
+          ProcessRef.SystemRef,
+          context,
+          ProcessRef.SystemRef,
+          interpreter,
+          context.createTrace,
+          logger,
+          (pRef, err) => logger.error(s"An error occurred while stopping process $pRef", err),
+        ) >> context.saveEventLog >> logger.info("scheduler has been shut down")
       }
 
     /** Adds the given task into a process internal event queue.
@@ -170,7 +169,7 @@ object Scheduler {
         Failure(e, UnknownProcessException(s"there is no such process with id=${e.receiver} registered in the system")),
         context.getProcessState(e.sender).get,
         interpreter,
-        task.execTrace
+        task.execTrace,
       )
     }
 
@@ -311,32 +310,33 @@ object Scheduler {
 
         event match {
           case Stop =>
-            ps.stop().flatMap {
+            ps.stopped.flatMap {
               case true =>
+                sendToDeadLetter(
+                  DeadLetter(envelope, ProcessStoppedException(process.ref)),
+                  context,
+                  interpreter,
+                  task.execTrace,
+                )
+              case false =>
                 stopProcess(
                   sender,
                   context,
                   process.ref,
                   interpreter,
                   task.execTrace,
+                  logger,
                   (_, err) => handleError(process, envelope, task.execTrace, err),
                 ) >> context.remove(process.ref).void
-              case false =>
-                sendToDeadLetter(
-                  DeadLetter(envelope, new IllegalStateException(s"process=$process is already stopped")),
-                  context,
-                  interpreter,
-                  task.execTrace
-                )
             }
           case _ =>
-            ps.interrupted.product(ps.stopped).flatMap {
+            ps.terminated.product(ps.stopped).flatMap {
               case (_, true) | (true, _) =>
                 sendToDeadLetter(
                   DeadLetter(envelope, new IllegalStateException(s"process=$process is terminated")),
                   context,
                   interpreter,
-                  task.execTrace
+                  task.execTrace,
                 ) //>>
               // releaseAndNotify(ps, thisTrace.append("terminated"))
               case _ =>
@@ -449,14 +449,19 @@ object Scheduler {
           ps: ProcessState[F],
           errorHandler: Throwable => F[Unit],
       ): F[Unit] =
-        ct.race(flow, ps.interruption.get).void.handleErrorWith(errorHandler)
+        ct.race(flow, ps.terminationSignal.get).void.handleErrorWith(errorHandler)
 
       private def createNotifySignal(ref: ProcessRef): Signal = {
         val e = Envelope(ProcessRef.SchedulerRef, NotifyEvent, ref)
         Signal(e, context.createTrace(e.id))
       }
 
-      private def handleError(process: Process[F], envelope: Envelope, executionTrace: ExecutionTrace, cause: Throwable): F[Unit] = {
+      private def handleError(
+          process: Process[F],
+          envelope: Envelope,
+          executionTrace: ExecutionTrace,
+          cause: Throwable,
+      ): F[Unit] = {
         val event = envelope.event
 
         event match {
@@ -514,14 +519,26 @@ object Scheduler {
       }
     }
 
+    /** Stops the given process and its child processes.
+      * @param sender the sender
+      * @param context the context
+      * @param receiver the process that should be stopped
+      * @param interpreter the dsl interpreter
+      * @param logger the logger
+      * @param execTrace the execution trace
+      * @param onError the error handler
+      * @tparam F effect
+      * @return true if the process was stopped, otherwise - false
+      */
     private def stopProcess[F[_]: Concurrent: Parallel](
         sender: ProcessRef,
         context: Context[F],
-        ref: ProcessRef,
+        receiver: ProcessRef,
         interpreter: Interpreter[F],
-        executionTrace: ExecutionTrace,
+        execTrace: ExecutionTrace,
+        logger: LoggerWrapper[F],
         onError: (ProcessRef, Throwable) => F[Unit],
-    ): F[Unit] = {
+    ): F[Boolean] = {
       val ct = implicitly[Concurrent[F]]
       val pa = implicitly[Parallel[F]]
 
@@ -529,25 +546,24 @@ object Scheduler {
         val stopChildProcesses =
           pa.par(
             context
-              .child(ref)
-              .map(child =>
-                context
-                  .getProcessState(child)
-                  .map {
-                    case ps if !ps.isStopped => stopProcess(ref, context, child, interpreter, executionTrace, onError)
-                    case _ => ct.unit
-                  }
-                  .getOrElse(ct.unit),
-              ),
+              .child(receiver)
+              .map(child => stopProcess(receiver, context, child, interpreter, execTrace, logger, onError)),
           )
 
-        stopChildProcesses >>
-          (context.getProcessState(ref) match {
-            case Some(p) =>
-              p.blocking.completeAll >>
-                deliverStopEvent(sender, p, interpreter, executionTrace).handleErrorWith(err => onError(ref, err))
-            case None => ct.unit // todo: revisit
-          })
+        context.getProcessState(receiver) match {
+          case Some(ps) =>
+            ps.stop().flatMap {
+              case true =>
+                stopChildProcesses >>
+                  ps.blocking.completeAll >>
+                  deliverStopEvent(sender, ps, interpreter, execTrace).handleErrorWith(err => onError(receiver, err)) >>
+                  logger.debug(s"process: '$receiver' has been stopped") >> ct.pure(true)
+              case false =>
+                logger.warn(s"process: '$receiver' cannot be stopped b/c it's already stopped") >> ct.pure(false)
+            }
+          case None =>
+            logger.warn(s"process: '$receiver' cannot be stopped b/c it doesn't exist") >> ct.pure(false)
+        }
       }
     }
 
