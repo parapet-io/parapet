@@ -11,11 +11,17 @@ object Parapet extends StrictLogging {
   val ParapetPrefix = "parapet"
 
   case class ParConfig(
-      processBufferSize: Int,
-      schedulerConfig: SchedulerConfig,
-      devMode: Boolean = false,
-      tracing: Boolean = false,
-  )
+                        processBufferSize: Int,
+                        schedulerConfig: SchedulerConfig,
+                        devMode: Boolean = false,
+                        tracingEnabled: Boolean = false,
+                        eventLogEnabled: Boolean = false
+  ) {
+    self =>
+    def enableTracing: ParConfig = self.copy(tracingEnabled = true)
+    def withDevMode: ParConfig = self.copy(devMode = true)
+    def enableEventLog: ParConfig = self.copy(eventLogEnabled = true)
+  }
 
   object ParConfig {
 
@@ -25,7 +31,7 @@ object Parapet extends StrictLogging {
     )
 
     val processBufferSizeLens: Lens[ParConfig, Int] = lens[ParConfig].processBufferSize
-    val tracingLens: Lens[ParConfig, Boolean] = lens[ParConfig].tracing
+    val enableTracingLens: Lens[ParConfig, Boolean] = lens[ParConfig].tracingEnabled
 
     // Scheduler config lenses
     val numberOfWorkersLens: Lens[ParConfig, Int] = lens[ParConfig].schedulerConfig.numberOfWorkers

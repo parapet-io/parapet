@@ -8,7 +8,7 @@ import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.core.{Context, EventLog, Parallel, Process, ProcessRef, Scheduler}
+import io.parapet.core.{Context, EventStore, Parallel, Process, ProcessRef, Scheduler}
 import io.parapet.syntax.FlowSyntax
 import org.slf4j.LoggerFactory
 
@@ -31,7 +31,7 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
   implicit def timer: Timer[F]
 
-  val eventLog: EventLog[F] = EventLog.stub
+  val eventLog: EventStore[F] = EventStore.stub
 
   def processes(args: Array[String]): F[Seq[Process[F]]]
 
@@ -41,8 +41,7 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
   def unsafeRun(f: F[Unit]): Unit
 
-  // todo for backward compatibility
-  def run(): F[Unit] = run(Array.empty)
+  def run: F[Unit] = run(Array.empty)
 
   def run(args: Array[String]): F[Unit] =
     for {
@@ -55,7 +54,7 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
       scheduler <- Scheduler.apply[F](config.schedulerConfig, context, interpreter(context))
       _ <- context.start(scheduler)
       dlProcess <- deadLetter
-      _ <- context.registerAll(ProcessRef.SystemRef, ps.toList :+ dlProcess)
+      _ <- context.registerAll(ps.toList :+ dlProcess)
       _ <- scheduler.start
     } yield ()
 

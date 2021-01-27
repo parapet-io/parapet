@@ -28,7 +28,7 @@ import io.parapet.core.Scheduler.{Deliver, ProcessQueueIsFull}
 object DslInterpreter {
 
   trait Interpreter[F[_]] {
-    def interpret(sender: ProcessRef, ps: ProcessState[F]): FlowOp[F, *] ~> F
+    def interpret(sender: ProcessRef, ps: ProcessState[F], execTrace: ExecutionTrace): FlowOp[F, *] ~> F
   }
 
   def apply[F[_]: Concurrent: Timer](context: Context[F]): Interpreter[F] = new Impl(context)
@@ -37,7 +37,7 @@ object DslInterpreter {
     private val ct = implicitly[Concurrent[F]]
     private val timer = implicitly[Timer[F]]
 
-    def interpret(sender: ProcessRef, ps: ProcessState[F]): FlowOp[F, *] ~> F =
+    def interpret(sender: ProcessRef, ps: ProcessState[F], execTrace: ExecutionTrace): FlowOp[F, *] ~> F =
       new (FlowOp[F, *] ~> F) {
         override def apply[A](fa: FlowOp[F, A]): F[A] =
           fa match {
@@ -45,19 +45,19 @@ object DslInterpreter {
               ct.unit
             //--------------------------------------------------------------
             case Send(event, receivers) =>
-              receivers.map(receiver => send(Envelope(ps.process.ref, event(), receiver))).toList.sequence_
+              receivers.map(receiver => send(ps.process.ref, event, receiver, execTrace)).toList.sequence_
             //--------------------------------------------------------------
             case reply: WithSender[F, Dsl[F, *], A] @unchecked =>
-              reply.f(sender).foldMap[F](interpret(sender, ps))
+              reply.f(sender).foldMap[F](interpret(sender, ps, execTrace))
             //--------------------------------------------------------------
             case Forward(event, receivers) =>
-              receivers.map(receiver => send(Envelope(sender, event(), receiver))).toList.sequence_
+              receivers.map(receiver => send(sender, event, receiver, execTrace)).toList.sequence_
             //--------------------------------------------------------------
             case par: Par[F, Dsl[F, *]] @unchecked =>
-              par.flow.foldMap[F](interpret(sender, ps))
+              par.flow.foldMap[F](interpret(sender, ps, execTrace))
             //--------------------------------------------------------------
             case fork: Fork[F, Dsl[F, *]] @unchecked =>
-              ct.start(fork.flow.foldMap[F](interpret(sender, ps))).void
+              ct.start(fork.flow.foldMap[F](interpret(sender, ps, execTrace))).void
             //--------------------------------------------------------------
             case delay: Delay[F] @unchecked =>
               timer.sleep(delay.duration)
@@ -69,17 +69,19 @@ object DslInterpreter {
               ct.suspend(suspend.thunk())
             //--------------------------------------------------------------
             case suspend: SuspendF[F, Dsl[F, *], A] @unchecked =>
-              ct.suspend(suspend.thunk().foldMap[F](interpret(sender, ps)))
+              ct.suspend(suspend.thunk().foldMap[F](interpret(sender, ps, execTrace)))
             //--------------------------------------------------------------
             case race: Race[F, Dsl[F, *], _, _] @unchecked =>
-              val fa = race.first.foldMap[F](interpret(sender, ps))
-              val fb = race.second.foldMap[F](interpret(sender, ps))
+              val fa = race.first.foldMap[F](interpret(sender, ps, execTrace))
+              val fb = race.second.foldMap[F](interpret(sender, ps, execTrace))
               ct.race(fa, fb)
             //--------------------------------------------------------------
             case blocking: Blocking[F, Dsl[F, *], A] @unchecked =>
               for {
                 d <- Deferred[F, Unit]
-                fiber <- ct.start(blocking.body().foldMap[F](interpret(sender, ps)).flatMap(_ => d.complete(())))
+                fiber <- ct.start(
+                  blocking.body().foldMap[F](interpret(sender, ps, execTrace)).flatMap(_ => d.complete(())),
+                )
                 _ <- ps.blocking.add(fiber, d)
               } yield ()
             //--------------------------------------------------------------
@@ -89,13 +91,15 @@ object DslInterpreter {
           }
       }
 
-    def send(e: Envelope): F[Unit] =
-      context.record(e) >>
-        // todo move to context
-        context.schedule(Deliver(e)).flatMap {
-          case ProcessQueueIsFull => context.eventLog.write(e)
-          case _ => ct.unit
-        }
+    def send(sender: ProcessRef, event: () => Event, receiver: ProcessRef, execTrace: ExecutionTrace): F[Unit] =
+      ct.suspend {
+        val envelope = Envelope(sender, event(), receiver)
+        context.addToEventLog(envelope) >>
+          context.schedule(Deliver(envelope, execTrace.add(envelope.id))).flatMap {
+            case ProcessQueueIsFull => context.eventStore.write(envelope)
+            case _ => ct.unit
+          }
+      }
   }
 
 }
