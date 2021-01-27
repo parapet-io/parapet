@@ -57,6 +57,7 @@ lazy val global = project
   .in(file("."))
   .aggregate(
     core,
+    cluster,
     protobuf,
     interopCats,
     interopMonix,
@@ -73,6 +74,26 @@ lazy val core = project
     libraryDependencies += "com.typesafe.play" %% "play-json" % "2.9.1",
     libraryDependencies += "org.zeromq" % "jeromq" % "0.5.1"
   ).dependsOn(protobuf)
+
+lazy val cluster = project
+  .enablePlugins(JavaAppPackaging, UniversalDeployPlugin)
+  .settings(
+    name := "cluster",
+    libraryDependencies += "org.slf4j" % "slf4j-log4j12" % "1.7.10",
+    maintainer in Universal := "parapet.io",
+    packageName in Universal := "parapet-cluster-" + version.value,
+    mappings in Universal += {
+      val src = (sourceDirectory in Compile).value
+      src / "resources" / "log4j2.xml" -> "etc/log4j2.xml"
+    },
+    mappings in Universal += {
+      val src = (sourceDirectory in Compile).value
+      src / "resources" / "etc" / "node.properties.template" -> "etc/node.properties.template"
+    },
+    bashScriptExtraDefines += """addJava "-Dlog4j.configuration=file:${app_home}/../etc/log4j2.xml""""
+
+  ).dependsOn(core, interopCats)
+
 
 lazy val testUtils = project
   .in(file("test-utils"))

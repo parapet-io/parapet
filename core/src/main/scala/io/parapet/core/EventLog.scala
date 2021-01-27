@@ -36,7 +36,7 @@ class EventLog {
         var l = v
         if (l == null) {
           l = new ListBuffer[Node]()
-          l += PNode(ref.ref, ref.ref, start = true)
+          l += PNode(ref.value, ref.value, start = true)
         }
         l += n
       },
@@ -70,7 +70,7 @@ object EventLog {
 
       t.graph.asScala.foreach { case (p, nodes) =>
         var x = 100
-        val parent = p.ref + "-parent"
+        val parent = p.value + "-parent"
         data += Json.obj("data" -> Json.obj("id" -> parent))
 
         data ++= nodes.map { n =>

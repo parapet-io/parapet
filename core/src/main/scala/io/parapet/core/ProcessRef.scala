@@ -4,9 +4,8 @@ import java.util.UUID
 
 import io.parapet.core.Parapet.ParapetPrefix
 
-case class ProcessRef(private[core] val ref: String) {
-  override def toString: String = ref
-
+case class ProcessRef(private[core] val value: String) {
+  override def toString: String = value
 }
 
 object ProcessRef {

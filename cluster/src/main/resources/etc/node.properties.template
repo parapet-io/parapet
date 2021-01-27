@@ -1,0 +1,8 @@
+node.id=123
+node.address=localhost:5555
+node.peers=localhost:6666
+node.election-delay=10
+node.heartbeat-delay=5
+node.monitor-delay=10
+node.peer-timeout=10
+node.leader-election-threshold=0.7

@@ -1,12 +1,12 @@
 package io.parapet.core.processes
 
 import java.nio.ByteBuffer
-
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.Start
 import io.parapet.core.processes.RouletteLeaderElection.ResponseCodes.AckCode
 import io.parapet.core.processes.RouletteLeaderElection._
+import io.parapet.core.processes.net.AsyncServer.Send
 import io.parapet.core.utils.CorrelationId
 import io.parapet.core.{Clock, Encoder, Event, ProcessRef}
 import org.slf4j.MDC
@@ -167,6 +167,10 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
               }
           }
         }
+
+    // -----------------------WHO------------------------------- //
+    case Who(clientId) =>
+      withSender(sender => Send(clientId, state.leader.getOrElse("").getBytes()) ~> sender)
   }
 
   // -----------------------HELPERS------------------------------- //
@@ -423,6 +427,8 @@ object RouletteLeaderElection {
   case class Announce(addr: Addr) extends API
   case class Heartbeat(addr: Addr, leader: Option[Addr]) extends API
   case class Timeout(phase: Phase) extends API
+  case class Who(clientId: String) extends API
+
 
   object ResponseCodes {
 
@@ -453,47 +459,48 @@ object RouletteLeaderElection {
   val ACK_TAG = 2
   val ANNOUNCE_TAG = 3
   val HEARTBEAT_TAG = 4
+  val WHO_TAG = 5
 
   val encoder: Encoder = new Encoder {
     override def write(e: Event): Array[Byte] =
       e match {
         case Propose(addr, num) =>
-          val refData = addr.getBytes()
+          val addrBytes = addr.getBytes()
           ByteBuffer
-            .allocate(4 + 4 + refData.length + 8)
+            .allocate(4 + 4 + addrBytes.length + 8)
             .putInt(PROPOSE_TAG)
-            .putInt(refData.length)
-            .put(refData)
+            .putInt(addrBytes.length)
+            .put(addrBytes)
             .putDouble(num)
             .array()
         case Ack(addr, num, code) =>
-          val refData = addr.getBytes()
+          val addrBytes = addr.getBytes()
           ByteBuffer
-            .allocate(4 + 4 + refData.length + 8 + 4)
+            .allocate(4 + 4 + addrBytes.length + 8 + 4)
             .putInt(ACK_TAG)
-            .putInt(refData.length)
-            .put(refData)
+            .putInt(addrBytes.length)
+            .put(addrBytes)
             .putDouble(num)
             .putInt(code.value)
             .array()
         case Announce(addr) =>
-          val refData = addr.getBytes()
+          val addrBytes = addr.getBytes()
           ByteBuffer
-            .allocate(4 + 4 + refData.length)
+            .allocate(4 + 4 + addrBytes.length)
             .putInt(ANNOUNCE_TAG)
-            .putInt(refData.length)
-            .put(refData)
+            .putInt(addrBytes.length)
+            .put(addrBytes)
             .array()
         case Heartbeat(addr, leader) =>
-          val addrData = addr.getBytes()
-          val leaderAddrData = leader.getOrElse("").getBytes()
+          val addrBytes = addr.getBytes()
+          val leaderAddrBytes = leader.getOrElse("").getBytes()
           ByteBuffer
-            .allocate(4 + (4 + addrData.length) + (4 + leaderAddrData.length))
+            .allocate(4 + (4 + addrBytes.length) + (4 + leaderAddrBytes.length))
             .putInt(HEARTBEAT_TAG)
-            .putInt(addrData.length)
-            .put(addrData)
-            .putInt(leaderAddrData.length)
-            .put(leaderAddrData)
+            .putInt(addrBytes.length)
+            .put(addrBytes)
+            .putInt(leaderAddrBytes.length)
+            .put(leaderAddrBytes)
             .array()
       }
 
@@ -502,28 +509,30 @@ object RouletteLeaderElection {
       val tag = buf.getInt()
       tag match {
         case PROPOSE_TAG =>
-          val refData = new Array[Byte](buf.getInt())
-          buf.get(refData)
+          val addrBytes = new Array[Byte](buf.getInt())
+          buf.get(addrBytes)
           val num = buf.getDouble
-          Propose(new String(refData), num)
-
+          Propose(new String(addrBytes), num)
         case ACK_TAG =>
-          val refData = new Array[Byte](buf.getInt())
-          buf.get(refData)
+          val addrBytes = new Array[Byte](buf.getInt())
+          buf.get(addrBytes)
           val num = buf.getDouble
           val code = buf.getInt
-          Ack(new String(refData), num, AckCode(code))
+          Ack(new String(addrBytes), num, AckCode(code))
         case ANNOUNCE_TAG =>
-          val refData = new Array[Byte](buf.getInt())
-          buf.get(refData)
-          Announce(new String(refData))
+          val addrBytes = new Array[Byte](buf.getInt())
+          buf.get(addrBytes)
+          Announce(new String(addrBytes))
         case HEARTBEAT_TAG =>
-          val addrData = new Array[Byte](buf.getInt())
-          buf.get(addrData)
-          val leaderAddrData = new Array[Byte](buf.getInt())
-          buf.get(leaderAddrData)
-          Heartbeat(new String(addrData), Option(new String(leaderAddrData)).filter(_.nonEmpty))
-
+          val addrBytes = new Array[Byte](buf.getInt())
+          buf.get(addrBytes)
+          val leaderAddrBytes = new Array[Byte](buf.getInt())
+          buf.get(leaderAddrBytes)
+          Heartbeat(new String(addrBytes), Option(new String(leaderAddrBytes)).filter(_.nonEmpty))
+        case WHO_TAG =>
+          val clientIdBytes = new Array[Byte](buf.getInt())
+          buf.get(clientIdBytes)
+          Who(new String(clientIdBytes))
       }
     }
   }
