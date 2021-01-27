@@ -13,7 +13,7 @@ import scala.concurrent.duration._
 
 object ClusterApp extends CatsApp {
 
-  val NodePropsPath = "d:\\dev\\parapet\\cluster\\server-2\\parapet-cluster-0.0.1-RC4\\etc\\node.properties"
+  val NodePropsPath = "etc/node.properties"
 
   override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] =
     for {
