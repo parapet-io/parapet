@@ -23,11 +23,15 @@ class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: Pro
     eval {
       val clientId = server.recvStr()
       val clientIdBytes = clientId.getBytes()
-      val data = server.recv()
-      val buf = ByteBuffer.allocate(data.length + 4 + clientIdBytes.length)
-      buf.put(buf)
+      val msgBytes = server.recv()
+      val size = msgBytes.length + 4 + clientIdBytes.length
+      val buf = ByteBuffer.allocate(size)
+      buf.put(msgBytes)
       buf.putInt(clientIdBytes.length)
       buf.put(clientIdBytes)
+      val data = new Array[Byte](size)
+      buf.rewind()
+      buf.get(data)
       val msg = encoder.read(data)
       logger.debug(s"received message = $msg from client: $clientId")
       msg

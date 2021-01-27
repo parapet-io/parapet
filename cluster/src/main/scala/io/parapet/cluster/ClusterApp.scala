@@ -13,6 +13,8 @@ import scala.concurrent.duration._
 
 object ClusterApp extends CatsApp {
 
+  val NodePropsPath = "d:\\dev\\parapet\\cluster\\server-2\\parapet-cluster-0.0.1-RC4\\etc\\node.properties"
+
   override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] =
     for {
       config <- loadConfig
@@ -43,12 +45,11 @@ object ClusterApp extends CatsApp {
     } yield seq
 
   def loadConfig: IO[Config] =
-    Resource.fromAutoCloseable(IO(new FileInputStream("etc/node.properties"))).use { input =>
+    Resource.fromAutoCloseable(IO(new FileInputStream(NodePropsPath))).use { input =>
       IO {
         val prop = new Properties()
+        prop.load(input)
         logger.info(s"Config: $prop")
-
-        println(s"Config: ${prop.toString}")
         Config(
           id = prop.getProperty("node.id"),
           address = prop.getProperty("node.address"),

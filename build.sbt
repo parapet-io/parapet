@@ -79,18 +79,18 @@ lazy val cluster = project
   .enablePlugins(JavaAppPackaging, UniversalDeployPlugin)
   .settings(
     name := "cluster",
-    libraryDependencies += "org.slf4j" % "slf4j-log4j12" % "1.7.10",
+    libraryDependencies += "org.slf4j" % "slf4j-log4j12" % "1.7.25",
     maintainer in Universal := "parapet.io",
     packageName in Universal := "parapet-cluster-" + version.value,
     mappings in Universal += {
       val src = (sourceDirectory in Compile).value
-      src / "resources" / "log4j2.xml" -> "etc/log4j2.xml"
+      src / "resources" / "log4j.xml" -> "etc/log4j.xml"
     },
     mappings in Universal += {
       val src = (sourceDirectory in Compile).value
       src / "resources" / "etc" / "node.properties.template" -> "etc/node.properties.template"
     },
-    bashScriptExtraDefines += """addJava "-Dlog4j.configuration=file:${app_home}/../etc/log4j2.xml""""
+    bashScriptExtraDefines += """addJava "-Dlog4j.configuration=file:${app_home}/../etc/log4j.xml""""
 
   ).dependsOn(core, interopCats)
 
