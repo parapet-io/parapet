@@ -6,6 +6,10 @@ trait Event
 
 object Event {
 
+  // common events
+
+  case class ByteEvent(data: Array[Byte])
+
   // Lifecycle events
   case object Start extends Event
 

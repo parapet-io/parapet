@@ -17,7 +17,8 @@ import scala.concurrent.duration._
 import scala.util.Random
 
 // Implementation of modified leader election algorithm https://arxiv.org/ftp/arxiv/papers/1703/1703.02247.pdf
-class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, State](state) {
+class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.BlackHoleRef)
+  extends ProcessWithState[F, State](state) {
 
   import dsl._
 
@@ -171,6 +172,9 @@ class RouletteLeaderElection[F[_]](state: State) extends ProcessWithState[F, Sta
     // -----------------------WHO------------------------------- //
     case Who(clientId) =>
       withSender(sender => Send(clientId, state.leader.getOrElse("").getBytes()) ~> sender)
+
+    // -----------------------REQ------------------------------- //
+    case req:Req => req ~> sink
   }
 
   // -----------------------HELPERS------------------------------- //
@@ -428,6 +432,12 @@ object RouletteLeaderElection {
   case class Heartbeat(addr: Addr, leader: Option[Addr]) extends API
   case class Timeout(phase: Phase) extends API
   case class Who(clientId: String) extends API
+  // REQ payload format
+  // 4 bytes = client_id length
+  // client_id bytes
+  // 4 bytes - command
+  // remaining bytes - body
+  case class Req(clientId: String, data:Array[Byte]) extends API
 
 
   object ResponseCodes {
@@ -451,15 +461,18 @@ object RouletteLeaderElection {
       }
     }
   }
-  // @formatter:on
+
 
   // Protocol format [tag: int32, body: byte[]]
   // Tags
-  val PROPOSE_TAG = 1
-  val ACK_TAG = 2
-  val ANNOUNCE_TAG = 3
+  val PROPOSE_TAG   = 1
+  val ACK_TAG       = 2
+  val ANNOUNCE_TAG  = 3
   val HEARTBEAT_TAG = 4
-  val WHO_TAG = 5
+  val WHO_TAG       = 5
+  val REQ_TAG       = 6
+
+  // @formatter:on
 
   val encoder: Encoder = new Encoder {
     override def write(e: Event): Array[Byte] =
@@ -506,6 +519,7 @@ object RouletteLeaderElection {
 
     override def read(data: Array[Byte]): Event = {
       val buf = ByteBuffer.wrap(data)
+      val clientId = getString(buf)
       val tag = buf.getInt()
       tag match {
         case PROPOSE_TAG =>
@@ -530,10 +544,18 @@ object RouletteLeaderElection {
           buf.get(leaderAddrBytes)
           Heartbeat(new String(addrBytes), Option(new String(leaderAddrBytes)).filter(_.nonEmpty))
         case WHO_TAG =>
-          val clientIdBytes = new Array[Byte](buf.getInt())
-          buf.get(clientIdBytes)
-          Who(new String(clientIdBytes))
+          Who(clientId)
+        case REQ_TAG =>
+          val data = new Array[Byte](buf.remaining())
+          buf.get(data)
+          Req(clientId, data)
       }
+    }
+    private def getString(buf: ByteBuffer): String = {
+      val len = buf.getInt()
+      val data = new Array[Byte](len)
+      buf.get(data)
+      new String(data)
     }
   }
 

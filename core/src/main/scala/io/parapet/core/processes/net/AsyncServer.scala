@@ -24,11 +24,11 @@ class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: Pro
       val clientId = server.recvStr()
       val clientIdBytes = clientId.getBytes()
       val msgBytes = server.recv()
-      val size = msgBytes.length + 4 + clientIdBytes.length
+      val size = 4 + clientIdBytes.length + msgBytes.length
       val buf = ByteBuffer.allocate(size)
-      buf.put(msgBytes)
       buf.putInt(clientIdBytes.length)
       buf.put(clientIdBytes)
+      buf.put(msgBytes)
       val data = new Array[Byte](size)
       buf.rewind()
       buf.get(data)

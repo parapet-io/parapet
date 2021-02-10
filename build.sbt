@@ -58,6 +58,7 @@ lazy val global = project
   .aggregate(
     core,
     cluster,
+    clusterCli,
     protobuf,
     interopCats,
     interopMonix,
@@ -92,7 +93,19 @@ lazy val cluster = project
     },
     bashScriptExtraDefines += """addJava "-Dlog4j.configuration=file:${app_home}/../etc/log4j.xml""""
 
-  ).dependsOn(core, interopCats)
+  ).dependsOn(core, interopCats, clusterApi)
+
+lazy val clusterCli = project
+  .in(file("cluster-cli"))
+  .settings(
+    name := "cluster-cli"
+  ).dependsOn(core, clusterApi)
+
+lazy val clusterApi = project
+  .in(file("cluster-api"))
+  .settings(
+    name := "cluster-api"
+  ).dependsOn(core)
 
 
 lazy val testUtils = project

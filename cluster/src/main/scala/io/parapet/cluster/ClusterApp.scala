@@ -38,9 +38,10 @@ object ClusterApp extends CatsApp {
           threshold = config.leaderElectionThreshold,
         ),
       )
-      le <- IO(new RouletteLeaderElection[IO](leState))
+      cluster <- IO(new ClusterProcess())
+      le <- IO(new RouletteLeaderElection[IO](leState, cluster.ref))
       seq <- IO {
-        Seq(le, srv) ++ peerNetClients.values
+        Seq(cluster, le, srv) ++ peerNetClients.values
       }
     } yield seq
 
