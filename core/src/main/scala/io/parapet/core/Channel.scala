@@ -1,11 +1,11 @@
 package io.parapet.core
 
 import cats.effect.Concurrent
+import cats.effect.ExitCase
 import cats.effect.concurrent.Deferred
-import io.parapet.core.Channel.Request
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Failure, Stop}
-
+import cats.syntax.flatMap._
 import scala.util.Try
 
 /** Channel is a process that implements strictly synchronous request-reply dialog.
@@ -15,9 +15,13 @@ import scala.util.Try
   *
   * @tparam F an effect type
   */
-class Channel[F[_]: Concurrent] extends Process[F] {
+class Channel[F[_]: Concurrent](clientRef:ProcessRef = null) extends Process[F] {
+
+  import io.parapet.core.Channel._
 
   import dsl._
+
+  private val ct: Concurrent[F] = implicitly[Concurrent[F]]
 
   private var callback: Deferred[F, Try[Event]] = _
 
@@ -37,15 +41,15 @@ class Channel[F[_]: Concurrent] extends Process[F] {
         }
       }
     case req: Request[F] =>
-      suspend(req.cb.complete(scala.util.Failure(new IllegalStateException("current request is not completed yet"))))
+      suspend(req.cb.complete(scala.util.Failure(new IllegalStateException("the current request is not completed yet"))))
     case Failure(_, err) =>
-      suspend(callback.complete(scala.util.Failure(err))) ++
-        eval(callback = null) ++
-        switch(waitForRequest)
+      suspend(callback.complete(scala.util.Failure(err))) ++ resetAndWaitForRequest
     case e =>
-      suspend(callback.complete(scala.util.Success(e))) ++
-        eval(callback = null) ++
-        switch(waitForRequest)
+      suspend(callback.complete(scala.util.Success(e))) ++ resetAndWaitForRequest
+  }
+
+  private def resetAndWaitForRequest: DslF[F, Unit] = {
+    eval(callback = null) ++ switch(waitForRequest)
   }
 
   def handle: Receive = waitForRequest
@@ -61,13 +65,25 @@ class Channel[F[_]: Concurrent] extends Process[F] {
     for {
       d <- suspend(Deferred[F, Try[Event]])
       _ <- Request(event, d, receiver) ~> ref
-      res <- suspend(d.get)
+      res <-
+        suspend(
+          ct.guaranteeCase(d.get){
+          case ExitCase.Canceled =>
+            (resetAndWaitForRequest ++ cb(scala.util.Failure(ChannelInterruptedException)))
+              .foldMap[F](DslInterpreter.instance.interpret(clientRef, clientRef))
+          case ExitCase.Error(err) =>
+            (resetAndWaitForRequest ++ cb(scala.util.Failure(new ChannelException(err))))
+              .foldMap[F](DslInterpreter.instance.interpret(clientRef, clientRef))
+          case ExitCase.Completed => ct.delay(println("completed"))})
       _ <- cb(res)
     } yield ()
 
 }
 
 object Channel {
+
+  sealed class ChannelException(cause:Throwable) extends RuntimeException(cause)
+  case object ChannelInterruptedException extends ChannelException(null)
 
   def apply[F[_]: Concurrent]: Channel[F] = new Channel()
 

@@ -104,7 +104,8 @@ lazy val clusterCli = project
 lazy val clusterApi = project
   .in(file("cluster-api"))
   .settings(
-    name := "cluster-api"
+    name := "cluster-api",
+    libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.7" % Test
   ).dependsOn(core)
 
 

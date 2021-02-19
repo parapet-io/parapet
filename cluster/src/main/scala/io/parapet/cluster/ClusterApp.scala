@@ -14,6 +14,7 @@ import scala.concurrent.duration._
 object ClusterApp extends CatsApp {
 
   val NodePropsPath = "etc/node.properties"
+  //val NodePropsPath = "d:\\dev\\parapet\\cluster\\server-2\\parapet-cluster-0.0.1-RC4\\etc\\node.properties"
 
   override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] =
     for {
@@ -34,11 +35,12 @@ object ClusterApp extends CatsApp {
         new RouletteLeaderElection.State(
           ref = leRef,
           addr = config.address,
+          srvRef = srv.ref,
           peers = peers,
           threshold = config.leaderElectionThreshold,
         ),
       )
-      cluster <- IO(new ClusterProcess())
+      cluster <- IO(new ClusterProcess(leState.ref))
       le <- IO(new RouletteLeaderElection[IO](leState, cluster.ref))
       seq <- IO {
         Seq(cluster, le, srv) ++ peerNetClients.values

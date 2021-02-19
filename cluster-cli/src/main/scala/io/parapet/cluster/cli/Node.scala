@@ -1,7 +1,7 @@
 package io.parapet.cluster.cli
 import io.parapet.core.processes.RouletteLeaderElection.WHO_TAG
 import io.parapet.core.processes.RouletteLeaderElection.REQ_TAG
-import org.zeromq.{SocketType, ZContext, ZMQ}
+import org.zeromq.{SocketType, ZContext, ZMQ, ZMsg}
 
 import java.nio.ByteBuffer
 import java.nio.channels.Selector
@@ -13,6 +13,9 @@ class Node(host: String, port: Int, id: String, server: Array[String]) extends I
 
   private val zmqCtx = new ZContext()
   private val addr = s"$host:$port"
+
+  private val netServer = zmqCtx.createSocket(SocketType.ROUTER)
+  netServer.bind(s"tcp://*:$port")
 
   private val clusterNodes =
     server.map { addr =>
@@ -33,13 +36,22 @@ class Node(host: String, port: Int, id: String, server: Array[String]) extends I
     Try {
       _leader match {
         case Some(leaderAddr) =>
-          val join = Join(group = group, addr = addr)
+          val join = Join(nodeId = id, address = addr, group = group)
           val data = encoder.write(join)
           val msg = ByteBuffer.allocate(4 + data.length)
           msg.putInt(REQ_TAG)
           msg.put(data)
           msg.rewind()
           clusterNodes(leaderAddr).send(msg.array())
+
+          // receive a response
+          val responseMsg = ZMsg.recvMsg(netServer)
+          responseMsg.popString() // identity
+          val resp = responseMsg.pop().getData
+          encoder.read(resp) match {
+            case res: Result =>
+              println(s"client received a response from leader: $res")
+          }
         case None => throw new RuntimeException("leader is not defined")
       }
     }

@@ -8,7 +8,7 @@ import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.core.{Context, EventStore, Parallel, Process, ProcessRef, Scheduler}
+import io.parapet.core.{Context, DslInterpreter, EventStore, Parallel, Process, ProcessRef, Scheduler}
 import io.parapet.syntax.FlowSyntax
 import org.slf4j.LoggerFactory
 
@@ -51,7 +51,9 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
           ct.raiseError[Unit](new RuntimeException("Initialization error:  at least one process must be provided"))
         } else ct.unit
       context <- Context(config, eventLog)
-      scheduler <- Scheduler.apply[F](config.schedulerConfig, context, interpreter(context))
+      interpreter <- ct.pure(interpreter(context))
+      _ <- ct.delay(DslInterpreter.instance(interpreter))
+      scheduler <- Scheduler.apply[F](config.schedulerConfig, context, interpreter)
       _ <- context.start(scheduler)
       dlProcess <- deadLetter
       _ <- context.registerAll(ps.toList :+ dlProcess)

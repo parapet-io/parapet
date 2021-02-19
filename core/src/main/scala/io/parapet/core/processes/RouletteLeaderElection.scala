@@ -173,8 +173,26 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
     case Who(clientId) =>
       withSender(sender => Send(clientId, state.leader.getOrElse("").getBytes()) ~> sender)
 
+    case b: Broadcast =>
+      implicit val correlationId: CorrelationId = CorrelationId()
+      log(s"received broadcast: $b") ++
+      withSender(sender => BroadcastResult(0) ~> sender)
+
     // -----------------------REQ------------------------------- //
-    case req:Req => req ~> sink
+    case req: Req =>
+      // todo
+      // check if this node is the current leader
+      // broadcast req to all servers in the cluster
+      // wait for ack from majority
+      // forward req to sink
+      req ~> sink
+
+    // ----------------------- REP -------------------------------//
+    // Rep is sent by sink process in event of Req
+    case Rep(clientId, data) =>
+      implicit val correlationId: CorrelationId = CorrelationId()
+      log(s"received Rep from clientId: $clientId") ++
+      Send(clientId, data) ~> state.srvRef
   }
 
   // -----------------------HELPERS------------------------------- //
@@ -330,6 +348,7 @@ object RouletteLeaderElection {
   class State(
       val ref: ProcessRef,
       val addr: Addr,
+      val srvRef: ProcessRef,
       val peers: Peers,
       val random: RandomNum = RandomNumGen,
       val roulette: Vector[Addr] => Addr = Roulette,
@@ -437,7 +456,11 @@ object RouletteLeaderElection {
   // client_id bytes
   // 4 bytes - command
   // remaining bytes - body
-  case class Req(clientId: String, data:Array[Byte]) extends API
+  case class Req(clientId: String, data: Array[Byte]) extends API
+  case class Rep(clientId: String, data: Array[Byte]) extends API
+  // sends data to all service in the cluster
+  case class Broadcast(data: Array[Byte]) extends API
+  case class BroadcastResult(code:Int) extends API
 
 
   object ResponseCodes {

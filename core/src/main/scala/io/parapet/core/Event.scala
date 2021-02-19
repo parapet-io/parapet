@@ -8,7 +8,13 @@ object Event {
 
   // common events
 
-  case class ByteEvent(data: Array[Byte])
+  case class ByteEvent(data: Array[Byte]) extends Event {
+    override def toString: String = new String(data)
+  }
+
+  case class StringEvent(value:String) extends Event {
+    override def toString: String = value
+  }
 
   // Lifecycle events
   case object Start extends Event
