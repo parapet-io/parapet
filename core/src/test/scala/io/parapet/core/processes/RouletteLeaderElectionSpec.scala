@@ -8,12 +8,13 @@ import io.parapet.core.processes.RouletteLeaderElection.ResponseCodes.AckCode
 import io.parapet.core.processes.RouletteLeaderElection.ResponseCodes.AckCode.ELECTED
 import io.parapet.core.processes.RouletteLeaderElection._
 import io.parapet.core.processes.RouletteLeaderElectionSpec._
-import org.scalatest.Matchers._
-import org.scalatest.{FunSuite, Tag}
+import org.scalatest.Tag
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers._
 
 import scala.concurrent.duration._
 
-class RouletteLeaderElectionSpec extends FunSuite {
+class RouletteLeaderElectionSpec extends AnyFunSuite {
 
   test("a node satisfying the launch condition", Lemma1) {
 

@@ -5,7 +5,6 @@ import cats.effect.ExitCase
 import cats.effect.concurrent.Deferred
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.{Failure, Stop}
-import cats.syntax.flatMap._
 import scala.util.Try
 
 /** Channel is a process that implements strictly synchronous request-reply dialog.
@@ -49,7 +48,9 @@ class Channel[F[_]: Concurrent](clientRef:ProcessRef = null) extends Process[F] 
   }
 
   private def resetAndWaitForRequest: DslF[F, Unit] = {
-    eval(callback = null) ++ switch(waitForRequest)
+    eval {
+      callback = null
+    } ++ switch(waitForRequest)
   }
 
   def handle: Receive = waitForRequest

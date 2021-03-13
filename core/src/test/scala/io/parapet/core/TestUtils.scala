@@ -29,13 +29,13 @@ object TestUtils {
     override def apply[A](fa: FlowOp[Id, A]): Id[A] = {
       fa match {
         case _: UnitFlow[Id]@unchecked => ()
-        case eval: Eval[Id, Dsl[Id, ?], A]@unchecked =>
+        case eval: Eval[Id, Dsl[Id, *], A]@unchecked =>
           implicitly[Monad[Id]].pure(eval.thunk())
         case send: Send[Id]@unchecked =>
           send.receivers.foreach(p => {
             execution.trace.append(Message(send.e(), p))
           })
-        case fork: Fork[Id, Dsl[Id, ?]] => fork.flow.foldMap(new IdInterpreter(execution))
+        case fork: Fork[Id, Dsl[Id, *]] => fork.flow.foldMap(new IdInterpreter(execution))
         case _: Delay[Id] => ()
         case _: SuspendF[Id, Dsl[Id, ?], A] => ().asInstanceOf[A] // s.thunk().foldMap(new IdInterpreter(execution))
       }

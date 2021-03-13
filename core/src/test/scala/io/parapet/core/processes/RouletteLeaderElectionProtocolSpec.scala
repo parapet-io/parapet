@@ -2,12 +2,12 @@ package io.parapet.core.processes
 
 import io.parapet.core.processes.RouletteLeaderElection.ResponseCodes.AckCode
 import io.parapet.core.processes.RouletteLeaderElection.{Ack, Announce, Heartbeat, Propose}
-import org.scalatest.FunSuite
-import org.scalatest.Matchers._
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers._
 
 import java.nio.ByteBuffer
 
-class RouletteLeaderElectionProtocolSpec extends FunSuite {
+class RouletteLeaderElectionProtocolSpec extends AnyFunSuite {
 
   test("propose") {
     val data = addClientId(RouletteLeaderElection.encoder.write(Propose("Propose", 0.85)))

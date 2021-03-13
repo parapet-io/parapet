@@ -12,7 +12,7 @@ import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.{BlackHole, SystemProcess}
 
 import java.util.UUID
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 
 class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eventStore: EventStore[F]) {
 
@@ -31,7 +31,9 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eve
   private var _scheduler: Scheduler[F] = _
 
   def start(scheduler: Scheduler[F]): F[Unit] =
-    ct.delay(_scheduler = scheduler) >> createSysProcesses >> sendStartEvent(ProcessRef.SystemRef).void
+    ct.delay {
+      _scheduler = scheduler
+    } >> createSysProcesses >> sendStartEvent(ProcessRef.SystemRef).void
 
   private[core] def createSysProcesses: F[Unit] = {
     for {
