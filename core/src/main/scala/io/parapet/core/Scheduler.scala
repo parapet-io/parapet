@@ -1,6 +1,5 @@
 package io.parapet.core
 
-import java.util.concurrent.ConcurrentHashMap
 import cats.effect.{Concurrent, ContextShift, Timer}
 import cats.syntax.applicativeError._
 import cats.syntax.flatMap._
@@ -84,10 +83,10 @@ object Scheduler {
 
   // todo: revisit
   sealed trait SubmissionResult
-  object Ok extends SubmissionResult
-  object UnknownProcess extends SubmissionResult
-  object TerminatedProcess extends SubmissionResult
-  object ProcessQueueIsFull extends SubmissionResult
+  case object Ok extends SubmissionResult
+  case object UnknownProcess extends SubmissionResult
+  case object TerminatedProcess extends SubmissionResult
+  case object ProcessQueueIsFull extends SubmissionResult
 
   import SchedulerImpl._
 
@@ -101,9 +100,6 @@ object Scheduler {
     private val ct = Concurrent[F]
     private val pa = implicitly[Parallel[F]]
     private val logger = LoggerWrapper(Logger(LoggerFactory.getLogger(getClass.getCanonicalName)), context.devMode)
-
-    // used to track the most recent worker acquired a process lock. used for troubleshoot concurrency problems.
-    private val pLockHistory: java.util.Map[ProcessRef, String] = new ConcurrentHashMap()
 
     override def start: F[Unit] =
       ct.bracket(ct.delay(createWorkers)) { workers =>
@@ -173,14 +169,6 @@ object Scheduler {
       )
     }
 
-//    def sendTerminatedProcessError(e: Envelope): F[Unit] =
-//      send(
-//        SystemRef,
-//        Failure(e, TerminatedProcessException(s"process  ${e.receiver} was terminated via Stop or Kill")),
-//        context.getProcessState(e.sender).get,
-//        interpreter,
-//      )
-
     override def submit(task: Task[F]): F[SubmissionResult] =
       task match {
         case deliverTask @ Deliver(e @ Envelope(sender, event, receiver), _) =>
@@ -190,15 +178,17 @@ object Scheduler {
               .fold[F[SubmissionResult]](sendUnknownProcessError(deliverTask).map(_ => UnknownProcess)) { ps =>
                 event match {
                   case Kill =>
-                    // interruption is a concurrent operation
-                    // i.e. interrupt may be completed but
-                    // the actual process may be still performing some computations
-                    // we need to submit Stop event here instead of `direct call`
-                    // to avoid race condition between interruption and process stop
-                    context
-                      .interrupt(receiver)
-                      .flatMap(res => logger.debug(s"Scheduler::submit(ps=$ps, task=$task) - interrupted: $res")) >>
-                      submit(ps, deliverTask.copy(envelope = deliverTask.envelope.event(Stop)))
+                    logger.debug(s"Scheduler::submit(ps=$ps, task=$task) - interrupted") >>
+                      stopProcess(
+                        sender = sender,
+                        context = context,
+                        receiver = receiver,
+                        interpreter = interpreter,
+                        execTrace = deliverTask.execTrace,
+                        logger = logger,
+                        onError = (_, err) =>
+                          handleError(ps.process, e, context, interpreter, deliverTask.execTrace, err, logger),
+                      ).map(_ => Ok)
                   case _ => submit(ps, deliverTask)
                 }
               }
@@ -208,7 +198,7 @@ object Scheduler {
 
     private def createWorkers: List[Worker[F]] =
       (1 to config.numberOfWorkers).map { i =>
-        new Worker[F](s"worker-$i", context, signalQueue, interpreter, pLockHistory)
+        new Worker[F](s"worker-$i", context, signalQueue, interpreter)
       }.toList
 
   }
@@ -229,34 +219,9 @@ object Scheduler {
         context: Context[F],
         signalQueue: Queue[F, Signal],
         interpreter: Interpreter[F],
-        pLockHistory: java.util.Map[ProcessRef, String],
     ) {
       private val logger = LoggerWrapper(Logger(LoggerFactory.getLogger(s"parapet-scheduler-$name")), context.devMode)
       private val ct = implicitly[Concurrent[F]]
-
-      private def putToLockHistory(ref: ProcessRef): F[Unit] =
-        if (context.devMode) {
-          for {
-            old <- ct.delay(pLockHistory.put(ref, name))
-            _ <- logger.debug(s"process[ref:$ref] lock acquired by $name. old worker acquired the same lock: $old")
-          } yield ()
-        } else {
-          ct.unit
-        }
-
-      def failedToAcquireLog(ref: ProcessRef): F[Unit] =
-        for {
-          _ <- logger.debug(s"worker[$name] failed to acquire process[ref:$ref] lock")
-          _ <-
-            if (context.devMode) {
-              ct.suspend {
-                val w = pLockHistory.getOrDefault(ref, "null")
-                logger.debug(s"$w is the most recent worker acquired the process[ref:$ref] lock")
-              }
-            } else {
-              ct.unit
-            }
-        } yield ()
 
       def run: F[Unit] = {
         def step: F[Unit] =
@@ -267,11 +232,9 @@ object Scheduler {
                 case Some(ps) =>
                   ps.acquire >>= {
                     case true =>
-                      putToLockHistory(signal.envelop.receiver) >>
-                        logger.debug(s"worker[$name] acquired process: ${signal.envelop.receiver} lock") >>
+                      logger.debug(s"worker[$name] acquired process: ${signal.envelop.receiver} lock") >>
                         run(ps) >> step
-                    case false =>
-                      failedToAcquireLog(signal.envelop.receiver) >> step
+                    case false => step
                   }
                 case None =>
                   logger.error(s"worker[$name] no such process. signal: $signal") >>
@@ -326,7 +289,7 @@ object Scheduler {
                   interpreter,
                   task.execTrace,
                   logger,
-                  (_, err) => handleError(process, envelope, task.execTrace, err),
+                  (_, err) => handleError(process, envelope, context, interpreter, task.execTrace, err, logger),
                 ) >> context.remove(process.ref).void
             }
           case _ =>
@@ -350,7 +313,7 @@ object Scheduler {
                       effect,
                       envelope,
                       ps,
-                      err => handleError(process, envelope, task.execTrace, err),
+                      err => handleError(process, envelope, context, interpreter, task.execTrace, err, logger),
                     )
                   } yield ()
 
@@ -400,7 +363,7 @@ object Scheduler {
                 ps.blocking.waitForCompletion,
                 deliver.envelope,
                 ps,
-                err => handleError(ps.process, deliver.envelope, deliver.execTrace, err),
+                err => handleError(ps.process, deliver.envelope, context, interpreter, deliver.execTrace, err, logger),
               ),
             )(
               logger.debug(
@@ -442,49 +405,58 @@ object Scheduler {
           ps: ProcessState[F],
           errorHandler: Throwable => F[Unit],
       ): F[Unit] =
-        logger.debug(s"worker[$name]::runEffect. envelop: $envelope") >> runSync(effect, ps, errorHandler)
+        logger.debug(s"worker[$name]::runEffect. envelop: $envelope") >> runSync(effect, errorHandler)
 
       private def runSync(
           flow: F[Unit],
-          ps: ProcessState[F],
           errorHandler: Throwable => F[Unit],
       ): F[Unit] =
-        ct.race(flow, ps.terminationSignal.get).void.handleErrorWith(errorHandler)
+        ct.handleErrorWith(flow)(errorHandler)
 
       private def createNotifySignal(ref: ProcessRef): Signal = {
         val e = Envelope(ProcessRef.SchedulerRef, NotifyEvent, ref)
         Signal(e, context.createTrace(e.id))
       }
 
-      private def handleError(
-          process: Process[F],
-          envelope: Envelope,
-          executionTrace: ExecutionTrace,
-          cause: Throwable,
-      ): F[Unit] = {
-        val event = envelope.event
-
-        event match {
-          case f: Failure =>
-            ct.delay(logger.error(s"process $process has failed to handle Failure event. send to deadletter", cause)) >>
-              sendToDeadLetter(DeadLetter(f), context, interpreter, executionTrace)
-          case _ =>
-            val errMsg = s"process $process has failed to handle event: $event"
-            ct.delay(logger.error(errMsg, cause)) >>
-              sendErrorToSender(envelope, executionTrace, EventHandlingException(errMsg, cause))
-        }
-      }
-
-      private def sendErrorToSender(envelope: Envelope, executionTrace: ExecutionTrace, err: Throwable): F[Unit] =
-        send(
-          SystemRef,
-          Failure(envelope, err),
-          context.getProcessState(envelope.sender).get,
-          interpreter,
-          executionTrace,
-        )
-
     }
+
+    private def handleError[F[_]: Concurrent](
+        process: Process[F],
+        envelope: Envelope,
+        context: Context[F],
+        interpreter: Interpreter[F],
+        executionTrace: ExecutionTrace,
+        cause: Throwable,
+        logger: LoggerWrapper[F],
+    ): F[Unit] = {
+
+      val event = envelope.event
+
+      event match {
+        case f: Failure =>
+          logger.error(s"process $process has failed to handle Failure event. send to dead-letter", cause) >>
+            sendToDeadLetter(DeadLetter(f), context, interpreter, executionTrace)
+        case _ =>
+          val errMsg = s"process $process has failed to handle event: $event"
+          logger.error(errMsg, cause) >>
+            sendErrorToSender(envelope, context, interpreter, executionTrace, EventHandlingException(errMsg, cause))
+      }
+    }
+
+    private def sendErrorToSender[F[_]: Concurrent](
+        envelope: Envelope,
+        context: Context[F],
+        interpreter: Interpreter[F],
+        executionTrace: ExecutionTrace,
+        err: Throwable,
+    ): F[Unit] =
+      send(
+        SystemRef,
+        Failure(envelope, err),
+        context.getProcessState(envelope.sender).get,
+        interpreter,
+        executionTrace,
+      )
 
     private def sendToDeadLetter[F[_]: Concurrent](
         dl: DeadLetter,

@@ -15,7 +15,7 @@ object Dsl {
 
   case class UnitFlow[F[_]]() extends FlowOp[F, Unit]
 
-  case class Send[F[_]](e: () => Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
+  case class Send[F[_]](e: () => Event, receiver: ProcessRef, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
 
   case class Forward[F[_]](e: () => Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
 
@@ -122,7 +122,7 @@ object Dsl {
       * @return Unit
       */
     def send(e: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
-      Free.inject[FlowOp[F, *], C](Send(() => e, receiver +: other))
+      Free.inject[FlowOp[F, *], C](Send(() => e, receiver, other))
 
     /** Sends an event to the receiver using original sender reference.
       * This is useful for implementing a proxy process.

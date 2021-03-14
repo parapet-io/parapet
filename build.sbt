@@ -4,10 +4,9 @@ ThisBuild / organization := "io.parapet"
 ThisBuild / organizationName := "parapet"
 ThisBuild / organizationHomepage := Some(url("http://parapet.io/"))
 
-scalaVersion := "2.13.4"
+ThisBuild / scalaVersion := "2.13.4"
 
 scalacOptions in ThisBuild ++= Seq(
-  "-Ypartial-unification",
   "-language:higherKinds",
   "-feature",
   "-deprecation"
@@ -31,7 +30,7 @@ lazy val dependencies =
     val scalaLogging = "com.typesafe.scala-logging" %% "scala-logging" % "3.9.2"
     // test
     val logbackClassic = "ch.qos.logback" % "logback-classic" % "1.2.3" % Test
-    val scalaTest = "org.scalatest" %% "scalatest" % "3.0.7" % Test
+    val scalaTest = "org.scalatest" %% "scalatest" % "3.0.8" % Test
     val pegdown = "org.pegdown" % "pegdown" % "1.6.0" % Test
     val logstashLogbackEncoder = "net.logstash.logback" % "logstash-logback-encoder" % "5.3" % Test
     val logbackContrib = "ch.qos.logback.contrib" % "logback-json-classic" % "0.1.5" % Test
@@ -78,7 +77,7 @@ lazy val testUtils = project
   .in(file("test-utils"))
   .settings(
     name := "test-utils",
-    libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.7"
+    libraryDependencies += dependencies.scalaTest
   ).dependsOn(core, interopCats, interopMonix)
 
 lazy val interopCats = project
@@ -110,7 +109,6 @@ lazy val intgTests = project
     publishLocal := {},
     publish := {},
     libraryDependencies ++= Seq(
-      "org.scalatest" %% "scalatest" % "3.0.7",
       "org.pegdown" % "pegdown" % "1.6.0",
       "ch.qos.logback" % "logback-classic" % "1.2.3",
       "net.logstash.logback" % "logstash-logback-encoder" % "5.3"

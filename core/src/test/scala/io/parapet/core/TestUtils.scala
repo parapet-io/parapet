@@ -32,12 +32,14 @@ object TestUtils {
         case eval: Eval[Id, Dsl[Id, ?], A]@unchecked =>
           implicitly[Monad[Id]].pure(eval.thunk())
         case send: Send[Id]@unchecked =>
+          val event = send.e()
+          execution.trace.append(Message(event, send.receiver))
           send.receivers.foreach(p => {
-            execution.trace.append(Message(send.e(), p))
+            execution.trace.append(Message(event, p))
           })
-        case fork: Fork[Id, Dsl[Id, ?]] => fork.flow.foldMap(new IdInterpreter(execution))
+        case fork: Fork[Id, Dsl[Id, *]] => fork.flow.foldMap(new IdInterpreter(execution))
         case _: Delay[Id] => ()
-        case _: SuspendF[Id, Dsl[Id, ?], A] => ().asInstanceOf[A] // s.thunk().foldMap(new IdInterpreter(execution))
+        case _: SuspendF[Id, Dsl[Id, *], A] => ().asInstanceOf[A] // s.thunk().foldMap(new IdInterpreter(execution))
       }
     }
   }
