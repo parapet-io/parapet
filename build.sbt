@@ -77,7 +77,7 @@ lazy val testUtils = project
   .in(file("test-utils"))
   .settings(
     name := "test-utils",
-    libraryDependencies += dependencies.scalaTest
+    libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.8"
   ).dependsOn(core, interopCats, interopMonix)
 
 lazy val interopCats = project
