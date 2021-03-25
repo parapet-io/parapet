@@ -60,7 +60,8 @@ lazy val global = project
     interopCats,
     interopMonix,
     testUtils,
-    intgTests)
+    intgTests,
+    benchmark)
 
 lazy val core = project
   .settings(
@@ -115,6 +116,14 @@ lazy val intgTests = project
       "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
     ),
   ).dependsOn(core, testUtils)
+
+lazy val benchmark = project
+  .in(file("benchmark"))
+  .settings(
+    name := "benchmark",
+    publishLocal := {},
+    publish := {},
+  ).dependsOn(core, interopCats)
 
 lazy val protobuf = project
   .settings(
