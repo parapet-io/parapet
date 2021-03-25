@@ -73,9 +73,9 @@ object SwitchBehaviorSpec {
 
     def switch(s: State): DslF[F, Unit] =
       s match {
-        case State1 => eval(state = State1) ++ switch(onSwitch.orElse(handleEvent1))
-        case State2 => eval(state = State2) ++ switch(onSwitch.orElse(handleEvent2))
-        case State3 => eval(state = State3) ++ switch(onSwitch.orElse(handleEvent3))
+        case State1 => eval{state = State1} ++ switch(onSwitch.orElse(handleEvent1))
+        case State2 => eval{state = State2} ++ switch(onSwitch.orElse(handleEvent2))
+        case State3 => eval{state = State3} ++ switch(onSwitch.orElse(handleEvent3))
       }
 
     def onSwitch: Receive = {

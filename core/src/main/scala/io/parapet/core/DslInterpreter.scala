@@ -44,8 +44,13 @@ object DslInterpreter {
             case UnitFlow() =>
               ct.unit
             //--------------------------------------------------------------
-            case Send(event, receivers) =>
-              receivers.map(receiver => send(ps.process.ref, event, receiver, execTrace)).toList.sequence_
+            case Send(event, receiver, receivers) =>
+              val s1 = send(ps.process.ref, event, receiver, execTrace)
+              if (receivers.nonEmpty) {
+                s1 >> receivers.map(receiver => send(ps.process.ref, event, receiver, execTrace)).toList.sequence_
+              } else {
+                s1
+              }
             //--------------------------------------------------------------
             case reply: WithSender[F, Dsl[F, *], A] @unchecked =>
               reply.f(sender).foldMap[F](interpret(sender, ps, execTrace))

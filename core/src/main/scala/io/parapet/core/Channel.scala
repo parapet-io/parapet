@@ -40,11 +40,15 @@ class Channel[F[_]: Concurrent] extends Process[F] {
       suspend(req.cb.complete(scala.util.Failure(new IllegalStateException("current request is not completed yet"))))
     case Failure(_, err) =>
       suspend(callback.complete(scala.util.Failure(err))) ++
-        eval(callback = null) ++
+        eval{
+          callback = null
+        } ++
         switch(waitForRequest)
     case e =>
       suspend(callback.complete(scala.util.Success(e))) ++
-        eval(callback = null) ++
+        eval {
+          callback = null
+        } ++
         switch(waitForRequest)
   }
 
