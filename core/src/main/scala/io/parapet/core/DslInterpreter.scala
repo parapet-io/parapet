@@ -5,23 +5,7 @@ import cats.effect.{Concurrent, Timer}
 import cats.implicits._
 import cats.~>
 import io.parapet.core.Context.ProcessState
-import io.parapet.core.Dsl.{
-  Blocking,
-  Delay,
-  Dsl,
-  Eval,
-  FlowOp,
-  Fork,
-  Forward,
-  Par,
-  Race,
-  Register,
-  Send,
-  Suspend,
-  SuspendF,
-  UnitFlow,
-  WithSender,
-}
+import io.parapet.core.Dsl.{Blocking, Delay, Dsl, Eval, FlowOp, Fork, Forward, HandelError, Par, Race, Register, Send, Suspend, SuspendF, UnitFlow, WithSender}
 import io.parapet.core.Event.Envelope
 import io.parapet.core.Scheduler.{Deliver, ProcessQueueIsFull}
 
@@ -61,8 +45,13 @@ object DslInterpreter {
             case UnitFlow() =>
               ct.unit
             //--------------------------------------------------------------
-            case Send(event, receivers) =>
-              receivers.map(receiver => send(ps.process.ref, event, receiver, execTrace)).toList.sequence_
+            case Send(event, receiver, receivers) =>
+              val s1 = send(ps.process.ref, event, receiver, execTrace)
+              if (receivers.nonEmpty) {
+                s1 >> receivers.map(receiver => send(ps.process.ref, event, receiver, execTrace)).toList.sequence_
+              } else {
+                s1
+              }
             //--------------------------------------------------------------
             case reply: WithSender[F, Dsl[F, *], A] @unchecked =>
               reply.f(sender).foldMap[F](interpret(sender, ps, execTrace))
@@ -105,6 +94,10 @@ object DslInterpreter {
             case Register(parent, process: Process[F]) =>
               context.registerAndStart(parent, process).void
             //--------------------------------------------------------------
+            case he:HandelError[F, Dsl[F, *], A, A]=>
+              ct.handleErrorWith(he.body().foldMap[F](interpret(sender, ps, execTrace))){
+                err => he.handle(err).foldMap[F](interpret(sender, ps, execTrace))
+              }
           }
       }
 

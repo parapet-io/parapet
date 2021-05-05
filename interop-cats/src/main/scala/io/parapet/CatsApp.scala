@@ -30,6 +30,7 @@ trait CatsApp extends ParApp[IO] {
       sys.addShutdownHook {
         // Should block the thread until all finalizers are executed
         fiber.cancel.unsafeRunSync()
+        // todo fromExecutorService(executor) + executionContext.shutdownNow()
       }
     }
 }

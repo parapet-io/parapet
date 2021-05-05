@@ -1,10 +1,10 @@
 package io.parapet.cluster.api
 
 import io.parapet.cluster.api.ClusterApi._
-import org.scalatest.FunSuite
-import org.scalatest.Matchers._
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers._
 
-class EncoderSpec extends FunSuite {
+class EncoderSpec extends AnyFunSuite {
 
   test("join") {
     val join = Join("1", "localhost:8080", "2")

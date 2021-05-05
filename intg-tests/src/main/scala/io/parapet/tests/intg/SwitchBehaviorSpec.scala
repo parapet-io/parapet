@@ -4,10 +4,10 @@ import io.parapet.core.Dsl.DslF
 import io.parapet.core.{Channel, Event, Process, ProcessRef}
 import io.parapet.tests.intg.SwitchBehaviorSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.FunSuite
-import org.scalatest.Matchers._
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers._
 
-abstract class SwitchBehaviorSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
+abstract class SwitchBehaviorSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
   self =>
 
   import dsl._
@@ -73,9 +73,9 @@ object SwitchBehaviorSpec {
 
     def switch(s: State): DslF[F, Unit] =
       s match {
-        case State1 => eval(state = State1) ++ switch(onSwitch.orElse(handleEvent1))
-        case State2 => eval(state = State2) ++ switch(onSwitch.orElse(handleEvent2))
-        case State3 => eval(state = State3) ++ switch(onSwitch.orElse(handleEvent3))
+        case State1 => eval{state = State1} ++ switch(onSwitch.orElse(handleEvent1))
+        case State2 => eval{state = State2} ++ switch(onSwitch.orElse(handleEvent2))
+        case State3 => eval{state = State3} ++ switch(onSwitch.orElse(handleEvent3))
       }
 
     def onSwitch: Receive = {

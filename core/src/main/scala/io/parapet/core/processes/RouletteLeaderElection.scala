@@ -7,6 +7,7 @@ import io.parapet.core.Event.Start
 import io.parapet.core.processes.RouletteLeaderElection.ResponseCodes.AckCode
 import io.parapet.core.processes.RouletteLeaderElection._
 import io.parapet.core.processes.net.AsyncServer.Send
+import io.parapet.core.processes.net.AsyncClient.{Send => ClientSend}
 import io.parapet.core.utils.CorrelationId
 import io.parapet.core.{Clock, Encoder, Event, ProcessRef}
 import org.slf4j.MDC
@@ -16,7 +17,6 @@ import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.util.Random
 
-// Implementation of modified leader election algorithm https://arxiv.org/ftp/arxiv/papers/1703/1703.02247.pdf
 class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.BlackHoleRef)
   extends ProcessWithState[F, State](state) {
 
@@ -57,18 +57,18 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
       val peer = state.peers.get(sender)
       val action =
         if (state.coordinator) {
-          Ack(state.addr, state.num, AckCode.COORDINATOR) ~> peer.netClient
+          Ack(state.addr, state.num, AckCode.COORDINATOR).toClient ~> peer.netClient
         } else if (state.voted) {
-          Ack(state.addr, state.num, AckCode.VOTED) ~> peer.netClient
+          Ack(state.addr, state.num, AckCode.VOTED).toClient  ~> peer.netClient
         } else if (state.hasLeader) {
-          Ack(state.addr, state.num, AckCode.ELECTED) ~> peer.netClient
+          Ack(state.addr, state.num, AckCode.ELECTED).toClient  ~> peer.netClient
         } else if (num > state.roundNum) {
           eval {
             state.voted = true
             state.roundNum = num
-          } ++ Ack(state.addr, state.num, AckCode.OK) ~> peer.netClient ++ waitForHeartbeat
+          } ++ Ack(state.addr, state.num, AckCode.OK).toClient  ~> peer.netClient ++ waitForHeartbeat
         } else {
-          Ack(state.addr, state.num, AckCode.HIGH) ~> peer.netClient
+          Ack(state.addr, state.num, AckCode.HIGH).toClient  ~> peer.netClient
         }
 
       log(s"received Propose($sender, $num)") ++ action
@@ -86,9 +86,9 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
               (if (!state.coordinator && receivedMajorityOfVotes) {
                  for {
                    _ <- eval(state.coordinator = true)
-                   leaderAddr <- eval(state.roulette(state.peers.alive.map(_.addr)))
+                   leaderAddr <- eval(state.roulette(state.peers.alive.map(_.address)))
                    _ <- log("became coordinator")
-                   _ <- Announce(state.addr) ~> state.peers.get(leaderAddr).netClient
+                   _ <- Announce(state.addr).toClient ~> state.peers.get(leaderAddr).netClient
                    _ <- log(s"send announce to $leaderAddr")
                    _ <- waitForHeartbeat
                  } yield ()
@@ -173,26 +173,30 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
     case Who(clientId) =>
       withSender(sender => Send(clientId, state.leader.getOrElse("").getBytes()) ~> sender)
 
-    case b: Broadcast =>
+    case IsLeader =>
+      withSender(sender => IsLeaderRep(state.leader.contains(state.addr)) ~> sender)
+
+    // -------------------- BROADCAST ----------------------------//
+    case Broadcast(data) =>
       implicit val correlationId: CorrelationId = CorrelationId()
-      log(s"received broadcast: $b") ++
-      withSender(sender => BroadcastResult(0) ~> sender)
+      val msg = ClientSend(prependTag(REQ_TAG, data))
+      log("received broadcast") ++
+        state.peers.netClients.foldLeft(unit)((acc, client) => acc ++ msg ~> client) ++
+        withSender(sender => BroadcastResult(state.peers.size / 2) ~> sender)
+
+    case BroadcastResult(res) =>
+      implicit val correlationId: CorrelationId = CorrelationId()
+      log(s"received broadcast result: $res")
 
     // -----------------------REQ------------------------------- //
-    case req: Req =>
-      // todo
-      // check if this node is the current leader
-      // broadcast req to all servers in the cluster
-      // wait for ack from majority
-      // forward req to sink
-      req ~> sink
+    case req: Req => req ~> sink
 
     // ----------------------- REP -------------------------------//
     // Rep is sent by sink process in event of Req
     case Rep(clientId, data) =>
       implicit val correlationId: CorrelationId = CorrelationId()
       log(s"received Rep from clientId: $clientId") ++
-      Send(clientId, data) ~> state.srvRef
+        ClientSend(prependTag(REQ_TAG, data)) ~> state.peers.getById(clientId).netClient
   }
 
   // -----------------------HELPERS------------------------------- //
@@ -201,7 +205,7 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
     implicit val correlationId: CorrelationId = CorrelationId()
     state.peers.all
       .map { case (addr, peer) =>
-        log(s"send propose to '$addr'") ++ Propose(state.addr, state.num) ~> peer.netClient
+        log(s"send propose to '$addr'") ++ Propose(state.addr, state.num).toClient ~> peer.netClient
       }
       .fold(unit)(_ ++ _)
   }
@@ -220,7 +224,7 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
     implicit val correlationId: CorrelationId = CorrelationId()
     state.peers.all
       .map { case (addr, peer) =>
-        log(s"send heartbeat to $addr") ++ Heartbeat(state.addr, state.leader) ~> peer.netClient
+        log(s"send heartbeat to $addr") ++ Heartbeat(state.addr, state.leader).toClient ~> peer.netClient
       }
       .fold(unit)(_ ++ _)
   }
@@ -247,8 +251,9 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
   private[core] def monitorClusterLoopAsync: DslF[F, Unit] = fork(monitorClusterLoop)
 
   private[core] def monitorClusterLoop: DslF[F, Unit] = {
+    val step0 = handleError(monitorCluster, err => eval(logger.error("cluster monitor has failed", err)))
     def step: DslF[F, Unit] = flow {
-      monitorCluster ++ delay(state.delays.monitor) ++ step
+      step0 ++ delay(state.delays.monitor) ++ step
     }
 
     step
@@ -346,17 +351,17 @@ object RouletteLeaderElection {
   )
 
   class State(
-      val ref: ProcessRef,
-      val addr: Addr,
-      val srvRef: ProcessRef,
-      val peers: Peers,
-      val random: RandomNum = RandomNumGen,
-      val roulette: Vector[Addr] => Addr = Roulette,
-      val timeouts: Timeouts = Timeouts(),
-      val delays: Delays = Delays(),
-      val rndNumMinRounds: Int = GenNumAttempts,
-      val threshold: Double = GenNumThreshold,
-  ) {
+               val ref: ProcessRef,
+               val addr: Addr,
+               val netServer: ProcessRef,
+               val peers: Peers,
+               val random: RandomNum = RandomNumGen,
+               val roulette: Vector[Addr] => Addr = Roulette,
+               val timeouts: Timeouts = Timeouts(),
+               val delays: Delays = Delays(),
+               val rndNumMinRounds: Int = GenNumAttempts,
+               val threshold: Double = GenNumThreshold,
+             ) {
     var num: Double = 0.0
     var roundNum: Double = 0.0
     var votes = 0
@@ -460,8 +465,15 @@ object RouletteLeaderElection {
   case class Rep(clientId: String, data: Array[Byte]) extends API
   // sends data to all service in the cluster
   case class Broadcast(data: Array[Byte]) extends API
-  case class BroadcastResult(code:Int) extends API
+  case class BroadcastResult(majorityCount: Int) extends API
 
+  // internal API
+  case object IsLeader extends API
+  case class IsLeaderRep(leader: Boolean) extends API
+
+  implicit class ApiOps(e:API) {
+    def toClient: Event = ClientSend(encoder.write(e))
+  }
 
   object ResponseCodes {
 
@@ -494,6 +506,7 @@ object RouletteLeaderElection {
   val HEARTBEAT_TAG = 4
   val WHO_TAG       = 5
   val REQ_TAG       = 6
+  val BROADCAST_RESULT_TAG       = 7
 
   // @formatter:on
 
@@ -538,6 +551,12 @@ object RouletteLeaderElection {
             .putInt(leaderAddrBytes.length)
             .put(leaderAddrBytes)
             .array()
+        case BroadcastResult(resCode) =>
+          ByteBuffer
+            .allocate(8)
+            .putInt(BROADCAST_RESULT_TAG)
+            .putInt(resCode)
+            .array()
       }
 
     override def read(data: Array[Byte]): Event = {
@@ -572,8 +591,11 @@ object RouletteLeaderElection {
           val data = new Array[Byte](buf.remaining())
           buf.get(data)
           Req(clientId, data)
+        case BROADCAST_RESULT_TAG =>
+          BroadcastResult(buf.getInt())
       }
     }
+
     private def getString(buf: ByteBuffer): String = {
       val len = buf.getInt()
       val data = new Array[Byte](len)
@@ -588,11 +610,19 @@ object RouletteLeaderElection {
 
   def shortToBool(s: Short): Boolean = s == 1
 
+  private def prependTag(tag: Int, data: Array[Byte]): Array[Byte] = {
+    ByteBuffer.allocate(4 + data.length)
+      .putInt(tag)
+      .put(data)
+      .array()
+  }
+
   class Peer(
-      val addr: Addr,
-      val netClient: NetClient,
-      val timeoutMs: Long,
-      val clock: Clock,
+              val id: String,
+              val address: Addr,
+              val netClient: NetClient,
+              val timeoutMs: Long,
+              val clock: Clock,
   ) {
     private var lastPingAt: Long = 0
 
@@ -608,14 +638,21 @@ object RouletteLeaderElection {
       lastPingAt >= cur - timeoutMs
 
     override def toString: String =
-      s"addr=$addr, netClientRef=$netClient"
+      s"addr=$address, netClientRef=$netClient"
   }
 
   case class Peers(peers: Vector[Peer]) {
-    private val map: Map[Addr, Peer] = peers.map(p => p.addr -> p).toMap
+    private val map: Map[Addr, Peer] = peers.map(p => p.address -> p).toMap
+    private val idMap: Map[Addr, Peer] = peers.map(p => p.id -> p).toMap
     val netClients: Seq[NetClient] = peers.map(_.netClient)
 
     def all: Map[Addr, Peer] = map
+
+    @throws[IllegalStateException]
+    def getById(id: Addr): Peer = idMap.get(id) match {
+      case Some(value) => value
+      case None => throw new IllegalStateException(s"peer with id=$id doesn't exist")
+    }
 
     @throws[IllegalStateException]
     def get(addr: Addr): Peer = map.get(addr) match {
@@ -637,16 +674,61 @@ object RouletteLeaderElection {
     def info: String = map
       .map { case (_, v) =>
         val status = if (v.isAlive) "alive" else "unavailable"
-        s"{peer=${v.addr}, status=$status}"
+        s"{peer=${v.address}, status=$status}"
       }
       .mkString("; ")
   }
 
   object Peers {
-    def apply(peers: Map[Addr, NetClient], timeoutMs: Long = 10000, clock: Clock = Clock()): Peers =
-      new Peers(peers.map { case (peerAddr, netClient) =>
-        new Peer(peerAddr, netClient, timeoutMs, clock)
-      }.toVector)
+
+    def builder: Builder = new Builder()
+
+    class Builder {
+      private var _id: String = _
+      private var _address: String = _
+      private var _netClient: NetClient = _
+      private var _timeoutMs = 10000L
+      private var _clock: Clock = Clock()
+
+      def id(id: String): Builder = {
+        _id = id
+        this
+      }
+
+      def address(address: String): Builder = {
+        _address = address
+        this
+      }
+
+      def netClient(netClient: NetClient): Builder = {
+        _netClient = netClient
+        this
+      }
+
+      def timeoutMs(timeoutMs: FiniteDuration): Builder = {
+        _timeoutMs = timeoutMs.toMillis
+        this
+      }
+
+      def clock(clock: Clock): Builder = {
+        _clock = clock
+        this
+      }
+
+      def build: Peer = {
+        require(Option(_id).exists(_.nonEmpty), "id cannot be null or empty")
+        require(Option(_address).exists(_.nonEmpty), "address cannot be null or empty")
+        require(Option(_netClient).isDefined, "netClient cannot be null")
+        require(Option(_timeoutMs).exists(_ > 0), "timeout must be > 0")
+        require(Option(_clock).isDefined, "clock cannot be null")
+        new Peer(id = _id,
+          address = _address,
+          netClient = _netClient,
+          timeoutMs = _timeoutMs,
+          clock = _clock)
+      }
+    }
+
   }
 
 }

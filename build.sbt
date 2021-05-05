@@ -19,6 +19,8 @@ useGpg := false
 
 credentials += Credentials(Path.userHome / ".sbt" / "sonatype_credential")
 
+val scalaTestVersion = "3.2.1"
+
 lazy val dependencies =
   new {
     // Cats
@@ -30,11 +32,13 @@ lazy val dependencies =
     val scalaLogging = "com.typesafe.scala-logging" %% "scala-logging" % "3.9.2"
     // test
     val logbackClassic = "ch.qos.logback" % "logback-classic" % "1.2.3" % Test
-    val scalaTest = "org.scalatest" %% "scalatest" % "3.2.5" % Test
+    val scalaTest = "org.scalatest" %% "scalatest" % scalaTestVersion % Test
     val pegdown = "org.pegdown" % "pegdown" % "1.6.0" % Test
     val logstashLogbackEncoder = "net.logstash.logback" % "logstash-logback-encoder" % "5.3" % Test
     val logbackContrib = "ch.qos.logback.contrib" % "logback-json-classic" % "0.1.5" % Test
     val logbackJackson = "ch.qos.logback.contrib" % "logback-jackson" % "0.1.5" % Test
+    val flexmark = "com.vladsch.flexmark" % "flexmark-all" % "0.36.8" % Test
+
     // utils
     val sourcecode = "com.lihaoyi" %% "sourcecode" % "0.2.1"
   }
@@ -62,7 +66,8 @@ lazy val global = project
     interopCats,
     interopMonix,
     testUtils,
-    intgTests)
+    intgTests,
+    benchmark)
 
 lazy val core = project
   .settings(
@@ -104,7 +109,7 @@ lazy val clusterApi = project
   .in(file("cluster-api"))
   .settings(
     name := "cluster-api",
-    libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.5" % Test
+    libraryDependencies += "org.scalatest" %% "scalatest" % scalaTestVersion % Test
   ).dependsOn(core)
 
 
@@ -112,7 +117,8 @@ lazy val testUtils = project
   .in(file("test-utils"))
   .settings(
     name := "test-utils",
-    libraryDependencies += "org.scalatest" %% "scalatest" % "3.2.5"
+    libraryDependencies += "org.scalatest" %% "scalatest" % scalaTestVersion,
+    libraryDependencies += dependencies.flexmark
   ).dependsOn(core, interopCats, interopMonix)
 
 lazy val interopCats = project
@@ -144,12 +150,21 @@ lazy val intgTests = project
     publishLocal := {},
     publish := {},
     libraryDependencies ++= Seq(
-      "org.scalatest" %% "scalatest" % "3.2.5",
+      "org.scalatest" %% "scalatest" % scalaTestVersion,
+      dependencies.flexmark,
       "org.pegdown" % "pegdown" % "1.6.0",
       "ch.qos.logback" % "logback-classic" % "1.2.3",
       "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
     ),
   ).dependsOn(core, testUtils)
+
+lazy val benchmark = project
+  .in(file("benchmark"))
+  .settings(
+    name := "benchmark",
+    publishLocal := {},
+    publish := {},
+  ).dependsOn(core, interopCats)
 
 lazy val protobuf = project
   .settings(
@@ -174,6 +189,7 @@ lazy val commonDependencies = Seq(
   dependencies.logbackContrib,
   dependencies.logbackJackson,
   dependencies.scalaTest,
+  dependencies.flexmark,
   dependencies.sourcecode
 )
 

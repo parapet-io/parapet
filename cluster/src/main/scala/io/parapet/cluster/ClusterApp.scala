@@ -1,6 +1,7 @@
 package io.parapet.cluster
 
 import cats.effect.{IO, Resource}
+import io.parapet.cluster.Config.PeerInfo
 import io.parapet.core.processes.RouletteLeaderElection
 import io.parapet.core.processes.RouletteLeaderElection.Peers
 import io.parapet.core.processes.net.{AsyncClient, AsyncServer}
@@ -14,13 +15,20 @@ import scala.concurrent.duration._
 object ClusterApp extends CatsApp {
 
   val NodePropsPath = "etc/node.properties"
-  //val NodePropsPath = "d:\\dev\\parapet\\cluster\\server-2\\parapet-cluster-0.0.1-RC4\\etc\\node.properties"
 
   override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] =
     for {
       config <- loadConfig
       peerNetClients <- createPeerNetClients(config.id, config.peers)
-      peers <- IO(Peers(peerNetClients.mapValues(_.ref), config.peerTimeout.toMillis.longValue()))
+      peers <- IO(Peers(peerNetClients.map{
+        case (peerInfo, netClient) =>
+          Peers.builder
+            .id(peerInfo.id)
+            .address(peerInfo.address)
+            .netClient(netClient.ref)
+            .timeoutMs(config.peerTimeout)
+             .build
+      }.toVector))
       leRef <- IO.pure(ProcessRef(config.id))
       srv <- IO {
         val port = config.address.split(":")(1).trim.toInt
@@ -35,49 +43,29 @@ object ClusterApp extends CatsApp {
         new RouletteLeaderElection.State(
           ref = leRef,
           addr = config.address,
-          srvRef = srv.ref,
+          netServer = srv.ref,
           peers = peers,
           threshold = config.leaderElectionThreshold,
         ),
       )
       cluster <- IO(new ClusterProcess(leState.ref))
       le <- IO(new RouletteLeaderElection[IO](leState, cluster.ref))
-      seq <- IO {
-        Seq(cluster, le, srv) ++ peerNetClients.values
-      }
+      seq <- IO(Seq(cluster, le, srv) ++ peerNetClients.map(_._2))
     } yield seq
 
-  def loadConfig: IO[Config] =
-    Resource.fromAutoCloseable(IO(new FileInputStream(NodePropsPath))).use { input =>
-      IO {
-        val prop = new Properties()
-        prop.load(input)
-        logger.info(s"Config: $prop")
-        Config(
-          id = prop.getProperty("node.id"),
-          address = prop.getProperty("node.address"),
-          peers = prop.getProperty("node.peers", "").split(",").map(_.trim),
-          electionDelay = prop.getProperty("node.election-delay").toInt.seconds,
-          heartbeatDelay = prop.getProperty("node.heartbeat-delay").toInt.seconds,
-          monitorDelay = prop.getProperty("node.monitor-delay").toInt.seconds,
-          peerTimeout = prop.getProperty("node.peer-timeout").toInt.seconds,
-          leaderElectionThreshold = prop.getProperty("node.leader-election-threshold").toDouble,
-        )
-      }
-    }
+  def loadConfig: IO[Config] = IO(Config.load(NodePropsPath))
 
-  def createPeerNetClients(clientId: String, addresses: Array[String]): IO[Map[String, Process[IO]]] =
+  def createPeerNetClients(clientId: String, peers: Array[PeerInfo]): IO[Array[(PeerInfo, Process[IO])]] =
     IO(
-      addresses.zipWithIndex
+      peers.zipWithIndex
         .map(p =>
           p._1 -> AsyncClient[IO](
             ref = ProcessRef("peer-client-" + p._2),
             clientId = clientId,
-            address = "tcp://" + p._1,
+            address = "tcp://" + p._1.address,
             encoder = RouletteLeaderElection.encoder,
           ),
         )
-        .toMap,
     )
 
 }

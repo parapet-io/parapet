@@ -1,14 +1,15 @@
 package io.parapet.tests.intg.catsio
 
 import cats.effect.IO
-import io.parapet.testutils.{BasicCatsIOSpec, EventStore}
-import org.scalatest.FunSuite
-import io.parapet.core.{Channel, Event, Process, ProcessRef}
 import io.parapet.core.Event.{ByteEvent, Start, StringEvent}
-import org.scalatest.Matchers._
+import io.parapet.core.{Channel, Event, Process, ProcessRef}
+import io.parapet.testutils.{BasicCatsIOSpec, EventStore}
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers._
+
 import scala.concurrent.duration._
 
-class BlockingChannelWithTimeout extends FunSuite with BasicCatsIOSpec {
+class BlockingChannelWithTimeout extends AnyFunSuite with BasicCatsIOSpec {
 
   import dsl._
 

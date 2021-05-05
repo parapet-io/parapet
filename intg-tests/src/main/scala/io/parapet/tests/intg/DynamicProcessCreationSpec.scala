@@ -5,10 +5,10 @@ import io.parapet.core.Event.Start
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.tests.intg.DynamicProcessCreationSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.FunSuite
-import org.scalatest.Matchers._
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers._
 
-abstract class DynamicProcessCreationSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
+abstract class DynamicProcessCreationSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
 
   test("create child process") {
 

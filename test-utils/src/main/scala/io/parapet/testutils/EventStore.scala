@@ -8,7 +8,7 @@ import cats.syntax.functor._
 import com.typesafe.scalalogging.StrictLogging
 import io.parapet.core.{Event, ProcessRef}
 
-import scala.collection.JavaConverters._
+import scala.jdk.CollectionConverters._
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.TimeoutException
 import scala.concurrent.duration.{FiniteDuration, _}
@@ -28,7 +28,7 @@ class EventStore[F[_], A <: Event] extends StrictLogging {
     eventMap.computeIfPresent(pRef, (_: ProcessRef, events: EventList) => events += event)
   }
 
-  def get(pRef: ProcessRef): Seq[A] = eventMap.getOrDefault(pRef, ListBuffer.empty)
+  def get(pRef: ProcessRef): Seq[A] = eventMap.getOrDefault(pRef, ListBuffer.empty).toSeq
 
   def allEvents: Seq[A] = eventMap.values().asScala.flatten.toSeq
 

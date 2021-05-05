@@ -44,7 +44,7 @@ class EventLog {
 
   def close(): Unit =
     // append final nodes
-    graph.entrySet().forEach(entry => entry.getValue += PNode(entry.getKey + "-end", "", start = false))
+    graph.entrySet().forEach(entry => entry.getValue += PNode(entry.getKey.toString + "-end", "", start = false))
 
 }
 

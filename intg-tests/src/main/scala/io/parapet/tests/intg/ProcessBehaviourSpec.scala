@@ -3,11 +3,10 @@ package io.parapet.tests.intg
 import io.parapet.core.{Event, Process}
 import io.parapet.tests.intg.ProcessBehaviourSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.FunSuite
-import org.scalatest.Matchers._
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers._
 
-abstract class ProcessBehaviourSpec[F[_]]
-  extends FunSuite with IntegrationSpec[F] {
+abstract class ProcessBehaviourSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
 
   import dsl._
 

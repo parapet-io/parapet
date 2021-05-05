@@ -15,5 +15,7 @@ object ProcessRef {
   val UndefinedRef: ProcessRef = ProcessRef(ParapetPrefix + "-undefined")
   val BlackHoleRef: ProcessRef = ProcessRef(ParapetPrefix + "-blackhole")
 
+  def apply(): ProcessRef = jdkUUIDRef
+
   def jdkUUIDRef: ProcessRef = new ProcessRef(UUID.randomUUID().toString)
 }

@@ -14,9 +14,11 @@ class Node(host: String, port: Int, id: String, server: Array[String]) extends I
   private val zmqCtx = new ZContext()
   private val addr = s"$host:$port"
 
+  // this node server
   private val netServer = zmqCtx.createSocket(SocketType.ROUTER)
   netServer.bind(s"tcp://*:$port")
 
+  // creates connections to all servers in the cluster
   private val clusterNodes =
     server.map { addr =>
       val socket = zmqCtx.createSocket(SocketType.DEALER)

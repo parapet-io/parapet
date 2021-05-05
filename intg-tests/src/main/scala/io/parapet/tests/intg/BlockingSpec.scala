@@ -1,20 +1,19 @@
 package io.parapet.tests.intg
 
-import java.util.concurrent.atomic.AtomicInteger
-
-import io.parapet.core.Event.Start
+import io.parapet.core.Event.{Kill, Start, Stop}
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Scheduler.SchedulerConfig
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.FunSuite
-import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers._
 
+import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration._
 import scala.util.Random
 
-abstract class BlockingSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
+abstract class BlockingSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
 
   import BlockingSpec._
   import dsl._
@@ -56,6 +55,22 @@ abstract class BlockingSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
     unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
     eventStore.get(process.ref) shouldBe Seq(NumEvent(10))
 
+  }
+
+  test("stop blocking operation") {
+    val eventStore = new EventStore[F, Event]
+
+    val process = Process(ref => {
+      case Start =>
+        blocking {
+          eval(println("start blocking")) ++
+            delay(1.minute)
+        }
+      case Stop => eval(eventStore.add(ref, Stop))
+    })
+
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(onStart(Kill ~> process), process))).run))
+    eventStore.get(process.ref) shouldBe Seq(Stop)
   }
 
 }

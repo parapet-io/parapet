@@ -11,12 +11,20 @@ object ClusterApi {
   sealed trait API extends Event
 
   // --------------------- JOIN ------------------------------------------ //
-  case class Join(nodeId: String, address: String, group:String) extends API
+  object JoinResultCodes {
+    val OK = 0
+    val ERROR = 1 // must to be clarified
+  }
+
   // FORMAT
   val TAG_SIZE = 4
   val NODE_ID_SIZE = 4
   val ADDR_SIZE = 4
   val GROUP_SIZE = 4
+  val RESULT_CODE_SIZE = 4
+
+  case class Join(nodeId: String, address: String, group: String) extends API
+  case class JoinResult(nodeId: String, code: Int) extends API
 
   // ---------------------- Result ---------------------------------------- //
   case class Result(code: Int, msg: String) extends API
@@ -32,7 +40,8 @@ object ClusterApi {
 
   // TAGS
   val JOIN_TAG = 0
-  val RESULT_TAG = 1
+  val JOIN_RESULT_TAG = 1
+  val RESULT_TAG = 2
 
   // @formatter:on
 
@@ -52,6 +61,14 @@ object ClusterApi {
           putWithSize(buf, nodeIdBytes)
           putWithSize(buf, addressBytes)
           putWithSize(buf, groupBytes)
+          buf.rewind()
+          buf.array()
+        case JoinResult(nodeId, code) =>
+          val nodeIdBytes = nodeId.getBytes()
+          val buf = ByteBuffer.allocate(TAG_SIZE + (NODE_ID_SIZE + nodeIdBytes.length) + RESULT_CODE_SIZE)
+          buf.putInt(JOIN_RESULT_TAG)
+          putWithSize(buf, nodeIdBytes)
+          buf.putInt(code)
           buf.rewind()
           buf.array()
         case Result(code, msg) =>
@@ -75,6 +92,10 @@ object ClusterApi {
           val address = getString(buf)
           val group = getString(buf)
           Join(nodeId = nodeId, address = address, group = group)
+        case JOIN_RESULT_TAG =>
+          val nodeId = getString(buf)
+          val code = buf.getInt
+          JoinResult(nodeId, code)
         case RESULT_TAG =>
           val code = buf.getInt
           val msg = getString(buf)

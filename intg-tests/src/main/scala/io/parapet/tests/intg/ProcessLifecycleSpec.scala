@@ -9,10 +9,10 @@ import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.tests.intg.ProcessLifecycleSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.FlatSpec
-import org.scalatest.Matchers._
+import org.scalatest.flatspec.AnyFlatSpec
+import org.scalatest.matchers.should.Matchers._
 
-abstract class ProcessLifecycleSpec[F[_]] extends FlatSpec with IntegrationSpec[F] {
+abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSpec[F] {
 
   import dsl._
 

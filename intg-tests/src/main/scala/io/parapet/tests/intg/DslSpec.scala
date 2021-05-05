@@ -5,13 +5,13 @@ import io.parapet.core.Event.Start
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.tests.intg.DslSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
-import org.scalatest.WordSpec
+import org.scalatest.wordspec.AnyWordSpec
+import org.scalatest.matchers.should.Matchers._
 
 import scala.concurrent.duration._
 
-abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
+abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
   import dsl._
 
@@ -268,6 +268,53 @@ abstract class DslSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
             } yield ()
         })
         unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
+      }
+    }
+  }
+
+  "A flow with error handler" when {
+    "fails" should {
+      "recover" in {
+        val eventStore = new EventStore[F, Response]
+
+        val failure = eval(throw new RuntimeException("server failed"))
+
+        val process: Process[F] = Process[F](ref => {
+          case Start =>
+            handleError(failure, err => eval(eventStore.add(ref, Response(err))))
+        })
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
+
+        eventStore.get(process.ref).headOption.value should matchPattern {
+          case Response(err: RuntimeException) if err.getMessage == "server failed" =>
+        }
+      }
+    }
+  }
+
+  "A flow with async loop" when {
+    "unrecoverable error occurred" should {
+      "fail" in {
+        val ref = ProcessRef()
+        val eventStore = new EventStore[F, Response]
+
+        def step: DslF[F, Unit] =
+          eval(throw new RuntimeException("failure"))
+            .handleError(err => eval {
+              eventStore.add(ref, Response(err))
+              throw err
+            })
+
+        def loop: DslF[F, Unit] = flow {
+          step ++ loop
+        }
+
+        val process: Process[F] = Process.builder[F](_ => {
+          case Start => fork(loop)
+        }).ref(ref).build
+
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
+
       }
     }
   }
