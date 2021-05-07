@@ -28,20 +28,30 @@ object ClusterApi {
 
   // ---------------------- Result ---------------------------------------- //
   case class Result(code: Int, msg: String) extends API
-  // result codes
 
   object ResultCodes {
     val OK = 0
     val ERROR = 1
   }
-  // Format
+  // FORMAT
   val CODE_SIZE = 4
   val MSG_SIZE = 4
 
+  // ---------------------- NodeInfo ---------------------------------------- //
+  case class GetNodeInfo(senderId: String, id: String) extends API
+  case class NodeInfo(address: String, code: Int) extends API
+  object NodeInfoCodes {
+    val OK = 0
+    val NODE_NOT_FOUND = 1
+    val ERROR = 2
+  }
+
   // TAGS
-  val JOIN_TAG = 0
-  val JOIN_RESULT_TAG = 1
-  val RESULT_TAG = 2
+  val JOIN_TAG = 20
+  val JOIN_RESULT_TAG = 21
+  val RESULT_TAG = 22
+  val GET_NODE_INFO_TAG = 23
+  val NODE_INFO = 24
 
   // @formatter:on
 
@@ -79,6 +89,24 @@ object ClusterApi {
           putWithSize(buf, msgBytes)
           buf.rewind()
           buf.array()
+        case GetNodeInfo(senderId, id) =>
+          val senderIdBytes = senderId.getBytes()
+          val idBytes = id.getBytes()
+          val buf = ByteBuffer.allocate(4 + 4 + senderIdBytes.length + 4 + idBytes.length)
+          buf.putInt(GET_NODE_INFO_TAG)
+          putWithSize(buf, senderIdBytes)
+          putWithSize(buf, idBytes)
+          buf.rewind()
+          buf.array()
+        case NodeInfo(address, code) =>
+          val addressBytes = address.getBytes
+          val buf = ByteBuffer.allocate(TAG_SIZE + 4 + CODE_SIZE + addressBytes.length)
+            .putInt(NODE_INFO)
+            .putInt(addressBytes.length)
+            .put(addressBytes)
+            .putInt(code)
+          buf.rewind()
+          buf.array()
         case _ => throw new UnsupportedOperationException()
       }
     }
@@ -100,6 +128,8 @@ object ClusterApi {
           val code = buf.getInt
           val msg = getString(buf)
           Result(code, msg)
+        case GET_NODE_INFO_TAG => GetNodeInfo(getString(buf), getString(buf))
+        case NODE_INFO => NodeInfo(getString(buf), buf.getInt)
         case _ => throw new UnsupportedOperationException()
       }
     }

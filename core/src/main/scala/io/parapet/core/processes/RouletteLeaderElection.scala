@@ -6,7 +6,7 @@ import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.Start
 import io.parapet.core.processes.RouletteLeaderElection.ResponseCodes.AckCode
 import io.parapet.core.processes.RouletteLeaderElection._
-import io.parapet.core.processes.net.AsyncServer.Send
+import io.parapet.core.processes.net.AsyncServer.{Send => ServerSend}
 import io.parapet.core.processes.net.AsyncClient.{Send => ClientSend}
 import io.parapet.core.utils.CorrelationId
 import io.parapet.core.{Clock, Encoder, Event, ProcessRef}
@@ -171,7 +171,7 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
 
     // -----------------------WHO------------------------------- //
     case Who(clientId) =>
-      withSender(sender => Send(clientId, state.leader.getOrElse("").getBytes()) ~> sender)
+      withSender(sender => ServerSend(clientId, encoder.write(WhoRep(state.addr, state.leader.contains(state.addr)))) ~> sender)
 
     case IsLeader =>
       withSender(sender => IsLeaderRep(state.leader.contains(state.addr)) ~> sender)
@@ -197,6 +197,9 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
       implicit val correlationId: CorrelationId = CorrelationId()
       log(s"received Rep from clientId: $clientId") ++
         ClientSend(prependTag(REQ_TAG, data)) ~> state.peers.getById(clientId).netClient
+
+    // -------------------- SERVER SEND -------------------------//
+    case send: ServerSend => send ~> state.netServer
   }
 
   // -----------------------HELPERS------------------------------- //
@@ -456,6 +459,7 @@ object RouletteLeaderElection {
   case class Heartbeat(addr: Addr, leader: Option[Addr]) extends API
   case class Timeout(phase: Phase) extends API
   case class Who(clientId: String) extends API
+  case class WhoRep(address: String, leader: Boolean) extends API
   // REQ payload format
   // 4 bytes = client_id length
   // client_id bytes
@@ -500,13 +504,14 @@ object RouletteLeaderElection {
 
   // Protocol format [tag: int32, body: byte[]]
   // Tags
-  val PROPOSE_TAG   = 1
-  val ACK_TAG       = 2
-  val ANNOUNCE_TAG  = 3
-  val HEARTBEAT_TAG = 4
-  val WHO_TAG       = 5
-  val REQ_TAG       = 6
-  val BROADCAST_RESULT_TAG       = 7
+  val PROPOSE_TAG                = 11
+  val ACK_TAG                    = 12
+  val ANNOUNCE_TAG               = 13
+  val HEARTBEAT_TAG              = 14
+  val WHO_TAG                    = 15
+  val REQ_TAG                    = 16
+  val BROADCAST_RESULT_TAG       = 17
+  val WHO_REP_TAG                = 18
 
   // @formatter:on
 
@@ -557,6 +562,14 @@ object RouletteLeaderElection {
             .putInt(BROADCAST_RESULT_TAG)
             .putInt(resCode)
             .array()
+        case WhoRep(address, leader) =>
+          val addressBytes = address.getBytes()
+          val buf = ByteBuffer.allocate(4 + 4 + addressBytes.length + 2)
+          buf.putInt(WHO_REP_TAG)
+          buf.putInt(addressBytes.length)
+          buf.put(addressBytes)
+          buf.putShort(if (leader) 1 else 0)
+          buf.array()
       }
 
     override def read(data: Array[Byte]): Event = {
@@ -585,8 +598,8 @@ object RouletteLeaderElection {
           val leaderAddrBytes = new Array[Byte](buf.getInt())
           buf.get(leaderAddrBytes)
           Heartbeat(new String(addrBytes), Option(new String(leaderAddrBytes)).filter(_.nonEmpty))
-        case WHO_TAG =>
-          Who(clientId)
+        case WHO_TAG => Who(clientId)
+        case WHO_REP_TAG => WhoRep(getString(buf), shortToBool(buf.getShort()))
         case REQ_TAG =>
           val data = new Array[Byte](buf.remaining())
           buf.get(data)

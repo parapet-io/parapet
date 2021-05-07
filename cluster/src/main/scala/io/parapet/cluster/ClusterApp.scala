@@ -1,16 +1,12 @@
 package io.parapet.cluster
 
-import cats.effect.{IO, Resource}
+import cats.effect.IO
 import io.parapet.cluster.Config.PeerInfo
 import io.parapet.core.processes.RouletteLeaderElection
 import io.parapet.core.processes.RouletteLeaderElection.Peers
 import io.parapet.core.processes.net.{AsyncClient, AsyncServer}
 import io.parapet.core.{Process, ProcessRef}
 import io.parapet.{CatsApp, core}
-
-import java.io.FileInputStream
-import java.util.Properties
-import scala.concurrent.duration._
 
 object ClusterApp extends CatsApp {
 

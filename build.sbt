@@ -60,6 +60,7 @@ lazy val global = project
   .in(file("."))
   .aggregate(
     core,
+    clusterApi,
     cluster,
     clusterCli,
     protobuf,
@@ -109,7 +110,8 @@ lazy val clusterApi = project
   .in(file("cluster-api"))
   .settings(
     name := "cluster-api",
-    libraryDependencies += "org.scalatest" %% "scalatest" % scalaTestVersion % Test
+    libraryDependencies += "org.scalatest" %% "scalatest" % scalaTestVersion % Test,
+    libraryDependencies += dependencies.flexmark
   ).dependsOn(core)
 
 
