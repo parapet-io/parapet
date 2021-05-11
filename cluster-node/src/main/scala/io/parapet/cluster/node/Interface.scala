@@ -1,4 +1,4 @@
-package io.parapet.cluster.cli
+package io.parapet.cluster.node
 
 import scala.util.Try
 
@@ -28,7 +28,18 @@ trait Interface {
   def send(req: Req): Try[Unit]
 
   /**
+    * Send a request and waits for response.
+    * Use for a strict REQ-REP dialog.
+    *
+    * @param req     request
+    * @param handler message handler
+    * @return result
+    */
+  def send(req: Req, handler: Array[Byte] => Unit): Try[Unit]
+
+  /**
     * Sends a reply.
+    * Use for a strict REQ-REP dialog.
     *
     * @param rep the reply
     * @return result

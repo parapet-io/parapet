@@ -1,4 +1,4 @@
-package io.parapet.cluster.cli
+package io.parapet.cluster.node
 
 trait MessageHandler {
 

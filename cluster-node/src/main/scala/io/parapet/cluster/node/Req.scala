@@ -1,3 +1,3 @@
-package io.parapet.cluster.cli
+package io.parapet.cluster.node
 
 case class Req(nodeId: String, data: Array[Byte])

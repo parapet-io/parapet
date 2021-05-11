@@ -62,7 +62,7 @@ lazy val global = project
     core,
     clusterApi,
     cluster,
-    clusterCli,
+    clusterNode,
     protobuf,
     interopCats,
     interopMonix,
@@ -100,10 +100,10 @@ lazy val cluster = project
 
   ).dependsOn(core, interopCats, clusterApi)
 
-lazy val clusterCli = project
-  .in(file("cluster-cli"))
+lazy val clusterNode = project
+  .in(file("cluster-node"))
   .settings(
-    name := "cluster-cli"
+    name := "cluster-node"
   ).dependsOn(core, clusterApi)
 
 lazy val clusterApi = project

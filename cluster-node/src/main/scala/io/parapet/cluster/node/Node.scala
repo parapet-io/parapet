@@ -1,4 +1,4 @@
-package io.parapet.cluster.cli
+package io.parapet.cluster.node
 import com.typesafe.scalalogging.Logger
 import io.parapet.cluster.api.ClusterApi._
 import io.parapet.core.processes.RouletteLeaderElection
@@ -18,12 +18,11 @@ import org.zeromq.ZMQ.Poller
 import scala.util.control.Breaks.{break, breakable}
 
 // TODO leader heartbeat
-class Node(id: String, host: String, port: Int, servers: Array[String]) extends Interface {
+class Node(id: String, host: String, port: Int, servers: Array[String], msgHandler: MessageHandler) extends Interface {
 
   private val logger = Logger[Node]
   private val zmqCtx = new ZContext()
   private val addr = s"$host:$port"
-  private var _msgHandler: MessageHandler = _
 
   // this node server
 
@@ -33,8 +32,6 @@ class Node(id: String, host: String, port: Int, servers: Array[String]) extends 
 
   private var _leader: Option[String] = Option.empty
   private val server = new Server(port)
-
-  def msgHandler(handler: MessageHandler): Unit = _msgHandler = handler
 
   override def connect(): Unit = {
     _servers ++= servers.map { address =>
@@ -87,6 +84,14 @@ class Node(id: String, host: String, port: Int, servers: Array[String]) extends 
 
 
   override def send(req: Req): Try[Unit] = {
+    send(req, Option.empty)
+  }
+
+  override def send(req: Req, handler: Array[Byte] => Unit): Try[Unit] = {
+    send(req, Option(handler))
+  }
+
+  private def send(req: Req, handlerOpt: Option[Array[Byte] => Unit]): Try[Unit] = {
     Try {
       val socket = _nodes.computeIfAbsent(req.nodeId, _ => {
         logger.debug(s"node[id=${req.nodeId}] is not registered. requesting node info")
@@ -111,6 +116,12 @@ class Node(id: String, host: String, port: Int, servers: Array[String]) extends 
       })
       socket.send(req.data)
       logger.debug(s"req ${new String(req.data)} to ${req.nodeId} has been sent")
+      handlerOpt match {
+        case Some(handler) =>
+          logger.debug(s"wait for response from recipient id=${req.nodeId}")
+          handler(socket.recv())
+        case _ => ()
+      }
     }
   }
 
@@ -195,7 +206,6 @@ class Node(id: String, host: String, port: Int, servers: Array[String]) extends 
 
     // Socket to talk to application
     private val threadPool = Executors.newSingleThreadExecutor()
-    private val workersPool = Executors.newFixedThreadPool(4) // todo configurable
 
     private val CONTROL_ADDRESS = "inproc://control"
     private val CONTROL_POLLIN = 0
@@ -228,7 +238,6 @@ class Node(id: String, host: String, port: Int, servers: Array[String]) extends 
         threadPool.shutdown() // what for the loop task to complete
         threadPool.awaitTermination(5, TimeUnit.MINUTES)
         zmqCtx.close()
-        workersPool.shutdownNow()
       } catch {
         case err: Exception => logger.error("error occurred while stopping the server", err)
       }
@@ -266,9 +275,7 @@ class Node(id: String, host: String, port: Int, servers: Array[String]) extends 
                 val reqMsg = ZMsg.recvMsg(server)
                 val clientId = reqMsg.popString() // identity
                 val data = reqMsg.pop().getData
-                workersPool.submit(new Runnable {
-                  override def run(): Unit = _msgHandler.handle(Req(clientId, data))
-                })
+                msgHandler.handle(Req(clientId, data))
               }
 
             } catch {
