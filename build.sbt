@@ -85,7 +85,8 @@ lazy val cluster = project
   .enablePlugins(JavaAppPackaging, UniversalDeployPlugin)
   .settings(
     name := "cluster",
-    libraryDependencies += "org.slf4j" % "slf4j-log4j12" % "1.7.25",
+    libraryDependencies ++= Seq("com.github.scopt" %% "scopt" % "4.0.1",
+      "org.slf4j" % "slf4j-log4j12" % "1.7.25"),
     maintainer in Universal := "parapet.io",
     packageName in Universal := "parapet-cluster-" + version.value,
     mappings in Universal += {
