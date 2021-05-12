@@ -1,6 +1,6 @@
-node.id=123
-node.address=localhost:5555
-node.peers=localhost:6666
+node.id=<unique_node_id>
+node.address=<node_address>
+node.peers=[<node_id:node_address>]
 node.election-delay=10
 node.heartbeat-delay=5
 node.monitor-delay=10

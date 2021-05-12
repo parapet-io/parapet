@@ -1,3 +1,5 @@
 package io.parapet.cluster.node
 
-case class Rep(nodeId: String, data: Array[Byte])
+import io.parapet.core.Event
+
+case class Rep(nodeId: String, data: Array[Byte]) extends Event

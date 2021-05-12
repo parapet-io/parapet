@@ -95,6 +95,7 @@
                                         <li><a href="#line3_15">blocking</a></li>
                                     </ul>
                             </li>
+                            <li><a href="#line14">Network</a></li>
                             <li><a href="#line4">Process</a>
                                 <ul class="nav">
                                     <li><a href="#line4_1">Creating the Process</a></li>
@@ -751,6 +752,198 @@ data
                         <!-- end row -->
                         <hr>
                     </section>
+                    <section id="line14" class="section">
+                        <div class="row">
+                            <div class="col-md-12 left-align">
+                                <h2 class="dark-text">Network <a href="#top">#back to top</a>
+                                    <hr>
+                                </h2>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-12">
+                                <p>
+                                    Parapet wouldn't be a truly distributed library without network support.
+                                    Starting with 0.0.1-RC5 Parapet comes with a basic networking support.
+                                    <code>Cluster</code> is in early development, however, it's ready to use for basic over-network communications.
+                                    In this section you will find the information on how to install <code>Cluster</code> and exchange messages between two process over the network.
+                                </p>
+
+                                <h3>Step 1: Install parapet-cluster</h3>
+                                 1. Download latest <code>cluster</code> archive from here.
+                                 <br/>
+                                 2. Unzip to any folder
+                                 <br/>
+                                 3. Rename <code>node.properties.template</code> to <code>node.properties</code>
+                                 <br/>
+                                 4. Configure cluster node by modifying node.properties
+                                 <pre class="brush: scala">
+                                     node.id=&lt;unique_node_id&gt;
+                                     node.address=&lt;node_address&gt;
+                                     node.peers=[&lt;node_id:node_address&gt;]
+                                     node.election-delay=10
+                                     node.heartbeat-delay=5
+                                     node.monitor-delay=10
+                                     node.peer-timeout=10
+                                     node.leader-election-threshold=0.7
+                                 </pre>
+                                <br/>
+                                You need to repeat this step for each cluster node. It's commended to have a at least three cluster nodes.
+                                <br/>
+                                Example: two nodes
+                                <br/>
+                                Node 1
+                                <pre class="brush: scala">
+                                node.id=node-1
+                                node.address=localhost:5555
+                                node.peers=[node-2:localhost:6666]
+                                # ...
+                                </pre>
+                                Node 2
+                                <pre class="brush: scala">
+                                node.id=node-2
+                                node.address=localhost:6666
+                                node.peers=[node-1:localhost:5555]
+                                # ...
+                                </pre>
+                                <h3>Step 2: Start parapet-cluster</h3>
+                                1. Go to <code>parapet-cluster-version</code> folder and run <code>./bin/cluster</code>.
+                                You can provide a custom path to <code>node.properties</code> using
+                                <code>./bin/cluster --config=&lt;path&gt;</code>
+                                <br/>
+                                In one of the node's logs you should see:
+                                <pre class="brush: scala">
+                                    2021-05-12 01:07:57 DEBUG RouletteLeaderElection:329 - received Heartbeat(addr=localhost:5555, leader=Some(localhost:5555))
+                                    2021-05-12 01:07:57 DEBUG RouletteLeaderElection:329 - current leader: 'localhost:5555' is healthy
+                                </pre>
+                                In this case the first node was elected.
+
+                                <h3>Step 3: Create a node process that uses <code>parapet-node</code></h3>
+                                <pre class="brush: scala">
+import cats.effect.IO
+  import io.parapet.cluster.node.{MessageHandler, Node, Req}
+  import io.parapet.core.Event._
+  import io.parapet.core.{DslInterpreter, Process, ProcessRef}
+
+  class NodeProcess(id: String, port: Int, sink: ProcessRef) extends Process[IO] {
+
+    import dsl._
+
+    private val msgHandler = new MessageHandler() {
+      override def handle(req: Req): Unit = {
+        (req ~> sink).foldMap(DslInterpreter.instance.interpret(ref, sink)).unsafeRunSync() // temporary workaround
+      }
+    }
+
+    private val node =
+      new Node(host = "localhost", port = port,
+        id = id,
+        servers = Array("localhost:5555", "localhost:6666"),
+        msgHandler = msgHandler)
+
+
+    override def handle: Receive = {
+      case Start => eval {
+        node.connect()
+        node.join("test")
+      }
+      case req: Req => eval(node.send(req))
+    }
+
+  }
+                                </pre>
+
+                                Create two node apps
+                                <br/>
+                                Node 1:
+                                <pre class="brush: scala">
+                                    import cats.effect.IO
+import io.parapet.cluster.node.Req
+import io.parapet.core.Event._
+import io.parapet.core.{Process, ProcessRef}
+
+import scala.concurrent.duration._
+
+object NodeApp1 extends CatsApp {
+
+  import dsl._
+
+  val echoRef = ProcessRef("echo")
+
+  val nodeProcess = new NodeProcess("node-1", 8001, echoRef)
+
+  private val echo = Process.builder[IO](_ => {
+    case Start => Req("node-2", "ping".getBytes()) ~> nodeProcess.ref
+    case req: Req =>
+      val rep = "echo: " + new String(req.data)
+      delay(3.seconds) ++ Req("node-2", rep.getBytes()) ~> nodeProcess.ref
+  }).ref(echoRef).build
+
+
+  override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] = {
+    IO(Seq(nodeProcess, echo))
+  }
+}
+                                </pre>
+                                similarly Node 2:
+                                <pre class="brush: scala">
+import cats.effect.IO
+import io.parapet.cluster.node.Req
+import io.parapet.core.Event.Start
+import io.parapet.core.{Process, ProcessRef}
+
+import scala.concurrent.duration._
+
+object NodeApp2 extends CatsApp {
+
+  import dsl._
+
+  val echoRef = ProcessRef("echo")
+
+  val nodeProcess = new NodeProcess("node-2", 8002, echoRef)
+
+  private val echo = Process.builder[IO](_ => {
+    case Start => Req("node-1", "ping".getBytes()) ~> nodeProcess.ref
+    case req: Req =>
+      val rep = "echo: " + new String(req.data)
+      delay(3.seconds) ++ Req("node-1", rep.getBytes()) ~> nodeProcess.ref
+  }).ref(echoRef).build
+
+
+  override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] = {
+    IO(Seq(nodeProcess, echo))
+  }
+}
+                                    </pre>
+
+                                <h3>Step 4: Start node apps</h3>
+                                    Run both node apps. In the first node's logs you should see
+                                        <pre>
+                                            2021-05-12 01:55:32 DEBUG Node:118 - req echo: ping to node-2 has been sent
+2021-05-12 01:55:38 DEBUG Node:118 - req echo: echo: echo: ping to node-2 has been sent
+2021-05-12 01:55:44 DEBUG Node:118 - req echo: echo: echo: echo: echo: ping to node-2 has been sent
+2021-05-12 01:55:50 DEBUG Node:118 - req echo: echo: echo: echo: echo: echo: echo: ping to node-2 has been sent
+2021-05-12 01:55:56 DEBUG Node:118 - req echo: echo: echo: echo: echo: echo: echo: echo: echo: ping to node-2 has been sent
+2021-05-12 01:56:02 DEBUG Node:118 - req echo: echo: echo: echo: echo: echo: echo: echo: echo: echo: echo: ping to node-2 has been sent
+                                            ...
+                                            </pre>
+
+                                Second node's logs:
+                                     <pre>
+2021-05-12 01:55:35 DEBUG Node:118 - req echo: echo: ping to node-1 has been sent
+2021-05-12 01:55:41 DEBUG Node:118 - req echo: echo: echo: echo: ping to node-1 has been sent
+2021-05-12 01:55:47 DEBUG Node:118 - req echo: echo: echo: echo: echo: echo: ping to node-1 has been sent
+2021-05-12 01:55:53 DEBUG Node:118 - req echo: echo: echo: echo: echo: echo: echo: echo: ping to node-1 has been sent
+2021-05-12 01:55:59 DEBUG Node:118 - req echo: echo: echo: echo: echo: echo: echo: echo: echo: echo: ping to node-1 has been sent
+2021-05-12 01:56:05 DEBUG Node:118 - req echo: echo: echo: echo: echo: echo: echo: echo: echo: echo: echo: echo: ping to node-1 has been sent
+2021-05-12 01:56:11 DEBUG Node:118 - req echo: echo: echo: echo: echo: echo: echo: echo: echo: echo: echo: echo: echo: echo: ping to node-1 has been sent
+                                         ....
+                                     </pre>
+
+
+                            </div>
+                        </div>
+                        <!-- end row -->
                     <section id="line4" class="section">
                         <div class="row">
                             <div class="col-md-12 left-align">
