@@ -17,7 +17,9 @@ resolvers in ThisBuild += "maven2" at "https://repo1.maven.org/maven2/"
 
 useGpg := false
 
-credentials += Credentials(Path.userHome / ".sbt" / "sonatype_credential")
+ThisBuild / credentials += Credentials(Path.userHome / ".sbt" / "sonatype_credential")
+ThisBuild / publishConfiguration := publishConfiguration.value.withOverwrite(true)
+ThisBuild / publishLocalConfiguration := publishLocalConfiguration.value.withOverwrite(true)
 
 val scalaTestVersion = "3.2.1"
 
