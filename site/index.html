@@ -298,7 +298,7 @@
                                 <p>Then our client will look like this:</p>
                                 <pre class="brush: scala">
                               class PrinterClient[F[_]](private var printer: ProcessRef) extends Process[F] {
- 
+
                               import PrinterClient._
                               import dsl._
 
@@ -524,7 +524,7 @@ val client = Process.builder[IO](_ => {
                                 <p><code>par</code> - executes operations from the given flow in parallel.</p>
                                 <p>Example:</p>
                                 <pre class="brush: scala">
-par(eval(print(1)) ++ eval(print(2))) 
+par(eval(print(1)) ++ eval(print(2)))
 </pre>
                                 <p>Possible outputs:</p>
                                 <pre>
@@ -677,7 +677,7 @@ suspend {
                                 <p><code>suspendWith</code> - suspends an effect which produces <code>F</code> and then feeds that into a function that takes a normal value and returns a new flow. All operations from produced flow added to the current flow.</p>
                                 <p>Example:</p>
                                 <pre class="brush: scala">
-suspend(IO.pure(1))) { i => eval(print(i)) } 
+suspend(IO.pure(1))) { i => eval(print(i)) }
 </pre>
                                 <p>Output:</p>
                                 <pre>
@@ -1321,7 +1321,7 @@ import org.scalatest.OptionValues._
 abstract class ProxySpec[F[_]] extends FunSuite with IntegrationSpec[F] {
 
   import dsl._
-  
+
   test("proxy") {
     val eventStore = new EventStore[F, Event]
     val testService = Process(ref => {
@@ -2177,8 +2177,36 @@ Record(World,2)
                         <div class="row">
                             <div class="col-md-12">
                                 <h4 id="line11_1">Akka - <a href="#top">#back to top</a></h4>
-                                <strong>Status</strong>
-                                <img src="images/in-progress.png" style="width:32px;height:32px;">
+                                The closest framework to Parapet that I know is Akka. I would not call Akka a competitor to
+                                Parapet, however, they have a lot in common.
+                                <br/>
+                                When Parapet might be a better choice than Akka ?
+                                <br/>
+                                <ul>
+                                    <li>If you are already using any Effect System library which is supported in Parapet, e.g. Cats Effect</li>
+                                    <li>You'd like to have a possibility of switching Effect System libraries</li>
+                                    <li>You'd like to have access to internal components and distributed algorithms and use them in your code
+                                    <li>You prefer functional programming over imperative</li>
+                                </ul>
+
+                                <strong>Performance</strong>
+                                Despite the fact that Parapet uses Free Mondas and relies on the underlying Effect System
+                                is has relatively small performance overhead. Below you will find a benchmark for Parapet, Akka and pure Cats Effect
+                                <br/>
+                                Benchmark:
+                                <br/>
+                                <pre>
+Messages: 1000000
+Consumers: 1
+Producers: 1
+                                </pre>
+                                Parapet: 1642 ms
+                                <br/>
+                                Akka: 466 ms
+                                <br/>
+                                Cats Effect: 1630ms
+                                <br/>
+                                Detail benchmark report can be found <a href="https://github.com/parapet-io/scheduler/blob/main/reports/report.md">here</a>
                             </div>
                         </div>
                         <!-- end row -->

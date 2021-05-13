@@ -67,7 +67,6 @@ lazy val global = project
     interopCats,
     interopMonix,
     testUtils,
-    intgTests,
     benchmark)
 
 lazy val core = project
