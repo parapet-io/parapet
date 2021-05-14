@@ -1,4 +1,8 @@
 language: scala
+scala:
+  - 2.13.4
+env:
+  - TRAVIS_SCALA_VERSION=2.13.4
 
 script:
   - sbt $TRAVIS_SCALA_VERSION testOnly -- -l org.scalatest.tags.Slow
