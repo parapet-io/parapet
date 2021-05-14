@@ -6,12 +6,11 @@ import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.tests.intg.EventDeliverySpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.FlatSpec
-import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
+import org.scalatest.flatspec.AnyFlatSpec
+import org.scalatest.matchers.should.Matchers._
 
-abstract class EventDeliverySpec[F[_]]
-  extends FlatSpec with IntegrationSpec[F] {
+abstract class EventDeliverySpec[F[_]] extends AnyFlatSpec with IntegrationSpec[F] {
 
   import dsl._
 

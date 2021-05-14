@@ -7,13 +7,13 @@ import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.{Event, Process}
 import io.parapet.tests.intg.SchedulerSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
-import org.scalatest.WordSpec
+import org.scalatest.wordspec.AnyWordSpec
+import org.scalatest.matchers.should.Matchers._
 
 import scala.concurrent.duration._
 
-abstract class SchedulerSpec[F[_]] extends WordSpec with IntegrationSpec[F] {
+abstract class SchedulerSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
   import dsl._
 

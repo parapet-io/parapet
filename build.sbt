@@ -17,7 +17,11 @@ resolvers in ThisBuild += "maven2" at "https://repo1.maven.org/maven2/"
 
 useGpg := false
 
-credentials += Credentials(Path.userHome / ".sbt" / "sonatype_credential")
+ThisBuild / credentials += Credentials(Path.userHome / ".sbt" / "sonatype_credential")
+ThisBuild / publishConfiguration := publishConfiguration.value.withOverwrite(true)
+ThisBuild / publishLocalConfiguration := publishLocalConfiguration.value.withOverwrite(true)
+
+val scalaTestVersion = "3.2.1"
 
 lazy val dependencies =
   new {
@@ -30,11 +34,13 @@ lazy val dependencies =
     val scalaLogging = "com.typesafe.scala-logging" %% "scala-logging" % "3.9.2"
     // test
     val logbackClassic = "ch.qos.logback" % "logback-classic" % "1.2.3" % Test
-    val scalaTest = "org.scalatest" %% "scalatest" % "3.0.8" % Test
+    val scalaTest = "org.scalatest" %% "scalatest" % scalaTestVersion % Test
     val pegdown = "org.pegdown" % "pegdown" % "1.6.0" % Test
     val logstashLogbackEncoder = "net.logstash.logback" % "logstash-logback-encoder" % "5.3" % Test
     val logbackContrib = "ch.qos.logback.contrib" % "logback-json-classic" % "0.1.5" % Test
     val logbackJackson = "ch.qos.logback.contrib" % "logback-jackson" % "0.1.5" % Test
+    val flexmark = "com.vladsch.flexmark" % "flexmark-all" % "0.36.8" % Test
+
     // utils
     val sourcecode = "com.lihaoyi" %% "sourcecode" % "0.2.1"
   }
@@ -56,11 +62,13 @@ lazy val global = project
   .in(file("."))
   .aggregate(
     core,
+    clusterApi,
+    cluster,
+    clusterNode,
     protobuf,
     interopCats,
     interopMonix,
     testUtils,
-    intgTests,
     benchmark)
 
 lazy val core = project
@@ -74,11 +82,47 @@ lazy val core = project
     libraryDependencies += "org.zeromq" % "jeromq" % "0.5.1"
   ).dependsOn(protobuf)
 
+lazy val cluster = project
+  .enablePlugins(JavaAppPackaging, UniversalDeployPlugin)
+  .settings(
+    name := "cluster",
+    libraryDependencies ++= Seq("com.github.scopt" %% "scopt" % "4.0.1",
+      "org.slf4j" % "slf4j-log4j12" % "1.7.25"),
+    maintainer in Universal := "parapet.io",
+    packageName in Universal := "parapet-cluster-" + version.value,
+    mappings in Universal += {
+      val src = (sourceDirectory in Compile).value
+      src / "resources" / "log4j.xml" -> "etc/log4j.xml"
+    },
+    mappings in Universal += {
+      val src = (sourceDirectory in Compile).value
+      src / "resources" / "etc" / "node.properties.template" -> "etc/node.properties.template"
+    },
+    bashScriptExtraDefines += """addJava "-Dlog4j.configuration=file:${app_home}/../etc/log4j.xml""""
+
+  ).dependsOn(core, interopCats, clusterApi)
+
+lazy val clusterNode = project
+  .in(file("cluster-node"))
+  .settings(
+    name := "cluster-node"
+  ).dependsOn(core, clusterApi)
+
+lazy val clusterApi = project
+  .in(file("cluster-api"))
+  .settings(
+    name := "cluster-api",
+    libraryDependencies += "org.scalatest" %% "scalatest" % scalaTestVersion % Test,
+    libraryDependencies += dependencies.flexmark
+  ).dependsOn(core)
+
+
 lazy val testUtils = project
   .in(file("test-utils"))
   .settings(
     name := "test-utils",
-    libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.8"
+    libraryDependencies += "org.scalatest" %% "scalatest" % scalaTestVersion,
+    libraryDependencies += dependencies.flexmark
   ).dependsOn(core, interopCats, interopMonix)
 
 lazy val interopCats = project
@@ -110,7 +154,8 @@ lazy val intgTests = project
     publishLocal := {},
     publish := {},
     libraryDependencies ++= Seq(
-      "org.scalatest" %% "scalatest" % "3.0.8",
+      "org.scalatest" %% "scalatest" % scalaTestVersion,
+      dependencies.flexmark,
       "org.pegdown" % "pegdown" % "1.6.0",
       "ch.qos.logback" % "logback-classic" % "1.2.3",
       "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
@@ -148,6 +193,7 @@ lazy val commonDependencies = Seq(
   dependencies.logbackContrib,
   dependencies.logbackJackson,
   dependencies.scalaTest,
+  dependencies.flexmark,
   dependencies.sourcecode
 )
 

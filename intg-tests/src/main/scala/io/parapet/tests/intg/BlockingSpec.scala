@@ -5,15 +5,15 @@ import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Scheduler.SchedulerConfig
 import io.parapet.core.{Event, Process, ProcessRef}
 import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.FunSuite
-import org.scalatest.Matchers._
 import org.scalatest.OptionValues._
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers._
 
 import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration._
 import scala.util.Random
 
-abstract class BlockingSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
+abstract class BlockingSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
 
   import BlockingSpec._
   import dsl._

@@ -10,8 +10,8 @@ import io.parapet.syntax.logger.MDCFields
 import io.parapet.tests.intg.SchedulerCorrectnessSpec.TaskProcessingTime._
 import io.parapet.tests.intg.SchedulerCorrectnessSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.FunSuite
-import org.scalatest.Matchers._
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers._
 
 import java.util.concurrent.TimeUnit
 import scala.annotation.tailrec
@@ -19,7 +19,7 @@ import scala.concurrent.duration.{FiniteDuration, _}
 import scala.util.Random
 
 
-abstract class SchedulerCorrectnessSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
+abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
 
   test("scheduler correctness under normal conditions") {
     val specs = Seq(

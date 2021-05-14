@@ -39,6 +39,8 @@ object Dsl {
 
   case class Blocking[F[_], C[_], A](body: () => Free[C, A]) extends FlowOp[F, Unit]
 
+  case class HandelError[F[_], C[_], A, AA >: A](body: () => Free[C, A], handle: Throwable => Free[C, AA]) extends FlowOp[F, AA]
+
   /** Smart constructors for FlowOp[F, _].
     *
     * @param I an injection from type constructor `F` into type constructor `C`
@@ -292,6 +294,19 @@ object Dsl {
       */
     def blocking[A](thunk: => Free[C, A]): Free[C, Unit] =
       Free.inject[FlowOp[F, *], C](Blocking(() => thunk))
+
+    /**
+      * Handle any error, potentially recovering from it, by mapping it to an Free[C, AA] value.
+      *
+      * @param thunk  a flow to execute
+      * @param handle error handler
+      * @tparam A  result
+      * @tparam AA contravariant to A
+      * @return result of thunk or handle in case of any error
+      */
+    def handleError[A, AA >: A](thunk: => Free[C, A], handle: Throwable => Free[C, AA]): Free[C, AA] = {
+      Free.inject[FlowOp[F, *], C](HandelError(() => thunk, handle))
+    }
   }
 
   object FlowOps {

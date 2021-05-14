@@ -4,10 +4,10 @@ import io.parapet.core.Dsl.DslF
 import io.parapet.core.{Channel, Event, Process, ProcessRef}
 import io.parapet.tests.intg.SwitchBehaviorSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.FunSuite
-import org.scalatest.Matchers._
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers._
 
-abstract class SwitchBehaviorSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
+abstract class SwitchBehaviorSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
   self =>
 
   import dsl._

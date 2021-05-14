@@ -1,0 +1,8 @@
+node.id=<unique_node_id>
+node.address=<node_address>
+node.peers=[<node_id:node_address>]
+node.election-delay=10
+node.heartbeat-delay=5
+node.monitor-delay=10
+node.peer-timeout=10
+node.leader-election-threshold=0.7

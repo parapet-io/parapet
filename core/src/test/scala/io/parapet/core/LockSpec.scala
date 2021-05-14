@@ -1,12 +1,12 @@
 package io.parapet.core
 
 import cats.effect.{ContextShift, IO, Timer}
-import org.scalatest.FlatSpec
-import org.scalatest.Matchers._
+import org.scalatest.flatspec.AnyFlatSpec
+import org.scalatest.matchers.should.Matchers._
 
 import scala.concurrent.ExecutionContext.Implicits.global
 
-class LockSpec extends FlatSpec {
+class LockSpec extends AnyFlatSpec {
 
 
   private implicit val ctx: ContextShift[IO] = IO.contextShift(global)

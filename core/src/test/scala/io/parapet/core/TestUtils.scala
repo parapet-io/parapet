@@ -24,20 +24,20 @@ object TestUtils {
     }
   }
 
-  class IdInterpreter(val execution: Execution) extends (FlowOp[Id, *] ~> Id) {
+  class IdInterpreter(val execution: Execution, mapper: Event => Event) extends (FlowOp[Id, *] ~> Id) {
 
     override def apply[A](fa: FlowOp[Id, A]): Id[A] = {
       fa match {
         case _: UnitFlow[Id]@unchecked => ()
-        case eval: Eval[Id, Dsl[Id, ?], A]@unchecked =>
+        case eval: Eval[Id, Dsl[Id, *], A]@unchecked =>
           implicitly[Monad[Id]].pure(eval.thunk())
         case send: Send[Id]@unchecked =>
-          val event = send.e()
+          val event = mapper(send.e())
           execution.trace.append(Message(event, send.receiver))
           send.receivers.foreach(p => {
             execution.trace.append(Message(event, p))
           })
-        case fork: Fork[Id, Dsl[Id, *]] => fork.flow.foldMap(new IdInterpreter(execution))
+        case fork: Fork[Id, Dsl[Id, *]] => fork.flow.foldMap(new IdInterpreter(execution, mapper))
         case _: Delay[Id] => ()
         case _: SuspendF[Id, Dsl[Id, *], A] => ().asInstanceOf[A] // s.thunk().foldMap(new IdInterpreter(execution))
       }
@@ -45,7 +45,8 @@ object TestUtils {
   }
 
   object IdInterpreter {
-    def apply(execution: Execution): IdInterpreter = new IdInterpreter(execution)
+    def apply(execution: Execution, mapper: Event => Event = e => e): IdInterpreter =
+      new IdInterpreter(execution, mapper)
   }
 
 }

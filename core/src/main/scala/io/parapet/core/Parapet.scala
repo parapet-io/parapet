@@ -9,6 +9,7 @@ import shapeless.{Lens, lens}
 object Parapet extends StrictLogging {
 
   val ParapetPrefix = "parapet"
+  val Version = "0.0.1-RC5"
 
   case class ParConfig(
                         processBufferSize: Int,

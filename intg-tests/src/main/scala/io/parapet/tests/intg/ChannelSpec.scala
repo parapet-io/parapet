@@ -7,12 +7,12 @@ import io.parapet.core.Scheduler.SchedulerConfig
 import io.parapet.core.{Channel, Event, Process, ProcessRef}
 import io.parapet.tests.intg.ChannelSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.FunSuite
-import org.scalatest.Matchers._
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers._
 
 import scala.util.{Success, Failure => SFailure}
 
-abstract class ChannelSpec[F[_]] extends FunSuite with IntegrationSpec[F] {
+abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
 
   import dsl._
 

@@ -5,29 +5,22 @@ import cats.effect.{Concurrent, Timer}
 import cats.implicits._
 import cats.~>
 import io.parapet.core.Context.ProcessState
-import io.parapet.core.Dsl.{
-  Blocking,
-  Delay,
-  Dsl,
-  Eval,
-  FlowOp,
-  Fork,
-  Forward,
-  Par,
-  Race,
-  Register,
-  Send,
-  Suspend,
-  SuspendF,
-  UnitFlow,
-  WithSender,
-}
+import io.parapet.core.Dsl.{Blocking, Delay, Dsl, Eval, FlowOp, Fork, Forward, HandelError, Par, Race, Register, Send, Suspend, SuspendF, UnitFlow, WithSender}
 import io.parapet.core.Event.Envelope
 import io.parapet.core.Scheduler.{Deliver, ProcessQueueIsFull}
 
 object DslInterpreter {
 
+  // ugly but necessary for Channel
+  private var _instance: Any = _
+  private[parapet] def instance[F[_]](i : Interpreter[F]):Unit = _instance = i
+  private[parapet] def instance[F[_]]: Interpreter[F] = {
+    _instance.asInstanceOf[Interpreter[F]]
+  }
+
   trait Interpreter[F[_]] {
+    def interpret(sender: ProcessRef, target: ProcessRef): FlowOp[F, *] ~> F
+    def interpret(sender: ProcessRef, target: ProcessRef, execTrace: ExecutionTrace): FlowOp[F, *] ~> F
     def interpret(sender: ProcessRef, ps: ProcessState[F], execTrace: ExecutionTrace): FlowOp[F, *] ~> F
   }
 
@@ -36,6 +29,14 @@ object DslInterpreter {
   class Impl[F[_]: Concurrent: Timer](context: Context[F]) extends Interpreter[F] {
     private val ct = implicitly[Concurrent[F]]
     private val timer = implicitly[Timer[F]]
+
+    def interpret(sender: ProcessRef, target: ProcessRef): FlowOp[F, *] ~> F = {
+      interpret(sender, target, context.createTrace)
+    }
+
+    def interpret(sender: ProcessRef, target: ProcessRef, execTrace: ExecutionTrace): FlowOp[F, *] ~> F = {
+      interpret(sender, context.getProcessState(target).get, execTrace)
+    }
 
     def interpret(sender: ProcessRef, ps: ProcessState[F], execTrace: ExecutionTrace): FlowOp[F, *] ~> F =
       new (FlowOp[F, *] ~> F) {
@@ -93,6 +94,10 @@ object DslInterpreter {
             case Register(parent, process: Process[F]) =>
               context.registerAndStart(parent, process).void
             //--------------------------------------------------------------
+            case he:HandelError[F, Dsl[F, *], A, A]=>
+              ct.handleErrorWith(he.body().foldMap[F](interpret(sender, ps, execTrace))){
+                err => he.handle(err).foldMap[F](interpret(sender, ps, execTrace))
+              }
           }
       }
 

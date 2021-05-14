@@ -49,33 +49,28 @@ object Scheduler {
     val default: SchedulerConfig = SchedulerConfig(numberOfWorkers = Runtime.getRuntime.availableProcessors())
   }
 
-  // todo temporary solution for debugging
-  case class LoggerWrapper[F[_]: Concurrent](logger: Logger, devMode: Boolean) {
+  case class LoggerWrapper[F[_] : Concurrent](logger: Logger, devMode: Boolean) {
     private val ct = Concurrent[F]
-    private val stdio = devMode
 
     def debug(msg: => String): F[Unit] =
-      if (stdio) ct.delay(println(msg))
-      else ct.delay(logger.debug(msg))
+      if (devMode) ct.delay(logger.debug(msg))
+      else ct.unit
 
     def error(msg: => String): F[Unit] =
-      if (stdio) ct.delay(println(msg))
-      else ct.delay(logger.error(msg))
+      if (devMode) ct.delay(logger.error(msg))
+      else ct.unit
 
     def error(msg: => String, cause: Throwable): F[Unit] =
-      if (stdio) ct.delay {
-        println(msg)
-        cause.printStackTrace()
-      }
-      else ct.delay(logger.error(msg, cause))
+      if (devMode) ct.delay(logger.error(msg, cause))
+      else ct.unit
 
     def info(msg: => String): F[Unit] =
-      if (stdio) ct.delay(println(msg))
-      else ct.delay(logger.info(msg))
+      if (devMode) ct.delay(logger.info(msg))
+      else ct.unit
 
     def warn(msg: => String): F[Unit] =
-      if (stdio) ct.delay(println(msg))
-      else ct.delay(logger.warn(msg))
+      if (devMode) ct.delay(logger.warn(msg))
+      else ct.unit
   }
 
   // internal events

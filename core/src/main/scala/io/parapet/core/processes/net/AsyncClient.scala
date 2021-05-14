@@ -1,27 +1,29 @@
 package io.parapet.core.processes.net
 
-import java.util.UUID
-
+import cats.implicits.toFunctorOps
 import io.parapet.core.Event.{Start, Stop}
-import io.parapet.core.{Encoder, ProcessRef}
+import io.parapet.core.processes.net.AsyncClient.Send
+import io.parapet.core.{Encoder, Event, ProcessRef}
+import org.slf4j.LoggerFactory
 import org.zeromq.{SocketType, ZContext, ZMQ}
 
-class AsyncClient[F[_]](override val ref: ProcessRef, address: String, encoder: Encoder)
+class AsyncClient[F[_]](override val ref: ProcessRef, clientId: String, address: String)
     extends io.parapet.core.Process[F] {
 
   import dsl._
 
-  private val clientId = UUID.randomUUID().toString
-
   private lazy val zmqContext = new ZContext(1)
   private lazy val client = zmqContext.createSocket(SocketType.DEALER)
+  private val logger = LoggerFactory.getLogger(ref.value)
+
+  private val info: String = s"client[ref=$ref, id=$clientId, address=$address]"
 
   override def handle: Receive = {
     case Start =>
       eval {
         client.setIdentity(clientId.getBytes(ZMQ.CHARSET))
         client.connect(address)
-        println(s"client[ref=$ref, id=$clientId] connected")
+        logger.debug(s"client[id=$clientId] connected to $address")
       }
 
     case Stop =>
@@ -30,15 +32,17 @@ class AsyncClient[F[_]](override val ref: ProcessRef, address: String, encoder: 
         zmqContext.close()
       }
 
-    case e =>
-      eval {
-        val data = encoder.write(e)
-        client.send(data, 0)
-      }
+    case Send(data) =>
+      eval(client.send(data, 0)).void
+        .handleError(err => eval(logger.error(s"$info failed to send message", err)))
   }
 }
 
 object AsyncClient {
-  def apply[F[_]](ref: ProcessRef, address: String, encoder: Encoder): AsyncClient[F] =
-    new AsyncClient(ref, address, encoder)
+
+  sealed trait API extends Event
+  case class Send(data: Array[Byte]) extends API
+
+  def apply[F[_]](ref: ProcessRef, clientId: String, address: String, encoder: Encoder): AsyncClient[F] =
+    new AsyncClient(ref, clientId, address)
 }

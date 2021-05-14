@@ -4,10 +4,10 @@ import io.parapet.core.Event.Start
 import io.parapet.core.{Event, Process}
 import io.parapet.tests.intg.SelfSendSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
-import org.scalatest.FlatSpec
-import org.scalatest.Matchers._
+import org.scalatest.flatspec.AnyFlatSpec
+import org.scalatest.matchers.should.Matchers._
 
-abstract class SelfSendSpec[F[_]] extends FlatSpec with IntegrationSpec[F] {
+abstract class SelfSendSpec[F[_]] extends AnyFlatSpec with IntegrationSpec[F] {
 
   import dsl._
 

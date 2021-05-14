@@ -9,7 +9,7 @@ import io.parapet.core.{Process, ProcessRef}
 import org.slf4j.LoggerFactory
 
 trait DeadLetterProcess[F[_]] extends Process[F] {
-  override val name: String = DeadLetterRef.ref
+  override val name: String = DeadLetterRef.value
   override final val ref: ProcessRef = DeadLetterRef
 }
 
@@ -18,7 +18,7 @@ object DeadLetterProcess {
   class DeadLetterLoggingProcess[F[_]] extends DeadLetterProcess[F] {
     import dsl._
     private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
-    override val name: String = DeadLetterRef.ref + "-logging"
+    override val name: String = DeadLetterRef.value + "-logging"
     override val handle: Receive = { case DeadLetter(Envelope(sender, event, receiver), error) =>
       val mdcFields: MDCFields = Map(
         "processRef" -> ref,
