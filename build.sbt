@@ -61,6 +61,7 @@ libraryDependencies in ThisBuild ++= (scalaBinaryVersion.value match {
 lazy val global = project
   .in(file("."))
   .aggregate(
+    msgApi,
     core,
     clusterApi,
     cluster,
@@ -116,6 +117,12 @@ lazy val clusterApi = project
     libraryDependencies += dependencies.flexmark
   ).dependsOn(core)
 
+lazy val msgApi = project
+  .in(file("msg-api"))
+  .settings(
+    name := "msg-api",
+    libraryDependencies += "com.sksamuel.avro4s" %% "avro4s-core" % "4.0.10"
+  )
 
 lazy val testUtils = project
   .in(file("test-utils"))

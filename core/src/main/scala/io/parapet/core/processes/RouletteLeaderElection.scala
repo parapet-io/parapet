@@ -106,7 +106,7 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
     // -----------------------ANNOUNCE---------------------------- //
     case Announce(sender) =>
       implicit val correlationId: CorrelationId = CorrelationId()
-      log(s"received Announce(addr=$sender)") ++
+      log(s"received Announce(sender=$sender)") ++
         eval {
           require(state.leader.isEmpty, "current leader should be discarded")
           state.leader = Option(state.addr)
