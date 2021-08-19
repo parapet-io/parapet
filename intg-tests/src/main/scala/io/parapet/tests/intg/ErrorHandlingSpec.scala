@@ -3,7 +3,8 @@ package io.parapet.tests.intg
 import io.parapet.core.Event._
 import io.parapet.core.exceptions.EventHandlingException
 import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.core.{Event, Process}
+import io.parapet.core.Process
+import io.parapet.core.api.Event
 import io.parapet.tests.intg.ErrorHandlingSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.OptionValues._

@@ -1,6 +1,6 @@
 package io.parapet.core.processes
 
-import io.parapet.core.Event.{DeadLetter, Failure}
+import io.parapet.core.Events.{DeadLetter, Failure}
 import io.parapet.core.ProcessRef.{DeadLetterRef, SystemRef}
 import io.parapet.core.{Process, ProcessRef}
 

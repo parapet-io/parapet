@@ -9,7 +9,8 @@ import io.parapet.core.EventLog._
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
-import io.parapet.core.Event.Envelope
+import io.parapet.core.Envelope
+import io.parapet.core.api.Event
 
 class EventLog {
 

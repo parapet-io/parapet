@@ -1,10 +1,9 @@
 package io.parapet.cluster.node
 import com.typesafe.scalalogging.Logger
-import io.parapet.cluster.api.ClusterApi._
-import io.parapet.core.processes.RouletteLeaderElection
-import io.parapet.core.processes.RouletteLeaderElection.{REQ_TAG, WHO_REP_TAG, WHO_TAG, WhoRep}
-import org.zeromq.ZMQ.Socket
-import org.zeromq.{SocketType, ZContext, ZFrame, ZMQ, ZMsg}
+import io.parapet.core.api.Cmd
+import io.parapet.core.api.Cmd.{cluster, leaderElection}
+import org.zeromq.ZMQ.{Poller, Socket}
+import org.zeromq.{SocketType, ZContext, ZMQ, ZMsg}
 import zmq.ZError
 
 import java.nio.ByteBuffer
@@ -13,8 +12,6 @@ import java.util.concurrent.{ConcurrentHashMap, Executors, TimeUnit}
 import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.util.Try
-import org.zeromq.ZMQ.Poller
-
 import scala.util.control.Breaks.{break, breakable}
 
 // TODO leader heartbeat
@@ -49,28 +46,27 @@ class Node(id: String, host: String, port: Int, servers: Array[String], msgHandl
     Try {
       _leader match {
         case Some(leaderAddress) =>
-          val join = Join(nodeId = id, address = addr, group = group)
-          val data = encoder.write(join)
-          val msg = ByteBuffer.allocate(4 + data.length)
-          msg.putInt(REQ_TAG)
-          msg.put(data)
-          msg.rewind()
-          _servers(leaderAddress).send(msg.array())
+          val join = leaderElection.Req(id, cluster.Join(nodeId = id, address = addr, group = group).toByteArray)
+          val data = join.toByteArray
+//          val msg = ByteBuffer.allocate(4 + data.length)
+//          msg.putInt(REQ_TAG)
+//          msg.put(data)
+//          msg.rewind()
+          _servers(leaderAddress).send(data)
 
           breakable {
             while (true) {
               // receive a response
               val responseMsg = ZMsg.recvMsg(_servers(leaderAddress))
               // responseMsg.popString() // identity
-              val buf = ByteBuffer.wrap(responseMsg.pop().getData)
-              val code = buf.getInt(0)
-              if (code == WHO_REP_TAG) {
-                logger.debug("ignore late WHO messages")
-              } else {
-                encoder.read(buf.array()) match {
-                  case res: Result => logger.debug(s"client received a response from leader: $res")
-                    break
-                }
+              val cmd = Cmd(responseMsg.pop().getData)
+              cmd match {
+                case api: leaderElection.Api => ()
+                case api: cluster.Api =>
+                  api match {
+                    case cluster.JoinResult(nodeId, code) =>
+                      logger.debug(s"join result code: $code")
+                  }
               }
             }
           }
@@ -82,38 +78,37 @@ class Node(id: String, host: String, port: Int, servers: Array[String], msgHandl
   override def leave(group: String): Try[Unit] =
     Try(throw new UnsupportedOperationException("leave is not supported yet"))
 
-
-  override def send(req: Req): Try[Unit] = {
+  override def send(req: Req): Try[Unit] =
     send(req, Option.empty)
-  }
 
-  override def send(req: Req, handler: Array[Byte] => Unit): Try[Unit] = {
+  override def send(req: Req, handler: Array[Byte] => Unit): Try[Unit] =
     send(req, Option(handler))
-  }
 
-  private def send(req: Req, handlerOpt: Option[Array[Byte] => Unit]): Try[Unit] = {
+  private def send(req: Req, handlerOpt: Option[Array[Byte] => Unit]): Try[Unit] =
     Try {
-      val socket = _nodes.computeIfAbsent(req.nodeId, _ => {
-        logger.debug(s"node[id=${req.nodeId}] is not registered. requesting node info")
-        val leader = _leader.getOrElse(throw new IllegalStateException("no leader"))
-        val getNodeInfo = GetNodeInfo(id, req.nodeId)
-        val data = encoder.write(getNodeInfo)
-        val buf = ByteBuffer.allocate(4 + data.length)
-        buf.putInt(REQ_TAG)
-        buf.put(data)
-        _servers(leader).send(buf.array())
-        val responseMsg = ZMsg.recvMsg(_servers(leader))
-        encoder.read(responseMsg.pop().getData) match {
-          case ni@NodeInfo(address, code) =>
-            logger.debug(s"received node info. node info=$ni")
-            // todo check code
-            val socket = zmqCtx.createSocket(SocketType.DEALER)
-            socket.setIdentity(id.getBytes())
-            socket.connect(s"tcp://$address")
-            logger.debug(s"connection with ${ni.address} has been established")
-            socket
-        }
-      })
+      val socket = _nodes.computeIfAbsent(
+        req.nodeId,
+        _ => {
+          logger.debug(s"node[id=${req.nodeId}] is not registered. requesting node info")
+          val leader = _leader.getOrElse(throw new IllegalStateException("no leader"))
+          val getNodeInfo = cluster.GetNodeInfo(id, req.nodeId).toByteArray
+
+          _servers(leader).send(getNodeInfo)
+          val responseMsg = ZMsg.recvMsg(_servers(leader))
+          Cmd(responseMsg.pop().getData) match {
+            // case api: leaderElection.Api =>
+            case cluster.NodeInfo(address, code) =>
+              logger.debug(s"received node info. node info=$address")
+              // todo check code
+              val socket = zmqCtx.createSocket(SocketType.DEALER)
+              socket.setIdentity(id.getBytes())
+              socket.connect(s"tcp://$address")
+              logger.debug(s"connection with $address has been established")
+              socket
+            // case _ => () // todo
+          }
+        },
+      )
       socket.send(req.data)
       logger.debug(s"req ${new String(req.data)} to ${req.nodeId} has been sent")
       handlerOpt match {
@@ -123,7 +118,6 @@ class Node(id: String, host: String, port: Int, servers: Array[String], msgHandl
         case _ => ()
       }
     }
-  }
 
   override def send(rep: Rep): Try[Unit] = server.send(rep).map(_ => ())
 
@@ -155,11 +149,7 @@ class Node(id: String, host: String, port: Int, servers: Array[String], msgHandl
 
     val pollItems = _servers.values.map(socket => new ZMQ.PollItem(socket, ZMQ.Poller.POLLIN)).toArray
 
-    val msg = new Array[Byte](4)
-    val buf = ByteBuffer.allocate(msg.length)
-    buf.putInt(WHO_TAG)
-    buf.rewind()
-    buf.get(msg)
+    val msg = leaderElection.Who(id).toByteArray
 
     @tailrec
     def step(attempts: Int): String = {
@@ -169,15 +159,15 @@ class Node(id: String, host: String, port: Int, servers: Array[String], msgHandl
       selector.close()
       val events = pollItems.filter(_.isReadable())
       if (events.length > 0) {
-        events.map(item => {
-          val data = item.getSocket.recv()
-          val buf = ByteBuffer.allocate(4 + data.length)
-          buf.putInt(0)
-          buf.put(data)
-          val rep = RouletteLeaderElection.encoder.read(buf.array()).asInstanceOf[WhoRep]
-          logger.debug(s"node ${rep.address} is leader: ${rep.leader}")
-          rep
-        }).find(_.leader) match {
+        events
+          .map { item =>
+            val data = item.getSocket.recv()
+            Cmd(data) match {
+              case rep: leaderElection.WhoRep => rep
+              case _ => leaderElection.WhoRep("", false)
+            }
+          }
+          .find(_.leader) match {
           case Some(leader) => leader.address
           case None =>
             println(s"no leader available. attempts made: $attempts")
@@ -217,9 +207,8 @@ class Node(id: String, host: String, port: Int, servers: Array[String], msgHandl
     private val CONTROL_TERM = 1
     private val CONTROL_TERM_BYTES = Array(0x0.toByte, 0x0.toByte, 0x0.toByte, 0x1.toByte)
 
-    def start(): Unit = {
+    def start(): Unit =
       threadPool.submit(new Loop())
-    }
 
     def send(rep: Rep): Try[Boolean] =
       Try {
@@ -285,7 +274,6 @@ class Node(id: String, host: String, port: Int, servers: Array[String], msgHandl
             }
         }
       }
-
 
     }
 

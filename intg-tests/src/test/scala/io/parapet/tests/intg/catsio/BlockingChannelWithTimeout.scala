@@ -2,7 +2,8 @@ package io.parapet.tests.intg.catsio
 
 import cats.effect.IO
 import io.parapet.core.Event.{ByteEvent, Start, StringEvent}
-import io.parapet.core.{Channel, Event, Process, ProcessRef}
+import io.parapet.core.api.Event
+import io.parapet.core.{Channel, Process, ProcessRef}
 import io.parapet.testutils.{BasicCatsIOSpec, EventStore}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers._

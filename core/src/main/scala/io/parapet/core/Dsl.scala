@@ -2,6 +2,7 @@ package io.parapet.core
 
 import cats.InjectK
 import cats.free.Free
+import io.parapet.core.api.Event
 
 import scala.concurrent.duration.FiniteDuration
 

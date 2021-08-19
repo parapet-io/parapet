@@ -5,7 +5,7 @@ import cats.effect.concurrent.Deferred
 import cats.effect.{Concurrent, ContextShift, Fiber}
 import cats.implicits._
 import io.parapet.core.Context._
-import io.parapet.core.Event.{Envelope, Start}
+import io.parapet.core.Events.Start
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException

@@ -2,8 +2,9 @@ package io.parapet.benchmark
 
 import cats.effect.IO
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Event._
-import io.parapet.core.{Event, Process, ProcessRef}
+import io.parapet.core.Events._
+import io.parapet.core.api.Event
+import io.parapet.core.{Process, ProcessRef}
 import io.parapet.{CatsApp, core}
 
 import java.util.concurrent.TimeUnit

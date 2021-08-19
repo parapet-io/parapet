@@ -9,10 +9,11 @@ import com.typesafe.scalalogging.Logger
 import io.parapet.core.Context.ProcessState
 import io.parapet.core.Dsl.{Dsl, FlowOps}
 import io.parapet.core.DslInterpreter.Interpreter
-import io.parapet.core.Event._
+import io.parapet.core.Events._
 import io.parapet.core.ProcessRef._
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler._
+import io.parapet.core.api.Event
 import io.parapet.core.exceptions._
 import org.slf4j.LoggerFactory
 

@@ -1,12 +1,12 @@
 package io.parapet.tests.intg
 
 import java.util.concurrent.atomic.AtomicBoolean
-
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import io.parapet.core.Event._
 import io.parapet.core.Parapet.ParConfig
-import io.parapet.core.{Event, Process, ProcessRef}
+import io.parapet.core.api.Event
+import io.parapet.core.{Process, ProcessRef}
 import io.parapet.tests.intg.ProcessLifecycleSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.flatspec.AnyFlatSpec

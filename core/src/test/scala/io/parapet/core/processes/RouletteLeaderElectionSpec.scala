@@ -2,10 +2,10 @@ package io.parapet.core.processes
 
 import cats.Id
 import io.parapet.core
-import io.parapet.core.{Clock, Event, ProcessRef}
+import io.parapet.core.{Clock, ProcessRef}
 import io.parapet.core.TestUtils._
-import io.parapet.core.processes.RouletteLeaderElection.ResponseCodes.AckCode
-import io.parapet.core.processes.RouletteLeaderElection.ResponseCodes.AckCode.ELECTED
+import io.parapet.core.api.{Cmd, Event}
+import io.parapet.core.api.Cmd.leaderElection._
 import io.parapet.core.processes.RouletteLeaderElection._
 import io.parapet.core.processes.RouletteLeaderElectionSpec._
 import io.parapet.core.processes.net.AsyncClient
@@ -27,7 +27,8 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val p2 = ProcessRef("p2")
     val server = ProcessRef("server")
 
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2)), _ => VoteNum(0.86, 0.86), threshold = 0.85)
+    val state = new State(p1, "p1",
+      p1Addr, server, createPeers(Map(p2Addr -> p2)), _ => VoteNum(0.86, 0.86), threshold = 0.85)
     val execution = new Execution()
     val le = new RouletteLeaderElection[Id](state)
     updatePeers(state)
@@ -52,7 +53,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val p2 = ProcessRef("p2")
     val server = ProcessRef("server")
 
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2)))
+    val state = new State(p1, "p1", p1Addr, server, createPeers(Map(p2Addr -> p2)))
     state.num = 0.6
     updatePeers(state)
     val execution = new Execution()
@@ -65,7 +66,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     execution.print()
 
     execution.trace.exists {
-      case Message(Ack(p1Addr, 0.6, AckCode.OK), ProcessRef("p2")) => true
+      case Message(Ack(p1Addr, 0.6, AckCode.Ok), ProcessRef("p2")) => true
       case _ => false
     } shouldBe true
     state.roundNum shouldBe 0.86
@@ -82,7 +83,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val p2 = ProcessRef("p2")
     val server = ProcessRef("server")
 
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2)))
+    val state = new State(p1, "p1", p1Addr, server, createPeers(Map(p2Addr -> p2)))
     state.num = 0.86
     state.roundNum = 0.86
     updatePeers(state)
@@ -96,7 +97,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     execution.print()
 
     execution.trace.exists {
-      case Message(Ack(p1Addr, 0.86, AckCode.HIGH), ProcessRef("p2")) => true
+      case Message(Ack(p1Addr, 0.86, AckCode.High), ProcessRef("p2")) => true
       case _ => false
     } shouldBe true
   }
@@ -112,15 +113,15 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val server = ProcessRef("server")
 
     val execution = new Execution()
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2, p3Addr -> p3)),
+    val state = new State(p1, "p1", p1Addr, server, createPeers(Map(p2Addr -> p2, p3Addr -> p3)),
       _ => VoteNum(0.86, 0.86), threshold = 0.85, roulette = _ => p3Addr)
     updatePeers(state)
     val le = new RouletteLeaderElection[Id](state)
 
     // when
     le(Begin).foldMap(IdInterpreter(execution, eventMapper))
-    le(Ack(p2Addr, 0.5, AckCode.OK)).foldMap(IdInterpreter(execution, eventMapper))
-    le(Ack(p3Addr, 0.3, AckCode.OK)).foldMap(IdInterpreter(execution, eventMapper))
+    le(Ack(p2Addr, 0.5, AckCode.Ok)).foldMap(IdInterpreter(execution, eventMapper))
+    le(Ack(p3Addr, 0.3, AckCode.Ok)).foldMap(IdInterpreter(execution, eventMapper))
 
     // then
     execution.print()
@@ -145,7 +146,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
     val server = ProcessRef("server")
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2)))
+    val state = new State(p1, "p1", p1Addr, server, createPeers(Map(p2Addr -> p2)))
     state.num = 0.86
     state.roundNum = 0.86
     state.coordinator = true
@@ -160,7 +161,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     execution.print()
 
     execution.trace shouldBe Seq(
-      Message(Ack(p1Addr, 0.86, AckCode.COORDINATOR), p2)
+      Message(Ack(p1Addr, 0.86, AckCode.Coordinator), p2)
     )
   }
 
@@ -174,7 +175,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val p3 = ProcessRef("p3")
     val server = ProcessRef("server")
 
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2, p3Addr -> p3)))
+    val state = new State(p1, "p1", p1Addr, server, createPeers(Map(p2Addr -> p2, p3Addr -> p3)))
     state.num = 0.1
 
     val le = new RouletteLeaderElection[Id](state)
@@ -191,9 +192,9 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     state.voted shouldBe true
 
     execution.trace shouldBe Seq(
-      Message(Ack(p1Addr, 0.1, AckCode.OK), p2),
+      Message(Ack(p1Addr, 0.1, AckCode.Ok), p2),
       Message(Timeout(Leader), p1),
-      Message(Ack(p1Addr, 0.1, AckCode.VOTED), p3),
+      Message(Ack(p1Addr, 0.1, AckCode.Voted), p3),
     )
   }
 
@@ -205,7 +206,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val p2 = ProcessRef("p2")
     val server = ProcessRef("server")
 
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2)))
+    val state = new State(p1, "p1", p1Addr, server, createPeers(Map(p2Addr -> p2)))
     state.num = 0.6
 
     val le = new RouletteLeaderElection[Id](state)
@@ -219,7 +220,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     execution.print()
 
     execution.trace shouldBe Seq(
-      Message(Ack(p1Addr, 0.6, AckCode.OK), p2),
+      Message(Ack(p1Addr, 0.6, AckCode.Ok), p2),
       Message(Timeout(io.parapet.core.processes.RouletteLeaderElection.Leader), p1)
     )
 
@@ -236,7 +237,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val p2 = ProcessRef("p2")
     val server = ProcessRef("server")
 
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2)),
+    val state = new State(p1, "p1", p1Addr, server, createPeers(Map(p2Addr -> p2)),
       random = _ => VoteNum(0.86, 0.86), threshold = 0.85)
     updatePeers(state)
 
@@ -269,7 +270,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val p2 = ProcessRef("p2")
     val server = ProcessRef("server")
 
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2)))
+    val state = new State(p1, "p1", p1Addr, server, createPeers(Map(p2Addr -> p2)))
     updatePeers(state)
 
     val le = new RouletteLeaderElection[Id](state)
@@ -298,7 +299,8 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
 
     val peerHeartbeatTimeout = 1.second
     val clock = new core.Clock.Mock(1.second)
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
+    val state = new State(p1, "p1", p1Addr, server,
+      createPeers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
 
     // todo separate test case
     state.peers.alive.map(p => p.address -> p.netClient).toMap shouldBe Map(p2Addr -> p2, p3Addr -> p3)
@@ -337,7 +339,8 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
 
     val peerHeartbeatTimeout = 1.second
     val clock = new core.Clock.Mock(1.second)
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
+    val state = new State(p1, "p1", p1Addr, server,
+      createPeers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
 
     // todo separate test case
     state.peers.alive.map(p => p.address -> p.netClient).toMap shouldBe Map(p2Addr -> p2, p3Addr -> p3)
@@ -372,7 +375,8 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val server = ProcessRef("server")
     val peerHeartbeatTimeout = 1.second
     val clock = new core.Clock.Mock(1.second)
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
+    val state = new State(p1, "p1", p1Addr, server,
+      createPeers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
 
     state.leader = Option(p2Addr)
     val le = new RouletteLeaderElection[Id](state)
@@ -383,7 +387,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     // then
     execution.print()
     execution.trace shouldBe Seq(
-      Message(Ack(p1Addr, 0.0, ELECTED), p3)
+      Message(Ack(p1Addr, 0.0, AckCode.Elected), p3)
     )
   }
 
@@ -399,7 +403,8 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
 
     val peerHeartbeatTimeout = 1.second
     val clock = new core.Clock.Mock(1.second)
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
+    val state = new State(p1, "p1", p1Addr, server,
+      createPeers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
 
     val le = new RouletteLeaderElection[Id](state)
     val execution = new Execution()
@@ -427,7 +432,8 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val server = ProcessRef("server")
     val peerHeartbeatTimeout = 1.second
     val clock = new core.Clock.Mock(1.second)
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2, p3Addr -> p3, p4Addr -> p4), peerHeartbeatTimeout, clock))
+    val state = new State(p1, "p1", p1Addr, server,
+      createPeers(Map(p2Addr -> p2, p3Addr -> p3, p4Addr -> p4), peerHeartbeatTimeout, clock))
 
     val le = new RouletteLeaderElection[Id](state)
     val execution = new Execution()
@@ -456,7 +462,8 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val server = ProcessRef("server")
     val peerHeartbeatTimeout = 1.second
     val clock = new core.Clock.Mock(1.second)
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2, p3Addr -> p3, p4Addr -> p4), peerHeartbeatTimeout, clock))
+    val state = new State(p1, "p1", p1Addr, server,
+      createPeers(Map(p2Addr -> p2, p3Addr -> p3, p4Addr -> p4), peerHeartbeatTimeout, clock))
 
     val le = new RouletteLeaderElection[Id](state)
     val execution = new Execution()
@@ -482,7 +489,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val p2 = ProcessRef("p2")
     val p3 = ProcessRef("p3")
     val server = ProcessRef("server")
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2, p3Addr -> p3)))
+    val state = new State(p1, "p1", p1Addr, server, createPeers(Map(p2Addr -> p2, p3Addr -> p3)))
     state.leader = Some(p2Addr)
     val le = new RouletteLeaderElection[Id](state)
     val execution = new Execution()
@@ -501,7 +508,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
     val server = ProcessRef("server")
-    val state = new State(p1, p1Addr, server, createPeers(Map(p2Addr -> p2)))
+    val state = new State(p1, "p1", p1Addr, server, createPeers(Map(p2Addr -> p2)))
     state.voted = true
     state.leader = Some(p2Addr)
 
@@ -538,18 +545,18 @@ object RouletteLeaderElectionSpec {
   // @formatter:on
 
   val eventMapper: Event => Event = e => e match {
-    case AsyncClient.Send(bytes) =>
-      // in order to decode the message we need to prepend client id
-      val dummyId = "1".getBytes()
-      val size = 4 + dummyId.length + bytes.length
-      val buf = ByteBuffer.allocate(size)
-        .putInt(dummyId.length)
-        .put(dummyId)
-        .put(bytes)
-      buf.rewind()
-      val data = new Array[Byte](size)
-      buf.get(data)
-      RouletteLeaderElection.encoder.read(data)
+    case AsyncClient.Send(bytes) => Cmd(bytes)
+//      // in order to decode the message we need to prepend client id
+//      val dummyId = "1".getBytes()
+//      val size = 4 + dummyId.length + bytes.length
+//      val buf = ByteBuffer.allocate(size)
+//        .putInt(dummyId.length)
+//        .put(dummyId)
+//        .put(bytes)
+//      buf.rewind()
+//      val data = new Array[Byte](size)
+//      buf.get(data)
+//      RouletteLeaderElection.encoder.read(data)
     case e => e
   }
 

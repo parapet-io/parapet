@@ -3,6 +3,7 @@ package io.parapet.core
 import org.json4s.native.{JsonMethods, Serialization}
 import org.json4s.{Formats, FullTypeHints, StringInput}
 import io.parapet.core.Encoder._
+import io.parapet.core.api.Event
 
 // todo move to a separate module
 trait Encoder {

@@ -4,7 +4,8 @@ import io.parapet.core.Event.{DeadLetter, Envelope, Start}
 import io.parapet.core.Parapet._
 import io.parapet.core.exceptions.{EventDeliveryException, UnknownProcessException}
 import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.core.{Event, Process}
+import io.parapet.core.Process
+import io.parapet.core.api.Event
 import io.parapet.tests.intg.SchedulerSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.OptionValues._

@@ -2,7 +2,8 @@ package io.parapet.tests.intg
 
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Event.Start
-import io.parapet.core.{Event, Process, ProcessRef}
+import io.parapet.core.api.Event
+import io.parapet.core.{Process, ProcessRef}
 import io.parapet.tests.intg.DslSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.OptionValues._

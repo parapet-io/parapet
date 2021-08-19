@@ -61,7 +61,7 @@ libraryDependencies in ThisBuild ++= (scalaBinaryVersion.value match {
 lazy val global = project
   .in(file("."))
   .aggregate(
-    msgApi,
+    coreApi,
     core,
     clusterApi,
     cluster,
@@ -81,7 +81,7 @@ lazy val core = project
     libraryDependencies += "io.monix" %% "monix-eval" % "3.3.0",
     libraryDependencies += "com.typesafe.play" %% "play-json" % "2.9.1",
     libraryDependencies += "org.zeromq" % "jeromq" % "0.5.1"
-  ).dependsOn(protobuf)
+  ).dependsOn(protobuf, coreApi)
 
 lazy val cluster = project
   .enablePlugins(JavaAppPackaging, UniversalDeployPlugin)
@@ -117,10 +117,10 @@ lazy val clusterApi = project
     libraryDependencies += dependencies.flexmark
   ).dependsOn(core)
 
-lazy val msgApi = project
-  .in(file("msg-api"))
+lazy val coreApi = project
+  .in(file("core-api"))
   .settings(
-    name := "msg-api",
+    name := "core-api",
     libraryDependencies += "com.sksamuel.avro4s" %% "avro4s-core" % "4.0.10"
   )
 

@@ -4,7 +4,9 @@ import cats.effect.Concurrent
 import cats.effect.ExitCase
 import cats.effect.concurrent.Deferred
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Event.{Failure, Stop}
+import io.parapet.core.Events.{Failure, Stop}
+import io.parapet.core.api.Event
+
 import scala.util.Try
 
 /** Channel is a process that implements strictly synchronous request-reply dialog.

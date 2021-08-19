@@ -3,7 +3,8 @@ package io.parapet.syntax
 import cats.free.Free
 import cats.syntax.flatMap._
 import io.parapet.core.Dsl.{Dsl, DslF, FlowOps}
-import io.parapet.core.{Event, Process, ProcessRef}
+import io.parapet.core.api.Event
+import io.parapet.core.{Process, ProcessRef}
 import io.parapet.syntax.EventSyntax._
 
 trait EventSyntax[F[_]] {

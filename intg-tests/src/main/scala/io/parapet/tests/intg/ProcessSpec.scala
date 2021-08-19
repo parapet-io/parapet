@@ -1,9 +1,10 @@
 package io.parapet.tests.intg
 
 import io.parapet.core.Event.{DeadLetter, Envelope, Failure, Start}
+import io.parapet.core.api.Event
 import io.parapet.core.exceptions.EventMatchException
 import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.core.{Event, Process, ProcessRef}
+import io.parapet.core.{Process, ProcessRef}
 import io.parapet.tests.intg.ProcessSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.OptionValues._

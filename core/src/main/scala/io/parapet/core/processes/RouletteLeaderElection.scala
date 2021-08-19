@@ -1,15 +1,16 @@
 package io.parapet.core.processes
 
-import java.nio.ByteBuffer
+
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Event.Start
-import io.parapet.core.processes.RouletteLeaderElection.ResponseCodes.AckCode
+import io.parapet.core.Events.Start
+import io.parapet.core.api.{Cmd, Event}
+import io.parapet.core.api.Cmd.leaderElection._
 import io.parapet.core.processes.RouletteLeaderElection._
-import io.parapet.core.processes.net.AsyncServer.{Send => ServerSend}
-import io.parapet.core.processes.net.AsyncClient.{Send => ClientSend}
+import io.parapet.core.processes.net.AsyncClient.{Send => CliSend}
+import io.parapet.core.processes.net.AsyncServer.{Message => SrvMessage, Send => SrvSend}
 import io.parapet.core.utils.CorrelationId
-import io.parapet.core.{Clock, Encoder, Event, ProcessRef}
+import io.parapet.core.{Clock, ProcessRef}
 import org.slf4j.MDC
 import org.slf4j.event.Level
 
@@ -57,18 +58,18 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
       val peer = state.peers.get(sender)
       val action =
         if (state.coordinator) {
-          Ack(state.addr, state.num, AckCode.COORDINATOR).toClient ~> peer.netClient
+          Ack(state.addr, state.num, AckCode.Coordinator).toClient ~> peer.netClient
         } else if (state.voted) {
-          Ack(state.addr, state.num, AckCode.VOTED).toClient  ~> peer.netClient
+          Ack(state.addr, state.num, AckCode.Voted).toClient ~> peer.netClient
         } else if (state.hasLeader) {
-          Ack(state.addr, state.num, AckCode.ELECTED).toClient  ~> peer.netClient
+          Ack(state.addr, state.num, AckCode.Elected).toClient ~> peer.netClient
         } else if (num > state.roundNum) {
           eval {
             state.voted = true
             state.roundNum = num
-          } ++ Ack(state.addr, state.num, AckCode.OK).toClient  ~> peer.netClient ++ waitForHeartbeat
+          } ++ Ack(state.addr, state.num, AckCode.Ok).toClient  ~> peer.netClient ++ waitForHeartbeat
         } else {
-          Ack(state.addr, state.num, AckCode.HIGH).toClient  ~> peer.netClient
+          Ack(state.addr, state.num, AckCode.High).toClient  ~> peer.netClient
         }
 
       log(s"received Propose($sender, $num)") ++ action
@@ -78,7 +79,7 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
       implicit val correlationId: CorrelationId = CorrelationId()
       val action =
         code match {
-          case AckCode.OK =>
+          case AckCode.Ok =>
             eval {
               state.votes = state.votes + 1
               state.peerNum += (sender -> num)
@@ -95,10 +96,10 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
                } else {
                  unit
                })
-          case AckCode.COORDINATOR => log(s"process '$sender' is already coordinator")
-          case AckCode.VOTED => log(s"process '$sender' has already voted")
-          case AckCode.HIGH => log(s"process '$sender' has the highest number")
-          case AckCode.ELECTED => log("leader already elected")
+          case AckCode.Coordinator => log(s"process '$sender' is already coordinator")
+          case AckCode.Voted => log(s"process '$sender' has already voted")
+          case AckCode.High => log(s"process '$sender' has the highest number")
+          case AckCode.Elected => log("leader already elected")
         }
 
       log(s"received Ack(addr=$sender), num=$num, code=$code") ++ action
@@ -171,7 +172,8 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
 
     // -----------------------WHO------------------------------- //
     case Who(clientId) =>
-      withSender(sender => ServerSend(clientId, encoder.write(WhoRep(state.addr, state.leader.contains(state.addr)))) ~> sender)
+      withSender(server => SrvSend(clientId,
+        WhoRep(state.addr, state.leader.contains(state.addr)).toByteArray) ~> server)
 
     case IsLeader =>
       withSender(sender => IsLeaderRep(state.leader.contains(state.addr)) ~> sender)
@@ -179,7 +181,7 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
     // -------------------- BROADCAST ----------------------------//
     case Broadcast(data) =>
       implicit val correlationId: CorrelationId = CorrelationId()
-      val msg = ClientSend(prependTag(REQ_TAG, data))
+      val msg = CliSend(Req(state.id, data).toByteArray)
       log("received broadcast") ++
         state.peers.netClients.foldLeft(unit)((acc, client) => acc ++ msg ~> client) ++
         withSender(sender => BroadcastResult(state.peers.size / 2) ~> sender)
@@ -195,11 +197,20 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
     // Rep is sent by sink process in event of Req
     case Rep(clientId, data) =>
       implicit val correlationId: CorrelationId = CorrelationId()
-      log(s"received Rep from clientId: $clientId") ++
-        ClientSend(prependTag(REQ_TAG, data)) ~> state.peers.getById(clientId).netClient
+      if (state.peers.idExists(clientId)) {
+        log(s"received Rep from clientId: $clientId, send reply to peer") ++
+          CliSend(data) ~> state.peers.getById(clientId).netClient
+      } else {
+
+        log(s"received Rep from clientId: $clientId, send reply to client") ++
+          SrvSend(clientId, data) ~> state.netServer
+      }
 
     // -------------------- SERVER SEND -------------------------//
-    case send: ServerSend => send ~> state.netServer
+   // case send: ServerSend => send ~> state.netServer
+
+    case SrvMessage(_, data) => Cmd(data) ~> ref
+
   }
 
   // -----------------------HELPERS------------------------------- //
@@ -355,6 +366,7 @@ object RouletteLeaderElection {
 
   class State(
                val ref: ProcessRef,
+               val id: String,
                val addr: Addr,
                val netServer: ProcessRef,
                val peers: Peers,
@@ -446,188 +458,22 @@ object RouletteLeaderElection {
     processes(r.nextInt(processes.size))
   }
 
-  // @formatter:off
   sealed trait Phase
   case object Coordinator extends Phase
   case object Leader extends Phase
 
-  sealed trait API extends Event
-  case object Begin extends API
-  case class Propose(addr: Addr, num: Double) extends API
-  case class Ack(addr: Addr, num: Double, code: AckCode) extends API
-  case class Announce(addr: Addr) extends API
-  case class Heartbeat(addr: Addr, leader: Option[Addr]) extends API
-  case class Timeout(phase: Phase) extends API
-  case class Who(clientId: String) extends API
-  case class WhoRep(address: String, leader: Boolean) extends API
-  // REQ payload format
-  // 4 bytes = client_id length
-  // client_id bytes
-  // 4 bytes - command
-  // remaining bytes - body
-  case class Req(clientId: String, data: Array[Byte]) extends API
-  case class Rep(clientId: String, data: Array[Byte]) extends API
-  // sends data to all service in the cluster
-  case class Broadcast(data: Array[Byte]) extends API
-  case class BroadcastResult(majorityCount: Int) extends API
+  sealed trait InternalApi extends Event
+  case object Begin extends InternalApi
+  case class Timeout(phase: Phase) extends InternalApi
 
   // internal API
-  case object IsLeader extends API
-  case class IsLeaderRep(leader: Boolean) extends API
+  case class Broadcast(data: Array[Byte]) extends InternalApi
+  case class BroadcastResult(majorityCount: Int) extends InternalApi
+  case object IsLeader extends InternalApi
+  case class IsLeaderRep(leader: Boolean) extends InternalApi
 
-  implicit class ApiOps(e:API) {
-    def toClient: Event = ClientSend(encoder.write(e))
-  }
-
-  object ResponseCodes {
-
-    sealed class AckCode(val value: Int)
-
-    object AckCode {
-      case object OK          extends AckCode(0)  // success
-      case object COORDINATOR extends AckCode(1)  // error: the current process is coordinator
-      case object VOTED       extends AckCode(2)  // error: the current process has already voted
-      case object ELECTED     extends AckCode(3)  // error: leader already elected
-      case object HIGH        extends AckCode(4)  // error: the current process has a higher number than sender
-
-      def apply(value: Int): AckCode = value match {
-        case 0 => OK
-        case 1 => COORDINATOR
-        case 2 => VOTED
-        case 3 => ELECTED
-        case 4 => HIGH
-        case _ => throw new IllegalArgumentException(s"unsupported ack code $value")
-      }
-    }
-  }
-
-
-  // Protocol format [tag: int32, body: byte[]]
-  // Tags
-  val PROPOSE_TAG                = 11
-  val ACK_TAG                    = 12
-  val ANNOUNCE_TAG               = 13
-  val HEARTBEAT_TAG              = 14
-  val WHO_TAG                    = 15
-  val REQ_TAG                    = 16
-  val BROADCAST_RESULT_TAG       = 17
-  val WHO_REP_TAG                = 18
-
-  // @formatter:on
-
-  val encoder: Encoder = new Encoder {
-    override def write(e: Event): Array[Byte] =
-      e match {
-        case Propose(addr, num) =>
-          val addrBytes = addr.getBytes()
-          ByteBuffer
-            .allocate(4 + 4 + addrBytes.length + 8)
-            .putInt(PROPOSE_TAG)
-            .putInt(addrBytes.length)
-            .put(addrBytes)
-            .putDouble(num)
-            .array()
-        case Ack(addr, num, code) =>
-          val addrBytes = addr.getBytes()
-          ByteBuffer
-            .allocate(4 + 4 + addrBytes.length + 8 + 4)
-            .putInt(ACK_TAG)
-            .putInt(addrBytes.length)
-            .put(addrBytes)
-            .putDouble(num)
-            .putInt(code.value)
-            .array()
-        case Announce(addr) =>
-          val addrBytes = addr.getBytes()
-          ByteBuffer
-            .allocate(4 + 4 + addrBytes.length)
-            .putInt(ANNOUNCE_TAG)
-            .putInt(addrBytes.length)
-            .put(addrBytes)
-            .array()
-        case Heartbeat(addr, leader) =>
-          val addrBytes = addr.getBytes()
-          val leaderAddrBytes = leader.getOrElse("").getBytes()
-          ByteBuffer
-            .allocate(4 + (4 + addrBytes.length) + (4 + leaderAddrBytes.length))
-            .putInt(HEARTBEAT_TAG)
-            .putInt(addrBytes.length)
-            .put(addrBytes)
-            .putInt(leaderAddrBytes.length)
-            .put(leaderAddrBytes)
-            .array()
-        case BroadcastResult(resCode) =>
-          ByteBuffer
-            .allocate(8)
-            .putInt(BROADCAST_RESULT_TAG)
-            .putInt(resCode)
-            .array()
-        case WhoRep(address, leader) =>
-          val addressBytes = address.getBytes()
-          val buf = ByteBuffer.allocate(4 + 4 + addressBytes.length + 2)
-          buf.putInt(WHO_REP_TAG)
-          buf.putInt(addressBytes.length)
-          buf.put(addressBytes)
-          buf.putShort(if (leader) 1 else 0)
-          buf.array()
-      }
-
-    override def read(data: Array[Byte]): Event = {
-      val buf = ByteBuffer.wrap(data)
-      val clientId = getString(buf)
-      val tag = buf.getInt()
-      tag match {
-        case PROPOSE_TAG =>
-          val addrBytes = new Array[Byte](buf.getInt())
-          buf.get(addrBytes)
-          val num = buf.getDouble
-          Propose(new String(addrBytes), num)
-        case ACK_TAG =>
-          val addrBytes = new Array[Byte](buf.getInt())
-          buf.get(addrBytes)
-          val num = buf.getDouble
-          val code = buf.getInt
-          Ack(new String(addrBytes), num, AckCode(code))
-        case ANNOUNCE_TAG =>
-          val addrBytes = new Array[Byte](buf.getInt())
-          buf.get(addrBytes)
-          Announce(new String(addrBytes))
-        case HEARTBEAT_TAG =>
-          val addrBytes = new Array[Byte](buf.getInt())
-          buf.get(addrBytes)
-          val leaderAddrBytes = new Array[Byte](buf.getInt())
-          buf.get(leaderAddrBytes)
-          Heartbeat(new String(addrBytes), Option(new String(leaderAddrBytes)).filter(_.nonEmpty))
-        case WHO_TAG => Who(clientId)
-        case WHO_REP_TAG => WhoRep(getString(buf), shortToBool(buf.getShort()))
-        case REQ_TAG =>
-          val data = new Array[Byte](buf.remaining())
-          buf.get(data)
-          Req(clientId, data)
-        case BROADCAST_RESULT_TAG =>
-          BroadcastResult(buf.getInt())
-      }
-    }
-
-    private def getString(buf: ByteBuffer): String = {
-      val len = buf.getInt()
-      val data = new Array[Byte](len)
-      buf.get(data)
-      new String(data)
-    }
-  }
-
-  def boolToShort(b: Boolean): Short =
-    if (b) 1
-    else 0
-
-  def shortToBool(s: Short): Boolean = s == 1
-
-  private def prependTag(tag: Int, data: Array[Byte]): Array[Byte] = {
-    ByteBuffer.allocate(4 + data.length)
-      .putInt(tag)
-      .put(data)
-      .array()
+  implicit class CmdOps(e: Api) {
+    def toClient: Event = CliSend(e.toByteArray)
   }
 
   class Peer(
@@ -672,6 +518,8 @@ object RouletteLeaderElection {
       case Some(value) => value
       case None => throw new IllegalStateException(s"peer with addr=$addr doesn't exist")
     }
+
+    def idExists(id: String): Boolean = idMap.contains(id)
 
     def getNetClient(addr: Addr): NetClient = get(addr).netClient
 

@@ -2,7 +2,7 @@ package io.parapet.testutils
 
 import io.parapet.ParApp
 import io.parapet.core.Dsl.{DslF, WithDsl}
-import io.parapet.core.Event.Start
+import io.parapet.core.Events.Start
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.{Parapet, Process, ProcessRef}

@@ -1,9 +1,10 @@
 package io.parapet.core.processes.net
 
 import cats.implicits.toFunctorOps
-import io.parapet.core.Event.{Start, Stop}
+import io.parapet.core.Events.{Start, Stop}
+import io.parapet.core.api.Event
 import io.parapet.core.processes.net.AsyncClient.Send
-import io.parapet.core.{Encoder, Event, ProcessRef}
+import io.parapet.core.{Encoder, ProcessRef}
 import org.slf4j.LoggerFactory
 import org.zeromq.{SocketType, ZContext, ZMQ}
 
@@ -43,6 +44,6 @@ object AsyncClient {
   sealed trait API extends Event
   case class Send(data: Array[Byte]) extends API
 
-  def apply[F[_]](ref: ProcessRef, clientId: String, address: String, encoder: Encoder): AsyncClient[F] =
+  def apply[F[_]](ref: ProcessRef, clientId: String, address: String): AsyncClient[F] =
     new AsyncClient(ref, clientId, address)
 }

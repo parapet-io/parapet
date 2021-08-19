@@ -1,12 +1,12 @@
 package io.parapet.testutils
 
 import java.util.concurrent.atomic.AtomicInteger
-
 import cats.effect.{Concurrent, Fiber, Timer}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import com.typesafe.scalalogging.StrictLogging
-import io.parapet.core.{Event, ProcessRef}
+import io.parapet.core.ProcessRef
+import io.parapet.core.api.Event
 
 import scala.jdk.CollectionConverters._
 import scala.collection.mutable.ListBuffer

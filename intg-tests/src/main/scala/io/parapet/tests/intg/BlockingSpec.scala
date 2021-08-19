@@ -3,7 +3,8 @@ package io.parapet.tests.intg
 import io.parapet.core.Event.{Kill, Start, Stop}
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Scheduler.SchedulerConfig
-import io.parapet.core.{Event, Process, ProcessRef}
+import io.parapet.core.api.Event
+import io.parapet.core.{Process, ProcessRef}
 import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.OptionValues._
 import org.scalatest.funsuite.AnyFunSuite
