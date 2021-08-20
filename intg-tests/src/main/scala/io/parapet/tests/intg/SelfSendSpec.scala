@@ -1,6 +1,6 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Event.Start
+import io.parapet.core.Events.Start
 import io.parapet.core.Process
 import io.parapet.core.api.Event
 import io.parapet.tests.intg.SelfSendSpec._

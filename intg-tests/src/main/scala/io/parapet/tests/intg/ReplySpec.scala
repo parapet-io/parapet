@@ -1,6 +1,6 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Event._
+import io.parapet.core.Events._
 import io.parapet.core.Process
 import io.parapet.core.api.Event
 import io.parapet.tests.intg.ReplySpec._

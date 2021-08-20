@@ -3,7 +3,7 @@ package io.parapet.tests.intg
 import java.util.concurrent.atomic.AtomicBoolean
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import io.parapet.core.Event._
+import io.parapet.core.Events._
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.api.Event
 import io.parapet.core.{Process, ProcessRef}

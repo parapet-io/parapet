@@ -1,7 +1,8 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Event.{DeadLetter, Envelope, Failure, Start}
+import io.parapet.core.Events.{DeadLetter, Failure, Start}
 import io.parapet.core.api.Event
+import io.parapet.core.Envelope
 import io.parapet.core.exceptions.EventMatchException
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.{Process, ProcessRef}

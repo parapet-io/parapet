@@ -1,6 +1,7 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Event.{DeadLetter, Envelope, Start}
+import io.parapet.core.Events.{DeadLetter, Start}
+import io.parapet.core.Envelope
 import io.parapet.core.Parapet._
 import io.parapet.core.exceptions.{EventDeliveryException, UnknownProcessException}
 import io.parapet.core.processes.DeadLetterProcess

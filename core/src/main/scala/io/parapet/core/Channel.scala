@@ -64,22 +64,13 @@ class Channel[F[_]: Concurrent](clientRef:ProcessRef = null) extends Process[F] 
     * @param cb       a callback function that gets executed once a response received
     * @return Unit
     */
-  def send(event: Event, receiver: ProcessRef, cb: Try[Event] => DslF[F, Unit]): DslF[F, Unit] =
+  def send[A](event: Event, receiver: ProcessRef, cb: Try[Event] => DslF[F, A]): DslF[F, A] =
     for {
       d <- suspend(Deferred[F, Try[Event]])
       _ <- Request(event, d, receiver) ~> ref
-      res <-
-        suspend(
-          ct.guaranteeCase(d.get){
-          case ExitCase.Canceled =>
-            (resetAndWaitForRequest ++ cb(scala.util.Failure(ChannelInterruptedException)))
-              .foldMap[F](DslInterpreter.instance.interpret(clientRef, clientRef))
-          case ExitCase.Error(err) =>
-            (resetAndWaitForRequest ++ cb(scala.util.Failure(new ChannelException(err))))
-              .foldMap[F](DslInterpreter.instance.interpret(clientRef, clientRef))
-          case ExitCase.Completed => ct.delay(println("completed"))})
-      _ <- cb(res)
-    } yield ()
+      res <- suspend(d.get)
+      a <- cb(res)
+    } yield a
 
 }
 

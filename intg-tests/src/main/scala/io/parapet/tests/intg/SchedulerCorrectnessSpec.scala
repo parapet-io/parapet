@@ -2,10 +2,10 @@ package io.parapet.tests.intg
 
 import cats.effect.Concurrent
 import cats.implicits._
-import io.parapet.core.Event._
+import io.parapet.core.Events._
 import io.parapet.core.Scheduler._
 import io.parapet.core.api.Event
-import io.parapet.core.{Context, ExecutionTrace, Parapet, Process, ProcessRef, Scheduler}
+import io.parapet.core.{Context, Envelope, ExecutionTrace, Parapet, Process, ProcessRef, Scheduler}
 import io.parapet.implicits._
 import io.parapet.syntax.logger.MDCFields
 import io.parapet.tests.intg.SchedulerCorrectnessSpec.TaskProcessingTime._

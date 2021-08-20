@@ -1,7 +1,7 @@
 package io.parapet.tests.intg
 
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Event.{Start, Stop}
+import io.parapet.core.Events.{Start, Stop}
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Scheduler.SchedulerConfig
 import io.parapet.core.api.Event
