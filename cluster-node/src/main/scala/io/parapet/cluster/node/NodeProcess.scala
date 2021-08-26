@@ -76,10 +76,10 @@ class NodeProcess[F[_]: Concurrent](config: Config, client: ProcessRef, server: 
     case Req(id, data) => sendToPeer(id, data)
     case LeRep(id, data) => Rep(id, data) ~> client
     case CliRep(data) => Cmd(data) match {
-      case WhoRep(addr, leader) => if(leader) {
-        eval{_leader = _servers(addr)}
+      case WhoRep(address, leader) => if(leader) {
+        eval{_leader = _servers(address)}
       }else {
-        eval(logger.debug(s"server[$addr] is not a leader"))
+        eval(logger.debug(s"server[$address] is not a leader"))
       }
       case _ => unit
     }
