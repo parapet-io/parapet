@@ -545,7 +545,7 @@ object RouletteLeaderElectionSpec {
   // @formatter:on
 
   val eventMapper: Event => Event = e => e match {
-    case AsyncClient.Send(bytes) => Cmd(bytes)
+    case AsyncClient.Send(bytes, None) => Cmd(bytes)
 //      // in order to decode the message we need to prepend client id
 //      val dummyId = "1".getBytes()
 //      val size = 4 + dummyId.length + bytes.length

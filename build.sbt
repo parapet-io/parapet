@@ -106,8 +106,10 @@ lazy val cluster = project
 lazy val clusterNode = project
   .in(file("cluster-node"))
   .settings(
-    name := "cluster-node"
-  ).dependsOn(core, clusterApi)
+    name := "cluster-node",
+    libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3",
+    libraryDependencies += "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
+  ).dependsOn(core, clusterApi, interopCats)
 
 lazy val clusterApi = project
   .in(file("cluster-api"))
@@ -121,6 +123,7 @@ lazy val coreApi = project
   .in(file("core-api"))
   .settings(
     name := "core-api",
+    libraryDependencies += "org.xerial.snappy" % "snappy-java" % "1.1.8.4",
     libraryDependencies += "com.sksamuel.avro4s" %% "avro4s-core" % "4.0.10"
   )
 

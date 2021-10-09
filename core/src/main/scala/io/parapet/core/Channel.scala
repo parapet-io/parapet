@@ -1,10 +1,9 @@
 package io.parapet.core
 
 import cats.effect.Concurrent
-import cats.effect.ExitCase
 import cats.effect.concurrent.Deferred
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Events.{Failure, Stop}
+import io.parapet.core.Events.{Failure, Start, Stop}
 import io.parapet.core.api.Event
 
 import scala.util.Try
@@ -18,9 +17,8 @@ import scala.util.Try
   */
 class Channel[F[_]: Concurrent](clientRef:ProcessRef = null) extends Process[F] {
 
-  import io.parapet.core.Channel._
-
   import dsl._
+  import io.parapet.core.Channel._
 
   private val ct: Concurrent[F] = implicitly[Concurrent[F]]
 
@@ -29,24 +27,33 @@ class Channel[F[_]: Concurrent](clientRef:ProcessRef = null) extends Process[F] 
   private def waitForRequest: Receive = { case req: Request[F] =>
     eval {
       callback = req.cb
+      println("chan set callback")
     } ++ req.e ~> req.receiver ++ switch(waitForResponse)
   }
 
   private def waitForResponse: Receive = {
+    case Start => unit
     case Stop =>
-      flow {
-        if (callback != null) {
-          suspend(callback.complete(scala.util.Failure(new InterruptedException("channel has been closed"))))
-        } else {
-          unit
-        }
-      }
+     withSender(sender =>
+       eval(println(s"chan stop $sender")) ++
+       flow {
+         if (callback != null) {
+           suspend(callback.complete(scala.util.Failure(new InterruptedException("channel has been closed"))))
+         } else {
+           unit
+         }
+       })
     case req: Request[F] =>
       suspend(req.cb.complete(scala.util.Failure(new IllegalStateException("the current request is not completed yet"))))
     case Failure(_, err) =>
       suspend(callback.complete(scala.util.Failure(err))) ++ resetAndWaitForRequest
     case e =>
-      suspend(callback.complete(scala.util.Success(e))) ++ resetAndWaitForRequest
+      eval(println(s"chan complete: $e")) ++
+      suspend(callback.complete(scala.util.Success(e)))++ switch(waitForNothing)
+  }
+
+  private def waitForNothing: Receive = {
+    case e => eval(println(s"chan received: $e"))
   }
 
   private def resetAndWaitForRequest: DslF[F, Unit] = {
@@ -71,6 +78,23 @@ class Channel[F[_]: Concurrent](clientRef:ProcessRef = null) extends Process[F] 
       res <- suspend(d.get)
       a <- cb(res)
     } yield a
+
+  def sendSync(event: Event, receiver: ProcessRef): DslF[F, Unit] = {
+    for {
+      d <- suspend(Deferred[F, Try[Event]])
+      _ <- sendReq(Request(event, d, receiver))
+       _ <- eval(println("chan request has been sent"))
+    } yield unit
+  }
+
+  private def sendReq(req: Channel.Request[F]):DslF[F, Unit] = {
+    eval {
+      callback = req.cb
+      println(s"chan set callback: ${req.e}")
+    } ++ req.e ~> req.receiver ++ switch(waitForResponse)
+  }
+
+  def get: DslF[F, Try[Event]] =eval(println(callback)) ++ suspend(callback.get)
 
 }
 

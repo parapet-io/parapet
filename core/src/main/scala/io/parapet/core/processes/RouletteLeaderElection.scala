@@ -191,7 +191,10 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
       log(s"received broadcast result: $res")
 
     // -----------------------REQ------------------------------- //
-    case req: Req => req ~> sink
+    case req: Req =>
+      implicit val correlationId: CorrelationId = CorrelationId()
+      log(s"forward req to sink") ++
+      req ~> sink
 
     // ----------------------- REP -------------------------------//
     // Rep is sent by sink process in event of Req
@@ -207,10 +210,12 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
       }
 
     // -------------------- SERVER SEND -------------------------//
-   // case send: ServerSend => send ~> state.netServer
+    case send: SrvSend => send ~> state.netServer
 
-    case SrvMessage(_, data) => Cmd(data) ~> ref
-
+    case SrvMessage(id, data) =>
+      val cmd = Cmd(data)
+      implicit val correlationId: CorrelationId = CorrelationId()
+      log(s"$ref received $cmd from $id") ++ cmd ~> ref
   }
 
   // -----------------------HELPERS------------------------------- //
