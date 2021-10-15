@@ -116,7 +116,7 @@ class NodeProcess[F[_]: Concurrent](config: Config,
         } // todo retry
         case Right(Some(NodeInfo(address, _))) => eval {
           val socket = zmqContext.createSocket(SocketType.DEALER)
-          socket.setIdentity(id.getBytes())
+          socket.setIdentity(config.id.getBytes())
           socket.connect(s"tcp://$address")
           val node = new Node(id, address, socket)
           println(s"node $node has been created")
@@ -182,9 +182,13 @@ class NodeProcess[F[_]: Concurrent](config: Config,
     case Init => initServers ++ getLeader
     case NodeProcess.Join(group) => join(group)
     case NodeProcess.Req(id, data) => getOrCreateNode(id).flatMap{
-      case Some(node) => eval(node.send(data))
+      case Some(node) => eval(println(s"node[id=$id] has found"))++
+        eval(node.send(data)) ++ eval(println(s"data has been sent to $id"))
+      //eval(node.send(data))
       case None => eval(println(s"node[id=$id] not found"))
     }
+    case Message(id, data) =>
+      NodeProcess.Req(id, data) ~> client
     case Stop => eval(println("DONE"))
     // case Req(id, data) => sendToPeer(id, data)
     //   case LeRep(id, data) => Rep(id, data) ~> client

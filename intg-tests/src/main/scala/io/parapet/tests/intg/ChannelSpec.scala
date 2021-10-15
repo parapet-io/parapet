@@ -8,11 +8,13 @@ import io.parapet.core.api.Event
 import io.parapet.core.{Channel, Process, ProcessRef}
 import io.parapet.tests.intg.ChannelSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
+import org.scalatest.Ignore
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers._
 
 import scala.util.{Success, Failure => SFailure}
 
+@Ignore
 abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
 
   import dsl._

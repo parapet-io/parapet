@@ -51,6 +51,7 @@ object Cmd {
     // client facing api
     case class Who(clientId: String) extends Api
     case class WhoRep(address: String, leader: Boolean) extends Api
+    case class LeaderUpdate(address: String) extends Api
     case class Req(clientId: String, data: Array[Byte]) extends Api
     case class Rep(clientId: String, data: Array[Byte]) extends Api
   }
@@ -69,6 +70,7 @@ object Cmd {
     case class JoinResult(nodeId: String, code: Code) extends Api
     case class GetNodeInfo(senderId: String, id: String) extends Api
     case class NodeInfo(address: String, code: Code) extends Api
+    case class NodeUpdate(id:String, address: String) extends Api
     case class Ack(msg: String, code: Code) extends Api
   }
 

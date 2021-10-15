@@ -213,9 +213,12 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
     case send: SrvSend => send ~> state.netServer
 
     case SrvMessage(id, data) =>
-      val cmd = Cmd(data)
       implicit val correlationId: CorrelationId = CorrelationId()
-      log(s"$ref received $cmd from $id") ++ cmd ~> ref
+      for {
+        cmd <- eval(Cmd(data))
+        _ <- log(s"$ref received $cmd from $id") ++ cmd ~> ref
+      } yield ()
+
   }
 
   // -----------------------HELPERS------------------------------- //
