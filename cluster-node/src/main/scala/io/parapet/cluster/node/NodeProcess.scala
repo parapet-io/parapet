@@ -1,5 +1,6 @@
 package io.parapet.cluster.node
 import cats.effect.Concurrent
+import com.typesafe.scalalogging.Logger
 import io.parapet.cluster.node.NodeProcess._
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events._
@@ -20,18 +21,15 @@ class NodeProcess[F[_]: Concurrent](config: Config,
                                     client: ProcessRef,
                                     server: ProcessRef,
                                     override val ref: ProcessRef) extends Process[F] {
-
-  //private val logger = Logger[NodeProcess[F]]
-  private val peers = mutable.Map[String, Node]()
   import dsl._
 
-  //private val srvChan = new Channel[F](ref)
-
+  private val logger = Logger[NodeProcess[F]]
+  private val peers = mutable.Map[String, Node]()
   private var _leader: ProcessRef = _
-
   private var _servers: Map[String, ProcessRef] = Map.empty
 
   private lazy val zmqContext = new ZContext(1)
+
   private def initServers: DslF[F, Unit] =
     flow {
       val clients = config.servers.map(address => AsyncClient[F](ProcessRef(address), config.id, "tcp://" + address))
@@ -47,7 +45,7 @@ class NodeProcess[F[_]: Concurrent](config: Config,
     }
 
     def step(attempts: Int): DslF[F, Unit] = {
-      eval(println(s"getLeader. attempts made: $attempts")) ++
+      eval(logger.debug(s"get leader. attempts made: $attempts")) ++
         sendSync(Who(config.id), _servers.values.toSeq, isLeader, 10.seconds).flatMap {
           case Some(WhoRep(address, _)) => eval {
             println(s"$address is leader")
@@ -95,13 +93,12 @@ class NodeProcess[F[_]: Concurrent](config: Config,
 
     register(ref, ch) ++ register(ref, cond) ++
       ClientSend(data, Option(cond.ref)) ~> _leader ++
-    ch.sendSync(Cond.Start, cond.ref) ++ ch.get.flatMap {
+    ch.send(Cond.Start, cond.ref).flatMap {
       case scala.util.Success(Cond.Result(Some(CliRep(data)))) =>
         Cmd(data) match {
-          case n@NodeInfo(_, cluster.Code.Ok) => eval(Right(Option(n)).withLeft[Throwable])
-          case NodeInfo(_, cluster.Code.NotFound) => eval(Right(Option.empty[NodeInfo]).withLeft[Throwable])
+          case n@NodeInfo(_,_, cluster.Code.Ok) => eval(Right(Option(n)).withLeft[Throwable])
+          case NodeInfo(_,_, cluster.Code.NotFound) => eval(Right(Option.empty[NodeInfo]).withLeft[Throwable])
         }
-     // case scala.util.Success(Cond.Result(None)) => eval(Left(new RuntimeException("request execution timeout")).withRight[Option[NodeInfo]])
       case scala.util.Failure(err) => eval(Left(err).withRight[Option[NodeInfo]])
     }.finalize(release)
   }
@@ -114,7 +111,7 @@ class NodeProcess[F[_]: Concurrent](config: Config,
           println(err)
           Option.empty
         } // todo retry
-        case Right(Some(NodeInfo(address, _))) => eval {
+        case Right(Some(NodeInfo(_, address, _))) => eval {
           val socket = zmqContext.createSocket(SocketType.DEALER)
           socket.setIdentity(config.id.getBytes())
           socket.connect(s"tcp://$address")
@@ -142,71 +139,43 @@ class NodeProcess[F[_]: Concurrent](config: Config,
 
     register(ref, ch) ++ register(ref, cond) ++
       par(servers.map(srv => ClientSend(data, Option(cond.ref)) ~> srv): _*) ++
-      ch.sendSync(Cond.Start, cond.ref) ++ ch.get.flatMap {
+      ch.send(Cond.Start, cond.ref).flatMap {
       case scala.util.Success(Cond.Result(Some(CliRep(data)))) => release ++ eval(Option(Cmd.apply(data)))
       case scala.util.Success(Cond.Result(None)) => release ++ eval(Option.empty)
       case scala.util.Failure(err) => release ++ eval(throw err)
     }
   }
 
-  /*
-  def sendToPeer(id: String, data: Array[Byte]): DslF[F, Unit] =
-    if (peers.contains(id)) {
-      ClientSend(data) ~> peers(id)
-    } else {
-      blocking {
-        srvChan.send(
-          ServerSend(config.id, LeReq(config.id, GetNodeInfo(config.id, id).toByteArray).toByteArray),
-          server,
-          {
-            case scala.util.Success(Message(_, data)) =>
-              Cmd(data) match {
-                case NodeInfo(peerAddress, Cmd.cluster.Code.Ok) =>
-                  val peerClient = AsyncClient[F](ProcessRef(id), config.id, peerAddress)
-                  register(ref, peerClient) ++ eval {
-                    peers += id -> peerClient.ref
-                  } ++ ClientSend(data) ~> peerClient
-                case NodeInfo(_, Cmd.cluster.Code.NotFound) => eval(println(s"peer with id=$id not found"))
-                case NodeInfo(_, Cmd.cluster.Code.Error) => eval(println(s"failed to get info for peer id = $id"))
-                case event => eval(println(s"unexpected event = $event"))
-              }
-            case scala.util.Failure(err) => eval(println(err.toString))
-          },
-        )
-      }
-
-    }
-   */
-
   override def handle: Receive = {
     case Init => initServers ++ getLeader
     case NodeProcess.Join(group) => join(group)
     case NodeProcess.Req(id, data) => getOrCreateNode(id).flatMap{
       case Some(node) => eval(println(s"node[id=$id] has found"))++
-        eval(node.send(data)) ++ eval(println(s"data has been sent to $id"))
-      //eval(node.send(data))
+        eval(println(s"node: ${node.address}")) ++
+        eval(node.send(Cmd.clusterNode.Req(config.id, data).toByteArray)) ++ eval(println(s"data has been sent to $id"))
       case None => eval(println(s"node[id=$id] not found"))
     }
-    case Message(id, data) =>
-      NodeProcess.Req(id, data) ~> client
+
+    case Message(id, data) => Cmd(data) match {
+      case Cmd.clusterNode.Req(id, data) =>
+        eval(println(s"received req from $id")) ++
+          NodeProcess.Req(id, data) ~> client
+      case Cmd.leaderElection.LeaderUpdate(leaderAddr) =>
+        eval(println(s"leader has been changed. leader addr: $leaderAddr")) ++
+          getLeader
+      case Cmd.cluster.NodeInfo(id, addr, code) if code == Cmd.cluster.Code.Joined =>
+        eval {
+          peers.get(id) match {
+            case Some(node) =>
+              if (node.address != addr) {
+                logger.debug(s"$node address changed. new=$addr")
+                node.reconnect(addr)
+              }
+            case None => ()
+          }
+        }
+    }
     case Stop => eval(println("DONE"))
-    // case Req(id, data) => sendToPeer(id, data)
-    //   case LeRep(id, data) => Rep(id, data) ~> client
-//    case CliRep(data) => Cmd(data) match {
-//      case WhoRep(address, leader) => if(leader) {
-//        eval{
-//          println(s"leader = ${address}")
-//          _leader = _servers(address)
-//        } ++ ClientSend(LeReq(config.id,
-//          Join(config.id, s"${config.host}:${config.port}", "").toByteArray).toByteArray) ~> _leader
-//        // todo wait for JoinResult
-//      }else {
-//        eval(println(s"server[$address] is not a leader"))
-//      }
-//      case Ack(msg, code)  => eval(println(s"join result $msg $code"))
-//      case JoinResult(_, code) => eval(println(s"join result = $code"))
-//      case _ => unit
-//    }
   }
 
 }

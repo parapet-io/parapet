@@ -7,16 +7,14 @@ import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.Start
 import io.parapet.core.api.Cmd
 import io.parapet.core.api.Cmd.cluster._
-import io.parapet.core.api.Cmd.leaderElection.{Rep, Req}
-import io.parapet.core.processes.RouletteLeaderElection._
+import io.parapet.core.api.Cmd.leaderElection.{LeaderUpdate, Req}
 import io.parapet.core.processes.net.AsyncServer.{Send => ServerSend}
 import io.parapet.core.{Channel, Process, ProcessRef}
+import io.parapet.core.processes.net.Node
 import org.zeromq.ZMQ.Socket
 import org.zeromq.{SocketType, ZContext}
 
-import java.util
 import scala.collection.mutable
-import scala.collection.mutable.ListBuffer
 
 class ClusterProcess(leaderElection: ProcessRef)(implicit ctxShit: Concurrent[IO]) extends Process[IO] {
 
@@ -33,6 +31,10 @@ class ClusterProcess(leaderElection: ProcessRef)(implicit ctxShit: Concurrent[IO
       node <- eval(cluster.getOrCreate(join.nodeId, join.address))
       _ <- eval(cluster.join(join.group, node))
       _ <- ServerSend(clientId, Cmd.cluster.JoinResult(join.nodeId, Code.Ok).toByteArray) ~> leaderElection
+      _ <- eval {
+        val msg = Cmd.cluster.NodeInfo(node.id, node.address, Cmd.cluster.Code.Joined)
+        cluster.shout(msg.toByteArray, cluster.groups(node.id))
+      }
     } yield ()
   }
 
@@ -42,37 +44,15 @@ class ClusterProcess(leaderElection: ProcessRef)(implicit ctxShit: Concurrent[IO
       Cmd(data) match {
         case join: Join =>
           eval(logger.debug(s"received $join")) ++ processJoin(clientId, join)
-        case GetNodeInfo(_, id:String) => cluster.getNode(id) match {
-          case Some(node) => ServerSend(clientId, Cmd.cluster.NodeInfo(node.address, Code.Ok).toByteArray) ~> leaderElection
-          case None => ServerSend(clientId, Cmd.cluster.NodeInfo("", Code.NotFound).toByteArray) ~> leaderElection
+        case GetNodeInfo(_, id: String) => cluster.getNode(id) match {
+          case Some(node) => ServerSend(clientId, Cmd.cluster.NodeInfo(id, node.address, Code.Ok).toByteArray) ~> leaderElection
+          case None => ServerSend(clientId, Cmd.cluster.NodeInfo(id, "", Code.NotFound).toByteArray) ~> leaderElection
         }
-//        case getNodeInfo: GetNodeInfo =>
-//          eval(logger.debug(s"received $getNodeInfo")) ++
-//            (cluster.getNode(getNodeInfo.senderId) match {
-//              case Some(senderNode) =>
-//                if (senderNode.clientId != clientId) {
-//                  eval {
-//                    logger.error(s"expected node clientId=${senderNode.clientId} but received $clientId")
-//                    // todo send a response
-//                  }
-//                } else {
-//                  cluster.getNode(getNodeInfo.id) match {
-//                    case Some(node) =>
-//                      ServerSend(clientId, NodeInfo(node.address, Code.Ok).toByteArray) ~> leaderElection
-//                    case None =>
-//                      ServerSend(clientId, NodeInfo("", Code.NotFound).toByteArray) ~> leaderElection
-//                  }
-//                }
-//              case None =>
-//                eval {
-//                  logger.error(s"node id=${getNodeInfo.senderId} doesn't exist")
-//                  // todo send a response
-//                }
-//            })
-
       }
+    case LeaderUpdate(leaderAddress) =>
+      eval(logger.debug(s"leader has been changed. leader addr: $leaderAddress")) ++
+      eval(cluster.shout(Cmd.leaderElection.LeaderUpdate(leaderAddress).toByteArray))
   }
-
 
 }
 
@@ -80,14 +60,15 @@ object ClusterProcess {
 
   class Cluster(zmqCtx: ZContext) {
     private val logger = Logger[Cluster]
-    private val nodes = mutable.Map.empty[String, Node]
-    private val groups = mutable.Map.empty[String, mutable.Set[String]]
+    private val _nodes = mutable.Map.empty[String, Node]
+    private val _groupToNodes = mutable.Map.empty[String, mutable.Set[String]]
+    private val _nodeToGroups = mutable.Map.empty[String, mutable.Set[String]]
 
     def getOrCreate(id: String, address: String): Node = {
-      nodes.get(id) match {
+      _nodes.get(id) match {
         case Some(node) =>
           val currAddress = node.address
-          if (node.reconnect(address)) {
+          if (node.reconnect(address).get) {
             logger.debug(s"node[$id] address has been updated. old=$currAddress, new=$address")
           }
           node
@@ -96,73 +77,49 @@ object ClusterProcess {
           val socket = zmqCtx.createSocket(SocketType.DEALER)
           socket.connect("tcp://" + address)
           val node = new Node(id, address, socket)
-          nodes += id -> node
+          _nodes += id -> node
           node
       }
     }
 
     def join(group: String, node: Node): Unit = {
-      if (!groups.contains(group)) {
-        groups += group -> mutable.Set.empty
+      if (!_groupToNodes.contains(group)) {
+        _groupToNodes += group -> mutable.Set.empty
         logger.debug(s"new group '$group' has been created")
       }
-      if (groups(group).add(node.id)) {
+      if (_groupToNodes(group).add(node.id)) {
         logger.debug(s"$node has joined group=$group")
       }
+      _nodeToGroups.getOrElseUpdate(node.id, mutable.Set.empty) += group
+      logger.debug(s"groups: ${_nodeToGroups}")
     }
 
-    def node(id: String): Node = nodes(id)
+    def node(id: String): Node = _nodes(id)
 
-    def getNode(id: String): Option[Node] = nodes.get(id)
+    def groups(nodeId: String): Set[String] = _nodeToGroups.getOrElse(nodeId, Set.empty).toSet
+
+    def getNode(id: String): Option[Node] = _nodes.get(id)
 
     def remove(id: String): Unit = {
-      nodes.remove(id) match {
+      _nodes.remove(id) match {
         case Some(node) => node.close()
         case None => ()
       }
     }
 
-  }
-
-  class Node(
-      val id: String,
-      private var _address: String,
-      val socket: Socket
-  ) {
-
-    def address:String = _address
-
-//    def state(state: NodeState): Unit = _state = state
-//
-//    def state: NodeState = _state
-
-    def send(data: Array[Byte]): Unit =
-      socket.send(data)
-
-    def reconnect(newAddress: String): Boolean = {
-      if (_address != newAddress) {
-        socket.disconnect(_address)
-        socket.connect(newAddress)
-        _address = newAddress
-        true
+    def shout(data: Array[Byte], groups: Set[String] = Set.empty): Unit = {
+      logger.debug(s"send data to groups: $groups")
+      if (groups.isEmpty) {
+        _nodes.values.foreach(node => node.send(data))
       } else {
-        false
+        groups.flatMap(group => _groupToNodes.getOrElse(group, Set.empty)).foreach(id => {
+          val n = node(id)
+          logger.debug(s"send data to $n")
+          n.send(data)
+        })
       }
     }
 
-    def close(): Unit = {
-      try {
-        socket.close()
-      } catch {
-        case e: Exception => ()
-      }
-    }
-
-    override def toString: String = s"id=$id, address=$address"
   }
-
-//  sealed trait NodeState
-//  case object Joined extends NodeState
-//  case object Failed extends NodeState
 
 }

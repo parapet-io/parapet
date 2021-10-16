@@ -111,7 +111,7 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
         eval {
           require(state.leader.isEmpty, "current leader should be discarded")
           state.leader = Option(state.addr)
-        }
+        } ++ LeaderUpdate(state.addr) ~> sink
 
     // -----------------------TIMEOUT(COORDINATOR)----------------------- //
     case Timeout(Coordinator) =>

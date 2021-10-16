@@ -13,7 +13,8 @@ import scala.util.Try
   */
 class Node(val id: String,
            private var _address: String,
-           private val socket: Socket) {
+           private val socket: Socket,
+           protocol: String = "tcp") {
 
   def address: String = _address
 
@@ -22,8 +23,8 @@ class Node(val id: String,
   def reconnect(newAddress: String): Try[Boolean] = {
     Try {
       if (_address != newAddress) {
-        socket.disconnect(_address)
-        socket.connect(newAddress)
+        socket.disconnect(protocol + "://" + _address)
+        socket.connect(protocol + "://" + newAddress)
         _address = newAddress
         true
       } else {

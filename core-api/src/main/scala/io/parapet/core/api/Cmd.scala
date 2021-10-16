@@ -64,14 +64,19 @@ object Cmd {
       case object Ok extends Code
       case object NotFound extends Code
       case object Error extends Code
+      case object Joined extends Code
     }
 
     case class Join(nodeId: String, address: String, group: String) extends Api
     case class JoinResult(nodeId: String, code: Code) extends Api
     case class GetNodeInfo(senderId: String, id: String) extends Api
-    case class NodeInfo(address: String, code: Code) extends Api
-    case class NodeUpdate(id:String, address: String) extends Api
+    case class NodeInfo(id: String, address: String, code: Code) extends Api
     case class Ack(msg: String, code: Code) extends Api
+  }
+
+  object clusterNode {
+    sealed trait Api extends Cmd
+    case class Req(nodeId: String, data: Array[Byte]) extends Api
   }
 
   def apply(bytes: Array[Byte]): Cmd = {

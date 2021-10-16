@@ -79,12 +79,12 @@ class Channel[F[_]: Concurrent](clientRef:ProcessRef = null) extends Process[F] 
       a <- cb(res)
     } yield a
 
-  def sendSync(event: Event, receiver: ProcessRef): DslF[F, Unit] = {
+  def send(event: Event, receiver: ProcessRef): DslF[F, Try[Event]] = {
     for {
       d <- suspend(Deferred[F, Try[Event]])
       _ <- sendReq(Request(event, d, receiver))
-       _ <- eval(println("chan request has been sent"))
-    } yield unit
+      e <- suspend(callback.get)
+    } yield e
   }
 
   private def sendReq(req: Channel.Request[F]):DslF[F, Unit] = {
@@ -93,8 +93,6 @@ class Channel[F[_]: Concurrent](clientRef:ProcessRef = null) extends Process[F] 
       println(s"chan set callback: ${req.e}")
     } ++ req.e ~> req.receiver ++ switch(waitForResponse)
   }
-
-  def get: DslF[F, Try[Event]] =eval(println(callback)) ++ suspend(callback.get)
 
 }
 

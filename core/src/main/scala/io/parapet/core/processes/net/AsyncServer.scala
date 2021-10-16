@@ -50,7 +50,7 @@ class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: Pro
         case Left(err: org.zeromq.ZMQException) if err.getErrorCode == ZError.ETERM =>
           eval(logger.error("zmq context has been terminated. stop receive loop", err)) ++
             eval(Left(err).withRight[Message])
-        case err => eval(logger.error("net server failed to process msg", err)) ++ step
+        case Left(err) => eval(logger.error("net server failed to process msg", err)) ++ step
       }
     }
   }
