@@ -545,19 +545,8 @@ object RouletteLeaderElectionSpec {
   object Lemma12 extends  Tag(Lemmas.Lemma12.description)
   // @formatter:on
 
-  val eventMapper: Event => Event = e => e match {
+  val eventMapper: Event => Event = {
     case AsyncClient.Send(bytes, None) => Cmd(bytes)
-//      // in order to decode the message we need to prepend client id
-//      val dummyId = "1".getBytes()
-//      val size = 4 + dummyId.length + bytes.length
-//      val buf = ByteBuffer.allocate(size)
-//        .putInt(dummyId.length)
-//        .put(dummyId)
-//        .put(bytes)
-//      buf.rewind()
-//      val data = new Array[Byte](size)
-//      buf.get(data)
-//      RouletteLeaderElection.encoder.read(data)
     case e => e
   }
 
