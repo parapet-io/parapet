@@ -283,6 +283,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     // then
     execution.print()
     execution.trace shouldBe Seq(
+      Message(LeaderUpdate("p1:5555"), ProcessRef("parapet-blackhole")),
       Message(Heartbeat(p1Addr, Option(p1Addr)), p2)
     )
   }

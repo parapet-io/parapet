@@ -11,7 +11,7 @@ import org.zeromq.{SocketType, ZContext, ZMQ}
 class AsyncClient[F[_]](
     override val ref: ProcessRef,
     clientId: String,
-    address: String,
+    address: String
 ) extends io.parapet.core.Process[F] {
 
   import dsl._
@@ -28,7 +28,7 @@ class AsyncClient[F[_]](
         client
         client.setIdentity(clientId.getBytes(ZMQ.CHARSET))
         client.connect(address)
-        logger.debug(s"client[id=$clientId] connected to $address")
+        logger.debug(s"client[id=$clientId] has been connected to $address")
         client.setReceiveTimeOut(5000)
       }
 
@@ -38,23 +38,23 @@ class AsyncClient[F[_]](
         zmqContext.close()
       }
 
-    case Send(data, replyOIpt) =>
-      val waitForRep = replyOIpt match {
+    case Send(data, replyOpt) =>
+      val waitForRep = replyOpt match {
         case Some(repChan) =>
           for {
-            _ <- eval(println("wait for response"))
+            _ <- eval(logger.debug("wait for response"))
             msg <- eval(client.recv())
-              _ <- eval(println(s"response received: '${new String(Option(msg).getOrElse(Array.empty))}'. send to $repChan"))
+            _ <- eval(
+              logger.debug(
+                s"[$address] response received: '${new String(Option(msg).getOrElse(Array.empty))}'. send to $repChan"))
             _ <- Rep(msg) ~> repChan
           } yield ()
         case None => unit
       }
 
-      eval(println(s"send to ${address}")) ++
-        eval(client.send(data, 0)).void
-          .handleError(err => eval(logger.error(s"$info failed to send message", err))) ++
-        waitForRep
-          .handleError(err => eval(logger.error(s"$info failed to receive reply", err)))
+      eval(client.send(data, 0)).void
+        .handleError(err => eval(logger.error(s"$info failed to send a message", err))) ++
+        waitForRep.handleError(err => eval(logger.error(s"$info failed to receive a reply", err)))
 
   }
 }
@@ -68,7 +68,7 @@ object AsyncClient {
   def apply[F[_]](
       ref: ProcessRef,
       clientId: String,
-      address: String,
+      address: String
   ): AsyncClient[F] =
     new AsyncClient(ref, clientId, address)
 }

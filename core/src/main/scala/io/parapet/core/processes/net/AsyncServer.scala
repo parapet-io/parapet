@@ -17,43 +17,42 @@ class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: Pro
   private lazy val zmqContext = new ZContext(1)
   private lazy val server = zmqContext.createSocket(SocketType.ROUTER)
   private val logger = LoggerFactory.getLogger(ref.value)
-  private var _stoped = false
+  private val info: String = s"server[ref=$ref, address=$address]:"
 
   private def init = eval {
     try {
       server.bind(address)
-      logger.debug(s"$ref server started on $address")
+      logger.info(s"$info is listening $address")
     } catch {
       case e: Exception =>
         e match {
-          case zmqError: ZMQException if zmqError.getErrorCode == 48 => logger.error(s"address: '$address' in use")
+          case zmqError: ZMQException if zmqError.getErrorCode == 48 => logger.error(s"$info address '$address' in use")
           case _ => ()
         }
         throw e
     }
   }
 
-  private def step: DslF[F, Either[Throwable, Message]] = {
-    if (_stoped) {
+  private def step: DslF[F, Either[Throwable, Message]] =
+    if (zmqContext.isClosed) {
       eval {
-        logger.info("server is not running. stop receive loop")
+        logger.debug("server is not running. stop receive loop")
         Left(new RuntimeException("server is not running")).withRight[Message]
       }
     } else {
       eval {
         val clientId = server.recvStr()
         val msgBytes = server.recv()
-        logger.debug(s"server $ref received message from client: $clientId")
+        logger.debug(s"$info received message from client: $clientId")
         Right(Message(clientId, msgBytes)).withLeft[Throwable]
       }.handleError(e => eval(Left(e).withRight[Message])).flatMap {
         case Right(msg) => msg ~> sink ++ step
         case Left(err: org.zeromq.ZMQException) if err.getErrorCode == ZError.ETERM =>
-          eval(logger.error("zmq context has been terminated. stop receive loop", err)) ++
+          eval(logger.error(s"$info zmq context has been terminated. stop receive loop", err)) ++
             eval(Left(err).withRight[Message])
-        case Left(err) => eval(logger.error("net server failed to process msg", err)) ++ step
+        case Left(err) => eval(logger.error(s"$info has failed to receive a message", err)) ++ step
       }
     }
-  }
 
   private def loop: DslF[F, Unit] = flow {
     step.map(_ => ())
@@ -64,10 +63,10 @@ class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: Pro
 
     case Send(clientId, data) =>
       eval {
-        if (_stoped) {
+        if (zmqContext.isClosed) {
           eval(logger.error("server is not running"))
         } else {
-          logger.debug(s"send message to $clientId")
+          logger.debug(s"send message to clientId=$clientId")
           val msg = new ZMsg()
           msg.add(clientId)
           msg.add(data)
@@ -77,10 +76,14 @@ class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: Pro
 
     case Stop =>
       eval {
-        _stoped = true
-        server.close()
-        zmqContext.close()
-      }
+        if (!zmqContext.isClosed) {
+          logger.debug("closing zmq context")
+          server.close()
+          zmqContext.close()
+        } else {
+          logger.debug("zmq context is already closed")
+        }
+      }.handleError(err => eval(logger.error("an error occurred while closing zmq context", err)))
 
   }
 }

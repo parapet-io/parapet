@@ -40,7 +40,7 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eve
 
   private[core] def createSysProcesses: F[Unit] = {
     for {
-      sysProcesses <- ct.delay(List(new SystemProcess[F](), new BlackHole[F]))
+      sysProcesses <- ct.delay(List(new SystemProcess[F](), new  BlackHole[F]))
       states <- sysProcesses.map(p => ProcessState(p, config)).sequence
       _ <- ct.delay(states.foreach(s => processes.put(s.process.ref, s)))
     } yield ()
