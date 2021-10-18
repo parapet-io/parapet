@@ -2,7 +2,7 @@ package io.parapet.core
 
 import cats.effect.Concurrent
 import com.typesafe.scalalogging.StrictLogging
-import io.parapet.core.Event.Envelope
+import io.parapet.Envelope
 
 /** Persistent storage for events that were rejected due to backpressure.
   *

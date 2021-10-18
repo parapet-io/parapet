@@ -1,16 +1,17 @@
 package io.parapet.tests.intg
 
-import java.util.concurrent.atomic.AtomicBoolean
-
 import cats.syntax.flatMap._
 import cats.syntax.functor._
-import io.parapet.core.Event._
+import io.parapet.core.Events._
 import io.parapet.core.Parapet.ParConfig
-import io.parapet.core.{Event, Process, ProcessRef}
+import io.parapet.core.Process
 import io.parapet.tests.intg.ProcessLifecycleSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.{Event, ProcessRef}
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers._
+
+import java.util.concurrent.atomic.AtomicBoolean
 
 abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSpec[F] {
 

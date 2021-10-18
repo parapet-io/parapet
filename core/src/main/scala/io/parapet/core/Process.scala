@@ -1,6 +1,7 @@
 package io.parapet.core
 
 import io.parapet.core.Dsl.{DslF, WithDsl}
+import io.parapet.{Event, ProcessRef}
 import io.parapet.syntax.FlowSyntax
 
 trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {

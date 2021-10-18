@@ -1,17 +1,16 @@
 package io.parapet.testutils
 
-import java.util.concurrent.atomic.AtomicInteger
-
 import cats.effect.{Concurrent, Fiber, Timer}
 import cats.syntax.flatMap._
 import cats.syntax.functor._
 import com.typesafe.scalalogging.StrictLogging
-import io.parapet.core.{Event, ProcessRef}
+import io.parapet.{Event, ProcessRef}
 
-import scala.jdk.CollectionConverters._
+import java.util.concurrent.atomic.AtomicInteger
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.TimeoutException
 import scala.concurrent.duration.{FiniteDuration, _}
+import scala.jdk.CollectionConverters._
 
 class EventStore[F[_], A <: Event] extends StrictLogging {
 

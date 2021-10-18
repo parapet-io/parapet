@@ -2,10 +2,11 @@ package io.parapet.core.processes
 
 import cats.effect.Concurrent
 import com.typesafe.scalalogging.Logger
-import io.parapet.core.Event.{DeadLetter, Envelope}
+import io.parapet.{Envelope, ProcessRef}
+import io.parapet.ProcessRef.DeadLetterRef
+import io.parapet.core.Events.DeadLetter
+import io.parapet.core.Process
 import io.parapet.syntax.logger._
-import io.parapet.core.ProcessRef.DeadLetterRef
-import io.parapet.core.{Process, ProcessRef}
 import org.slf4j.LoggerFactory
 
 trait DeadLetterProcess[F[_]] extends Process[F] {

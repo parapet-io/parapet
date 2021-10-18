@@ -1,26 +1,25 @@
 package io.parapet.core
 
 import cats.effect.Concurrent
-import cats.effect.ExitCase
 import cats.effect.concurrent.Deferred
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Event.{Failure, Stop}
+import io.parapet.core.Events.{Failure, Start, Stop}
+import io.parapet.{Event, ProcessRef}
+
 import scala.util.Try
 
-/** Channel is a process that implements strictly synchronous request-reply dialog.
-  * The channel sends an event to a receiver and then waits for a response in one step, i.e. it blocks asynchronously
-  * until it receives a response. Doing any other sequence, e.g., sending two request or reply events in a row
-  * will result in a failure returned to the sender.
+/** Channel is a process that implements strictly synchronous request-reply dialog. The channel sends an event to a
+  * receiver and then waits for a response in one step, i.e. it blocks asynchronously until it receives a response.
+  * Doing any other sequence, e.g., sending two request or reply events in a row will result in a failure returned to
+  * the sender.
   *
-  * @tparam F an effect type
+  * @tparam F
+  *   an effect type
   */
-class Channel[F[_]: Concurrent](clientRef:ProcessRef = null) extends Process[F] {
-
-  import io.parapet.core.Channel._
+class Channel[F[_]: Concurrent](clientRef: ProcessRef = null) extends Process[F] {
 
   import dsl._
-
-  private val ct: Concurrent[F] = implicitly[Concurrent[F]]
+  import io.parapet.core.Channel._
 
   private var callback: Deferred[F, Try[Event]] = _
 
@@ -31,6 +30,7 @@ class Channel[F[_]: Concurrent](clientRef:ProcessRef = null) extends Process[F] 
   }
 
   private def waitForResponse: Receive = {
+    case Start => unit
     case Stop =>
       flow {
         if (callback != null) {
@@ -40,50 +40,58 @@ class Channel[F[_]: Concurrent](clientRef:ProcessRef = null) extends Process[F] 
         }
       }
     case req: Request[F] =>
-      suspend(req.cb.complete(scala.util.Failure(new IllegalStateException("the current request is not completed yet"))))
+      suspend(
+        req.cb.complete(scala.util.Failure(new IllegalStateException("the current request is not completed yet"))))
     case Failure(_, err) =>
       suspend(callback.complete(scala.util.Failure(err))) ++ resetAndWaitForRequest
     case e =>
       suspend(callback.complete(scala.util.Success(e))) ++ resetAndWaitForRequest
   }
 
-  private def resetAndWaitForRequest: DslF[F, Unit] = {
+  private def resetAndWaitForRequest: DslF[F, Unit] =
     eval {
       callback = null
     } ++ switch(waitForRequest)
-  }
 
   def handle: Receive = waitForRequest
 
-  /** Sends an event to the receiver and blocks until it receives a response.
-    *
-    * @param event    the event to send
-    * @param receiver the receiver
-    * @param cb       a callback function that gets executed once a response received
-    * @return Unit
-    */
-  def send(event: Event, receiver: ProcessRef, cb: Try[Event] => DslF[F, Unit]): DslF[F, Unit] =
+  @deprecated("use the second version w/o callback")
+  def send[A](event: Event, receiver: ProcessRef, cb: Try[Event] => DslF[F, A]): DslF[F, A] =
     for {
       d <- suspend(Deferred[F, Try[Event]])
       _ <- Request(event, d, receiver) ~> ref
-      res <-
-        suspend(
-          ct.guaranteeCase(d.get){
-          case ExitCase.Canceled =>
-            (resetAndWaitForRequest ++ cb(scala.util.Failure(ChannelInterruptedException)))
-              .foldMap[F](DslInterpreter.instance.interpret(clientRef, clientRef))
-          case ExitCase.Error(err) =>
-            (resetAndWaitForRequest ++ cb(scala.util.Failure(new ChannelException(err))))
-              .foldMap[F](DslInterpreter.instance.interpret(clientRef, clientRef))
-          case ExitCase.Completed => ct.delay(println("completed"))})
-      _ <- cb(res)
-    } yield ()
+      res <- suspend(d.get)
+      a <- cb(res)
+    } yield a
+
+  /** Sends an event to the receiver and blocks until it receives a response.
+    *
+    * @param event
+    *   the event to send
+    * @param receiver
+    *   the receiver
+    * @param cb
+    *   a callback function that gets executed once a response received
+    * @return
+    *   Unit
+    */
+  def send(event: Event, receiver: ProcessRef): DslF[F, Try[Event]] =
+    for {
+      d <- suspend(Deferred[F, Try[Event]])
+      _ <- sendReq(Request(event, d, receiver))
+      e <- suspend(callback.get)
+    } yield e
+
+  private def sendReq(req: Channel.Request[F]): DslF[F, Unit] =
+    eval {
+      callback = req.cb
+    } ++ req.e ~> req.receiver ++ switch(waitForResponse)
 
 }
 
 object Channel {
 
-  sealed class ChannelException(cause:Throwable) extends RuntimeException(cause)
+  sealed class ChannelException(cause: Throwable) extends RuntimeException(cause)
   case object ChannelInterruptedException extends ChannelException(null)
 
   def apply[F[_]: Concurrent]: Channel[F] = new Channel()

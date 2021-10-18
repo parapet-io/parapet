@@ -1,14 +1,15 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Event._
+import io.parapet.{Envelope, Event}
+import io.parapet.core.Events._
+import io.parapet.core.Process
 import io.parapet.core.exceptions.EventHandlingException
 import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.core.{Event, Process}
 import io.parapet.tests.intg.ErrorHandlingSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.OptionValues._
-import org.scalatest.wordspec.AnyWordSpec
 import org.scalatest.matchers.should.Matchers._
+import org.scalatest.wordspec.AnyWordSpec
 
 abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 

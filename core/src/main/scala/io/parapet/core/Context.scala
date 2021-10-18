@@ -1,17 +1,19 @@
 package io.parapet.core
 
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import cats.effect.concurrent.Deferred
 import cats.effect.{Concurrent, ContextShift, Fiber}
 import cats.implicits._
 import io.parapet.core.Context._
-import io.parapet.core.Event.{Envelope, Start}
+import io.parapet.core.Events.Start
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.{BlackHole, SystemProcess}
+import io.parapet.{Envelope, ProcessRef}
 
 import java.util.UUID
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
+import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters._
 
 class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eventStore: EventStore[F]) {
@@ -24,7 +26,9 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eve
 
   private val processes = new java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessState[F]]()
 
-  private val graph = new java.util.concurrent.ConcurrentHashMap[ProcessRef, Vector[ProcessRef]]
+  private val graph = new java.util.concurrent.ConcurrentHashMap[ProcessRef, ListBuffer[ProcessRef]]
+
+  private val parents = new java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessRef]
 
   private val eventLog = new EventLog()
 
@@ -37,7 +41,7 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eve
 
   private[core] def createSysProcesses: F[Unit] = {
     for {
-      sysProcesses <- ct.delay(List(new SystemProcess[F](), new BlackHole[F]))
+      sysProcesses <- ct.delay(List(new SystemProcess[F](), new  BlackHole[F]))
       states <- sysProcesses.map(p => ProcessState(p, config)).sequence
       _ <- ct.delay(states.foreach(s => processes.put(s.process.ref, s)))
     } yield ()
@@ -45,24 +49,31 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eve
 
   def schedule(task: Task[F]): F[SubmissionResult] = _scheduler.submit(task)
 
-  def register(parent: ProcessRef, process: Process[F]): F[ProcessRef] =
-    if (!processes.containsKey(parent)) {
-      ct.raiseError(
-        UnknownProcessException(s"process cannot be registered because parent process with id=$parent doesn't exist"),
-      )
-    } else {
-      ProcessState(process, config).flatMap { s =>
-        if (processes.putIfAbsent(process.ref, s) != null)
-          ct.raiseError(new RuntimeException(s"duplicated process. ref = ${process.ref}"))
-        else {
-          graph.computeIfAbsent(parent, _ => Vector())
-          graph.computeIfPresent(parent, (_, v) => v :+ process.ref)
-          ct.pure(process.ref)
+  def register(parent: ProcessRef, child: Process[F]): F[ProcessRef] = {
+    ct.suspend {
+      if (!processes.containsKey(parent)) {
+        ct.raiseError(UnknownProcessException(s"process cannot be registered because parent $parent doesn't exist"))
+      } else if (parents.contains(child)) {
+        ct.raiseError(
+          new IllegalStateException(s"$child has been already registered. its parent=${parents.get(child)}"))
+      } else {
+        ProcessState(child, config).flatMap { state =>
+          ct.delay {
+            if (processes.putIfAbsent(child.ref, state) != null) {
+              throw new RuntimeException(s"duplicated process. ref = ${child.ref}")
+            }
+            parents.put(child.ref, parent)
+            graph.computeIfAbsent(parent, _ => ListBuffer.empty)
+            graph.computeIfPresent(parent, (_, v) => v :+ child.ref)
+            child.ref
+          }
         }
       }
     }
 
-  def child(parent: ProcessRef): Vector[ProcessRef] = graph.getOrDefault(parent, Vector.empty)
+  }
+
+  def child(parent: ProcessRef): Vector[ProcessRef] = graph.getOrDefault(parent, ListBuffer.empty).toVector
 
   def registerAndStart(parent: ProcessRef, process: Process[F]): F[SubmissionResult] =
     register(parent, process) >> sendStartEvent(process.ref)
@@ -95,8 +106,11 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eve
       case None => ct.pure(false)
     }
 
-  def remove(pRef: ProcessRef): F[Option[Process[F]]] =
-    ct.delay(Option(processes.remove(pRef)).map(_.process))
+  def remove(ref: ProcessRef): F[Boolean] =
+    ct.delay{
+      graph.computeIfPresent(parents.get(ref), (_, v) => v -= ref)
+      processes.remove(ref) != null
+    }
 
   def createTrace: ExecutionTrace =
     createTrace(UUID.randomUUID().toString)

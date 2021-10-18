@@ -1,7 +1,8 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Event.Start
-import io.parapet.core.{Event, Process}
+import io.parapet.Event
+import io.parapet.core.Events.Start
+import io.parapet.core.Process
 import io.parapet.tests.intg.SelfSendSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.flatspec.AnyFlatSpec

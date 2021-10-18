@@ -1,17 +1,20 @@
 package io.parapet.tests.intg
 
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Event.{Start, Stop}
+import io.parapet.core.Events.{Start, Stop}
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Scheduler.SchedulerConfig
-import io.parapet.core.{Channel, Event, Process, ProcessRef}
+import io.parapet.core.{Channel, Process}
 import io.parapet.tests.intg.ChannelSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.{Event, ProcessRef}
+import org.scalatest.Ignore
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers._
 
 import scala.util.{Success, Failure => SFailure}
 
+@Ignore
 abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
 
   import dsl._

@@ -61,8 +61,10 @@ libraryDependencies in ThisBuild ++= (scalaBinaryVersion.value match {
 lazy val global = project
   .in(file("."))
   .aggregate(
+    common,
+    coreApi,
     core,
-    clusterApi,
+    net,
     cluster,
     clusterNode,
     protobuf,
@@ -78,9 +80,8 @@ lazy val core = project
     libraryDependencies += "org.json4s" %% "json4s-native" % "3.6.7",
     libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7",
     libraryDependencies += "io.monix" %% "monix-eval" % "3.3.0",
-    libraryDependencies += "com.typesafe.play" %% "play-json" % "2.9.1",
-    libraryDependencies += "org.zeromq" % "jeromq" % "0.5.1"
-  ).dependsOn(protobuf)
+    libraryDependencies += "com.typesafe.play" %% "play-json" % "2.9.1"
+  ).dependsOn(protobuf, coreApi, common)
 
 lazy val cluster = project
   .enablePlugins(JavaAppPackaging, UniversalDeployPlugin)
@@ -100,22 +101,36 @@ lazy val cluster = project
     },
     bashScriptExtraDefines += """addJava "-Dlog4j.configuration=file:${app_home}/../etc/log4j.xml""""
 
-  ).dependsOn(core, interopCats, clusterApi)
+  ).dependsOn(core, net, interopCats)
+
+lazy val common = project
+  .in(file("common"))
+  .settings(
+    name := "common",
+  )
+
+lazy val net = project
+  .in(file("net"))
+  .settings(
+    name := "net",
+    libraryDependencies += "org.zeromq" % "jeromq" % "0.5.1"
+  ).dependsOn(core)
 
 lazy val clusterNode = project
   .in(file("cluster-node"))
   .settings(
-    name := "cluster-node"
-  ).dependsOn(core, clusterApi)
+    name := "cluster-node",
+    libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3",
+    libraryDependencies += "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
+  ).dependsOn(core, net, interopCats)
 
-lazy val clusterApi = project
-  .in(file("cluster-api"))
+lazy val coreApi = project
+  .in(file("core-api"))
   .settings(
-    name := "cluster-api",
-    libraryDependencies += "org.scalatest" %% "scalatest" % scalaTestVersion % Test,
-    libraryDependencies += dependencies.flexmark
-  ).dependsOn(core)
-
+    name := "core-api",
+    libraryDependencies += "org.xerial.snappy" % "snappy-java" % "1.1.8.4",
+    libraryDependencies += "com.sksamuel.avro4s" %% "avro4s-core" % "4.0.10"
+  ).dependsOn(common)
 
 lazy val testUtils = project
   .in(file("test-utils"))

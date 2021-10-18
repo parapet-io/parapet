@@ -2,6 +2,7 @@ package io.parapet.core
 
 import cats.InjectK
 import cats.free.Free
+import io.parapet.{Event, ProcessRef}
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -40,6 +41,8 @@ object Dsl {
   case class Blocking[F[_], C[_], A](body: () => Free[C, A]) extends FlowOp[F, Unit]
 
   case class HandelError[F[_], C[_], A, AA >: A](body: () => Free[C, A], handle: Throwable => Free[C, AA]) extends FlowOp[F, AA]
+
+  case class Halt[F[_]](ref: ProcessRef) extends FlowOp[F, Unit]
 
   /** Smart constructors for FlowOp[F, _].
     *
@@ -307,6 +310,11 @@ object Dsl {
     def handleError[A, AA >: A](thunk: => Free[C, A], handle: Throwable => Free[C, AA]): Free[C, AA] = {
       Free.inject[FlowOp[F, *], C](HandelError(() => thunk, handle))
     }
+
+    /**
+      * Use to destroy a child process.
+      */
+    def halt(ref: ProcessRef): Free[C, Unit] = Free.inject[FlowOp[F, *], C](Halt(ref))
   }
 
   object FlowOps {

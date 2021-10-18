@@ -2,14 +2,14 @@ package io.parapet.core
 
 
 
+import io.parapet.core.EventLog._
+import io.parapet.{Envelope, Event, ProcessRef}
+
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.{ConcurrentHashMap => JMap}
-import io.parapet.core.EventLog._
-
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ListBuffer
-import io.parapet.core.Event.Envelope
 
 class EventLog {
 
