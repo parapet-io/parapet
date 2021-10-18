@@ -4,10 +4,10 @@ import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.{Start, Stop}
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Scheduler.SchedulerConfig
-import io.parapet.core.api.Event
-import io.parapet.core.{Channel, Process, ProcessRef}
+import io.parapet.core.{Channel, Process}
 import io.parapet.tests.intg.ChannelSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.{Event, ProcessRef}
 import org.scalatest.Ignore
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers._

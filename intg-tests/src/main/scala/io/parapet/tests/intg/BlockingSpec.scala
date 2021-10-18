@@ -2,10 +2,10 @@ package io.parapet.tests.intg
 
 import io.parapet.core.Events.{Kill, Start, Stop}
 import io.parapet.core.Parapet.ParConfig
+import io.parapet.core.Process
 import io.parapet.core.Scheduler.SchedulerConfig
-import io.parapet.core.api.Event
-import io.parapet.core.{Process, ProcessRef}
 import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.{Event, ProcessRef}
 import org.scalatest.OptionValues._
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers._

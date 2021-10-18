@@ -1,4 +1,4 @@
-package io.parapet.core.processes.net
+package io.parapet.net
 
 import org.zeromq.ZMQ.Socket
 

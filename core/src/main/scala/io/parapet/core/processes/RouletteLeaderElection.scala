@@ -4,13 +4,15 @@ package io.parapet.core.processes
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.Start
-import io.parapet.core.api.{Cmd, Event}
+import io.parapet.core.api.Cmd
 import io.parapet.core.api.Cmd.leaderElection._
 import io.parapet.core.processes.RouletteLeaderElection._
-import io.parapet.core.processes.net.AsyncClient.{Send => CliSend}
-import io.parapet.core.processes.net.AsyncServer.{Message => SrvMessage, Send => SrvSend}
+import io.parapet.core.api.Cmd.netClient
+import io.parapet.core.api.Cmd.netServer
 import io.parapet.core.utils.CorrelationId
-import io.parapet.core.{Clock, ProcessRef}
+import io.parapet.core.Clock
+import io.parapet.ProcessRef
+import io.parapet.Event
 import org.slf4j.MDC
 import org.slf4j.event.Level
 
@@ -172,7 +174,7 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
 
     // -----------------------WHO------------------------------- //
     case Who(clientId) =>
-      withSender(server => SrvSend(clientId,
+      withSender(server => netServer.Send(clientId,
         WhoRep(state.addr, state.leader.contains(state.addr)).toByteArray) ~> server)
 
     case IsLeader =>
@@ -181,7 +183,7 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
     // -------------------- BROADCAST ----------------------------//
     case Broadcast(data) =>
       implicit val correlationId: CorrelationId = CorrelationId()
-      val msg = CliSend(Req(state.id, data).toByteArray)
+      val msg = netClient.Send(Req(state.id, data).toByteArray)
       log("received broadcast") ++
         state.peers.netClients.foldLeft(unit)((acc, client) => acc ++ msg ~> client) ++
         withSender(sender => BroadcastResult(state.peers.size / 2) ~> sender)
@@ -202,17 +204,17 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
       implicit val correlationId: CorrelationId = CorrelationId()
       if (state.peers.idExists(clientId)) {
         log(s"received Rep from clientId: $clientId, send reply to peer") ++
-          CliSend(data) ~> state.peers.getById(clientId).netClient
+          netClient.Send(data) ~> state.peers.getById(clientId).netClient
       } else {
 
         log(s"received Rep from clientId: $clientId, send reply to client") ++
-          SrvSend(clientId, data) ~> state.netServer
+          netServer.Send(clientId, data) ~> state.netServer
       }
 
     // -------------------- SERVER SEND -------------------------//
-    case send: SrvSend => send ~> state.netServer
+    case send: netServer.Send => send ~> state.netServer
 
-    case SrvMessage(id, data) =>
+    case netServer.Message(id, data) =>
       implicit val correlationId: CorrelationId = CorrelationId()
       for {
         cmd <- eval(Cmd(data))
@@ -481,7 +483,7 @@ object RouletteLeaderElection {
   case class IsLeaderRep(leader: Boolean) extends InternalApi
 
   implicit class CmdOps(e: Api) {
-    def toClient: Event = CliSend(e.toByteArray)
+    def toClient: Event = netClient.Send(e.toByteArray)
   }
 
   class Peer(

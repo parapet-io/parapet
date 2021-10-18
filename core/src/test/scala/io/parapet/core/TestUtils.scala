@@ -2,7 +2,7 @@ package io.parapet.core
 
 import cats.{Id, Monad, ~>}
 import io.parapet.core.Dsl.{Delay, Dsl, Eval, FlowOp, Fork, Send, SuspendF, UnitFlow}
-import io.parapet.core.api.Event
+import io.parapet.{Event, ProcessRef}
 
 import scala.collection.mutable.ListBuffer
 

@@ -1,12 +1,12 @@
 package io.parapet.tests.intg
 
 import io.parapet.core.Events._
-import io.parapet.core.api.Event
+import io.parapet.core.Process
 import io.parapet.core.exceptions.EventMatchException
 import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.core.{Envelope, Process, ProcessRef}
 import io.parapet.tests.intg.EventDeliverySpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.{Envelope, Event, ProcessRef}
 import org.scalatest.OptionValues._
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers._

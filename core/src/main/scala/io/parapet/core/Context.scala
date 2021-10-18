@@ -1,6 +1,5 @@
 package io.parapet.core
 
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import cats.effect.concurrent.Deferred
 import cats.effect.{Concurrent, ContextShift, Fiber}
 import cats.implicits._
@@ -10,8 +9,10 @@ import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.{BlackHole, SystemProcess}
+import io.parapet.{Envelope, ProcessRef}
 
 import java.util.UUID
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters._
 

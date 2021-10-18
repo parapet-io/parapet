@@ -1,16 +1,15 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Events.{DeadLetter, Failure, Start}
-import io.parapet.core.api.Event
-import io.parapet.core.Envelope
+import io.parapet.core.Events.{DeadLetter, Start}
+import io.parapet.core.Process
 import io.parapet.core.exceptions.EventMatchException
 import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.core.{Process, ProcessRef}
 import io.parapet.tests.intg.ProcessSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.{Envelope, Event, ProcessRef}
 import org.scalatest.OptionValues._
-import org.scalatest.wordspec.AnyWordSpec
 import org.scalatest.matchers.should.Matchers._
+import org.scalatest.wordspec.AnyWordSpec
 
 abstract class ProcessSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 

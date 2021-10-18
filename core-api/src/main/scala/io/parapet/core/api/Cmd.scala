@@ -1,6 +1,7 @@
 package io.parapet.core.api
 
 import com.sksamuel.avro4s.{AvroDoc, AvroInputStream, AvroOutputStream, AvroSchema}
+import io.parapet.{Event, ProcessRef}
 import org.apache.avro.Schema
 
 import java.io.ByteArrayOutputStream
@@ -18,9 +19,21 @@ sealed trait Cmd extends Event {
 
 }
 
-
 object Cmd {
   private val schema: Schema = AvroSchema[Cmd]
+
+  object netClient {
+    sealed trait Api extends Cmd
+    case class Send(data: Array[Byte], reply: Option[ProcessRef] = None) extends Api
+    case class Rep(data: Array[Byte]) extends Api
+  }
+
+  object netServer {
+    sealed trait Api extends Cmd
+    case class Send(clientId: String, data: Array[Byte]) extends Api
+    case class Message(clientId: String, data: Array[Byte]) extends Api
+  }
+
   object leaderElection {
     sealed trait Api extends Cmd
     @AvroDoc("two types of ack codes: success and failure")

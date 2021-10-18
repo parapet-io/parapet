@@ -4,7 +4,7 @@ import cats.effect.Concurrent
 import cats.effect.concurrent.Deferred
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.{Failure, Start, Stop}
-import io.parapet.core.api.Event
+import io.parapet.{Event, ProcessRef}
 
 import scala.util.Try
 

@@ -6,15 +6,15 @@ import cats.syntax.flatMap._
 import cats.syntax.functor._
 import cats.syntax.semigroupal._
 import com.typesafe.scalalogging.Logger
+import io.parapet.ProcessRef._
 import io.parapet.core.Context.ProcessState
 import io.parapet.core.Dsl.{Dsl, FlowOps}
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Events._
-import io.parapet.core.ProcessRef._
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler._
-import io.parapet.core.api.Event
 import io.parapet.core.exceptions._
+import io.parapet.{Envelope, Event, ProcessRef}
 import org.slf4j.LoggerFactory
 
 import scala.util.Try

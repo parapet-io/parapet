@@ -1,19 +1,18 @@
 package io.parapet.core.processes
 
 import cats.Id
-import io.parapet.core
-import io.parapet.core.{Clock, ProcessRef}
+import io.parapet.core.Clock
 import io.parapet.core.TestUtils._
-import io.parapet.core.api.{Cmd, Event}
+import io.parapet.core.api.Cmd
 import io.parapet.core.api.Cmd.leaderElection._
+import io.parapet.core.api.Cmd.netClient
 import io.parapet.core.processes.RouletteLeaderElection._
 import io.parapet.core.processes.RouletteLeaderElectionSpec._
-import io.parapet.core.processes.net.AsyncClient
+import io.parapet.{Event, ProcessRef}
 import org.scalatest.Tag
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers._
 
-import java.nio.ByteBuffer
 import scala.concurrent.duration._
 
 class RouletteLeaderElectionSpec extends AnyFunSuite {
@@ -299,7 +298,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val server = ProcessRef("server")
 
     val peerHeartbeatTimeout = 1.second
-    val clock = new core.Clock.Mock(1.second)
+    val clock = new Clock.Mock(1.second)
     val state = new State(p1, "p1", p1Addr, server,
       createPeers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
 
@@ -339,7 +338,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val server = ProcessRef("server")
 
     val peerHeartbeatTimeout = 1.second
-    val clock = new core.Clock.Mock(1.second)
+    val clock = new Clock.Mock(1.second)
     val state = new State(p1, "p1", p1Addr, server,
       createPeers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
 
@@ -375,7 +374,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val p3 = ProcessRef("p3")
     val server = ProcessRef("server")
     val peerHeartbeatTimeout = 1.second
-    val clock = new core.Clock.Mock(1.second)
+    val clock = new Clock.Mock(1.second)
     val state = new State(p1, "p1", p1Addr, server,
       createPeers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
 
@@ -403,7 +402,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val server = ProcessRef("server")
 
     val peerHeartbeatTimeout = 1.second
-    val clock = new core.Clock.Mock(1.second)
+    val clock = new Clock.Mock(1.second)
     val state = new State(p1, "p1", p1Addr, server,
       createPeers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock))
 
@@ -432,7 +431,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val p4 = ProcessRef("p4")
     val server = ProcessRef("server")
     val peerHeartbeatTimeout = 1.second
-    val clock = new core.Clock.Mock(1.second)
+    val clock = new Clock.Mock(1.second)
     val state = new State(p1, "p1", p1Addr, server,
       createPeers(Map(p2Addr -> p2, p3Addr -> p3, p4Addr -> p4), peerHeartbeatTimeout, clock))
 
@@ -462,7 +461,7 @@ class RouletteLeaderElectionSpec extends AnyFunSuite {
     val p4 = ProcessRef("p4")
     val server = ProcessRef("server")
     val peerHeartbeatTimeout = 1.second
-    val clock = new core.Clock.Mock(1.second)
+    val clock = new Clock.Mock(1.second)
     val state = new State(p1, "p1", p1Addr, server,
       createPeers(Map(p2Addr -> p2, p3Addr -> p3, p4Addr -> p4), peerHeartbeatTimeout, clock))
 
@@ -546,7 +545,7 @@ object RouletteLeaderElectionSpec {
   // @formatter:on
 
   val eventMapper: Event => Event = {
-    case AsyncClient.Send(bytes, None) => Cmd(bytes)
+    case netClient.Send(bytes, None) => Cmd(bytes)
     case e => e
   }
 

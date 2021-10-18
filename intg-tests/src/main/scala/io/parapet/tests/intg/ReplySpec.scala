@@ -1,13 +1,13 @@
 package io.parapet.tests.intg
 
+import io.parapet.Event
 import io.parapet.core.Events._
 import io.parapet.core.Process
-import io.parapet.core.api.Event
 import io.parapet.tests.intg.ReplySpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
+import org.scalatest.OptionValues._
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers._
-import org.scalatest.OptionValues._
 
 abstract class ReplySpec[F[_]] extends AnyFlatSpec with IntegrationSpec[F] {
 

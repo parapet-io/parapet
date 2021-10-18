@@ -2,13 +2,13 @@ package io.parapet.tests.intg
 
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.Start
-import io.parapet.core.api.Event
-import io.parapet.core.{Process, ProcessRef}
+import io.parapet.core.Process
 import io.parapet.tests.intg.DslSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.{Event, ProcessRef}
 import org.scalatest.OptionValues._
-import org.scalatest.wordspec.AnyWordSpec
 import org.scalatest.matchers.should.Matchers._
+import org.scalatest.wordspec.AnyWordSpec
 
 import scala.concurrent.duration._
 

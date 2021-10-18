@@ -2,10 +2,10 @@ package io.parapet.tests.intg
 
 import cats.implicits._
 import io.parapet.core.Events.Start
-import io.parapet.core.api.Event
-import io.parapet.core.{Process, ProcessRef}
+import io.parapet.core.Process
 import io.parapet.tests.intg.DynamicProcessCreationSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers._
 

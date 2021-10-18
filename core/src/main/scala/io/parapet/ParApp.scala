@@ -8,7 +8,7 @@ import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.core.{Context, DslInterpreter, EventStore, Parallel, Process, ProcessRef, Scheduler}
+import io.parapet.core.{Context, DslInterpreter, EventStore, Parallel, Process, Scheduler}
 import io.parapet.syntax.FlowSyntax
 import org.slf4j.LoggerFactory
 

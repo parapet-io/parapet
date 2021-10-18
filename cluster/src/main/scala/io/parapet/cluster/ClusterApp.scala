@@ -4,9 +4,9 @@ import cats.effect.IO
 import io.parapet.cluster.Config.PeerInfo
 import io.parapet.core.processes.RouletteLeaderElection
 import io.parapet.core.processes.RouletteLeaderElection.Peers
-import io.parapet.core.processes.net.{AsyncClient, AsyncServer}
-import io.parapet.core.{Parapet, Process, ProcessRef}
-import io.parapet.{CatsApp, core}
+import io.parapet.core.{Parapet, Process}
+import io.parapet.net.{AsyncClient, AsyncServer}
+import io.parapet.{CatsApp, ProcessRef, core}
 import scopt.OParser
 
 import java.nio.file.Paths

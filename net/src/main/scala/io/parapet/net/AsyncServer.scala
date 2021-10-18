@@ -1,15 +1,15 @@
-package io.parapet.core.processes.net
+package io.parapet.net
 
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.{Start, Stop}
-import io.parapet.core.ProcessRef
-import io.parapet.core.api.Event
+import io.parapet.{ProcessRef, Event}
+import io.parapet.core.api.Cmd.netServer
 import org.slf4j.LoggerFactory
 import org.zeromq.{SocketType, ZContext, ZMQException, ZMsg}
 import zmq.ZError
 
 class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: ProcessRef)
-    extends io.parapet.core.Process[F] {
+  extends io.parapet.core.Process[F] {
 
   import AsyncServer._
   import dsl._
@@ -33,23 +33,23 @@ class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: Pro
     }
   }
 
-  private def step: DslF[F, Either[Throwable, Message]] =
+  private def step: DslF[F, Either[Throwable, netServer.Message]] =
     if (zmqContext.isClosed) {
       eval {
         logger.debug("server is not running. stop receive loop")
-        Left(new RuntimeException("server is not running")).withRight[Message]
+        Left(new RuntimeException("server is not running")).withRight[netServer.Message]
       }
     } else {
       eval {
         val clientId = server.recvStr()
         val msgBytes = server.recv()
         logger.debug(s"$info received message from client: $clientId")
-        Right(Message(clientId, msgBytes)).withLeft[Throwable]
-      }.handleError(e => eval(Left(e).withRight[Message])).flatMap {
+        Right(netServer.Message(clientId, msgBytes)).withLeft[Throwable]
+      }.handleError(e => eval(Left(e).withRight[netServer.Message])).flatMap {
         case Right(msg) => msg ~> sink ++ step
         case Left(err: org.zeromq.ZMQException) if err.getErrorCode == ZError.ETERM =>
           eval(logger.error(s"$info zmq context has been terminated. stop receive loop", err)) ++
-            eval(Left(err).withRight[Message])
+            eval(Left(err).withRight[netServer.Message])
         case Left(err) => eval(logger.error(s"$info has failed to receive a message", err)) ++ step
       }
     }
@@ -61,7 +61,7 @@ class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: Pro
   override def handle: Receive = {
     case Start => init ++ fork(loop)
 
-    case Send(clientId, data) =>
+    case netServer.Send(clientId, data) =>
       eval {
         if (zmqContext.isClosed) {
           eval(logger.error("server is not running"))
@@ -89,13 +89,6 @@ class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: Pro
 }
 
 object AsyncServer {
-
-  // API
-  sealed trait Api extends Event
-
-  case class Send(clientId: String, data: Array[Byte]) extends Api
-
-  case class Message(clientId: String, data: Array[Byte]) extends Api
 
   def apply[F[_]](ref: ProcessRef, address: String, sink: ProcessRef): AsyncServer[F] =
     new AsyncServer(ref, address, sink)

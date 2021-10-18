@@ -1,14 +1,13 @@
-package io.parapet.core
+package io.parapet
 
 import java.util.UUID
 
-import io.parapet.core.Parapet.ParapetPrefix
-
-case class ProcessRef(private[core] val value: String) {
+case class ProcessRef(private[parapet] val value: String) {
   override def toString: String = value
 }
 
 object ProcessRef {
+  val ParapetPrefix = "parapet"
   val SystemRef: ProcessRef = ProcessRef(ParapetPrefix + "-system")
   val DeadLetterRef: ProcessRef = ProcessRef(ParapetPrefix + "-deadletter")
   val SchedulerRef: ProcessRef = ProcessRef(ParapetPrefix + "-scheduler")

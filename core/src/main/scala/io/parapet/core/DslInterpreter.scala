@@ -5,11 +5,9 @@ import cats.effect.{Concurrent, Timer}
 import cats.implicits._
 import cats.~>
 import io.parapet.core.Context.ProcessState
-import io.parapet.core.Dsl.{Blocking, Delay, Dsl, Eval, FlowOp, Fork, Forward, Halt, HandelError, Par, Race, Register,
-  Send, Suspend, SuspendF, UnitFlow, WithSender}
-import io.parapet.core.Envelope
+import io.parapet.core.Dsl.{Blocking, Delay, Dsl, Eval, FlowOp, Fork, Forward, Halt, HandelError, Par, Race, Register, Send, Suspend, SuspendF, UnitFlow, WithSender}
 import io.parapet.core.Scheduler.{Deliver, ProcessQueueIsFull}
-import io.parapet.core.api.Event
+import io.parapet.{Envelope, Event, ProcessRef}
 
 object DslInterpreter {
 

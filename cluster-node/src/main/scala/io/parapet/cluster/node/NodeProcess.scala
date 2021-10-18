@@ -6,12 +6,13 @@ import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events._
 import io.parapet.core.api.Cmd.cluster
 import io.parapet.core.api.Cmd.cluster._
+import io.parapet.core.api.Cmd.netClient
+import io.parapet.core.api.Cmd.netServer
 import io.parapet.core.api.Cmd.leaderElection.{Rep => LeRep, Req => LeReq, Who, WhoRep}
-import io.parapet.core.api.{Cmd, Event}
-import io.parapet.core.processes.net.{AsyncClient, Node}
-import io.parapet.core.processes.net.AsyncClient.{Rep => CliRep, Send => ClientSend}
-import io.parapet.core.processes.net.AsyncServer.{Message, Send => ServerSend}
-import io.parapet.core.{Channel, Process, ProcessRef}
+import io.parapet.core.api.Cmd
+import io.parapet.net.{AsyncClient, Node}
+import io.parapet.core.{Channel, Process}
+import io.parapet.{ProcessRef, Event}
 import org.zeromq.{SocketType, ZContext}
 
 import scala.concurrent.duration._
@@ -86,7 +87,7 @@ class NodeProcess[F[_]: Concurrent](
     val cond = new Cond[F](
       ch.ref,
       {
-        case CliRep(data) =>
+        case netClient.Rep(data) =>
           Cmd(data) match {
             case _: NodeInfo => true
             case _ => false
@@ -99,10 +100,10 @@ class NodeProcess[F[_]: Concurrent](
     def release = halt(ch.ref) ++ halt(cond.ref)
 
     register(ref, ch) ++ register(ref, cond) ++
-      ClientSend(data, Option(cond.ref)) ~> _leader ++
+      netClient.Send(data, Option(cond.ref)) ~> _leader ++
       ch.send(Cond.Start, cond.ref)
         .flatMap {
-          case scala.util.Success(Cond.Result(Some(CliRep(data)))) =>
+          case scala.util.Success(Cond.Result(Some(netClient.Rep(data)))) =>
             Cmd(data) match {
               case n @ NodeInfo(_, _, cluster.Code.Ok) => eval(Right(Option(n)).withLeft[Throwable])
               case NodeInfo(_, _, cluster.Code.NotFound) => eval(Right(Option.empty[NodeInfo]).withLeft[Throwable])
@@ -147,7 +148,7 @@ class NodeProcess[F[_]: Concurrent](
     val cond = new Cond[F](
       ch.ref,
       {
-        case CliRep(data) => Option(data).exists(d => predicate(Cmd(d)))
+        case netClient.Rep(data) => Option(data).exists(d => predicate(Cmd(d)))
         case _ => false
       },
       timeout)
@@ -155,9 +156,9 @@ class NodeProcess[F[_]: Concurrent](
     def release = halt(ch.ref) ++ halt(cond.ref)
 
     register(ref, ch) ++ register(ref, cond) ++
-      par(servers.map(srv => ClientSend(data, Option(cond.ref)) ~> srv): _*) ++
+      par(servers.map(srv => netClient.Send(data, Option(cond.ref)) ~> srv): _*) ++
       ch.send(Cond.Start, cond.ref).flatMap {
-        case scala.util.Success(Cond.Result(Some(CliRep(data)))) => release ++ eval(Option(Cmd.apply(data)))
+        case scala.util.Success(Cond.Result(Some(netClient.Rep(data)))) => release ++ eval(Option(Cmd.apply(data)))
         case scala.util.Success(Cond.Result(None)) => release ++ eval(Option.empty)
         case scala.util.Failure(err) => release ++ eval(throw err)
       }
@@ -174,7 +175,7 @@ class NodeProcess[F[_]: Concurrent](
         case None => eval(logger.debug(s"node id=$id not found"))
       }
 
-    case Message(id, data) =>
+    case netServer.Message(id, data) =>
       Cmd(data) match {
         case Cmd.clusterNode.Req(id, data) => NodeProcess.Req(id, data) ~> client
         case Cmd.leaderElection.LeaderUpdate(leaderAddr) =>

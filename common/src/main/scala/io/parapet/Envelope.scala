@@ -1,6 +1,4 @@
-package io.parapet.core
-
-import io.parapet.core.api.Event
+package io.parapet
 
 case class Envelope(sender: ProcessRef, event: Event, receiver: ProcessRef) { self =>
   // timestamp in nanos for debugging purposes

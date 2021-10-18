@@ -1,6 +1,6 @@
 package io.parapet.core
 
-import io.parapet.core.api.Event
+import io.parapet.{Envelope, Event}
 
 object Events {
   // Lifecycle events

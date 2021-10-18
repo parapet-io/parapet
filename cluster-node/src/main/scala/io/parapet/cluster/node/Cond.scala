@@ -3,8 +3,7 @@ package io.parapet.cluster.node
 import cats.effect.Concurrent
 import io.parapet.cluster.node.Cond._
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.ProcessRef
-import io.parapet.core.api.Event
+import io.parapet.{Event, ProcessRef}
 
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.duration.FiniteDuration

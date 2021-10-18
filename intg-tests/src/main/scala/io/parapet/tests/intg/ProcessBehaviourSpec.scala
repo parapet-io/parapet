@@ -1,7 +1,7 @@
 package io.parapet.tests.intg
 
 import io.parapet.core.Process
-import io.parapet.core.api.Event
+import io.parapet.Event
 import io.parapet.tests.intg.ProcessBehaviourSpec._
 import io.parapet.testutils.{EventStore, IntegrationSpec}
 import org.scalatest.funsuite.AnyFunSuite

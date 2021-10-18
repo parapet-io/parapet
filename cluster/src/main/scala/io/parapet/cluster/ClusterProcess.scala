@@ -2,16 +2,16 @@ package io.parapet.cluster
 
 import cats.effect.{Concurrent, IO}
 import com.typesafe.scalalogging.Logger
+import io.parapet.ProcessRef
 import io.parapet.cluster.ClusterProcess.Cluster
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.Start
 import io.parapet.core.api.Cmd
 import io.parapet.core.api.Cmd.cluster._
 import io.parapet.core.api.Cmd.leaderElection.{LeaderUpdate, Req}
-import io.parapet.core.processes.net.AsyncServer.{Send => ServerSend}
-import io.parapet.core.{Channel, Process, ProcessRef}
-import io.parapet.core.processes.net.Node
-import org.zeromq.ZMQ.Socket
+import io.parapet.core.api.Cmd.netServer
+import io.parapet.core.{Channel, Process}
+import io.parapet.net.Node
 import org.zeromq.{SocketType, ZContext}
 
 import scala.collection.mutable
@@ -30,7 +30,7 @@ class ClusterProcess(leaderElection: ProcessRef)(implicit ctxShit: Concurrent[IO
     for {
       node <- eval(cluster.getOrCreate(join.nodeId, join.address))
       _ <- eval(cluster.join(join.group, node))
-      _ <- ServerSend(clientId, Cmd.cluster.JoinResult(join.nodeId, Code.Ok).toByteArray) ~> leaderElection
+      _ <- netServer.Send(clientId, Cmd.cluster.JoinResult(join.nodeId, Code.Ok).toByteArray) ~> leaderElection
       _ <- eval {
         val msg = Cmd.cluster.NodeInfo(node.id, node.address, Cmd.cluster.Code.Joined)
         cluster.shout(msg.toByteArray, cluster.groups(node.id))
@@ -45,8 +45,8 @@ class ClusterProcess(leaderElection: ProcessRef)(implicit ctxShit: Concurrent[IO
         case join: Join =>
           eval(logger.debug(s"received $join")) ++ processJoin(clientId, join)
         case GetNodeInfo(_, id: String) => cluster.getNode(id) match {
-          case Some(node) => ServerSend(clientId, Cmd.cluster.NodeInfo(id, node.address, Code.Ok).toByteArray) ~> leaderElection
-          case None => ServerSend(clientId, Cmd.cluster.NodeInfo(id, "", Code.NotFound).toByteArray) ~> leaderElection
+          case Some(node) => netServer.Send(clientId, Cmd.cluster.NodeInfo(id, node.address, Code.Ok).toByteArray) ~> leaderElection
+          case None => netServer.Send(clientId, Cmd.cluster.NodeInfo(id, "", Code.NotFound).toByteArray) ~> leaderElection
         }
       }
     case LeaderUpdate(leaderAddress) =>

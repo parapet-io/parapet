@@ -1,18 +1,17 @@
-package io.parapet.core.processes.net
+package io.parapet.net
 
 import cats.implicits.toFunctorOps
+import io.parapet.ProcessRef
 import io.parapet.core.Events.{Start, Stop}
-import io.parapet.core.ProcessRef
-import io.parapet.core.api.Event
-import io.parapet.core.processes.net.AsyncClient._
+import io.parapet.core.api.Cmd.netClient
 import org.slf4j.LoggerFactory
 import org.zeromq.{SocketType, ZContext, ZMQ}
 
 class AsyncClient[F[_]](
-    override val ref: ProcessRef,
-    clientId: String,
-    address: String
-) extends io.parapet.core.Process[F] {
+                         override val ref: ProcessRef,
+                         clientId: String,
+                         address: String
+                       ) extends io.parapet.core.Process[F] {
 
   import dsl._
 
@@ -38,7 +37,7 @@ class AsyncClient[F[_]](
         zmqContext.close()
       }
 
-    case Send(data, replyOpt) =>
+    case netClient.Send(data, replyOpt) =>
       val waitForRep = replyOpt match {
         case Some(repChan) =>
           for {
@@ -47,7 +46,7 @@ class AsyncClient[F[_]](
             _ <- eval(
               logger.debug(
                 s"[$address] response received: '${new String(Option(msg).getOrElse(Array.empty))}'. send to $repChan"))
-            _ <- Rep(msg) ~> repChan
+            _ <- netClient.Rep(msg) ~> repChan
           } yield ()
         case None => unit
       }
@@ -61,14 +60,10 @@ class AsyncClient[F[_]](
 
 object AsyncClient {
 
-  sealed trait API extends Event
-  case class Send(data: Array[Byte], reply: Option[ProcessRef] = None) extends API
-  case class Rep(data: Array[Byte]) extends API
-
   def apply[F[_]](
-      ref: ProcessRef,
-      clientId: String,
-      address: String
-  ): AsyncClient[F] =
+                   ref: ProcessRef,
+                   clientId: String,
+                   address: String
+                 ): AsyncClient[F] =
     new AsyncClient(ref, clientId, address)
 }

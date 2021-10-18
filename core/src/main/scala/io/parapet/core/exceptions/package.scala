@@ -1,5 +1,7 @@
 package io.parapet.core
 
+import io.parapet.ProcessRef
+
 package object exceptions {
 
   case class UnknownProcessException(message: String) extends RuntimeException(message)
