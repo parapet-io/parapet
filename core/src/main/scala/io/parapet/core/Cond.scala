@@ -1,7 +1,7 @@
-package io.parapet.cluster.node
+package io.parapet.core
 
 import cats.effect.Concurrent
-import io.parapet.cluster.node.Cond._
+import io.parapet.core.Cond._
 import io.parapet.core.Dsl.DslF
 import io.parapet.{Event, ProcessRef}
 

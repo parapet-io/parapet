@@ -8,11 +8,11 @@ import io.parapet.core.api.Cmd.cluster
 import io.parapet.core.api.Cmd.cluster._
 import io.parapet.core.api.Cmd.netClient
 import io.parapet.core.api.Cmd.netServer
-import io.parapet.core.api.Cmd.leaderElection.{Rep => LeRep, Req => LeReq, Who, WhoRep}
+import io.parapet.core.api.Cmd.leaderElection.{Who, WhoRep, Rep => LeRep, Req => LeReq}
 import io.parapet.core.api.Cmd
 import io.parapet.net.{AsyncClient, Node}
-import io.parapet.core.{Channel, Process}
-import io.parapet.{ProcessRef, Event}
+import io.parapet.core.{Channel, Cond, Process}
+import io.parapet.{Event, ProcessRef}
 import org.zeromq.{SocketType, ZContext}
 
 import scala.concurrent.duration._
@@ -205,6 +205,5 @@ object NodeProcess {
   case object Init extends Event
   case class Join(group: String) extends Event
   case class Req(nodeId: String, data: Array[Byte]) extends Event
-  case class Rep(nodeId: String, data: Array[Byte]) extends Event
 
 }
