@@ -4,11 +4,11 @@ import io.parapet.{Envelope, Event}
 
 object Events {
   // Lifecycle events
-  case object Start extends Event
+  sealed trait SystemEvent extends Event
 
-  case object Stop extends Event
-
-  case object Kill extends Event
+  case object Start extends SystemEvent
+  case object Stop extends SystemEvent
+  case object Kill extends SystemEvent
 
   // System events
 
