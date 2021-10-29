@@ -16,7 +16,9 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters._
 
-class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eventStore: EventStore[F]) {
+class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig,
+                                              val eventStore: EventStore[F],
+                                              val eventTransformers: EventTransformers) {
 
   val devMode: Boolean = config.devMode
 
@@ -137,8 +139,10 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, val eve
 
 object Context {
 
-  def apply[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig, eventLog: EventStore[F]): F[Context[F]] =
-    implicitly[Concurrent[F]].delay(new Context[F](config, eventLog))
+  def apply[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig,
+                                            eventLog: EventStore[F],
+                                            eventTransformers: EventTransformers): F[Context[F]] =
+    implicitly[Concurrent[F]].delay(new Context[F](config, eventLog, eventTransformers))
 
   /** Represents a blocking operation executed by a process.
     *

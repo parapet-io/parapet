@@ -51,6 +51,7 @@ class AsyncClient[F[_]](
         case None => unit
       }
 
+      eval(logger.debug(s"$info send message")) ++
       eval(client.send(data, 0)).void
         .handleError(err => eval(logger.error(s"$info failed to send a message", err))) ++
         waitForRep.handleError(err => eval(logger.error(s"$info failed to receive a reply", err)))

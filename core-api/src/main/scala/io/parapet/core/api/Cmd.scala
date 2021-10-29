@@ -37,29 +37,27 @@ object Cmd {
   object coordinator {
 
     sealed trait Api extends Cmd
-    case class Propose(address: String, num: Double) extends Api
+    case class Propose(id: String, num: Double) extends Api
+    case object Start extends Api
+    case class Elected(id: String) extends Api
 
     sealed trait AckCode
 
     object AckCode {
-
       @AvroDoc("success")
       case object Ok extends AckCode
 
-      @AvroDoc("the process has been already selected")
-      case object Coordinator extends AckCode
+      @AvroDoc("some process has been already selected as coordinator")
+      case object Elected extends AckCode
 
       @AvroDoc("the process has already voted")
       case object Voted extends AckCode
 
-      @AvroDoc("leader has been already elected")
-      case object Elected extends AckCode
-
       @AvroDoc("the current process generated a higher number than proposer")
       case object High extends AckCode
-
     }
 
+    case class Ack(id: String, num: Double, code: AckCode) extends Api
   }
 
   object leaderElection {
