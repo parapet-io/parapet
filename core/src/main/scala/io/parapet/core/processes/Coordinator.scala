@@ -53,8 +53,7 @@ class Coordinator[F[_]](override val ref: ProcessRef,
     case Propose(senderId, num) =>
       eval(logger.debug(s"received propose from $senderId with num=$num")) ++ flow {
         if (_coordinator.nonEmpty) {
-          Ack(id, _num, AckCode.Elected) ~> peers(senderId) ++
-            Elected(_coordinator.get) ~> peers(senderId)
+          Ack(id, _num, AckCode.Elected) ~> peers(senderId) ++ Elected(_coordinator.get) ~> peers(senderId)
         } else if (_voted) {
           Ack(id, _num, AckCode.Voted) ~> peers(senderId)
         } else if (num > _num) {

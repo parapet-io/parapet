@@ -7,16 +7,15 @@ import java.util.Properties
 import scala.concurrent.duration.{FiniteDuration, _}
 import scala.util.Using
 
-case class Config(
-    id: String,
-    address: String,
-    peers: Array[PeerInfo],
-    leaderElectionThreshold: Double,
-    electionDelay: FiniteDuration,
-    heartbeatDelay: FiniteDuration,
-    monitorDelay: FiniteDuration,
-    peerTimeout: FiniteDuration,
-)
+case class Config(id: String,
+                  address: String,
+                  protocol:String,
+                  peers: Array[PeerInfo],
+                  coordinatorThreshold: Double,
+                  electionDelay: FiniteDuration,
+                  heartbeatDelay: FiniteDuration,
+                  monitorDelay: FiniteDuration,
+                  peerTimeout: FiniteDuration)
 
 object Config {
 
@@ -27,12 +26,13 @@ object Config {
       Config(
         id = prop.getProperty("node.id"),
         address = prop.getProperty("node.address"),
+        protocol = prop.getProperty("protocol", "tcp"),
         peers = parsePeers(prop.getProperty("node.peers", "")),
         electionDelay = prop.getProperty("node.election-delay").toInt.seconds,
         heartbeatDelay = prop.getProperty("node.heartbeat-delay").toInt.seconds,
         monitorDelay = prop.getProperty("node.monitor-delay").toInt.seconds,
         peerTimeout = prop.getProperty("node.peer-timeout").toInt.seconds,
-        leaderElectionThreshold = prop.getProperty("node.leader-election-threshold").toDouble,
+        coordinatorThreshold = prop.getProperty("node.coordinator-threshold").toDouble,
       )
     }
 

@@ -16,7 +16,8 @@ import org.zeromq.{SocketType, ZContext}
 
 import scala.collection.mutable
 
-class ClusterProcess(leaderElection: ProcessRef)(implicit ctxShit: Concurrent[IO]) extends Process[IO] {
+class ClusterProcess(override val ref: ProcessRef,
+                     leaderElection: ProcessRef)(implicit ctxShit: Concurrent[IO]) extends Process[IO] {
 
   import dsl._
 
@@ -51,7 +52,7 @@ class ClusterProcess(leaderElection: ProcessRef)(implicit ctxShit: Concurrent[IO
       }
     case LeaderUpdate(leaderAddress) =>
       eval(logger.debug(s"leader has been changed. leader addr: $leaderAddress")) ++
-      eval(cluster.shout(Cmd.leaderElection.LeaderUpdate(leaderAddress).toByteArray))
+        eval(cluster.shout(Cmd.leaderElection.LeaderUpdate(leaderAddress).toByteArray))
   }
 
 }
