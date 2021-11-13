@@ -34,11 +34,12 @@ object ClusterApp extends CatsApp {
         config <- loadConfig(appArgs)
         peerNetClients <- createPeerNetClients(config, config.peers)
         peers <- createPeers(config, peerNetClients.map { case (peerInfo, p) => (peerInfo, p.ref) })
+        coordinator <- createCoordinator(config, peers)
         sub <- createSub
         netServer <- createServer(sub.ref, config)
         leaderElection <- createLeaderElection(config, clusterRef, peers)
         cluster <- createClusterProcess
-        seq <- IO(Seq(cluster, leaderElection, netServer) ++ peerNetClients.map(_._2))
+        seq <- IO(Seq(coordinator, sub, cluster, leaderElection, netServer) ++ peerNetClients.map(_._2))
       } yield seq
     }
 
@@ -59,7 +60,7 @@ object ClusterApp extends CatsApp {
   }
 
   def createClusterProcess: IO[ClusterProcess] = {
-    IO(new ClusterProcess(coordinatorRef, leaderElectionRef))
+    IO(new ClusterProcess(clusterRef, leaderElectionRef))
   }
 
   def createServer(sink: ProcessRef, config: Config): IO[AsyncServer[IO]] = IO {
@@ -81,7 +82,7 @@ object ClusterApp extends CatsApp {
   }
 
   def createSub: IO[Sub[IO]] = IO {
-    Sub[IO](Seq(
+    val sub = Sub[IO](Seq(
       Subscription(coordinatorRef, {
         case _: Cmd.coordinator.Api => ()
       }),
@@ -90,6 +91,12 @@ object ClusterApp extends CatsApp {
         case _: Cmd.leaderElection.Api => ()
       })
     ))
+
+    eventTransformer(sub.ref, EventTransformer {
+      case e: Cmd.netServer.Message => Cmd(e.data)
+    })
+
+    sub
   }
 
   def createPeerNetClients(config: Config,

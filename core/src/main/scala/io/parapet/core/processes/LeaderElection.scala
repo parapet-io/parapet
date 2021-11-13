@@ -31,8 +31,14 @@ class LeaderElection[F[_]](override val ref: ProcessRef,
     // ------------------------BEGIN------------------------------ //
     case Begin =>
       implicit val correlationId: CorrelationId = CorrelationId()
-      if (state.peers.hasMajority && !state.waitForLeader) {
-        eval(state.waitForLeader(true)) ++ Cmd.coordinator.Start ~> state.coordinatorRef
+      if (state.peers.hasMajority) {
+        if (!state.waitForLeader) {
+          log("send start to coordinator") ++
+            eval(state.waitForLeader(true)) ++
+            Cmd.coordinator.Start ~> state.coordinatorRef
+        } else {
+          log("already waiting for a coordinator")
+        }
       } else {
         log("cluster is not complete", Level.WARN)
       }
@@ -309,6 +315,7 @@ object LeaderElection {
     def reset():Unit = {
       _coordinator = false
       _leader = Option.empty
+      _waitForCoordinator = false
     }
 
   }
