@@ -73,7 +73,7 @@ class Coordinator[F[_]](override val ref: ProcessRef,
           case AckCode.Ok => eval {
             _votes = _votes + 1
           } ++ flow {
-            if (_votes >= peers.size / 2 + 1) {
+            if (_votes >= peers.size / 2 + 1 && _coordinator.isEmpty) {
               eval {
                 _coordinator = Option(id)
               } ++ sendToAll(Elected(id), peersList :+ client)

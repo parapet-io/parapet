@@ -3,7 +3,7 @@ package io.parapet.tests.intg
 import cats.effect.Concurrent
 import cats.implicits._
 import io.parapet.core.Scheduler._
-import io.parapet.core.{Context, ExecutionTrace, Parapet, Process, Scheduler}
+import io.parapet.core.{Context, EventTransformers, ExecutionTrace, Parapet, Process, Scheduler}
 import io.parapet.implicits._
 import io.parapet.syntax.logger.MDCFields
 import io.parapet.tests.intg.SchedulerCorrectnessSpec.TaskProcessingTime._
@@ -192,7 +192,7 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with Integrati
 
       val program = for {
         context <- Context[F](Parapet.ParConfig(processBufferSize = -1,
-          schedulerConfig = spec.config), io.parapet.core.EventStore.stub)(ct, contextShift)
+          schedulerConfig = spec.config), io.parapet.core.EventStore.stub, EventTransformers.empty)(ct, contextShift)
         scheduler <- Scheduler[F](spec.config, context, interpreter(context))
         fiber <- ct.start(scheduler.start)
         _ <- context.start(scheduler)

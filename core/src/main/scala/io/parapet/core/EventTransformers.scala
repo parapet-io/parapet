@@ -24,4 +24,6 @@ object EventTransformers {
   }
 
   def builder: Builder = new Builder
+
+  def empty: EventTransformers = new EventTransformers(Map.empty)
 }
