@@ -17,7 +17,7 @@ import scala.concurrent.duration._
 
 class LeaderElectionSpec extends AnyFunSuite {
 
-  test("a node received elected received leader timeout") {
+  test("a node received elected received leader timeout", Lemma1) {
     // given
     val p1Addr = "p1:5555"
     val p2Addr = "p2:6666"
@@ -46,7 +46,7 @@ class LeaderElectionSpec extends AnyFunSuite {
 
   }
 
-  test("a node that received announce", Lemma8) {
+  test("a node that received announce", Lemma2) {
     // given
     val p1Addr = "p1:5555"
     val p2Addr = "p2:6666"
@@ -74,7 +74,7 @@ class LeaderElectionSpec extends AnyFunSuite {
     )
   }
 
-  test("a leader crashed and cluster is complete", Lemma9) {
+  test("a leader crashed and cluster is complete", Lemma3) {
     // given
     val p1Addr = "p1:5555"
     val p2Addr = "p2:6666"
@@ -115,7 +115,7 @@ class LeaderElectionSpec extends AnyFunSuite {
     )
   }
 
-  test("a leader crashed and cluster is not complete", Lemma9) {
+  test("a leader crashed and cluster is not complete") {
     // given
     val p1Addr = "p1:5555"
     val p2Addr = "p2:6666"
@@ -153,7 +153,7 @@ class LeaderElectionSpec extends AnyFunSuite {
     execution.trace shouldBe Seq.empty
   }
 
-  test("a node joins complete cluster with active leader and receives heartbeat from leader", Lemma11) {
+  test("a node joins complete cluster with active leader and receives heartbeat from leader", Lemma4) {
     // given
     val p1Addr = "p1:5555"
     val p2Addr = "p2:6666"
@@ -182,7 +182,7 @@ class LeaderElectionSpec extends AnyFunSuite {
     execution.trace shouldBe Seq.empty
   }
 
-  test("a node joins incomplete cluster with active leader and receives heartbeat from leader", Lemma11) {
+  test("a node joins incomplete cluster with active leader and receives heartbeat from leader") {
     // given
     val p1Addr = "p1:5555"
     val p2Addr = "p2:6666"
@@ -213,7 +213,7 @@ class LeaderElectionSpec extends AnyFunSuite {
     execution.trace shouldBe Seq.empty
   }
 
-  test("a node joins complete cluster with active leader and receives heartbeat from non leader", Lemma11) {
+  test("a node joins complete cluster with active leader and receives heartbeat from non leader") {
     // given
     val p1Addr = "p1:5555"
     val p2Addr = "p2:6666"
@@ -267,7 +267,7 @@ class LeaderElectionSpec extends AnyFunSuite {
 
   }
 
-  test("leader crashed and joined the cluster", Lemma12) {
+  test("leader crashed and joined the cluster", Lemma5) {
     // given
     val p1Addr = "p1:5555"
     val p2Addr = "p2:6666"
@@ -293,32 +293,14 @@ class LeaderElectionSpec extends AnyFunSuite {
 
 object LeaderElectionSpec {
 
-  import io.parapet.core.doc.RouletteLeaderElectionDoc.Lemmas
+  import io.parapet.core.doc.LeaderElectionDoc.Lemmas
 
   // @formatter:off
   object Lemma1 extends Tag(Lemmas.Lemma1.description)
-
   object Lemma2 extends Tag(Lemmas.Lemma2.description)
-
   object Lemma3 extends Tag(Lemmas.Lemma3.description)
-
   object Lemma4 extends Tag(Lemmas.Lemma4.description)
-
   object Lemma5 extends Tag(Lemmas.Lemma5.description)
-
-  object Lemma6 extends Tag(Lemmas.Lemma6.description)
-
-  object Lemma7 extends Tag(Lemmas.Lemma7.description)
-
-  object Lemma8 extends Tag(Lemmas.Lemma8.description)
-
-  object Lemma9 extends Tag(Lemmas.Lemma9.description)
-
-  object Lemma10 extends Tag(Lemmas.Lemma10.description)
-
-  object Lemma11 extends Tag(Lemmas.Lemma11.description)
-
-  object Lemma12 extends Tag(Lemmas.Lemma12.description)
   // @formatter:on
 
   val eventMapper: Event => Event = {

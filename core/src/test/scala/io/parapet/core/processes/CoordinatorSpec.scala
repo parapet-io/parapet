@@ -4,13 +4,15 @@ import cats.Id
 import io.parapet.ProcessRef
 import io.parapet.core.TestUtils.{Execution, IdInterpreter, Message}
 import io.parapet.core.api.Cmd.coordinator._
+import io.parapet.core.doc.CoordinatorDoc.Lemmas
 import io.parapet.core.processes.Coordinator.Generator
+import org.scalatest.Tag
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers._
 
 class CoordinatorSpec extends AnyFunSuite {
 
-  test("a node satisfying the launch condition") {
+  test("a node satisfying the launch condition", Lemma1) {
 
     // given
     val coordinatorRef = ProcessRef("coordinator")
@@ -31,7 +33,7 @@ class CoordinatorSpec extends AnyFunSuite {
       Message(Coordinator.Timeout, coordinatorRef))
   }
 
-  test("a node receives propose with higher number") {
+  test("a node receives propose with higher number", Lemma2) {
     // given
     val coordinatorRef = ProcessRef("coordinator")
     val p1 = ProcessRef("p1")
@@ -54,7 +56,7 @@ class CoordinatorSpec extends AnyFunSuite {
 
   }
 
-  test("a node with higher number receives propose") {
+  test("a node with higher number receives propose", Lemma3) {
     // given
     val coordinatorRef = ProcessRef("coordinator")
     val p1 = ProcessRef("p1")
@@ -76,7 +78,7 @@ class CoordinatorSpec extends AnyFunSuite {
     } shouldBe true
   }
 
-  test("a node has the majority of positive responses") {
+  test("a node has the majority of positive responses", Lemma4) {
     // given
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
@@ -103,7 +105,7 @@ class CoordinatorSpec extends AnyFunSuite {
       Message(Elected("p1"), p1))
   }
 
-  test("a coordinator node receives proposal") {
+  test("a coordinator node receives proposal", Lemma5) {
     // given
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
@@ -131,7 +133,7 @@ class CoordinatorSpec extends AnyFunSuite {
       Message(Elected("p1"), p3))
   }
 
-  test("a node that already voted receives proposal") {
+  test("a node that already voted receives proposal", Lemma6) {
     // given
     val p1 = ProcessRef("p1")
     val p2 = ProcessRef("p2")
@@ -181,4 +183,13 @@ class CoordinatorSpec extends AnyFunSuite {
       override def generate: Coordinator.MinMax = Coordinator.MinMax(value, value)
     }
   }
+
+  // @formatter:off
+  object Lemma1  extends  Tag(Lemmas.Lemma1.description)
+  object Lemma2  extends  Tag(Lemmas.Lemma2.description)
+  object Lemma3  extends  Tag(Lemmas.Lemma3.description)
+  object Lemma4  extends  Tag(Lemmas.Lemma4.description)
+  object Lemma5  extends  Tag(Lemmas.Lemma5.description)
+  object Lemma6  extends  Tag(Lemmas.Lemma6.description)
+  // @formatter:on
 }
