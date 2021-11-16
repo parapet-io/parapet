@@ -84,8 +84,7 @@ object Cmd {
     @AvroDoc("coordinator sends announce to a node that will become a new leader")
     case class Announce(address: String) extends Api
     case class Heartbeat(address: String, leader: Option[String] = None) extends Api
-    //  case class Broadcast(data: Array[Byte]) extends Api
-    //  case class BroadcastResult(majorityCount: Int) extends Api
+    case class Broadcast(data: Array[Byte]) extends Api
 
     // client facing api
     case class Who(clientId: String) extends Api
@@ -111,6 +110,11 @@ object Cmd {
     case class GetNodeInfo(senderId: String, id: String) extends Api
     case class NodeInfo(id: String, address: String, code: Code) extends Api
     case class Ack(msg: String, code: Code) extends Api
+
+    case class Node(id: String, protocol: String, address: String, groups: Set[String]) extends Api
+    case class State(version: Long, nodes: List[Node]) extends Api
+    case object GetState extends Api
+
   }
 
   object clusterNode {

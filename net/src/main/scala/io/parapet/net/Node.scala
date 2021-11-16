@@ -14,7 +14,7 @@ import scala.util.Try
 class Node(val id: String,
            private var _address: String,
            private val socket: Socket,
-           protocol: String = "tcp") {
+           val protocol: String = "tcp") {
 
   def address: String = _address
 

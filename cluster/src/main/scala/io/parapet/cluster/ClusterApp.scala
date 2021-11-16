@@ -33,7 +33,7 @@ object ClusterApp extends CatsApp {
         appArgs <- parseArgs(args)
         config <- loadConfig(appArgs)
         peerNetClients <- createPeerNetClients(config, config.peers)
-        peers <- createPeers(config, peerNetClients.map { case (peerInfo, p) => (peerInfo, p.ref) })
+        peers <- createPeers(config, peerNetClients.toIndexedSeq.map { case (peerInfo, p) => (peerInfo, p.ref) })
         coordinator <- createCoordinator(config, peers)
         sub <- createSub
         netServer <- createServer(sub.ref, config)
@@ -78,7 +78,8 @@ object ClusterApp extends CatsApp {
       id = config.id,
       client = leaderElectionRef,
       peers = peers.peers.map(peer => peer.id -> peer.ref).toMap,
-      threshold = config.coordinatorThreshold)
+      threshold = config.coordinatorThreshold,
+      timeout = config.coordinatorTimeout)
   }
 
   def createSub: IO[Sub[IO]] = IO {

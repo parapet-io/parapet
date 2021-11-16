@@ -126,12 +126,7 @@ class LeaderElection[F[_]](override val ref: ProcessRef,
       implicit val correlationId: CorrelationId = CorrelationId()
       val msg = netClient.Send(Req(state.id, data).toByteArray)
       log("received broadcast") ++
-        state.peers.refs.foldLeft(unit)((acc, client) => acc ++ msg ~> client) ++
-        withSender(sender => BroadcastResult(state.peers.size / 2) ~> sender)
-
-    case BroadcastResult(res) =>
-      implicit val correlationId: CorrelationId = CorrelationId()
-      log(s"received broadcast result: $res")
+        state.peers.refs.foldLeft(unit)((acc, client) => acc ++ msg ~> client)
 
     // -----------------------REQ------------------------------- //
     case req: Req =>
@@ -350,22 +345,6 @@ object LeaderElection {
     }
   }
 
-  val GenNumAttempts = 1
-  val GenNumThreshold = 0.85
-
-  val RandomNumGen: RandomNum = i => {
-    val r = new Random()
-    var min = 1.0
-    var max = 0.0
-    (0 until i).foreach { _ =>
-      val n = r.nextDouble()
-      min = Math.min(min, n)
-      max = Math.max(max, n)
-    }
-
-    VoteNum(min, max)
-  }
-
   val Roulette: Vector[Addr] => Addr = processes => {
     val r = new Random()
     processes(r.nextInt(processes.size))
@@ -379,8 +358,6 @@ object LeaderElection {
   case class Timeout(phase: Phase) extends InternalApi
 
   // internal API
-  case class Broadcast(data: Array[Byte]) extends InternalApi
-  case class BroadcastResult(majorityCount: Int) extends InternalApi
   case object IsLeader extends InternalApi
   case class IsLeaderRep(leader: Boolean) extends InternalApi
 
