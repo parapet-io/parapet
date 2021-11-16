@@ -2,31 +2,28 @@ package io.parapet.core.processes
 
 
 import com.typesafe.scalalogging.Logger
+import io.parapet.{Event, ProcessRef}
+import io.parapet.core.Clock
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.Start
 import io.parapet.core.api.Cmd
 import io.parapet.core.api.Cmd.leaderElection._
-import io.parapet.core.processes.RouletteLeaderElection._
-import io.parapet.core.api.Cmd.netClient
-import io.parapet.core.api.Cmd.netServer
+import io.parapet.core.api.Cmd.{netClient, netServer}
+import io.parapet.core.processes.LeaderElection._
 import io.parapet.core.utils.CorrelationId
-import io.parapet.core.Clock
-import io.parapet.ProcessRef
-import io.parapet.Event
 import org.slf4j.MDC
 import org.slf4j.event.Level
 
-import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.util.Random
 
-class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.BlackHoleRef)
+class LeaderElection[F[_]](override val ref: ProcessRef,
+                           state: State,
+                           sink: ProcessRef = ProcessRef.BlackHoleRef)
   extends ProcessWithState[F, State](state) {
 
   import dsl._
-
-  override val ref: ProcessRef = state.ref
-  private val logger = Logger[RouletteLeaderElection[F]]
+  private val logger = Logger[LeaderElection[F]]
 
   override def handle: Receive = {
     case Start => heartbeatLoopAsync ++ monitorClusterLoopAsync
@@ -35,76 +32,29 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
     case Begin =>
       implicit val correlationId: CorrelationId = CorrelationId()
       if (state.peers.hasMajority) {
-        if (!state.voted) { // this process received a Propose message in the current round
-          for {
-            success <- eval(state.genRndNumAndUpdate())
-            _ <-
-              if (success) {
-                eval {
-                  state.votes = 1 // vote for itself
-                } ++ sendPropose ++ waitForCoordinator
-              } else {
-                log(s"failed to generate a random num > threshold. the highest generated number: ${state.num}")
-              }
-          } yield ()
+        if (!state.waitForLeader) {
+          log("send start to coordinator") ++
+            eval(state.waitForLeader(true)) ++
+            Cmd.coordinator.Start ~> state.coordinatorRef
         } else {
-          log("already voted in this round")
+          log("already waiting for a coordinator")
         }
       } else {
         log("cluster is not complete", Level.WARN)
       }
 
-    // --------------------PROPOSE--------------------------- //
-    case Propose(sender, num) =>
+    case Cmd.coordinator.Elected(coordinator) =>
       implicit val correlationId: CorrelationId = CorrelationId()
-      val peer = state.peers.get(sender)
-      val action =
-        if (state.coordinator) {
-          Ack(state.addr, state.num, AckCode.Coordinator).toClient ~> peer.netClient
-        } else if (state.voted) {
-          Ack(state.addr, state.num, AckCode.Voted).toClient ~> peer.netClient
-        } else if (state.hasLeader) {
-          Ack(state.addr, state.num, AckCode.Elected).toClient ~> peer.netClient
-        } else if (num > state.roundNum) {
-          eval {
-            state.voted = true
-            state.roundNum = num
-          } ++ Ack(state.addr, state.num, AckCode.Ok).toClient  ~> peer.netClient ++ waitForHeartbeat
-        } else {
-          Ack(state.addr, state.num, AckCode.High).toClient  ~> peer.netClient
-        }
-
-      log(s"received Propose($sender, $num)") ++ action
-
-    // -----------------------ACK---------------------------- //
-    case Ack(sender, num, code) =>
-      implicit val correlationId: CorrelationId = CorrelationId()
-      val action =
-        code match {
-          case AckCode.Ok =>
-            eval {
-              state.votes = state.votes + 1
-              state.peerNum += (sender -> num)
-            } ++
-              (if (!state.coordinator && receivedMajorityOfVotes) {
-                 for {
-                   _ <- eval(state.coordinator = true)
-                   leaderAddr <- eval(state.roulette(state.peers.alive.map(_.address)))
-                   _ <- log("became coordinator")
-                   _ <- Announce(state.addr).toClient ~> state.peers.get(leaderAddr).netClient
-                   _ <- log(s"send announce to $leaderAddr")
-                   _ <- waitForHeartbeat
-                 } yield ()
-               } else {
-                 unit
-               })
-          case AckCode.Coordinator => log(s"process '$sender' is already coordinator")
-          case AckCode.Voted => log(s"process '$sender' has already voted")
-          case AckCode.High => log(s"process '$sender' has the highest number")
-          case AckCode.Elected => log("leader already elected")
-        }
-
-      log(s"received Ack(addr=$sender), num=$num, code=$code") ++ action
+      (if (coordinator == state.id) {
+        for {
+          leaderAddress <- eval(state.roulette(state.peers.alive.map(_.address)))
+          _ <- log("became coordinator")
+          _ <- Announce(state.addr) ~> state.peers.get(leaderAddress).ref
+          _ <- log(s"send announce to $leaderAddress")
+        } yield ()
+      } else {
+        log(s"coordinator=$coordinator")
+      }) ++ waitForHeartbeat
 
     // -----------------------ANNOUNCE---------------------------- //
     case Announce(sender) =>
@@ -112,17 +62,8 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
       log(s"received Announce(sender=$sender)") ++
         eval {
           require(state.leader.isEmpty, "current leader should be discarded")
-          state.leader = Option(state.addr)
+          state.leader(state.addr)
         } ++ LeaderUpdate(state.addr) ~> sink
-
-    // -----------------------TIMEOUT(COORDINATOR)----------------------- //
-    case Timeout(Coordinator) =>
-      implicit val correlationId: CorrelationId = CorrelationId()
-      if (!state.coordinator) { // todo: should it be wrapped in flow ?
-        log("did not receive a majority of votes to become a coordinator") ++ reset
-      } else {
-        unit
-      }
 
     // -----------------------TIMEOUT(LEADER)--------------------------------- //
     case Timeout(Leader) =>
@@ -147,7 +88,7 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
               state.leader match {
                 case None =>
                   if (state.clusterComplete && heartbeatFromLeader) {
-                    state.leader = Option(leaderAddr)
+                    state.leader(leaderAddr)
                     logUnsafe(s"a new leader: '$leaderAddr' has been elected")
                   } else if (!state.clusterComplete && heartbeatFromLeader) {
                     logUnsafe(s"a new leader: '$leaderAddr' cannot be accepted b/c the cluster is not complete")
@@ -185,7 +126,7 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
       implicit val correlationId: CorrelationId = CorrelationId()
       val msg = netClient.Send(Req(state.id, data).toByteArray)
       log("received broadcast") ++
-        state.peers.netClients.foldLeft(unit)((acc, client) => acc ++ msg ~> client) ++
+        state.peers.refs.foldLeft(unit)((acc, client) => acc ++ msg ~> client) ++
         withSender(sender => BroadcastResult(state.peers.size / 2) ~> sender)
 
     case BroadcastResult(res) =>
@@ -204,7 +145,7 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
       implicit val correlationId: CorrelationId = CorrelationId()
       if (state.peers.idExists(clientId)) {
         log(s"received Rep from clientId: $clientId, send reply to peer") ++
-          netClient.Send(data) ~> state.peers.getById(clientId).netClient
+          netClient.Send(data) ~> state.peers.getById(clientId).ref
       } else {
 
         log(s"received Rep from clientId: $clientId, send reply to client") ++
@@ -225,15 +166,6 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
 
   // -----------------------HELPERS------------------------------- //
 
-  private def sendPropose: DslF[F, Unit] = {
-    implicit val correlationId: CorrelationId = CorrelationId()
-    state.peers.all
-      .map { case (addr, peer) =>
-        log(s"send propose to '$addr'") ++ Propose(state.addr, state.num).toClient ~> peer.netClient
-      }
-      .fold(unit)(_ ++ _)
-  }
-
   private def heartbeatLoopAsync: DslF[F, Unit] = fork(heartbeatLoop)
 
   private def heartbeatLoop: DslF[F, Unit] = {
@@ -248,21 +180,10 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
     implicit val correlationId: CorrelationId = CorrelationId()
     state.peers.all
       .map { case (addr, peer) =>
-        log(s"send heartbeat to $addr") ++ Heartbeat(state.addr, state.leader).toClient ~> peer.netClient
+        log(s"send heartbeat to peer=$addr") ++ Heartbeat(state.addr, state.leader) ~> peer.ref
       }
       .fold(unit)(_ ++ _)
   }
-
-  // This nodes waits for majority of votes to become a coordinator
-  private def waitForCoordinator: DslF[F, Unit] = {
-    implicit val correlationId: CorrelationId = CorrelationId()
-    for {
-      _ <- log("wait for majority of votes or heartbeat from a leader")
-      _ <- fork(delay(state.timeouts.coordinator) ++ Timeout(Coordinator) ~> ref)
-    } yield ()
-  }
-
-  private[core] def receivedMajorityOfVotes: Boolean = state.votes >= state.peers.size / 2 + 1
 
   private def waitForHeartbeat: DslF[F, Unit] = {
     implicit val correlationId: CorrelationId = CorrelationId()
@@ -314,14 +235,7 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
 
   def resetUnsafe()(implicit correlationId: CorrelationId): Unit = {
     logUnsafe("reset the state and start a new election round")
-    state.round = state.round + 1
-    state.votes = 0
-    state.num = 0.0
-    state.roundNum = 0.0
-    state.coordinator = false
-    state.peerNum.clear()
-    state.leader = Option.empty[String]
-    state.voted = false
+    state.reset()
   }
 
   def log(msg: => String, lvl: Level = Level.DEBUG, ex: Option[Exception] = Option.empty)(implicit
@@ -355,7 +269,7 @@ class RouletteLeaderElection[F[_]](state: State, sink: ProcessRef = ProcessRef.B
 
 }
 
-object RouletteLeaderElection {
+object LeaderElection {
 
   case class VoteNum(min: Double, max: Double)
 
@@ -374,47 +288,36 @@ object RouletteLeaderElection {
       monitor: FiniteDuration = 10.seconds,
   )
 
-  class State(
-               val ref: ProcessRef,
-               val id: String,
-               val addr: Addr,
-               val netServer: ProcessRef,
-               val peers: Peers,
-               val random: RandomNum = RandomNumGen,
-               val roulette: Vector[Addr] => Addr = Roulette,
-               val timeouts: Timeouts = Timeouts(),
-               val delays: Delays = Delays(),
-               val rndNumMinRounds: Int = GenNumAttempts,
-               val threshold: Double = GenNumThreshold,
-             ) {
-    var num: Double = 0.0
-    var roundNum: Double = 0.0
-    var votes = 0
-    var round = 0
-    val peerNum: mutable.Map[String, Double] = mutable.Map.empty // peer addr to its random num
-    var leader = Option.empty[Addr]
-    // this flag indicates that this process was chosen as coordinator
-    var coordinator = false
-    // this flag indicates that this process has already voted in the current round
-    var voted = false
+  class State(val id: String,
+              val addr: Addr,
+              val netServer: ProcessRef,
+              val peers: Peers,
+              val coordinatorRef: ProcessRef,
+              val roulette: Vector[Addr] => Addr = Roulette,
+              val timeouts: Timeouts = Timeouts(),
+              val delays: Delays = Delays()) {
 
-    def hasLeader: Boolean = leader.exists(l => addr == l || peers.get(l).isAlive)
+    private var _leader = Option.empty[Addr]
+    private var _coordinator = false
+    private var _waitForCoordinator = false
+
+    def waitForLeader: Boolean = _waitForCoordinator
+    def waitForLeader(value: Boolean):Unit = _waitForCoordinator = value
+    def leader(address: String):Unit = _leader = Option(address)
+    def leader: Option[String] = _leader
+    def coordinator(value:Boolean): Unit = _coordinator = value
+    def coordinator: Boolean = _coordinator
+
+    def hasLeader: Boolean = _leader.exists(l => addr == l || peers.get(l).isAlive)
 
     def clusterComplete: Boolean = peers.hasMajority
 
-    /** Generates a random number exactly [[rndNumMinRounds]] times and assigns a highest random number to [[num]].
-      * Sets [[roundNum]] to [[VoteNum.max]] if [[VoteNum.min]] > [[threshold]]
-      *
-      * @return true if [[VoteNum.min]] > [[threshold]], otherwise false
-      */
-    def genRndNumAndUpdate(): Boolean = {
-      val res = random(rndNumMinRounds)
-      num = res.max
-      if (res.min > threshold) {
-        roundNum = res.max
-      }
-      res.min > threshold
+    def reset():Unit = {
+      _coordinator = false
+      _leader = Option.empty
+      _waitForCoordinator = false
     }
+
   }
 
   object State {
@@ -469,7 +372,6 @@ object RouletteLeaderElection {
   }
 
   sealed trait Phase
-  case object Coordinator extends Phase
   case object Leader extends Phase
 
   sealed trait InternalApi extends Event
@@ -482,14 +384,10 @@ object RouletteLeaderElection {
   case object IsLeader extends InternalApi
   case class IsLeaderRep(leader: Boolean) extends InternalApi
 
-  implicit class CmdOps(e: Api) {
-    def toClient: Event = netClient.Send(e.toByteArray)
-  }
-
   class Peer(
               val id: String,
               val address: Addr,
-              val netClient: NetClient,
+              val ref: ProcessRef,
               val timeoutMs: Long,
               val clock: Clock,
   ) {
@@ -513,7 +411,7 @@ object RouletteLeaderElection {
   case class Peers(peers: Vector[Peer]) {
     private val map: Map[Addr, Peer] = peers.map(p => p.address -> p).toMap
     private val idMap: Map[Addr, Peer] = peers.map(p => p.id -> p).toMap
-    val netClients: Seq[NetClient] = peers.map(_.netClient)
+    val refs: Seq[ProcessRef] = peers.map(_.ref)
 
     def all: Map[Addr, Peer] = map
 
@@ -531,7 +429,7 @@ object RouletteLeaderElection {
 
     def idExists(id: String): Boolean = idMap.contains(id)
 
-    def getNetClient(addr: Addr): NetClient = get(addr).netClient
+    def ref(address: Addr): NetClient = get(address).ref
 
     def alive: Vector[Peer] = peers.filter(_.isAlive)
 
@@ -550,14 +448,14 @@ object RouletteLeaderElection {
       .mkString("; ")
   }
 
-  object Peers {
+  object Peer {
 
     def builder: Builder = new Builder()
 
     class Builder {
       private var _id: String = _
       private var _address: String = _
-      private var _netClient: NetClient = _
+      private var _ref: ProcessRef = _
       private var _timeoutMs = 10000L
       private var _clock: Clock = Clock()
 
@@ -571,8 +469,8 @@ object RouletteLeaderElection {
         this
       }
 
-      def netClient(netClient: NetClient): Builder = {
-        _netClient = netClient
+      def ref(ref: ProcessRef): Builder = {
+        _ref = ref
         this
       }
 
@@ -589,12 +487,12 @@ object RouletteLeaderElection {
       def build: Peer = {
         require(Option(_id).exists(_.nonEmpty), "id cannot be null or empty")
         require(Option(_address).exists(_.nonEmpty), "address cannot be null or empty")
-        require(Option(_netClient).isDefined, "netClient cannot be null")
+        require(Option(_ref).isDefined, "ref cannot be null")
         require(Option(_timeoutMs).exists(_ > 0), "timeout must be > 0")
         require(Option(_clock).isDefined, "clock cannot be null")
         new Peer(id = _id,
           address = _address,
-          netClient = _netClient,
+          ref = _ref,
           timeoutMs = _timeoutMs,
           clock = _clock)
       }

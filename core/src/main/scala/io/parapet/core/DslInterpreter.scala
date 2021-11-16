@@ -102,9 +102,13 @@ object DslInterpreter {
           }
       }
 
-    def send(sender: ProcessRef, event: () => Event, receiver: ProcessRef, execTrace: ExecutionTrace): F[Unit] =
+    def send(sender: ProcessRef, eventThunk: () => Event, receiver: ProcessRef, execTrace: ExecutionTrace): F[Unit] =
       ct.suspend {
-        val envelope = Envelope(sender, event(), receiver)
+        val event = context.eventTransformers.get(receiver) match {
+          case Some(t) => t.transform(eventThunk())
+          case None => eventThunk()
+        }
+        val envelope = Envelope(sender, event, receiver)
         context.addToEventLog(envelope) >>
           context.schedule(Deliver(envelope, execTrace.add(envelope.id))).flatMap {
             case ProcessQueueIsFull => context.eventStore.write(envelope)

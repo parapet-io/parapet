@@ -1,8 +1,8 @@
 package io.parapet.net
 
+import io.parapet.ProcessRef
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.{Start, Stop}
-import io.parapet.{ProcessRef, Event}
 import io.parapet.core.api.Cmd.netServer
 import org.slf4j.LoggerFactory
 import org.zeromq.{SocketType, ZContext, ZMQException, ZMsg}
@@ -11,7 +11,6 @@ import zmq.ZError
 class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: ProcessRef)
   extends io.parapet.core.Process[F] {
 
-  import AsyncServer._
   import dsl._
 
   private lazy val zmqContext = new ZContext(1)

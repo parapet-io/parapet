@@ -29,6 +29,7 @@ object TestUtils {
 
     override def apply[A](fa: FlowOp[Id, A]): Id[A] = {
       fa match {
+        case f: SuspendF[Id,Dsl[Id, *], A] => f.thunk().foldMap(this)
         case _: UnitFlow[Id]@unchecked => ()
         case eval: Eval[Id, Dsl[Id, *], A]@unchecked =>
           implicitly[Monad[Id]].pure(eval.thunk())

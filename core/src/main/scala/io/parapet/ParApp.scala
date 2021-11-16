@@ -8,7 +8,7 @@ import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.core.{Context, DslInterpreter, EventStore, Parallel, Process, Scheduler}
+import io.parapet.core.{Context, DslInterpreter, EventStore, EventTransformer, EventTransformers, Parallel, Process, Scheduler}
 import io.parapet.syntax.FlowSyntax
 import org.slf4j.LoggerFactory
 
@@ -22,6 +22,8 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
   lazy val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
 
   val config: ParConfig = ParConfig.default
+
+  private val eventTransformers = EventTransformers.builder
 
   implicit def contextShift: ContextShift[F]
 
@@ -43,6 +45,10 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
 
   def run: F[Unit] = run(Array.empty)
 
+  def eventTransformer(ref: ProcessRef, t: EventTransformer): Unit = {
+    eventTransformers.add(ref, t)
+  }
+
   def run(args: Array[String]): F[Unit] =
     for {
       ps <- processes(args)
@@ -50,7 +56,7 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
         if (ps.isEmpty) {
           ct.raiseError[Unit](new RuntimeException("Initialization error:  at least one process must be provided"))
         } else ct.unit
-      context <- Context(config, eventLog)
+      context <- Context(config, eventLog, eventTransformers.build)
       interpreter <- ct.pure(interpreter(context))
       _ <- ct.delay(DslInterpreter.instance(interpreter))
       scheduler <- Scheduler.apply[F](config.schedulerConfig, context, interpreter)
