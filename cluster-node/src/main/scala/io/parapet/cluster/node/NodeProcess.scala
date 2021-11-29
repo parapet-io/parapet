@@ -178,7 +178,7 @@ class NodeProcess[F[_]: Concurrent](
     case netServer.Message(id, data) =>
       Cmd(data) match {
         case Cmd.clusterNode.Req(id, data) => NodeProcess.Req(id, data) ~> client
-        case Cmd.leaderElection.LeaderUpdate(leaderAddr) =>
+        case Cmd.leaderElection.LeaderUpdate(_, leaderAddr) =>
           eval(logger.debug(s"leader has been updated. old=${_leader} new=$leaderAddr")) ++ getLeader
         case Cmd.cluster.NodeInfo(id, addr, code) if code == Cmd.cluster.Code.Joined =>
           eval {

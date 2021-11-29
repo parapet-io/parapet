@@ -231,8 +231,10 @@ object Dsl {
       * @param child  the child process
       * @return Unit
       */
-    def register(parent: ProcessRef, child: Process[F]): Free[C, Unit] =
-      Free.inject[FlowOp[F, *], C](Register(parent, child))
+    def register(parent: ProcessRef, childList: Process[F]*): Free[C, Unit] = {
+      childList.map(child => Free.inject[FlowOp[F, *], C](Register(parent, child)))
+        .foldLeft(unit)((res, a) => res.flatMap(_ => a))
+    }
 
     /** Runs two flows concurrently. The loser of the race is canceled.
       *

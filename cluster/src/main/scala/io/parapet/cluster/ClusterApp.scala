@@ -3,10 +3,10 @@ package io.parapet.cluster
 import cats.effect.IO
 import io.parapet.cluster.Config.PeerInfo
 import io.parapet.core.api.Cmd
-import io.parapet.core.processes.{Coordinator, LeaderElection, Sub}
 import io.parapet.core.processes.LeaderElection.{Peer, Peers}
 import io.parapet.core.processes.Sub.Subscription
-import io.parapet.core.{EventTransformer, Parapet, Process}
+import io.parapet.core.processes.{Coordinator, LeaderElection, Sub}
+import io.parapet.core.{EventTransformer, Parapet}
 import io.parapet.net.{AsyncClient, AsyncServer}
 import io.parapet.{CatsApp, ProcessRef, core}
 import scopt.OParser
@@ -14,7 +14,6 @@ import scopt.OParser
 import java.nio.file.Paths
 
 object ClusterApp extends CatsApp {
-
   // refs
   private val coordinatorRef = ProcessRef("coordinator")
   private val leaderElectionRef = ProcessRef("leader-election")
@@ -24,7 +23,8 @@ object ClusterApp extends CatsApp {
   private def netClientRef(id: Int): ProcessRef = ProcessRef(s"net-client-$id")
 
   private val cmdToNetClientSendTransformer = EventTransformer {
-    case e: Cmd => Cmd.netClient.Send(e.toByteArray)
+    case e: Cmd.coordinator.Api => Cmd.netClient.Send(e.toByteArray)
+    case e: Cmd.leaderElection.Api => Cmd.netClient.Send(e.toByteArray)
   }
 
   override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] = {
@@ -38,11 +38,10 @@ object ClusterApp extends CatsApp {
         sub <- createSub
         netServer <- createServer(sub.ref, config)
         leaderElection <- createLeaderElection(config, clusterRef, peers)
-        cluster <- createClusterProcess
+        cluster <- createClusterProcess(config, peers)
         seq <- IO(Seq(coordinator, sub, cluster, leaderElection, netServer) ++ peerNetClients.map(_._2))
       } yield seq
     }
-
   }
 
   def loadConfig(appArgs: AppArgs): IO[Config] = IO(Config.load(appArgs.config))
@@ -59,8 +58,8 @@ object ClusterApp extends CatsApp {
     new LeaderElection[IO](leaderElectionRef, state, sink)
   }
 
-  def createClusterProcess: IO[ClusterProcess] = {
-    IO(new ClusterProcess(clusterRef, leaderElectionRef))
+  def createClusterProcess(config: Config, peers: Peers): IO[ClusterProcess] = {
+    IO(new ClusterProcess(clusterRef, config, peers.refs, leaderElectionRef))
   }
 
   def createServer(sink: ProcessRef, config: Config): IO[AsyncServer[IO]] = IO {

@@ -1,6 +1,6 @@
 package io.parapet.core.processes
 
-import cats.Id
+import cats.{Eval => CatsEval}
 import io.parapet.core.Clock
 import io.parapet.core.TestUtils._
 import io.parapet.core.api.Cmd
@@ -18,7 +18,7 @@ import scala.concurrent.duration._
 class LeaderElectionSpec extends AnyFunSuite {
 
   test("a node received elected received leader timeout", Lemma1) {
-    // given
+    // give
     val p1Addr = "p1:5555"
     val p2Addr = "p2:6666"
     val p1 = ProcessRef("p1")
@@ -28,12 +28,12 @@ class LeaderElectionSpec extends AnyFunSuite {
 
     val state = new State("p1", p1Addr, server, createPeers(Map(p2Addr -> p2)), coordinator)
 
-    val le = new LeaderElection[Id](p1, state)
+    val le = new LeaderElection[CatsEval](p1, state)
     val execution = new Execution()
 
     // when
-    le(Cmd.coordinator.Elected("p2")).foldMap(IdInterpreter(execution, eventMapper))
-    le(Timeout(Leader)).foldMap(IdInterpreter(execution, eventMapper))
+    le(Cmd.coordinator.Elected("p2")).foldMap(EvalInterpreter(execution, eventMapper))
+    le(Timeout(Leader)).foldMap(EvalInterpreter(execution, eventMapper))
 
     // then
     execution.print()
@@ -56,22 +56,22 @@ class LeaderElectionSpec extends AnyFunSuite {
     val server = ProcessRef("server")
     val coordinator = ProcessRef("coordinator")
 
-    val state = new State("p2", p1Addr, server, createPeers(Map(p2Addr -> p2)), coordinator)
+    val state = new State("p1", p1Addr, server, createPeers(Map(p2Addr -> p2)), coordinator)
     updatePeers(state)
 
-    val le = new LeaderElection[Id](p1, state)
+    val le = new LeaderElection[CatsEval](p1, state)
     val execution = new Execution()
 
     // when
-    le(Announce(p2Addr)).foldMap(IdInterpreter(execution, eventMapper))
-    le.sendHeartbeat.foldMap(IdInterpreter(execution, eventMapper))
+    le(Announce(p1Addr)).foldMap(EvalInterpreter(execution, eventMapper))
+    le.sendHeartbeat.foldMap(EvalInterpreter(execution, eventMapper))
 
     // then
     execution.print()
     execution.trace shouldBe Seq(
-      Message(LeaderUpdate("p1:5555"), ProcessRef("parapet-blackhole")),
-      Message(Heartbeat(p1Addr, Option(p1Addr)), p2)
-    )
+      Message(LeaderUpdate("p1", "p1:5555"), ProcessRef("parapet-blackhole")),
+      Message(LeaderUpdate("p1", "p1:5555"), p2),
+      Message(Heartbeat(p1Addr, Option(p1Addr)), p2))
   }
 
   test("a leader crashed and cluster is complete", Lemma3) {
@@ -93,18 +93,18 @@ class LeaderElectionSpec extends AnyFunSuite {
     // todo separate test case
     state.peers.alive.map(p => p.address -> p.ref).toMap shouldBe Map(p2Addr -> p2, p3Addr -> p3)
 
-    val le = new LeaderElection[Id](p1, state)
+    val le = new LeaderElection[CatsEval](p1, state)
     val execution = new Execution()
 
     // when
-    le(Heartbeat(p2Addr, Option(p2Addr))).foldMap(IdInterpreter(execution, eventMapper))
+    le(Heartbeat(p2Addr, Option(p2Addr))).foldMap(EvalInterpreter(execution, eventMapper))
     state.leader shouldBe Some(p2Addr) // todo separate test case
     state.hasLeader shouldBe true // todo separate test case
     clock.tick(2.second)
     state.leader shouldBe Some(p2Addr)
     state.hasLeader shouldBe false
     state.peers.get(p3Addr).update(clock.currentTimeMillis)
-    le.monitorCluster.foldMap(IdInterpreter(execution, eventMapper))
+    le.monitorCluster.foldMap(EvalInterpreter(execution, eventMapper))
 
     // then
     execution.print()
@@ -134,17 +134,17 @@ class LeaderElectionSpec extends AnyFunSuite {
     // todo separate test case
     state.peers.alive.map(p => p.address -> p.ref).toMap shouldBe Map(p2Addr -> p2, p3Addr -> p3)
 
-    val le = new LeaderElection[Id](p1, state)
+    val le = new LeaderElection[CatsEval](p1, state)
     val execution = new Execution()
 
     // when
-    le(Heartbeat(p2Addr, Option(p2Addr))).foldMap(IdInterpreter(execution, eventMapper))
+    le(Heartbeat(p2Addr, Option(p2Addr))).foldMap(EvalInterpreter(execution, eventMapper))
     state.leader shouldBe Some(p2Addr) // todo separate test case
     state.hasLeader shouldBe true // todo separate test case
     clock.tick(2.second)
     state.leader shouldBe Some(p2Addr)
     state.hasLeader shouldBe false
-    le.monitorCluster.foldMap(IdInterpreter(execution, eventMapper))
+    le.monitorCluster.foldMap(EvalInterpreter(execution, eventMapper))
 
     // then
     execution.print()
@@ -169,11 +169,11 @@ class LeaderElectionSpec extends AnyFunSuite {
     val state = new State("p1", p1Addr, server,
       createPeers(Map(p2Addr -> p2, p3Addr -> p3), peerHeartbeatTimeout, clock), coordinator)
 
-    val le = new LeaderElection[Id](p1, state)
+    val le = new LeaderElection[CatsEval](p1, state)
     val execution = new Execution()
 
     // when
-    le(Heartbeat(p3Addr, Some(p3Addr))).foldMap(IdInterpreter(execution, eventMapper))
+    le(Heartbeat(p3Addr, Some(p3Addr))).foldMap(EvalInterpreter(execution, eventMapper))
 
     // then
     execution.print()
@@ -199,12 +199,12 @@ class LeaderElectionSpec extends AnyFunSuite {
     val state = new State("p1", p1Addr, server,
       createPeers(Map(p2Addr -> p2, p3Addr -> p3, p4Addr -> p4), peerHeartbeatTimeout, clock), coordinator)
 
-    val le = new LeaderElection[Id](p1, state)
+    val le = new LeaderElection[CatsEval](p1, state)
     val execution = new Execution()
 
     // when
     clock.tick(1.second)
-    le(Heartbeat(p3Addr, Some(p3Addr))).foldMap(IdInterpreter(execution, eventMapper))
+    le(Heartbeat(p3Addr, Some(p3Addr))).foldMap(EvalInterpreter(execution, eventMapper))
 
     // then
     execution.print()
@@ -230,13 +230,13 @@ class LeaderElectionSpec extends AnyFunSuite {
     val state = new State("p1", p1Addr, server,
       createPeers(Map(p2Addr -> p2, p3Addr -> p3, p4Addr -> p4), peerHeartbeatTimeout, clock), coordinator)
 
-    val le = new LeaderElection[Id](p1, state)
+    val le = new LeaderElection[CatsEval](p1, state)
     val execution = new Execution()
 
     // when
     clock.tick(1.second)
     state.peers.all.values.foreach(_.update(clock.currentTimeMillis))
-    le(Heartbeat(p3Addr, Some(p2Addr))).foldMap(IdInterpreter(execution, eventMapper))
+    le(Heartbeat(p3Addr, Some(p2Addr))).foldMap(EvalInterpreter(execution, eventMapper))
 
     // then
     execution.print()
@@ -257,12 +257,12 @@ class LeaderElectionSpec extends AnyFunSuite {
     val coordinator = ProcessRef("coordinator")
     val state = new State("p1", p1Addr, server, createPeers(Map(p2Addr -> p2, p3Addr -> p3)), coordinator)
     state.leader(p2Addr)
-    val le = new LeaderElection[Id](p1, state)
+    val le = new LeaderElection[CatsEval](p1, state)
     val execution = new Execution()
 
     // when
     assertThrows[IllegalStateException] {
-      le(Heartbeat(p3Addr, Some(p3Addr))).foldMap(IdInterpreter(execution, eventMapper))
+      le(Heartbeat(p3Addr, Some(p3Addr))).foldMap(EvalInterpreter(execution, eventMapper))
     }
 
   }
@@ -279,15 +279,16 @@ class LeaderElectionSpec extends AnyFunSuite {
     state.leader(p2Addr)
 
     val execution = new Execution()
-    val le = new LeaderElection[Id](p1, state)
+    val le = new LeaderElection[CatsEval](p1, state)
 
     // when
-    le(Heartbeat(p2Addr, Option.empty)).foldMap(IdInterpreter(execution, eventMapper))
+    le(Heartbeat(p2Addr, Option.empty)).foldMap(EvalInterpreter(execution, eventMapper))
 
     // then
 
     state.leader shouldBe Option.empty
   }
+
 
 }
 

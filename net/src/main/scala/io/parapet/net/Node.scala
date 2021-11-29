@@ -20,6 +20,11 @@ class Node(val id: String,
 
   def send(data: Array[Byte]): Unit = socket.send(data)
 
+  def reconnect(): Try[Unit] = Try {
+    socket.disconnect(protocol + "://" + _address)
+    socket.connect(protocol + "://" + _address)
+  }
+
   def reconnect(newAddress: String): Try[Boolean] = {
     Try {
       if (_address != newAddress) {

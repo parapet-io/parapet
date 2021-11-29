@@ -3,20 +3,23 @@ package io.parapet.cluster
 import cats.effect.{Concurrent, IO}
 import com.typesafe.scalalogging.Logger
 import io.parapet.ProcessRef
-import io.parapet.cluster.ClusterProcess.Cluster
+import io.parapet.cluster.ClusterProcess._
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.Start
 import io.parapet.core.api.Cmd
-import io.parapet.core.api.Cmd.{cluster => api}
-import io.parapet.core.api.Cmd.leaderElection.{LeaderUpdate, Req, Broadcast}
-import io.parapet.core.api.Cmd.netServer
+import io.parapet.core.api.Cmd.leaderElection.{LeaderUpdate, Req}
+import io.parapet.core.api.Cmd.{netServer, cluster => api}
 import io.parapet.core.{Channel, Process}
-import io.parapet.net.Node
+import io.parapet.net.{ClientBroadcast, Node}
 import org.zeromq.{SocketType, ZContext}
 
 import scala.collection.mutable
+import scala.concurrent.duration._
+import scala.util.{Failure, Success}
 
 class ClusterProcess(override val ref: ProcessRef,
+                     config: Config,
+                     peers: Seq[ProcessRef],
                      leaderElection: ProcessRef)(implicit ctxShit: Concurrent[IO]) extends Process[IO] {
 
   import dsl._
@@ -25,7 +28,7 @@ class ClusterProcess(override val ref: ProcessRef,
 
   private val zmqCtx = new ZContext()
   private val logger = Logger[ClusterProcess]
-  private val cluster = new Cluster(zmqCtx)
+  private val cluster = new Cluster(config.id, zmqCtx)
   private var _stateVersion = 0L
 
   private def processJoin(clientId: String, join: api.Join): DslF[IO, Unit] = {
@@ -53,11 +56,11 @@ class ClusterProcess(override val ref: ProcessRef,
           case None => netServer.Send(clientId, Cmd.cluster.NodeInfo(id, "", api.Code.NotFound).toByteArray) ~> leaderElection
         }
         case state: api.State => flow {
-          if(state.version > _stateVersion) {
+          if (state.version > _stateVersion) {
             eval {
               logger.debug(s"newer version of state has been received. old=${_stateVersion}, new=${state.version}")
               _stateVersion = state.version
-              state.nodes.foreach { other=>
+              state.nodes.foreach { other =>
                 val node = cluster.getOrCreate(other.id, other.address)
                 node.reconnect(other.address)
                 cluster.rejoinGroups(node.id, other.groups)
@@ -66,11 +69,26 @@ class ClusterProcess(override val ref: ProcessRef,
           } else {
             eval(logger.debug(s"ignore state update. current state version ${_stateVersion} > ${state.version}"))
           }
-        }
+        } ++ netServer.Send(clientId, Cmd.cluster.Ack("", api.Code.StateUpdate).toByteArray) ~> leaderElection
       }
-    case LeaderUpdate(leaderAddress) =>
-      eval(logger.debug(s"leader has been changed. leader addr: $leaderAddress")) ++
-        eval(cluster.shout(Cmd.leaderElection.LeaderUpdate(leaderAddress).toByteArray))
+    case LeaderUpdate(leaderId, leaderAddress) =>
+      eval(logger.debug(s"leader has been changed. leader id: $leaderId, address: $leaderAddress")) ++
+        flow {
+          if (cluster.nodeId == leaderId) {
+            eval(cluster.leader(true)).flatMap {
+              case true => eval {
+                cluster.reconnect()
+                cluster.shout(Cmd.leaderElection.LeaderUpdate(config.id, leaderAddress).toByteArray)
+              }
+              case false => eval("leader has not been changed")
+            }
+          } else {
+            eval {
+              cluster.leader(false)
+              logger.debug(s"${cluster.nodeId} is not a leader")
+            }
+          }
+        }
   }
 
   private def updateStateVersion: DslF[IO, Unit] = eval {
@@ -89,21 +107,49 @@ class ClusterProcess(override val ref: ProcessRef,
   }
 
   private def publishStateUpdate: DslF[IO, Unit] = {
-    for {
-      state <- eval(createStateMessage)
-      _ <- Broadcast(state.toByteArray) ~> leaderElection
-    } yield ()
+    val stateMsg = createStateMessage
+
+    def step: DslF[IO, Unit] = {
+      flow {
+        val ch = Channel[IO]
+        val broadcast = new ClientBroadcast[IO](peers, ch.ref, (peers.size + 1) / 2, 60.seconds)
+        val msgData = Req(config.id, stateMsg.toByteArray).toByteArray
+
+        def release = halt(ch.ref) ++ halt(broadcast.ref)
+
+        val res = (register(ref, ch, broadcast) ++
+          ch.send(ClientBroadcast.Send(msgData), broadcast.ref).flatMap {
+            case Failure(err) => flow {
+              logger.error("failed to send broadcast. retry", err)
+              step
+            }
+            case Success(value) => eval(logger.debug("broadcast has been completed"))
+          }).finalize(release)
+        res
+      }
+    }
+
+    step
   }
 
 }
 
 object ClusterProcess {
 
-  class Cluster(zmqCtx: ZContext) {
+  class Cluster(val nodeId: String, zmqCtx: ZContext) {
     private val logger = Logger[Cluster]
     private val _nodes = mutable.Map.empty[String, Node]
     private val _groupToNodes = mutable.Map.empty[String, Set[String]]
     private val _nodeToGroups = mutable.Map.empty[String, Set[String]]
+    private var _leader = false
+
+    def leader(value: Boolean): Boolean = {
+      val old = _leader
+      _leader = value
+      !old
+    }
+
+    def leader: Boolean = _leader
 
     def nodes: List[Node] = _nodes.values.toList
 
@@ -123,6 +169,10 @@ object ClusterProcess {
           _nodes += id -> node
           node
       }
+    }
+
+    def reconnect(): Unit = {
+      nodes.foreach(node => node.reconnect())
     }
 
     def join(group: String, node: Node): Unit = {
