@@ -18,13 +18,24 @@ class ClientBroadcast[F[_]](refs: Seq[ProcessRef],
   private val _replies = mutable.ListBuffer.empty[netClient.Rep]
   private var _event: Event = _
   private var _started = false
+  private var _completed = false
+
+  def complete: DslF[F, Unit] = flow {
+    if (!_completed && _replies.size >= acksRequired) {
+      eval {
+        _completed = true
+      } ++ ClientBroadcast.Done(_replies.toList) ~> reply
+    } else unit
+  }
 
   override def handle: Receive = {
     case rep: netClient.Rep =>
-      eval(_replies += rep) ++
-        (if (_replies.size >= acksRequired)
-          ClientBroadcast.Done(_replies.toList) ~> reply else unit)
-    
+      if (rep.data != null) {
+        eval {
+          _replies += rep
+        } ++ complete
+      } else unit
+
     case ClientBroadcast.Send(data) =>
       eval {
         if (_started) {

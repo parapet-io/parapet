@@ -16,7 +16,7 @@ import scala.util.Try
   * @tparam F
   *   an effect type
   */
-class Channel[F[_]: Concurrent](clientRef: ProcessRef = null) extends Process[F] {
+class Channel[F[_]: Concurrent](override val ref: ProcessRef = ProcessRef.jdkUUIDRef) extends Process[F] {
 
   import dsl._
   import io.parapet.core.Channel._

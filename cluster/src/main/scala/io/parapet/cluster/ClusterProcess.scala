@@ -19,16 +19,17 @@ import scala.util.{Failure, Success}
 
 class ClusterProcess(override val ref: ProcessRef,
                      config: Config,
-                     peers: Seq[ProcessRef],
+                     peers: Map[String, ProcessRef],
                      leaderElection: ProcessRef)(implicit ctxShit: Concurrent[IO]) extends Process[IO] {
 
   import dsl._
 
-  private val ch = new Channel[IO](ref)
+  private val ch = new Channel[IO]()
 
   private val zmqCtx = new ZContext()
   private val logger = Logger[ClusterProcess]
   private val cluster = new Cluster(config.id, zmqCtx)
+  private val peerRefs = peers.values.toList
   private var _stateVersion = 0L
 
   private def processJoin(clientId: String, join: api.Join): DslF[IO, Unit] = {
@@ -55,40 +56,36 @@ class ClusterProcess(override val ref: ProcessRef,
           case Some(node) => netServer.Send(clientId, Cmd.cluster.NodeInfo(id, node.address, api.Code.Ok).toByteArray) ~> leaderElection
           case None => netServer.Send(clientId, Cmd.cluster.NodeInfo(id, "", api.Code.NotFound).toByteArray) ~> leaderElection
         }
-        case state: api.State => flow {
-          if (state.version > _stateVersion) {
-            eval {
-              logger.debug(s"newer version of state has been received. old=${_stateVersion}, new=${state.version}")
-              _stateVersion = state.version
-              state.nodes.foreach { other =>
-                val node = cluster.getOrCreate(other.id, other.address)
-                node.reconnect(other.address)
-                cluster.rejoinGroups(node.id, other.groups)
+        case state: api.State =>
+          updateState(state).flatMap {
+            case true => eval(logger.debug(s"state has been updated. current version=${_stateVersion}"))
+            case false => eval(logger.debug(s"ignore state update. current state version ${_stateVersion} >= ${state.version}"))
+          } ++ netServer.Send(clientId, Cmd.cluster.Ack("", api.Code.StateUpdate).toByteArray) ~> leaderElection
+        case _: api.GetState.type =>
+          eval(logger.debug(s"received get state from $clientId")) ++
+            netServer.Send(clientId, createStateMessage.toByteArray) ~> leaderElection
+        case LeaderUpdate(leaderId, leaderAddress) =>
+          eval(logger.debug(s"leader has been changed. leader id: $leaderId, address: $leaderAddress")) ++
+            flow {
+              if (cluster.nodeId == leaderId) {
+                eval(cluster.leader(true)).flatMap {
+                  case true =>
+                    pullState ++ publishStateUpdate ++
+                      eval {
+                        cluster.reconnect()
+                        cluster.shout(Cmd.leaderElection.LeaderUpdate(config.id, leaderAddress).toByteArray)
+                      }
+                  case false => unit
+                }
+              } else {
+                eval {
+                  cluster.leader(false)
+                  logger.debug(s"${cluster.nodeId} is not a leader")
+                }
               }
             }
-          } else {
-            eval(logger.debug(s"ignore state update. current state version ${_stateVersion} > ${state.version}"))
-          }
-        } ++ netServer.Send(clientId, Cmd.cluster.Ack("", api.Code.StateUpdate).toByteArray) ~> leaderElection
       }
-    case LeaderUpdate(leaderId, leaderAddress) =>
-      eval(logger.debug(s"leader has been changed. leader id: $leaderId, address: $leaderAddress")) ++
-        flow {
-          if (cluster.nodeId == leaderId) {
-            eval(cluster.leader(true)).flatMap {
-              case true => eval {
-                cluster.reconnect()
-                cluster.shout(Cmd.leaderElection.LeaderUpdate(config.id, leaderAddress).toByteArray)
-              }
-              case false => eval("leader has not been changed")
-            }
-          } else {
-            eval {
-              cluster.leader(false)
-              logger.debug(s"${cluster.nodeId} is not a leader")
-            }
-          }
-        }
+
   }
 
   private def updateStateVersion: DslF[IO, Unit] = eval {
@@ -111,8 +108,8 @@ class ClusterProcess(override val ref: ProcessRef,
 
     def step: DslF[IO, Unit] = {
       flow {
-        val ch = Channel[IO]
-        val broadcast = new ClientBroadcast[IO](peers, ch.ref, (peers.size + 1) / 2, 60.seconds)
+        val ch = new Channel[IO](ProcessRef("pubState-" + System.nanoTime()))
+        val broadcast = new ClientBroadcast[IO](peerRefs, ch.ref, (peers.size + 1) / 2, 60.seconds)
         val msgData = Req(config.id, stateMsg.toByteArray).toByteArray
 
         def release = halt(ch.ref) ++ halt(broadcast.ref)
@@ -120,16 +117,69 @@ class ClusterProcess(override val ref: ProcessRef,
         val res = (register(ref, ch, broadcast) ++
           ch.send(ClientBroadcast.Send(msgData), broadcast.ref).flatMap {
             case Failure(err) => flow {
-              logger.error("failed to send broadcast. retry", err)
+              logger.error("failed to replicate the cluster state. retry", err)
               step
             }
-            case Success(value) => eval(logger.debug("broadcast has been completed"))
+            case Success(_) => eval(logger.debug("cluster state has been replicated"))
           }).finalize(release)
         res
       }
     }
 
-    step
+    eval(logger.debug(s"replicate state. version=${_stateVersion}")) ++ step
+  }
+
+  private def updateState(state: api.State): DslF[IO, Boolean] = {
+    if (state.version > _stateVersion) {
+      eval {
+        logger.debug(s"newer version of state has been received. old=${_stateVersion}, new=${state.version}")
+        _stateVersion = state.version
+        state.nodes.foreach { other =>
+          val node = cluster.getOrCreate(other.id, other.address)
+          node.reconnect(other.address)
+          cluster.rejoinGroups(node.id, other.groups)
+        }
+        true
+      }
+    } else eval(false)
+  }
+
+  import cats.implicits._
+
+  private def pullState2: DslF[IO, Unit] = {
+    eval(logger.debug("pullState"))
+  }
+
+  private def pullState: DslF[IO, Unit] = {
+    val msg = api.GetState.toByteArray
+
+    def step: DslF[IO, Unit] = {
+      flow {
+        val ch = new Channel[IO](ProcessRef("pullState-" + System.nanoTime()))
+        val broadcast = new ClientBroadcast[IO](peerRefs, ch.ref, (peers.size + 1) / 2, 60.seconds)
+        val msgData = Req(config.id, msg).toByteArray
+
+        def release = halt(ch.ref) ++ halt(broadcast.ref)
+
+        val res = (register(ref, ch, broadcast) ++
+          ch.send(ClientBroadcast.Send(msgData), broadcast.ref).flatMap {
+            case Failure(err) => flow {
+              logger.error("failed to collect the cluster state. retry", err)
+              step
+            }
+            case Success(ClientBroadcast.Done(replies)) => eval(logger.debug("pullState: cluster state has been updated")) ++
+              replies.map { rep =>
+                Cmd(rep.data) match {
+                  case state: api.State => updateState(state)
+                }
+              }.sequence.flatMap(updates => eval(logger.debug(s"${updates.count(a => a)} state updates applied")))
+            case Success(res) => eval(logger.debug(res.toString))
+          }).finalize(release)
+        res
+      }
+    }
+
+    eval(logger.debug("get cluster states from from peers")) ++ step
   }
 
 }

@@ -59,7 +59,7 @@ object ClusterApp extends CatsApp {
   }
 
   def createClusterProcess(config: Config, peers: Peers): IO[ClusterProcess] = {
-    IO(new ClusterProcess(clusterRef, config, peers.refs, leaderElectionRef))
+    IO(new ClusterProcess(clusterRef, config, peers.peers.map(p => p.id -> p.ref).toMap, leaderElectionRef))
   }
 
   def createServer(sink: ProcessRef, config: Config): IO[AsyncServer[IO]] = IO {
