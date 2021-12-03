@@ -87,11 +87,7 @@ class NodeProcess[F[_]: Concurrent](
     val cond = new Cond[F](
       ch.ref,
       {
-        case netClient.Rep(data) =>
-          Cmd(data) match {
-            case _: NodeInfo => true
-            case _ => false
-          }
+        case netClient.Rep(data) => data.map(Cmd(_)).exists(_.isInstanceOf[NodeInfo])
         case _ => false
       },
       10.seconds)
@@ -103,11 +99,13 @@ class NodeProcess[F[_]: Concurrent](
       netClient.Send(data, Option(cond.ref)) ~> _leader ++
       ch.send(Cond.Start, cond.ref)
         .flatMap {
-          case scala.util.Success(Cond.Result(Some(netClient.Rep(data)))) =>
+          case scala.util.Success(Cond.Result(Some(netClient.Rep(Some(data))))) =>
             Cmd(data) match {
               case n @ NodeInfo(_, _, cluster.Code.Ok) => eval(Right(Option(n)).withLeft[Throwable])
               case NodeInfo(_, _, cluster.Code.NotFound) => eval(Right(Option.empty[NodeInfo]).withLeft[Throwable])
             }
+          case scala.util.Success(Cond.Result(Some(netClient.Rep(None)))) =>
+            eval(Right(Option.empty[NodeInfo]).withLeft[Throwable])
           case scala.util.Failure(err) => eval(Left(err).withRight[Option[NodeInfo]])
         }
         .finalize(release)
@@ -148,7 +146,7 @@ class NodeProcess[F[_]: Concurrent](
     val cond = new Cond[F](
       ch.ref,
       {
-        case netClient.Rep(data) => Option(data).exists(d => predicate(Cmd(d)))
+        case netClient.Rep(data) => data.exists(d => predicate(Cmd(d)))
         case _ => false
       },
       timeout)
@@ -158,7 +156,8 @@ class NodeProcess[F[_]: Concurrent](
     register(ref, ch) ++ register(ref, cond) ++
       par(servers.map(srv => netClient.Send(data, Option(cond.ref)) ~> srv): _*) ++
       ch.send(Cond.Start, cond.ref).flatMap {
-        case scala.util.Success(Cond.Result(Some(netClient.Rep(data)))) => release ++ eval(Option(Cmd.apply(data)))
+        case scala.util.Success(Cond.Result(Some(netClient.Rep(Some(data))))) => release ++ eval(Option(Cmd.apply(data)))
+        case scala.util.Success(Cond.Result(Some(netClient.Rep(None)))) => release ++ eval(Option.empty)
         case scala.util.Success(Cond.Result(None)) => release ++ eval(Option.empty)
         case scala.util.Failure(err) => release ++ eval(throw err)
       }

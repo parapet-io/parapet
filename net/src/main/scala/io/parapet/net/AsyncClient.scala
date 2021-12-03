@@ -6,12 +6,12 @@ import io.parapet.core.Events.{Start, Stop}
 import io.parapet.core.api.Cmd.netClient
 import org.slf4j.LoggerFactory
 import org.zeromq.{SocketType, ZContext, ZMQ}
+import scala.concurrent.duration._
 
-class AsyncClient[F[_]](
-                         override val ref: ProcessRef,
-                         clientId: String,
-                         address: String
-                       ) extends io.parapet.core.Process[F] {
+class AsyncClient[F[_]](override val ref: ProcessRef,
+                        clientId: String,
+                        address: String,
+                        receiveTimeOut: FiniteDuration) extends io.parapet.core.Process[F] {
 
   import dsl._
 
@@ -28,7 +28,7 @@ class AsyncClient[F[_]](
         client.setIdentity(clientId.getBytes(ZMQ.CHARSET))
         client.connect(address)
         logger.debug(s"client[id=$clientId] has been connected to $address")
-        client.setReceiveTimeOut(5000)
+        client.setReceiveTimeOut(receiveTimeOut.toMillis.intValue())
       }
 
     case Stop =>
@@ -46,14 +46,14 @@ class AsyncClient[F[_]](
             _ <- eval(
               logger.debug(
                 s"[$address] response received: '${new String(Option(msg).getOrElse(Array.empty))}'. send to $repChan"))
-            _ <- netClient.Rep(msg) ~> repChan
+            _ <- netClient.Rep(Option(msg)) ~> repChan
           } yield ()
         case None => unit
       }
 
       eval(logger.debug(s"$info send message")) ++
-      eval(client.send(data, 0)).void
-        .handleError(err => eval(logger.error(s"$info failed to send a message", err))) ++
+        eval(client.send(data, 0)).void
+          .handleError(err => eval(logger.error(s"$info failed to send a message", err))) ++
         waitForRep.handleError(err => eval(logger.error(s"$info failed to receive a reply", err)))
 
   }
@@ -61,10 +61,9 @@ class AsyncClient[F[_]](
 
 object AsyncClient {
 
-  def apply[F[_]](
-                   ref: ProcessRef,
-                   clientId: String,
-                   address: String
-                 ): AsyncClient[F] =
-    new AsyncClient(ref, clientId, address)
+  def apply[F[_]](ref: ProcessRef,
+                  clientId: String,
+                  address: String,
+                  receiveTimeOut: FiniteDuration = 10.seconds): AsyncClient[F] =
+    new AsyncClient(ref, clientId, address, receiveTimeOut)
 }

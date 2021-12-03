@@ -25,7 +25,7 @@ object Cmd {
   object netClient {
     sealed trait Api extends Cmd
     case class Send(data: Array[Byte], reply: Option[ProcessRef] = None) extends Api
-    case class Rep(data: Array[Byte]) extends Api
+    case class Rep(data: Option[Array[Byte]]) extends Api
   }
 
   object netServer {

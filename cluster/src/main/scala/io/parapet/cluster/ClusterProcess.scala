@@ -169,8 +169,13 @@ class ClusterProcess(override val ref: ProcessRef,
             }
             case Success(ClientBroadcast.Done(replies)) => eval(logger.debug("pullState: cluster state has been updated")) ++
               replies.map { rep =>
-                Cmd(rep.data) match {
-                  case state: api.State => updateState(state)
+                rep.data.map(Cmd(_)) match {
+                  case Some(state: api.State) => updateState(state)
+                  case Some(cmd) => eval {
+                    logger.warn(s"unexpected command=$cmd")
+                    false
+                  }
+                  case None => eval(false)
                 }
               }.sequence.flatMap(updates => eval(logger.debug(s"${updates.count(a => a)} state updates applied")))
             case Success(res) => eval(logger.debug(res.toString))
