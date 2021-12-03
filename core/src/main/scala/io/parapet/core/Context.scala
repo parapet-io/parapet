@@ -8,7 +8,7 @@ import io.parapet.core.Events.Start
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
-import io.parapet.core.processes.{BlackHole, SystemProcess}
+import io.parapet.core.processes.{Noop, SystemProcess}
 import io.parapet.{Envelope, ProcessRef}
 
 import java.util.UUID
@@ -43,7 +43,7 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig,
 
   private[core] def createSysProcesses: F[Unit] = {
     for {
-      sysProcesses <- ct.delay(List(new SystemProcess[F](), new  BlackHole[F]))
+      sysProcesses <- ct.delay(List(new SystemProcess[F](), new  Noop[F]))
       states <- sysProcesses.map(p => ProcessState(p, config)).sequence
       _ <- ct.delay(states.foreach(s => processes.put(s.process.ref, s)))
     } yield ()

@@ -13,20 +13,24 @@ object DslInterpreter {
 
   // ugly but necessary for Channel
   private var _instance: Any = _
-  private[parapet] def instance[F[_]](i : Interpreter[F]):Unit = _instance = i
+
+  private[parapet] def instance[F[_]](i: Interpreter[F]): Unit = _instance = i
+
   private[parapet] def instance[F[_]]: Interpreter[F] = {
     _instance.asInstanceOf[Interpreter[F]]
   }
 
   trait Interpreter[F[_]] {
     def interpret(sender: ProcessRef, target: ProcessRef): FlowOp[F, *] ~> F
+
     def interpret(sender: ProcessRef, target: ProcessRef, execTrace: ExecutionTrace): FlowOp[F, *] ~> F
+
     def interpret(sender: ProcessRef, ps: ProcessState[F], execTrace: ExecutionTrace): FlowOp[F, *] ~> F
   }
 
-  def apply[F[_]: Concurrent: Timer](context: Context[F]): Interpreter[F] = new Impl(context)
+  def apply[F[_] : Concurrent : Timer](context: Context[F]): Interpreter[F] = new Impl(context)
 
-  class Impl[F[_]: Concurrent: Timer](context: Context[F]) extends Interpreter[F] {
+  class Impl[F[_] : Concurrent : Timer](context: Context[F]) extends Interpreter[F] {
     private val ct = implicitly[Concurrent[F]]
     private val timer = implicitly[Timer[F]]
 
@@ -45,44 +49,45 @@ object DslInterpreter {
             case UnitFlow() =>
               ct.unit
             //--------------------------------------------------------------
-            case Send(event, receiver, receivers) =>
-              val s1 = send(ps.process.ref, event, receiver, execTrace)
+            case Send(event, senderOverride, receiver, receivers) =>
+              val s1 = send(senderOverride.getOrElse(ps.process.ref), event, receiver, execTrace)
               if (receivers.nonEmpty) {
-                s1 >> receivers.map(receiver => send(ps.process.ref, event, receiver, execTrace)).toList.sequence_
+                s1 >> receivers.map(receiver =>
+                  send(senderOverride.getOrElse(ps.process.ref), event, receiver, execTrace)).toList.sequence_
               } else {
                 s1
               }
             //--------------------------------------------------------------
-            case reply: WithSender[F, Dsl[F, *], A] @unchecked =>
+            case reply: WithSender[F, Dsl[F, *], A]@unchecked =>
               reply.f(sender).foldMap[F](interpret(sender, ps, execTrace))
             //--------------------------------------------------------------
             case Forward(event, receivers) =>
               receivers.map(receiver => send(sender, event, receiver, execTrace)).toList.sequence_
             //--------------------------------------------------------------
-            case par: Par[F, Dsl[F, *]] @unchecked =>
+            case par: Par[F, Dsl[F, *]]@unchecked =>
               par.flow.foldMap[F](interpret(sender, ps, execTrace))
             //--------------------------------------------------------------
-            case fork: Fork[F, Dsl[F, *]] @unchecked =>
+            case fork: Fork[F, Dsl[F, *]]@unchecked =>
               ct.start(fork.flow.foldMap[F](interpret(sender, ps, execTrace))).void
             //--------------------------------------------------------------
-            case delay: Delay[F] @unchecked =>
+            case delay: Delay[F]@unchecked =>
               timer.sleep(delay.duration)
             //--------------------------------------------------------------
-            case eval: Eval[F, Dsl[F, *], A] @unchecked =>
+            case eval: Eval[F, Dsl[F, *], A]@unchecked =>
               ct.delay(eval.thunk())
             //--------------------------------------------------------------
-            case suspend: Suspend[F, Dsl[F, *], A] @unchecked =>
+            case suspend: Suspend[F, Dsl[F, *], A]@unchecked =>
               ct.suspend(suspend.thunk())
             //--------------------------------------------------------------
-            case suspend: SuspendF[F, Dsl[F, *], A] @unchecked =>
+            case suspend: SuspendF[F, Dsl[F, *], A]@unchecked =>
               ct.suspend(suspend.thunk().foldMap[F](interpret(sender, ps, execTrace)))
             //--------------------------------------------------------------
-            case race: Race[F, Dsl[F, *], _, _] @unchecked =>
+            case race: Race[F, Dsl[F, *], _, _]@unchecked =>
               val fa = race.first.foldMap[F](interpret(sender, ps, execTrace))
               val fb = race.second.foldMap[F](interpret(sender, ps, execTrace))
               ct.race(fa, fb)
             //--------------------------------------------------------------
-            case blocking: Blocking[F, Dsl[F, *], A] @unchecked =>
+            case blocking: Blocking[F, Dsl[F, *], A]@unchecked =>
               for {
                 d <- Deferred[F, Unit]
                 fiber <- ct.start(
@@ -94,7 +99,7 @@ object DslInterpreter {
             case Register(parent, process: Process[F]) =>
               context.registerAndStart(parent, process).void
             //--------------------------------------------------------------
-            case he:HandelError[F, Dsl[F, *], A, A] @unchecked =>
+            case he: HandelError[F, Dsl[F, *], A, A]@unchecked =>
               ct.handleErrorWith(he.body().foldMap[F](interpret(sender, ps, execTrace))) {
                 err => he.handle(err).foldMap[F](interpret(sender, ps, execTrace))
               }

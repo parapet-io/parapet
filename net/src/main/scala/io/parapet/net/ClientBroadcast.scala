@@ -9,7 +9,6 @@ import scala.collection.mutable
 import scala.concurrent.duration.FiniteDuration
 
 class ClientBroadcast[F[_]](refs: Seq[ProcessRef],
-                            reply: ProcessRef,
                             acksRequired: Int,
                             timeout: FiniteDuration) extends Process[F] {
 
@@ -19,12 +18,13 @@ class ClientBroadcast[F[_]](refs: Seq[ProcessRef],
   private var _event: Event = _
   private var _started = false
   private var _completed = false
+  private var _reply: ProcessRef = _
 
   def complete: DslF[F, Unit] = flow {
     if (!_completed && _replies.size >= acksRequired) {
       eval {
         _completed = true
-      } ++ ClientBroadcast.Done(_replies.toList) ~> reply
+      } ++ ClientBroadcast.Done(_replies.toList) ~> _reply
     } else unit
   }
 
@@ -36,14 +36,16 @@ class ClientBroadcast[F[_]](refs: Seq[ProcessRef],
         } ++ complete
       } else unit
 
-    case ClientBroadcast.Send(data) =>
+    case ClientBroadcast.Send(data) => withSender { sender =>
       eval {
         if (_started) {
           throw new IllegalStateException("broadcast is in progress")
         }
         _started = true
+        _reply = sender
         _event = netClient.Send(data, Option(ref))
       } ++ execute
+    }
     case ClientBroadcast.Timeout => execute
   }
 

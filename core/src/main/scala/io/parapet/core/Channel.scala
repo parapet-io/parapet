@@ -85,7 +85,7 @@ class Channel[F[_]: Concurrent](override val ref: ProcessRef = ProcessRef.jdkUUI
   private def sendReq(req: Channel.Request[F]): DslF[F, Unit] =
     eval {
       callback = req.cb
-    } ++ req.e ~> req.receiver ++ switch(waitForResponse)
+    } ++ dsl.send(ref, req.e, req.receiver) ++ switch(waitForResponse)
 
 }
 

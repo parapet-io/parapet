@@ -109,7 +109,7 @@ class ClusterProcess(override val ref: ProcessRef,
     def step: DslF[IO, Unit] = {
       flow {
         val ch = new Channel[IO](ProcessRef("pubState-" + System.nanoTime()))
-        val broadcast = new ClientBroadcast[IO](peerRefs, ch.ref, (peers.size + 1) / 2, 60.seconds)
+        val broadcast = new ClientBroadcast[IO](peerRefs, (peers.size + 1) / 2, 60.seconds)
         val msgData = Req(config.id, stateMsg.toByteArray).toByteArray
 
         def release = halt(ch.ref) ++ halt(broadcast.ref)
@@ -156,7 +156,7 @@ class ClusterProcess(override val ref: ProcessRef,
     def step: DslF[IO, Unit] = {
       flow {
         val ch = new Channel[IO](ProcessRef("pullState-" + System.nanoTime()))
-        val broadcast = new ClientBroadcast[IO](peerRefs, ch.ref, (peers.size + 1) / 2, 60.seconds)
+        val broadcast = new ClientBroadcast[IO](peerRefs, (peers.size + 1) / 2, 60.seconds)
         val msgData = Req(config.id, msg).toByteArray
 
         def release = halt(ch.ref) ++ halt(broadcast.ref)

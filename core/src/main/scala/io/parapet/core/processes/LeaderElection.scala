@@ -20,7 +20,7 @@ import scala.util.Random
 
 class LeaderElection[F[_] : Concurrent](override val ref: ProcessRef,
                                         state: State,
-                                        sink: ProcessRef = ProcessRef.BlackHoleRef)
+                                        sink: ProcessRef = ProcessRef.NoopRef)
   extends ProcessWithState[F, State](state) {
 
   import dsl._

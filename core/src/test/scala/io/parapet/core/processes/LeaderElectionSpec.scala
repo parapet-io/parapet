@@ -68,10 +68,15 @@ class LeaderElectionSpec extends AnyFunSuite {
 
     // then
     execution.print()
-    execution.trace shouldBe Seq(
-      Message(LeaderUpdate("p1", "p1:5555"), ProcessRef("parapet-blackhole")),
-      Message(LeaderUpdate("p1", "p1:5555"), p2),
-      Message(Heartbeat(p1Addr, Option(p1Addr)), p2))
+    execution.trace.size shouldBe 3
+    execution.trace.head should matchPattern {
+      case Message(Req("p1", data), ProcessRef("parapet-noop")) if Cmd(data) == LeaderUpdate("p1", "p1:5555") => ()
+    }
+    execution.trace(1) should matchPattern {
+      case Message(Req("p1", data), ProcessRef("p2")) if Cmd(data) == LeaderUpdate("p1", "p1:5555") => ()
+    }
+    execution.trace(2) shouldBe Message(Heartbeat(p1Addr, Option(p1Addr)), p2)
+
   }
 
   test("a leader crashed and cluster is complete", Lemma3) {
@@ -298,9 +303,13 @@ object LeaderElectionSpec {
 
   // @formatter:off
   object Lemma1 extends Tag(Lemmas.Lemma1.description)
+
   object Lemma2 extends Tag(Lemmas.Lemma2.description)
+
   object Lemma3 extends Tag(Lemmas.Lemma3.description)
+
   object Lemma4 extends Tag(Lemmas.Lemma4.description)
+
   object Lemma5 extends Tag(Lemmas.Lemma5.description)
   // @formatter:on
 
