@@ -16,7 +16,7 @@ import scala.util.Try
   * @tparam F
   *   an effect type
   */
-class Channel[F[_]: Concurrent](clientRef: ProcessRef = null) extends Process[F] {
+class Channel[F[_]: Concurrent](override val ref: ProcessRef = ProcessRef.jdkUUIDRef) extends Process[F] {
 
   import dsl._
   import io.parapet.core.Channel._
@@ -85,7 +85,7 @@ class Channel[F[_]: Concurrent](clientRef: ProcessRef = null) extends Process[F]
   private def sendReq(req: Channel.Request[F]): DslF[F, Unit] =
     eval {
       callback = req.cb
-    } ++ req.e ~> req.receiver ++ switch(waitForResponse)
+    } ++ dsl.send(ref, req.e, req.receiver) ++ switch(waitForResponse)
 
 }
 

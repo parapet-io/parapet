@@ -1,8 +1,8 @@
 package io.parapet.core.processes
 
 
+import cats.effect.Concurrent
 import com.typesafe.scalalogging.Logger
-import io.parapet.{Event, ProcessRef}
 import io.parapet.core.Clock
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.Start
@@ -11,18 +11,20 @@ import io.parapet.core.api.Cmd.leaderElection._
 import io.parapet.core.api.Cmd.{netClient, netServer}
 import io.parapet.core.processes.LeaderElection._
 import io.parapet.core.utils.CorrelationId
+import io.parapet.{Event, ProcessRef}
 import org.slf4j.MDC
 import org.slf4j.event.Level
 
 import scala.concurrent.duration._
 import scala.util.Random
 
-class LeaderElection[F[_]](override val ref: ProcessRef,
-                           state: State,
-                           sink: ProcessRef = ProcessRef.BlackHoleRef)
+class LeaderElection[F[_] : Concurrent](override val ref: ProcessRef,
+                                        state: State,
+                                        sink: ProcessRef = ProcessRef.NoopRef)
   extends ProcessWithState[F, State](state) {
 
   import dsl._
+
   private val logger = Logger[LeaderElection[F]]
 
   override def handle: Receive = {
@@ -32,10 +34,9 @@ class LeaderElection[F[_]](override val ref: ProcessRef,
     case Begin =>
       implicit val correlationId: CorrelationId = CorrelationId()
       if (state.peers.hasMajority) {
-        if (!state.waitForLeader) {
-          log("send start to coordinator") ++
-            eval(state.waitForLeader(true)) ++
-            Cmd.coordinator.Start ~> state.coordinatorRef
+        if (!state.waitForLeader && !state.hasLeader) {
+          log("start new election round") ++
+            eval(state.waitForLeader(true)) ++ Cmd.coordinator.Start ~> state.coordinatorRef
         } else {
           log("already waiting for a coordinator")
         }
@@ -45,7 +46,7 @@ class LeaderElection[F[_]](override val ref: ProcessRef,
 
     case Cmd.coordinator.Elected(coordinator) =>
       implicit val correlationId: CorrelationId = CorrelationId()
-      (if (coordinator == state.id) {
+      (if (coordinator == state.id && (!state.hasLeader || !state.clusterComplete)) {
         for {
           leaderAddress <- eval(state.roulette(state.peers.alive.map(_.address)))
           _ <- log("became coordinator")
@@ -59,11 +60,12 @@ class LeaderElection[F[_]](override val ref: ProcessRef,
     // -----------------------ANNOUNCE---------------------------- //
     case Announce(sender) =>
       implicit val correlationId: CorrelationId = CorrelationId()
+      val update = Req(state.id, LeaderUpdate(state.id, state.addr).toByteArray)
       log(s"received Announce(sender=$sender)") ++
         eval {
           require(state.leader.isEmpty, "current leader should be discarded")
           state.leader(state.addr)
-        } ++ LeaderUpdate(state.addr) ~> sink
+        } ++ update ~> sink ++ sendToPeers(update)
 
     // -----------------------TIMEOUT(LEADER)--------------------------------- //
     case Timeout(Leader) =>
@@ -78,66 +80,54 @@ class LeaderElection[F[_]](override val ref: ProcessRef,
     case Heartbeat(sender, leader) =>
       implicit val correlationId: CorrelationId = CorrelationId()
       val heartbeatFromLeader = leader.contains(sender)
-      log(s"received Heartbeat(addr=$sender, leader=$leader)") ++
+      log(s"received Heartbeat from $sender, leader=$leader)") ++
         eval(state.peers.get(sender).update()) ++ eval {
-          if (heartbeatFromLeader) {
-            logUnsafe("received heartbeat from a leader node")
-          }
-          leader match {
-            case Some(leaderAddr) =>
-              state.leader match {
-                case None =>
-                  if (state.clusterComplete && heartbeatFromLeader) {
-                    state.leader(leaderAddr)
-                    logUnsafe(s"a new leader: '$leaderAddr' has been elected")
-                  } else if (!state.clusterComplete && heartbeatFromLeader) {
-                    logUnsafe(s"a new leader: '$leaderAddr' cannot be accepted b/c the cluster is not complete")
-                  }
-                case Some(currLeader) =>
-                  if (currLeader != leaderAddr) {
-                    val msg = s"received heartbeat from a new leader: '$leaderAddr', current: '$currLeader'; " +
-                      "the current leader must be discarded"
-                    logUnsafe(msg, Level.ERROR)
-                    throw new IllegalStateException(msg)
-                  } else {
-                    logUnsafe(s"current leader: '$currLeader' is healthy")
-                  }
-              }
-            case None =>
-              state.leader match {
-                case Some(currentLeader) if currentLeader == sender =>
-                  logUnsafe(s"leader: '$sender' crashed and recovered")
-                  resetUnsafe()
-                case _ => () // heartbeat sent be a non leader node
-              }
-          }
+        if (heartbeatFromLeader) {
+          logUnsafe("received heartbeat from a leader node")
         }
+        leader match {
+          case Some(leaderAddr) =>
+            state.leader match {
+              case None =>
+                if (state.clusterComplete && heartbeatFromLeader) {
+                  state.leader(leaderAddr)
+                  logUnsafe(s"a new leader: '$leaderAddr' has been elected")
+                } else if (!state.clusterComplete && heartbeatFromLeader) {
+                  logUnsafe(s"a new leader: '$leaderAddr' cannot be accepted b/c the cluster is not complete")
+                }
+              case Some(currLeader) =>
+                if (currLeader != leaderAddr) {
+                  val msg = s"received heartbeat from a new leader: '$leaderAddr', current: '$currLeader'; " +
+                    "the current leader must be discarded"
+                  logUnsafe(msg, Level.ERROR)
+                  throw new IllegalStateException(msg)
+                } else {
+                  logUnsafe(s"current leader: $currLeader")
+                }
+            }
+          case None =>
+            state.leader match {
+              case Some(currentLeader) if currentLeader == sender =>
+                logUnsafe(s"leader: '$sender' crashed and recovered")
+                resetUnsafe()
+              case _ => () // heartbeat sent be a non leader node
+            }
+        }
+      }
 
     // -----------------------WHO------------------------------- //
     case Who(clientId) =>
-      withSender(server => netServer.Send(clientId,
-        WhoRep(state.addr, state.leader.contains(state.addr)).toByteArray) ~> server)
+      netServer.Send(clientId,
+        WhoRep(state.addr, state.leader.contains(state.addr)).toByteArray) ~> state.netServer
 
     case IsLeader =>
       withSender(sender => IsLeaderRep(state.leader.contains(state.addr)) ~> sender)
-
-    // -------------------- BROADCAST ----------------------------//
-    case Broadcast(data) =>
-      implicit val correlationId: CorrelationId = CorrelationId()
-      val msg = netClient.Send(Req(state.id, data).toByteArray)
-      log("received broadcast") ++
-        state.peers.refs.foldLeft(unit)((acc, client) => acc ++ msg ~> client) ++
-        withSender(sender => BroadcastResult(state.peers.size / 2) ~> sender)
-
-    case BroadcastResult(res) =>
-      implicit val correlationId: CorrelationId = CorrelationId()
-      log(s"received broadcast result: $res")
 
     // -----------------------REQ------------------------------- //
     case req: Req =>
       implicit val correlationId: CorrelationId = CorrelationId()
       log(s"forward req to sink") ++
-      req ~> sink
+        req ~> sink
 
     // ----------------------- REP -------------------------------//
     // Rep is sent by sink process in event of Req
@@ -196,16 +186,17 @@ class LeaderElection[F[_]](override val ref: ProcessRef,
   private[core] def monitorClusterLoopAsync: DslF[F, Unit] = fork(monitorClusterLoop)
 
   private[core] def monitorClusterLoop: DslF[F, Unit] = {
-    val step0 = handleError(monitorCluster, err => eval(logger.error("cluster monitor has failed", err)))
-    def step: DslF[F, Unit] = flow {
-      step0 ++ delay(state.delays.monitor) ++ step
+    val step = handleError(monitorCluster, err => eval(logger.error("cluster monitor has failed", err)))
+
+    def loop: DslF[F, Unit] = flow {
+      delay(state.delays.monitor) ++ step ++ loop
     }
 
-    step
+    loop
   }
 
   private[core] def monitorCluster: DslF[F, Unit] = {
-    var action = eval(println("no action"))
+    var action = unit
     implicit val correlationId: CorrelationId = CorrelationId()
     try {
       val clusterComplete = state.peers.hasMajority
@@ -214,20 +205,24 @@ class LeaderElection[F[_]](override val ref: ProcessRef,
         log(s"cluster is complete but the leader is unknown / unreachable") ++ reset ++ Begin ~> ref
       } else if (!clusterComplete) {
         val msg = if (state.hasLeader) {
-          "the leader is healthy"
+          "the leader state: ok"
         } else {
-          "the leader is unknown / unreachable"
+          "the leader state: unknown / unreachable"
         }
-        log(s"cluster is not complete. $msg") ++ reset
+        log(s"cluster state: incomplete. $msg") ++ reset
       } else {
-        log("cluster is healthy")
+        log("cluster state: ok")
       }
     } catch {
       case e: Exception =>
         action = log("unexpected error", Level.ERROR, Option(e))
     }
 
-    log("monitor cluster") ++ action
+    action
+  }
+
+  private def sendToPeers(cmd: Cmd): DslF[F, Unit] = {
+    state.peers.refs.foldLeft(unit)((acc, client) => acc ++ cmd ~> client)
   }
 
   def reset(implicit correlationId: CorrelationId): DslF[F, Unit] =
@@ -239,16 +234,16 @@ class LeaderElection[F[_]](override val ref: ProcessRef,
   }
 
   def log(msg: => String, lvl: Level = Level.DEBUG, ex: Option[Exception] = Option.empty)(implicit
-      line: sourcecode.Line,
-      file: sourcecode.File,
-      correlationId: CorrelationId,
+                                                                                          line: sourcecode.Line,
+                                                                                          file: sourcecode.File,
+                                                                                          correlationId: CorrelationId,
   ): DslF[F, Unit] =
     eval(logUnsafe(msg, lvl))
 
   private def logUnsafe(msg: => String, lvl: Level = Level.DEBUG, ex: Option[Exception] = Option.empty)(implicit
-      line: sourcecode.Line,
-      file: sourcecode.File,
-      correlationId: CorrelationId,
+                                                                                                        line: sourcecode.Line,
+                                                                                                        file: sourcecode.File,
+                                                                                                        correlationId: CorrelationId,
   ): Unit = {
     MDC.put("line", line.value.toString)
     MDC.put("correlationId", correlationId.value)
@@ -275,21 +270,22 @@ object LeaderElection {
 
   type Addr = String // network address w/o protocol, i.e. (ip|host):port . it's as a unique identifier of a process
   type NetClient = ProcessRef // a process that performs a network operations
-  type RandomNum = Int => VoteNum
 
-  case class Timeouts(
-      coordinator: FiniteDuration = 60.seconds,
-      heartbeat: FiniteDuration = 60.seconds, // wait for a Heartbeat h where h.addr == h.leader
-  )
+  /**
+    * List of timeouts.
+    *
+    * @param coordinator timeout for [[Cmd.coordinator.Elected]] message
+    * @param heartbeat   timeout for a heartbeat message H where H.address == H.leader
+    */
+  case class Timeouts(coordinator: FiniteDuration = 60.seconds,
+                      heartbeat: FiniteDuration = 60.seconds)
 
-  case class Delays(
-      election: FiniteDuration = 10.seconds,
-      heartbeat: FiniteDuration = 5.seconds,
-      monitor: FiniteDuration = 10.seconds,
-  )
+  case class Delays(election: FiniteDuration = 10.seconds,
+                    heartbeat: FiniteDuration = 5.seconds,
+                    monitor: FiniteDuration = 10.seconds)
 
   class State(val id: String,
-              val addr: Addr,
+              val addr: Addr, // doesn't include protocol
               val netServer: ProcessRef,
               val peers: Peers,
               val coordinatorRef: ProcessRef,
@@ -302,17 +298,22 @@ object LeaderElection {
     private var _waitForCoordinator = false
 
     def waitForLeader: Boolean = _waitForCoordinator
-    def waitForLeader(value: Boolean):Unit = _waitForCoordinator = value
-    def leader(address: String):Unit = _leader = Option(address)
+
+    def waitForLeader(value: Boolean): Unit = _waitForCoordinator = value
+
+    def leader(address: String): Unit = _leader = Option(address)
+
     def leader: Option[String] = _leader
-    def coordinator(value:Boolean): Unit = _coordinator = value
+
+    def coordinator(value: Boolean): Unit = _coordinator = value
+
     def coordinator: Boolean = _coordinator
 
     def hasLeader: Boolean = _leader.exists(l => addr == l || peers.get(l).isAlive)
 
     def clusterComplete: Boolean = peers.hasMajority
 
-    def reset():Unit = {
+    def reset(): Unit = {
       _coordinator = false
       _leader = Option.empty
       _waitForCoordinator = false
@@ -330,8 +331,7 @@ object LeaderElection {
       "votes",
       "coordinator",
       "peerNum",
-      "voted",
-    )
+      "voted")
 
     def getLogValues(s: State): Map[String, String] =
       classOf[State].getDeclaredFields
@@ -350,38 +350,24 @@ object LeaderElection {
     }
   }
 
-  val GenNumAttempts = 1
-  val GenNumThreshold = 0.85
-
-  val RandomNumGen: RandomNum = i => {
-    val r = new Random()
-    var min = 1.0
-    var max = 0.0
-    (0 until i).foreach { _ =>
-      val n = r.nextDouble()
-      min = Math.min(min, n)
-      max = Math.max(max, n)
-    }
-
-    VoteNum(min, max)
-  }
-
   val Roulette: Vector[Addr] => Addr = processes => {
     val r = new Random()
     processes(r.nextInt(processes.size))
   }
 
   sealed trait Phase
+
   case object Leader extends Phase
 
   sealed trait InternalApi extends Event
+
   case object Begin extends InternalApi
+
   case class Timeout(phase: Phase) extends InternalApi
 
   // internal API
-  case class Broadcast(data: Array[Byte]) extends InternalApi
-  case class BroadcastResult(majorityCount: Int) extends InternalApi
   case object IsLeader extends InternalApi
+
   case class IsLeaderRep(leader: Boolean) extends InternalApi
 
   class Peer(
@@ -390,7 +376,7 @@ object LeaderElection {
               val ref: ProcessRef,
               val timeoutMs: Long,
               val clock: Clock,
-  ) {
+            ) {
     private var lastPingAt: Long = 0
 
     def update(): Unit =
@@ -412,6 +398,7 @@ object LeaderElection {
     private val map: Map[Addr, Peer] = peers.map(p => p.address -> p).toMap
     private val idMap: Map[Addr, Peer] = peers.map(p => p.id -> p).toMap
     val refs: Seq[ProcessRef] = peers.map(_.ref)
+    val majorityCount: Int = (peers.size + 1) / 2 + 1
 
     def all: Map[Addr, Peer] = map
 

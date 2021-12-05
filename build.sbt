@@ -124,6 +124,14 @@ lazy val clusterNode = project
     libraryDependencies += "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
   ).dependsOn(core, net, interopCats)
 
+lazy val coordinatorNode = project
+  .in(file("coordinator-node"))
+  .settings(
+    name := "coordinator-node",
+    libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3",
+    libraryDependencies += "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
+  ).dependsOn(core, net, interopCats)
+
 lazy val coreApi = project
   .in(file("core-api"))
   .settings(

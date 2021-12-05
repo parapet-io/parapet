@@ -15,7 +15,8 @@ case class Config(id: String,
                   electionDelay: FiniteDuration,
                   heartbeatDelay: FiniteDuration,
                   monitorDelay: FiniteDuration,
-                  peerTimeout: FiniteDuration)
+                  peerTimeout: FiniteDuration,
+                  coordinatorTimeout:FiniteDuration)
 
 object Config {
 
@@ -33,6 +34,8 @@ object Config {
         monitorDelay = prop.getProperty("node.monitor-delay").toInt.seconds,
         peerTimeout = prop.getProperty("node.peer-timeout").toInt.seconds,
         coordinatorThreshold = prop.getProperty("node.coordinator-threshold").toDouble,
+        coordinatorTimeout = Option(prop.getProperty("node.coordinator-timeout"))
+          .map(_.toInt.seconds).getOrElse(60.seconds),
       )
     }
 

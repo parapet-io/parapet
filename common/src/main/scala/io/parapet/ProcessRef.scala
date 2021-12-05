@@ -12,7 +12,7 @@ object ProcessRef {
   val DeadLetterRef: ProcessRef = ProcessRef(ParapetPrefix + "-deadletter")
   val SchedulerRef: ProcessRef = ProcessRef(ParapetPrefix + "-scheduler")
   val UndefinedRef: ProcessRef = ProcessRef(ParapetPrefix + "-undefined")
-  val BlackHoleRef: ProcessRef = ProcessRef(ParapetPrefix + "-blackhole")
+  val NoopRef: ProcessRef = ProcessRef(ParapetPrefix + "-noop")
 
   def apply(): ProcessRef = jdkUUIDRef
 

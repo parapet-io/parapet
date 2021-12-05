@@ -2,6 +2,7 @@ package io.parapet.core
 
 import cats.InjectK
 import cats.free.Free
+import io.parapet.core.annotations.developerApi
 import io.parapet.{Event, ProcessRef}
 
 import scala.concurrent.duration.FiniteDuration
@@ -16,7 +17,8 @@ object Dsl {
 
   case class UnitFlow[F[_]]() extends FlowOp[F, Unit]
 
-  case class Send[F[_]](e: () => Event, receiver: ProcessRef, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
+  case class Send[F[_]](e: () => Event, sender: Option[ProcessRef],
+                        receiver: ProcessRef, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
 
   case class Forward[F[_]](e: () => Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
 
@@ -40,7 +42,8 @@ object Dsl {
 
   case class Blocking[F[_], C[_], A](body: () => Free[C, A]) extends FlowOp[F, Unit]
 
-  case class HandelError[F[_], C[_], A, AA >: A](body: () => Free[C, A], handle: Throwable => Free[C, AA]) extends FlowOp[F, AA]
+  case class HandelError[F[_], C[_], A, AA >: A](body: () => Free[C, A],
+                                                 handle: Throwable => Free[C, AA]) extends FlowOp[F, AA]
 
   case class Halt[F[_]](ref: ProcessRef) extends FlowOp[F, Unit]
 
@@ -127,7 +130,11 @@ object Dsl {
       * @return Unit
       */
     def send(e: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
-      Free.inject[FlowOp[F, *], C](Send(() => e, receiver, other))
+      Free.inject[FlowOp[F, *], C](Send(() => e, Option.empty, receiver, other))
+
+    @developerApi
+    def send(sender: ProcessRef, e: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
+      Free.inject[FlowOp[F, *], C](Send(() => e, Option(sender), receiver, other))
 
     /** Sends an event to the receiver using original sender reference.
       * This is useful for implementing a proxy process.
@@ -231,8 +238,10 @@ object Dsl {
       * @param child  the child process
       * @return Unit
       */
-    def register(parent: ProcessRef, child: Process[F]): Free[C, Unit] =
-      Free.inject[FlowOp[F, *], C](Register(parent, child))
+    def register(parent: ProcessRef, childList: Process[F]*): Free[C, Unit] = {
+      childList.map(child => Free.inject[FlowOp[F, *], C](Register(parent, child)))
+        .foldLeft(unit)((res, a) => res.flatMap(_ => a))
+    }
 
     /** Runs two flows concurrently. The loser of the race is canceled.
       *
@@ -289,8 +298,8 @@ object Dsl {
       * output {{{ now }}}
       *
       * Note: there is a significant difference between fork and blocking. fork is fire and forget ,
-      * i.e. a process will be available for new events; however, when using blocking it wont receive any events until an
-      * operation withing blocking is completed.
+      * i.e. a process will be available for new events;
+      * however, when using blocking it wont receive any events until an operation withing blocking is completed.
       *
       * @param thunk blocking code
       * @return Unit

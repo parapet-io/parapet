@@ -1,5 +1,6 @@
 package io.parapet.tests.intg
 
+import cats.effect.{Concurrent, IO}
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.{Start, Stop}
 import io.parapet.core.Parapet.ParConfig
@@ -58,6 +59,40 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
     eventStore.get(client.ref) shouldBe Seq(Response(0), Response(1), Response(2), Response(3), Response(4))
 
   }
+
+  test("channel uses its ref when sending event to target") {
+    val eventStore = new EventStore[F, Event]
+    val clientRef = ProcessRef("client")
+    val serverRef = ProcessRef("server")
+
+    val ch = Channel[F]
+
+    val server = new Process[F] {
+      override def handle: Receive = {
+        case req@Request(seq) => withSender { sender =>
+          eval(eventStore.add(ch.ref, req)) ++
+            Response(seq + 1) ~> sender
+        }
+      }
+    }
+
+    val client = new Process[F] {
+      override val ref: ProcessRef = clientRef
+
+      override def handle: Receive = {
+        case Start => flow {
+          register(ref) ++ ch.send(Request(0), serverRef).flatMap {
+            case Success(response) => eval(eventStore.add(ref, response))
+          } ++ halt(ch.ref)
+        }
+      }
+
+    }
+    unsafeRun(eventStore.await(2, createApp(ct.pure(Seq(client, server))).run))
+    eventStore.get(ch.ref) shouldBe Seq(Request(0))
+    eventStore.get(client.ref) shouldBe Seq(Response(1))
+  }
+
 }
 
 

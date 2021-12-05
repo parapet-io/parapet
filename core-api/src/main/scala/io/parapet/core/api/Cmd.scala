@@ -25,7 +25,7 @@ object Cmd {
   object netClient {
     sealed trait Api extends Cmd
     case class Send(data: Array[Byte], reply: Option[ProcessRef] = None) extends Api
-    case class Rep(data: Array[Byte]) extends Api
+    case class Rep(data: Option[Array[Byte]]) extends Api
   }
 
   object netServer {
@@ -84,13 +84,11 @@ object Cmd {
     @AvroDoc("coordinator sends announce to a node that will become a new leader")
     case class Announce(address: String) extends Api
     case class Heartbeat(address: String, leader: Option[String] = None) extends Api
-    //  case class Broadcast(data: Array[Byte]) extends Api
-    //  case class BroadcastResult(majorityCount: Int) extends Api
 
     // client facing api
     case class Who(clientId: String) extends Api
     case class WhoRep(address: String, leader: Boolean) extends Api
-    case class LeaderUpdate(address: String) extends Api
+    case class LeaderUpdate(id: String, address: String) extends Api
     case class Req(clientId: String, data: Array[Byte]) extends Api
     case class Rep(clientId: String, data: Array[Byte]) extends Api
   }
@@ -104,6 +102,7 @@ object Cmd {
       case object NotFound extends Code
       case object Error extends Code
       case object Joined extends Code
+      case object StateUpdate extends Code
     }
 
     case class Join(nodeId: String, address: String, group: String) extends Api
@@ -111,6 +110,11 @@ object Cmd {
     case class GetNodeInfo(senderId: String, id: String) extends Api
     case class NodeInfo(id: String, address: String, code: Code) extends Api
     case class Ack(msg: String, code: Code) extends Api
+
+    case class Node(id: String, protocol: String, address: String, groups: Set[String]) extends Api
+    case class State(version: Long, nodes: List[Node]) extends Api
+    case object GetState extends Api
+
   }
 
   object clusterNode {

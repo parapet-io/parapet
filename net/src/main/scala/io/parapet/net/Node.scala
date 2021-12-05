@@ -14,11 +14,16 @@ import scala.util.Try
 class Node(val id: String,
            private var _address: String,
            private val socket: Socket,
-           protocol: String = "tcp") {
+           val protocol: String = "tcp") {
 
   def address: String = _address
 
   def send(data: Array[Byte]): Unit = socket.send(data)
+
+  def reconnect(): Try[Unit] = Try {
+    socket.disconnect(protocol + "://" + _address)
+    socket.connect(protocol + "://" + _address)
+  }
 
   def reconnect(newAddress: String): Try[Boolean] = {
     Try {
