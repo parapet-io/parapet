@@ -64,6 +64,6 @@ object AsyncClient {
   def apply[F[_]](ref: ProcessRef,
                   clientId: String,
                   address: String,
-                  receiveTimeOut: FiniteDuration = 10.seconds): AsyncClient[F] =
+                  receiveTimeOut: FiniteDuration = 5.seconds): AsyncClient[F] =
     new AsyncClient(ref, clientId, address, receiveTimeOut)
 }

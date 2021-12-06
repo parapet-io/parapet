@@ -2,9 +2,10 @@ package io.parapet.core
 
 import cats.effect.{CancelToken, Concurrent, ExitCase, Fiber}
 import cats.{Id, Monad, ~>}
-import io.parapet.core.Dsl.{Delay, Dsl, Eval, FlowOp, Fork, Send, SuspendF, UnitFlow}
+import io.parapet.core.Dsl.{Delay, Dsl, Eval, FlowOp, Fork, RaiseError, Send, SuspendF, UnitFlow}
 import io.parapet.{Event, ProcessRef}
 import cats.{Eval => CatsEval}
+
 import scala.collection.mutable.ListBuffer
 
 object TestUtils {
@@ -65,6 +66,7 @@ object TestUtils {
           fork.flow.foldMap(new EvalInterpreter(execution, mapper))
         case _: Delay[CatsEval] => ()
         case _: SuspendF[CatsEval, Dsl[CatsEval, *], A] => ().asInstanceOf[A] // s.thunk().foldMap(new IdInterpreter(execution))
+        case RaiseError(err) => throw err
       }
     }
   }

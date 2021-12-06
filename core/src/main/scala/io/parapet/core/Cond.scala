@@ -7,9 +7,10 @@ import io.parapet.{Event, ProcessRef}
 
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.duration.FiniteDuration
+import scala.util.Try
 
-class Cond[F[_]: Concurrent](reply: ProcessRef, cond: Event => Boolean, timeout: FiniteDuration)
-    extends io.parapet.core.Process[F] {
+class Cond[F[_] : Concurrent](reply: ProcessRef, cond: Event => Boolean, timeout: FiniteDuration)
+  extends io.parapet.core.Process[F] {
 
   import dsl._
 
@@ -17,8 +18,12 @@ class Cond[F[_]: Concurrent](reply: ProcessRef, cond: Event => Boolean, timeout:
 
   override def handle: Receive = {
     case Cond.Start => fork(delay(timeout) ++ respond(Result(Option.empty)))
-    case e if cond(e) => respond(Result(Option(e)))
-    case _ => unit
+    case event => eval(Try(cond(event))).flatMap {
+      case scala.util.Success(true) => respond(Result(Option(event)))
+      case scala.util.Success(false) => unit
+      case scala.util.Failure(err) => raiseError(err)
+    }
+
   }
 
   private def respond(res: Result): DslF[F, Unit] =
@@ -31,6 +36,7 @@ class Cond[F[_]: Concurrent](reply: ProcessRef, cond: Event => Boolean, timeout:
 object Cond {
 
   case object Start extends Event
+
   // better types: Success and Timeout
   case class Result(event: Option[Event]) extends Event
 
