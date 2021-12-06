@@ -138,7 +138,7 @@ class NodeProcess[F[_]: Concurrent](
   // should be used for m-m dialog where only one answer should be accepted
   private def sendSync[A >: Cmd](
       cmd: Cmd,
-      servers: Seq[ProcessRef],
+      clusterNodes: Seq[ProcessRef],
       predicate: A => Boolean,
       timeout: FiniteDuration
   ): DslF[F, Option[A]] = {
@@ -154,7 +154,7 @@ class NodeProcess[F[_]: Concurrent](
     def release = halt(ch.ref) ++ halt(cond.ref)
 
     register(ref, ch) ++ register(ref, cond) ++
-      par(servers.map(srv => netClient.Send(data, Option(cond.ref)) ~> srv): _*) ++
+      par(clusterNodes.map(clusterNode => netClient.Send(data, Option(cond.ref)) ~> clusterNode): _*) ++
       ch.send(Cond.Start, cond.ref).flatMap {
         case scala.util.Success(Cond.Result(Some(netClient.Rep(Some(data))))) => release ++ eval(Option(Cmd.apply(data)))
         case scala.util.Success(Cond.Result(Some(netClient.Rep(None)))) => release ++ eval(Option.empty)
