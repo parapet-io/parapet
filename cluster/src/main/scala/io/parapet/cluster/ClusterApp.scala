@@ -106,7 +106,8 @@ object ClusterApp extends CatsApp {
         info -> AsyncClient[IO](
           ref = netClientRef(index),
           clientId = config.id,
-          address = s"${config.protocol}://${info.address}")
+          address = s"${config.protocol}://${info.address}",
+          AsyncClient.defaultOpts.withSndHWM(1000))
       }
     netClients.foreach {
       case (_, p) => eventTransformer(p.ref, cmdToNetClientSendTransformer)

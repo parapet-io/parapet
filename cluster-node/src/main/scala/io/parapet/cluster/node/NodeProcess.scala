@@ -106,6 +106,8 @@ class NodeProcess[F[_]: Concurrent](
             }
           case scala.util.Success(Cond.Result(Some(netClient.Rep(None)))) =>
             eval(Right(Option.empty[NodeInfo]).withLeft[Throwable])
+          case scala.util.Success(Cond.Result(None)) =>
+            eval(Right(Option.empty[NodeInfo]).withLeft[Throwable])
           case scala.util.Failure(err) => eval(Left(err).withRight[Option[NodeInfo]])
         }
         .finalize(release)
@@ -165,6 +167,7 @@ class NodeProcess[F[_]: Concurrent](
 
   override def handle: Receive = {
     case Init => initServers ++ getLeader
+    case NodeProcess.Send(data) => LeReq(config.id, data) ~> _leader
     case NodeProcess.Join(group) => join(group)
     case NodeProcess.Req(id, data) =>
       getOrCreateNode(id).flatMap {
@@ -203,6 +206,7 @@ object NodeProcess {
 
   case object Init extends Event
   case class Join(group: String) extends Event
+  case class Send(data: Array[Byte]) extends Event
   case class Req(nodeId: String, data: Array[Byte]) extends Event
 
 }

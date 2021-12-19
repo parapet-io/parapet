@@ -84,6 +84,11 @@ class ClusterProcess(override val ref: ProcessRef,
                 }
               }
             }
+        case api.PrintState => eval {
+          cluster.nodes.foreach { node =>
+            println(node)
+          }
+        }
       }
 
   }

@@ -1,6 +1,6 @@
 package io.parapet.tests.intg
 
-import io.parapet.{Envelope, Event}
+import io.parapet.{Envelope, Event, ProcessRef}
 import io.parapet.core.Events._
 import io.parapet.core.Process
 import io.parapet.core.exceptions.EventHandlingException
@@ -25,7 +25,10 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
         val client = new Process[F] {
           def handle: Receive = {
             case Start => Request ~> faultyServer
-            case f: Failure => eval(clientEventStore.add(ref, f))
+            case f: Failure => withSender{ sender =>
+              sender shouldBe ProcessRef.SystemRef
+              eval(clientEventStore.add(ref, f))
+            }
           }
         }
 

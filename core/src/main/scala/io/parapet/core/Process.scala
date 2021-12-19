@@ -4,6 +4,8 @@ import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.{Event, ProcessRef}
 import io.parapet.syntax.FlowSyntax
 
+import java.util.concurrent.atomic.AtomicReference
+
 trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
   _self =>
   type Program = DslF[F, Unit]
@@ -14,6 +16,12 @@ trait Process[F[_]] extends WithDsl[F] with FlowSyntax[F] {
   val ref: ProcessRef = ProcessRef.jdkUUIDRef
 
   private var _handler = Option.empty[Receive]
+
+  private val _context = new AtomicReference[Context[F]]()
+
+  private [parapet] def init(ctx: Context[F]): Unit = _context.compareAndSet(null, ctx)
+
+  private [parapet] def context: Context[F] = _context.get()
 
   val bufferSize = -1 // unbounded
 

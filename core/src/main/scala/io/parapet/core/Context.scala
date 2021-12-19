@@ -18,7 +18,7 @@ import scala.jdk.CollectionConverters._
 
 class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig,
                                               val eventStore: EventStore[F],
-                                              val eventTransformers: EventTransformers) {
+                                              val eventTransformers: EventTransformers) { self =>
 
   val devMode: Boolean = config.devMode
 
@@ -59,6 +59,7 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig,
         ct.raiseError(
           new IllegalStateException(s"$child has been already registered. its parent=${parents.get(child)}"))
       } else {
+        child.init(self)
         ProcessState(child, config).flatMap { state =>
           ct.delay {
             if (processes.putIfAbsent(child.ref, state) != null) {

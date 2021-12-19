@@ -114,6 +114,7 @@ object Cmd {
     case class Node(id: String, protocol: String, address: String, groups: Set[String]) extends Api
     case class State(version: Long, nodes: List[Node]) extends Api
     case object GetState extends Api
+    case object PrintState extends Api
 
   }
 

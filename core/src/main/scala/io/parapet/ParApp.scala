@@ -58,7 +58,6 @@ trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
         } else ct.unit
       context <- Context(config, eventLog, eventTransformers.build)
       interpreter <- ct.pure(interpreter(context))
-      _ <- ct.delay(DslInterpreter.instance(interpreter))
       scheduler <- Scheduler.apply[F](config.schedulerConfig, context, interpreter)
       _ <- context.start(scheduler)
       dlProcess <- deadLetter

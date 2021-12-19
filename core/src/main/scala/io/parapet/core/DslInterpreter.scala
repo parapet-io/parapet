@@ -11,15 +11,6 @@ import io.parapet.{Envelope, Event, ProcessRef}
 
 object DslInterpreter {
 
-  // ugly but necessary for Channel
-  private var _instance: Any = _
-
-  private[parapet] def instance[F[_]](i: Interpreter[F]): Unit = _instance = i
-
-  private[parapet] def instance[F[_]]: Interpreter[F] = {
-    _instance.asInstanceOf[Interpreter[F]]
-  }
-
   trait Interpreter[F[_]] {
     def interpret(sender: ProcessRef, target: ProcessRef): FlowOp[F, *] ~> F
 

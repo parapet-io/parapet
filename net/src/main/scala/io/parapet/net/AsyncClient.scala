@@ -2,16 +2,19 @@ package io.parapet.net
 
 import cats.implicits.toFunctorOps
 import io.parapet.ProcessRef
+import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.{Start, Stop}
 import io.parapet.core.api.Cmd.netClient
+import io.parapet.net.AsyncClient.Options
 import org.slf4j.LoggerFactory
 import org.zeromq.{SocketType, ZContext, ZMQ}
+
 import scala.concurrent.duration._
 
 class AsyncClient[F[_]](override val ref: ProcessRef,
                         clientId: String,
                         address: String,
-                        receiveTimeOut: FiniteDuration) extends io.parapet.core.Process[F] {
+                        opts: Options) extends io.parapet.core.Process[F] {
 
   import dsl._
 
@@ -26,9 +29,11 @@ class AsyncClient[F[_]](override val ref: ProcessRef,
       eval {
         client
         client.setIdentity(clientId.getBytes(ZMQ.CHARSET))
+        client.setReceiveTimeOut(opts.receiveTimeOut.toMillis.intValue())
+        client.setSndHWM(opts.sndHWM)
+        logger.debug(s"sndHWM=${opts.sndHWM}")
         client.connect(address)
         logger.debug(s"client[id=$clientId] has been connected to $address")
-        client.setReceiveTimeOut(receiveTimeOut.toMillis.intValue())
       }
 
     case Stop =>
@@ -41,29 +46,41 @@ class AsyncClient[F[_]](override val ref: ProcessRef,
       val waitForRep = replyOpt match {
         case Some(repChan) =>
           for {
-            _ <- eval(logger.debug("wait for response"))
+            _ <- devLog("wait for response")
             msg <- eval(client.recv())
-            _ <- eval(
-              logger.debug(
-                s"[$address] response received: '${new String(Option(msg).getOrElse(Array.empty))}'. send to $repChan"))
+            _ <- devLog(
+              s"[$address] response received: " +
+                s"'${new String(Option(msg).getOrElse(Array.empty))}'. send to $repChan")
             _ <- netClient.Rep(Option(msg)) ~> repChan
           } yield ()
         case None => unit
       }
+      blocking {
+        devLog(s"$info send message") ++
+          eval(client.send(data, 0)).void
+            .handleError(err => eval(logger.error(s"$info failed to send a message", err))) ++
+          waitForRep.handleError(err => eval(logger.error(s"$info failed to receive a reply", err)))
+      }
+  }
 
-      eval(logger.debug(s"$info send message")) ++
-        eval(client.send(data, 0)).void
-          .handleError(err => eval(logger.error(s"$info failed to send a message", err))) ++
-        waitForRep.handleError(err => eval(logger.error(s"$info failed to receive a reply", err)))
-
+  private def devLog(msg: => String): DslF[F, Unit] = {
+    if (context.devMode) {
+      eval(logger.debug(msg))
+    } else unit
   }
 }
 
 object AsyncClient {
 
+  case class Options(receiveTimeOut: FiniteDuration, sndHWM: Int) {
+    def withSndHWM(value: Int): Options = this.copy(sndHWM = value)
+  }
+
+  val defaultOpts: Options = Options(5.seconds, 1000)
+
   def apply[F[_]](ref: ProcessRef,
                   clientId: String,
                   address: String,
-                  receiveTimeOut: FiniteDuration = 5.seconds): AsyncClient[F] =
-    new AsyncClient(ref, clientId, address, receiveTimeOut)
+                  opts: Options = defaultOpts): AsyncClient[F] =
+    new AsyncClient(ref, clientId, address, opts)
 }

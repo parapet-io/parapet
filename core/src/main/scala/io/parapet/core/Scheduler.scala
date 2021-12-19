@@ -144,16 +144,8 @@ object Scheduler {
 
             } >> ct.pure(Ok)
         case false =>
-          send(
-            ProcessRef.SystemRef,
-            Failure(
-              task.envelope,
-              EventDeliveryException(
-                s"System failed to deliver an event to process ${ps.process}",
-                EventQueueIsFullException(s"process ${ps.process} event queue is full"))),
-            context.getProcessState(task.envelope.sender).get,
-            interpreter,
-            task.execTrace) >> ct.pure(ProcessQueueIsFull)
+          logger.warn(s"process ${ps.process} event queue is full") >>
+          ct.pure(ProcessQueueIsFull)
       }
 
     def sendUnknownProcessError(task: Deliver[F]): F[Unit] = {
@@ -465,7 +457,7 @@ object Scheduler {
         interpreter: Interpreter[F],
         execTrace: ExecutionTrace
     )(implicit flowDsl: FlowOps[F, Dsl[F, *]]): F[Unit] =
-      flowDsl.send(event, receiver.process.ref).foldMap[F](interpreter.interpret(sender, receiver, execTrace))
+      flowDsl.send(sender, event, receiver.process.ref).foldMap[F](interpreter.interpret(sender, receiver, execTrace))
 
     private def deliverStopEvent[F[_]: Concurrent](
         sender: ProcessRef,
