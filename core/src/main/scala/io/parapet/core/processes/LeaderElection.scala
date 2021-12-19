@@ -168,7 +168,7 @@ class LeaderElection[F[_] : Concurrent](override val ref: ProcessRef,
 
   private[core] def sendHeartbeat: DslF[F, Unit] = {
     implicit val correlationId: CorrelationId = CorrelationId()
-    state.peers.all
+    state.peers.active
       .map { case (addr, peer) =>
         log(s"send heartbeat to peer=$addr") ++ Heartbeat(state.addr, state.leader) ~> peer.ref
       }
@@ -217,8 +217,13 @@ class LeaderElection[F[_] : Concurrent](override val ref: ProcessRef,
       case e: Exception =>
         action = log("unexpected error", Level.ERROR, Option(e))
     }
-
-    action
+    eval {
+      state.peers.peers.foreach(p => p.updateActive() match {
+        case (old, curr) => if (old != curr) {
+          logger.debug(s"peer ${p.id} active changed. old=$old, curr=$curr")
+        }
+      })
+    } ++ action
   }
 
   private def sendToPeers(cmd: Cmd): DslF[F, Unit] = {
@@ -379,6 +384,16 @@ object LeaderElection {
             ) {
     private var lastPingAt: Long = 0
 
+    private var _active = true
+
+    def active: Boolean = _active
+
+    def updateActive(): (Boolean, Boolean) = {
+      val old = _active
+      _active = lastPingAt >= clock.currentTimeMillis - 3 * timeoutMs
+      (old, _active)
+    }
+
     def update(): Unit =
       update(clock.currentTimeMillis)
 
@@ -401,6 +416,8 @@ object LeaderElection {
     val majorityCount: Int = (peers.size + 1) / 2 + 1
 
     def all: Map[Addr, Peer] = map
+
+    def active: Map[Addr, Peer] = map.filter(p => p._2.active)
 
     @throws[IllegalStateException]
     def getById(id: Addr): Peer = idMap.get(id) match {
