@@ -85,6 +85,7 @@ class ClusterProcess(override val ref: ProcessRef,
               }
             }
         case api.PrintState => eval {
+          logger.debug("print cluster state")
           cluster.nodes.foreach { node =>
             println(node)
           }

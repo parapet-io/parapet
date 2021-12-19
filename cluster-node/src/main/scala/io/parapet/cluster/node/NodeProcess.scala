@@ -167,7 +167,7 @@ class NodeProcess[F[_]: Concurrent](
 
   override def handle: Receive = {
     case Init => initServers ++ getLeader
-    case NodeProcess.Send(data) => LeReq(config.id, data) ~> _leader
+    case NodeProcess.Send(data) => netClient.Send(LeReq(config.id, data).toByteArray) ~> _leader
     case NodeProcess.Join(group) => join(group)
     case NodeProcess.Req(id, data) =>
       getOrCreateNode(id).flatMap {
