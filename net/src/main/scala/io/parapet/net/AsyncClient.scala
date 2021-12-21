@@ -13,12 +13,12 @@ import scala.concurrent.duration._
 
 class AsyncClient[F[_]](override val ref: ProcessRef,
                         clientId: String,
-                        address: String,
+                        address: Address,
+                        zmqContext: ZContext,
                         opts: Options) extends io.parapet.core.Process[F] {
 
   import dsl._
 
-  private lazy val zmqContext = new ZContext(1)
   private lazy val client = zmqContext.createSocket(SocketType.DEALER)
   private val logger = LoggerFactory.getLogger(ref.value)
 
@@ -31,8 +31,7 @@ class AsyncClient[F[_]](override val ref: ProcessRef,
         client.setIdentity(clientId.getBytes(ZMQ.CHARSET))
         client.setReceiveTimeOut(opts.receiveTimeOut.toMillis.intValue())
         client.setSndHWM(opts.sndHWM)
-        logger.debug(s"sndHWM=${opts.sndHWM}")
-        client.connect(address)
+        client.connect(address.value)
         logger.debug(s"client[id=$clientId] has been connected to $address")
       }
 
@@ -79,8 +78,9 @@ object AsyncClient {
   val defaultOpts: Options = Options(5.seconds, 1000)
 
   def apply[F[_]](ref: ProcessRef,
+                  zmqContext: ZContext,
                   clientId: String,
-                  address: String,
+                  address: Address,
                   opts: Options = defaultOpts): AsyncClient[F] =
-    new AsyncClient(ref, clientId, address, opts)
+    new AsyncClient(ref, clientId, address, zmqContext, opts)
 }

@@ -1,43 +1,41 @@
 package io.parapet.cluster.node
+
 import cats.effect.Concurrent
 import com.typesafe.scalalogging.Logger
 import io.parapet.cluster.node.NodeProcess._
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events._
-import io.parapet.core.api.Cmd.cluster
-import io.parapet.core.api.Cmd.cluster._
-import io.parapet.core.api.Cmd.netClient
-import io.parapet.core.api.Cmd.netServer
-import io.parapet.core.api.Cmd.leaderElection.{Who, WhoRep, Rep => LeRep, Req => LeReq}
 import io.parapet.core.api.Cmd
-import io.parapet.net.{AsyncClient, Node}
+import io.parapet.core.api.Cmd.cluster._
+import io.parapet.core.api.Cmd.leaderElection.{Who, WhoRep, Req => LeReq}
+import io.parapet.core.api.Cmd.{cluster, netClient, netServer}
 import io.parapet.core.{Channel, Cond, Process}
+import io.parapet.net.{Address, AsyncClient, Node}
 import io.parapet.{Event, ProcessRef}
 import org.zeromq.{SocketType, ZContext}
 
-import scala.concurrent.duration._
 import scala.collection.mutable
+import scala.concurrent.duration._
 
-class NodeProcess[F[_]: Concurrent](
-    config: Config,
-    client: ProcessRef,
-    server: ProcessRef,
-    override val ref: ProcessRef
-) extends Process[F] {
+class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
+                                     config: Config,
+                                     client: ProcessRef,
+                                     zmqContext: ZContext) extends Process[F] {
+
   import dsl._
 
   private val logger = Logger[NodeProcess[F]]
   private val peers = mutable.Map[String, Node]()
   private var _leader: ProcessRef = _
+  // {host}:{port} -> netClientRef
   private var _servers: Map[String, ProcessRef] = Map.empty
-
-  private lazy val zmqContext = new ZContext(1)
 
   private def initServers: DslF[F, Unit] =
     flow {
-      val clients = config.servers.map(address => AsyncClient[F](ProcessRef(address), config.id, "tcp://" + address))
+      val clients = config.servers.map(address => AsyncClient[F](ProcessRef(address.value),
+        zmqContext, config.id, address))
       clients.map(client => register(ref, client)).fold(unit)(_ ++ _) ++ eval {
-        _servers = config.servers.zip(clients.map(_.ref)).toMap
+        _servers = config.servers.map(_.simple).zip(clients.map(_.ref)).toMap
       }
     }
 
@@ -62,7 +60,7 @@ class NodeProcess[F[_]: Concurrent](
   }
 
   private def join(groupId: String): DslF[F, Unit] = {
-    val req = LeReq(config.id, cluster.Join(config.id, s"${config.host}:${config.port}", groupId).toByteArray)
+    val req = LeReq(config.id, cluster.Join(config.id, config.address.simple, groupId).toByteArray)
     val filter: Cmd => Boolean = {
       case cluster.JoinResult(_, _) => true
       case _ => false
@@ -85,7 +83,6 @@ class NodeProcess[F[_]: Concurrent](
     // todo instead of using cond for timeout add timeout feature to channel
     val ch = Channel[F]
     val cond = new Cond[F](
-      ch.ref,
       {
         case netClient.Rep(data) => data.map(Cmd(_)).exists(_.isInstanceOf[NodeInfo])
         case _ => false
@@ -101,7 +98,7 @@ class NodeProcess[F[_]: Concurrent](
         .flatMap {
           case scala.util.Success(Cond.Result(Some(netClient.Rep(Some(data))))) =>
             Cmd(data) match {
-              case n @ NodeInfo(_, _, cluster.Code.Ok) => eval(Right(Option(n)).withLeft[Throwable])
+              case n@NodeInfo(_, _, cluster.Code.Ok) => eval(Right(Option(n)).withLeft[Throwable])
               case NodeInfo(_, _, cluster.Code.NotFound) => eval(Right(Option.empty[NodeInfo]).withLeft[Throwable])
             }
           case scala.util.Success(Cond.Result(Some(netClient.Rep(None)))) =>
@@ -137,31 +134,31 @@ class NodeProcess[F[_]: Concurrent](
         }
     }
 
-  // should be used for m-m dialog where only one answer should be accepted
-  private def sendSync[A >: Cmd](
-      cmd: Cmd,
-      clusterNodes: Seq[ProcessRef],
-      predicate: A => Boolean,
-      timeout: FiniteDuration
-  ): DslF[F, Option[A]] = {
+  // should be used for 1-m dialog where only one answer should be accepted
+  private def sendSync[A >: Cmd](cmd: Cmd,
+                                 clusterNodes: Seq[ProcessRef],
+                                 predicate: A => Boolean,
+                                 timeout: FiniteDuration): DslF[F, Option[A]] = {
     val ch = Channel[F]
     val cond = new Cond[F](
-      ch.ref,
       {
         case netClient.Rep(data) => data.exists(d => predicate(Cmd(d)))
         case _ => false
       },
       timeout)
     val data = cmd.toByteArray
+
     def release = halt(ch.ref) ++ halt(cond.ref)
 
     register(ref, ch) ++ register(ref, cond) ++
       par(clusterNodes.map(clusterNode => netClient.Send(data, Option(cond.ref)) ~> clusterNode): _*) ++
       ch.send(Cond.Start, cond.ref).flatMap {
-        case scala.util.Success(Cond.Result(Some(netClient.Rep(Some(data))))) => release ++ eval(Option(Cmd.apply(data)))
-        case scala.util.Success(Cond.Result(Some(netClient.Rep(None)))) => release ++ eval(Option.empty)
+        case scala.util.Success(Cond.Result(Some(netClient.Rep(Some(data))))) =>
+          release ++ eval(Option(Cmd.apply(data)))
+        case scala.util.Success(Cond.Result(Some(netClient.Rep(None)))) =>
+          release ++ eval(Option.empty) // this code should be unreachable, unless cond logic is messed up
         case scala.util.Success(Cond.Result(None)) => release ++ eval(Option.empty)
-        case scala.util.Failure(err) => release ++ eval(throw err)
+        case scala.util.Failure(err) => release ++ raiseError(err)
       }
   }
 
@@ -172,8 +169,7 @@ class NodeProcess[F[_]: Concurrent](
     case NodeProcess.Req(id, data) =>
       getOrCreateNode(id).flatMap {
         case Some(node) =>
-          eval(logger.debug(s"node $node has found")) ++
-            eval(node.send(Cmd.clusterNode.Req(config.id, data).toByteArray))
+          eval(node.send(Cmd.clusterNode.Req(config.id, data).toByteArray))
         case None => eval(logger.debug(s"node id=$id not found"))
       }
 
@@ -202,11 +198,21 @@ class NodeProcess[F[_]: Concurrent](
 
 object NodeProcess {
 
-  case class Config(id: String, host: String, port: Int, servers: Seq[String])
+  /**
+    * A node process config
+    *
+    * @param id      a unique node id
+    * @param address the node address
+    * @param servers a list of cluster servers
+    */
+  case class Config(id: String, address: Address, servers: Seq[Address])
 
   case object Init extends Event
+
   case class Join(group: String) extends Event
+
   case class Send(data: Array[Byte]) extends Event
+
   case class Req(nodeId: String, data: Array[Byte]) extends Event
 
 }

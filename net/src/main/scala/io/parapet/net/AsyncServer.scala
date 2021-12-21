@@ -8,20 +8,21 @@ import org.slf4j.LoggerFactory
 import org.zeromq.{SocketType, ZContext, ZMQException, ZMsg}
 import zmq.ZError
 
-class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: ProcessRef)
-  extends io.parapet.core.Process[F] {
+class AsyncServer[F[_]](override val ref: ProcessRef,
+                        zmqContext: ZContext,
+                        address: Address,
+                        sink: ProcessRef) extends io.parapet.core.Process[F] {
 
   import dsl._
 
-  private lazy val zmqContext = new ZContext(1)
   private lazy val server = zmqContext.createSocket(SocketType.ROUTER)
   private val logger = LoggerFactory.getLogger(ref.value)
   private val info: String = s"server[ref=$ref, address=$address]:"
 
   private def init = eval {
     try {
-      server.bind(address)
-      logger.info(s"$info is listening $address")
+      server.bind(address.value)
+      logger.info(s"$info is listening...")
     } catch {
       case e: Exception =>
         e match {
@@ -42,7 +43,7 @@ class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: Pro
       eval {
         val clientId = server.recvStr()
         val msgBytes = server.recv()
-        logger.debug(s"$info received message from client: $clientId")
+        devLogUnsafe(s"$info received message from client: $clientId")
         Right(netServer.Message(clientId, msgBytes)).withLeft[Throwable]
       }.handleError(e => eval(Left(e).withRight[netServer.Message])).flatMap {
         case Right(msg) => msg ~> sink ++ step
@@ -70,25 +71,34 @@ class AsyncServer[F[_]](override val ref: ProcessRef, address: String, sink: Pro
           msg.add(clientId)
           msg.add(data)
           msg.send(server)
+          msg.clear()
         }
       }
 
     case Stop =>
       eval {
-        if (!zmqContext.isClosed) {
-          logger.debug("closing zmq context")
-          server.close()
-          zmqContext.close()
-        } else {
-          logger.debug("zmq context is already closed")
-        }
-      }.handleError(err => eval(logger.error("an error occurred while closing zmq context", err)))
+        logger.debug("closing socket")
+        server.close()
+      }.handleError(err => eval(logger.error("an error occurred while closing socket", err)))
+  }
 
+  private def devLog(msg: => String): DslF[F, Unit] = {
+    if (context.devMode) {
+      eval(logger.debug(msg))
+    } else unit
+  }
+
+  private def devLogUnsafe(msg: => String): Unit = {
+    if (context.devMode) {
+      logger.debug(msg)
+    }
   }
 }
 
 object AsyncServer {
 
-  def apply[F[_]](ref: ProcessRef, address: String, sink: ProcessRef): AsyncServer[F] =
-    new AsyncServer(ref, address, sink)
+  def apply[F[_]](ref: ProcessRef,
+                  zmqContext: ZContext,
+                  address: Address, sink: ProcessRef): AsyncServer[F] =
+    new AsyncServer(ref, zmqContext, address, sink)
 }

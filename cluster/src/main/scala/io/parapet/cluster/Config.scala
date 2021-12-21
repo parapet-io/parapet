@@ -9,14 +9,14 @@ import scala.util.Using
 
 case class Config(id: String,
                   address: String,
-                  protocol:String,
+                  protocol: String,
                   peers: Array[PeerInfo],
                   coordinatorThreshold: Double,
                   electionDelay: FiniteDuration,
                   heartbeatDelay: FiniteDuration,
                   monitorDelay: FiniteDuration,
                   peerTimeout: FiniteDuration,
-                  coordinatorTimeout:FiniteDuration)
+                  coordinatorTimeout: FiniteDuration)
 
 object Config {
 

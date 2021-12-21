@@ -9,6 +9,8 @@ import io.parapet.core.processes.{Coordinator, LeaderElection, Sub}
 import io.parapet.core.{EventTransformer, Parapet}
 import io.parapet.net.{AsyncClient, AsyncServer}
 import io.parapet.{CatsApp, ProcessRef, core}
+import org.zeromq.ZContext
+import io.parapet.net.Address._
 import scopt.OParser
 
 import java.nio.file.Paths
@@ -19,6 +21,7 @@ object ClusterApp extends CatsApp {
   private val leaderElectionRef = ProcessRef("leader-election")
   private val netServerRef = ProcessRef("net-server")
   private val clusterRef = ProcessRef("cluster")
+  private val zmqContext = new ZContext(2)
 
   private def netClientRef(id: Int): ProcessRef = ProcessRef(s"net-client-$id")
 
@@ -66,7 +69,8 @@ object ClusterApp extends CatsApp {
     val port = config.address.split(":")(1).trim.toInt
     AsyncServer[IO](
       ref = netServerRef,
-      address = s"${config.protocol}://*:$port",
+      zmqContext = zmqContext,
+      address = tcp("*", port),
       sink = sink)
   }
 
@@ -105,8 +109,9 @@ object ClusterApp extends CatsApp {
       .map { case (info, index) =>
         info -> AsyncClient[IO](
           ref = netClientRef(index),
+          zmqContext = zmqContext,
           clientId = config.id,
-          address = s"${config.protocol}://${info.address}",
+          address = tcp(info.address),
           AsyncClient.defaultOpts.withSndHWM(1000))
       }
     netClients.foreach {
@@ -139,6 +144,10 @@ object ClusterApp extends CatsApp {
         .action((x, c) => c.copy(config = x))
         .text("path to config file"),
     )
+  }
+
+  override def onExit(): Unit = {
+    zmqContext.close()
   }
 
   case class AppArgs(config: String = "etc/node.properties")

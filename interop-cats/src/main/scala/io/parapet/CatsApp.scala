@@ -25,11 +25,14 @@ trait CatsApp extends ParApp[IO] {
     }.flatMap(_.join).unsafeRunSync()
   }
 
+  def onExit(): Unit = {}
+
   private def installHook(fiber: Fiber[IO, Unit]): IO[Unit] =
     IO {
       sys.addShutdownHook {
         // Should block the thread until all finalizers are executed
         fiber.cancel.unsafeRunSync()
+        onExit()
         // todo fromExecutorService(executor) + executionContext.shutdownNow()
       }
     }

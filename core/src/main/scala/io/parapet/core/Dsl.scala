@@ -42,7 +42,7 @@ object Dsl {
 
   case class Blocking[F[_], C[_], A](body: () => Free[C, A]) extends FlowOp[F, Unit]
 
-  case class RaiseError[F[_], G[_]](err: Throwable) extends FlowOp[F, Unit]
+  case class RaiseError[A, F[_], G[_]](err: Throwable) extends FlowOp[F, A]
 
   case class HandelError[F[_], C[_], A, AA >: A](body: () => Free[C, A],
                                                  handle: Throwable => Free[C, AA]) extends FlowOp[F, AA]
@@ -315,7 +315,7 @@ object Dsl {
       * @param err error
       * @return unit flow
       */
-    def raiseError(err: Throwable): Free[C, Unit] = Free.inject[FlowOp[F, *], C](RaiseError(err))
+    def raiseError[A](err: Throwable): Free[C, A] = Free.inject[FlowOp[F, *], C](RaiseError(err))
 
     /**
       * Handle any error, potentially recovering from it, by mapping it to an Free[C, AA] value.
