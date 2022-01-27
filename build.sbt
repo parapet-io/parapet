@@ -193,6 +193,16 @@ lazy val benchmark = project
     publish := {},
   ).dependsOn(core, interopCats)
 
+lazy val spark = project
+  .in(file("spark"))
+  .settings(
+    name := "spark",
+    libraryDependencies += dependencies.scalaTest,
+    publishLocal := {},
+    publish := {},
+  ).dependsOn(core, clusterNode)
+
+
 lazy val protobuf = project
   .settings(
     name := "protobuf",
