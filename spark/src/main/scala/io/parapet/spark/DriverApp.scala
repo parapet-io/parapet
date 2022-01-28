@@ -9,7 +9,9 @@ abstract class DriverApp extends CatsApp {
 
   val clusterInfo: ClusterInfo
 
-  val sparkContext = new Spark.SparkContext(null)
+  val workers: Vector[ProcessRef]
+
+  val sparkContext = new Spark.SparkContext(workers)
 
   // refs
   val nodeRef: ProcessRef = ProcessRef("node")

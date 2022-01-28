@@ -33,6 +33,8 @@ object Api {
   case class MapTask(id: String, jobId: String,
                      data: Array[Byte]) extends Task
 
+  // schema
+  // rows
   case class MapResult(id: String, jobId: String,
                        data: Array[Byte]) extends TaskResult
 

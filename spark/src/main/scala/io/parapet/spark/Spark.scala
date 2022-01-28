@@ -35,7 +35,7 @@ object Spark {
   }
 
   class SparkContext(val workersRef: Vector[ProcessRef]) {
-
+    val driverRef: ProcessRef = ProcessRef("driver")
   }
 
 }

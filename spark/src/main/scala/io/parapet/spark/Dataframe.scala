@@ -23,7 +23,7 @@ class Dataframe(rows: Seq[Row], schema: SparkSchema,
     def step(idx: Int): DslF[IO, Unit] = {
       if (tasks.hasNext) {
         tasks.next().foldLeft(unit)((acc, task) =>
-          netClient.Send(task.toByteArray, Option(ref)) ~> ctx.workersRef(idx)) ++
+          acc ++ netClient.Send(task.toByteArray, Option(ref)) ~> ctx.workersRef(idx)) ++
           step((idx + 1) % ctx.workersRef.size)
       } else {
         unit
@@ -53,7 +53,10 @@ class Dataframe(rows: Seq[Row], schema: SparkSchema,
       job <- eval(new Job(jobId, tasks, done))
       _ <- send(partitioned)
       _ <- suspend(done.get)
-    } yield this // combine results
+      outDf <- eval(new Dataframe(job.results, schema, ctx))
+      _ <- eval(println(s"job $jobId completed"))
+      _ <- register(ctx.driverRef, outDf)
+    } yield outDf // combine results
 
   }
 
