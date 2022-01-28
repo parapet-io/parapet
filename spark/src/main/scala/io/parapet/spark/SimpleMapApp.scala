@@ -18,10 +18,10 @@ object SimpleMapApp extends DriverApp {
   import dsl._
 
   override def execute: DslF[IO, Unit] = flow {
-    val ds = createDataset(sparkSchema, Seq(Row.of(1)))
     for {
+      df <- createDataframe(sparkSchema, Seq(Row.of(1)))
       _ <- eval(println("hi"))
-      updated <- ds.map { r =>
+      updated <- df.map { r =>
         Row(r.values.map(v => v.asInstanceOf[Int] + 1))
       }
       _ <- updated.show

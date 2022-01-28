@@ -2,8 +2,8 @@ package io.parapet.spark
 
 import io.parapet.spark.SparkType._
 
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream}
 import java.nio.ByteBuffer
-
 
 object Codec {
 
@@ -115,4 +115,24 @@ object Codec {
     rows
   }
 
+  def serializeObj(obj: Any): Array[Byte] = {
+    val bios = new ByteArrayOutputStream()
+    val objectOutputStream = new ObjectOutputStream(bios)
+    objectOutputStream.writeObject(obj)
+    bios.toByteArray
+  }
+
+  def deserializeObj[A](bytes: Array[Byte]): A = {
+    val bios = new ByteArrayInputStream(bytes)
+    val objectInputStream = new ObjectInputStream(bios)
+    objectInputStream.readObject().asInstanceOf[A]
+  }
+
+
+  def toByteArray(buf: ByteBuffer): Array[Byte] = {
+    buf.flip()
+    val res = new Array[Byte](buf.remaining())
+    buf.get(res)
+    res
+  }
 }

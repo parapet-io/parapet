@@ -34,7 +34,7 @@ object Spark {
     ois.readObject().asInstanceOf[T]
   }
 
-  class SparkContext(val workersRef: Seq[ProcessRef]) {
+  class SparkContext(val workersRef: Vector[ProcessRef]) {
 
   }
 
