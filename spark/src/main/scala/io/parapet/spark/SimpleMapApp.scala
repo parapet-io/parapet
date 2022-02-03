@@ -19,12 +19,15 @@ object SimpleMapApp extends DriverApp {
 
   override def execute: DslF[IO, Unit] = flow {
     for {
-      df <- createDataframe(sparkSchema, Seq(Row.of(1)))
+      df <- createDataframe(sparkSchema, Seq(Row.of(1), Row.of(2)))
       _ <- eval(println("hi"))
       updated <- df.map { r =>
         Row(r.values.map(v => v.asInstanceOf[Int] + 1))
       }
+      _ <- eval(println("result df:"))
       _ <- updated.show
     } yield ()
   }
+
+  override val workersAddr: Vector[String] = Vector("tcp://localhost:5555", "tcp://localhost:5556")
 }

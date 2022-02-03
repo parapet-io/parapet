@@ -3,15 +3,17 @@ package io.parapet.spark
 import cats.effect.IO
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events
+import io.parapet.net.{Address, AsyncClient}
 import io.parapet.{CatsApp, ProcessRef, core}
+import org.zeromq.ZContext
 
 abstract class DriverApp extends CatsApp {
 
   val clusterInfo: ClusterInfo
 
-  val workers: Vector[ProcessRef]
+  val workersAddr: Vector[String]
 
-  val sparkContext = new Spark.SparkContext(workers)
+  private var sparkContext: Spark.SparkContext = _ // new Spark.SparkContext(workers)
 
   // refs
   val nodeRef: ProcessRef = ProcessRef("node")
@@ -29,14 +31,25 @@ abstract class DriverApp extends CatsApp {
   def execute: DslF[IO, Unit]
 
   private class Driver extends io.parapet.core.Process[IO] {
+    override val ref: ProcessRef = ProcessRef("driver")
+
     override def handle: Receive = {
       case Events.Start => execute
     }
   }
 
   override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] = IO {
-    Seq(
-      new Driver
-    )
+    val zmqContext = new ZContext(1)
+    val workers = workersAddr.zipWithIndex.map {
+      case (address, idx) =>
+        val name = s"worker-$idx"
+        AsyncClient[IO](
+          ref = ProcessRef(name),
+          zmqContext: ZContext,
+          clientId = name,
+          address = Address(address))
+    }
+    sparkContext = new Spark.SparkContext(workers.map(_.ref), zmqContext)
+    workers :+ new Driver
   }
 }

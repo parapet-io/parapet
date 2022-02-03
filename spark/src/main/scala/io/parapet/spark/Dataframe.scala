@@ -23,8 +23,8 @@ class Dataframe(rows: Seq[Row], schema: SparkSchema,
     def step(idx: Int): DslF[IO, Unit] = {
       if (tasks.hasNext) {
         tasks.next().foldLeft(unit)((acc, task) =>
-          acc ++ netClient.Send(task.toByteArray, Option(ref)) ~> ctx.workersRef(idx)) ++
-          step((idx + 1) % ctx.workersRef.size)
+          acc ++ netClient.Send(task.toByteArray, Option(ref)) ~> ctx.workers(idx)) ++
+          step((idx + 1) % ctx.workers.size)
       } else {
         unit
       }
@@ -45,12 +45,16 @@ class Dataframe(rows: Seq[Row], schema: SparkSchema,
       MapTask(UUID.randomUUID().toString, jobId, Codec.toByteArray(buf))
     }
 
+    println(s"Job[id=$jobId] tasks:")
+    tasks.foreach(task => println(s"mapTask id=${task.id}"))
+
     // split tasks across available workers
-    val partitioned = tasks.grouped(tasks.size / ctx.workersRef.size)
+    val partitioned = tasks.grouped(tasks.size / ctx.workers.size)
 
     for {
       done <- suspend(Deferred[IO, Unit])
       job <- eval(new Job(jobId, tasks, done))
+      _ <- eval(jobs.put(jobId, job))
       _ <- send(partitioned)
       _ <- suspend(done.get)
       outDf <- eval(new Dataframe(job.results, schema, ctx))
@@ -69,9 +73,11 @@ class Dataframe(rows: Seq[Row], schema: SparkSchema,
   override def handle: Receive = {
     case netClient.Rep(Some(data)) => Api(data) match {
       case mapResult: MapResult => suspend {
-        val task = tasks.get(mapResult.id)
-        println(s"task ${task.id} completed")
-        jobs.get(task.jobId).complete(mapResult)
+        val taskId = mapResult.id
+        val jobId = mapResult.jobId
+        println(s"received mapResult(taskId=$taskId, jobId=$jobId)")
+        println(s"task id=$taskId completed")
+        jobs.get(jobId).complete(mapResult)
       }
     }
 

@@ -1,6 +1,7 @@
 package io.parapet.spark
 
 import io.parapet.ProcessRef
+import org.zeromq.ZContext
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream}
 
@@ -34,8 +35,13 @@ object Spark {
     ois.readObject().asInstanceOf[T]
   }
 
-  class SparkContext(val workersRef: Vector[ProcessRef]) {
+  class SparkContext(val workers: Vector[ProcessRef], zmqContext: ZContext) {
     val driverRef: ProcessRef = ProcessRef("driver")
+
+    def close(): Unit = {
+      zmqContext.close()
+    }
   }
+
 
 }

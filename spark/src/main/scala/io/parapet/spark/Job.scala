@@ -12,7 +12,7 @@ class Job(val id: String,
           val done: Deferred[IO, Unit]) {
 
   private var _completed: Int = 0
-  private val _results = new ListBuffer[Row]
+  private var _results = new ListBuffer[Row]
 
   def results: Seq[Row] = _results.toSeq
 
@@ -20,7 +20,7 @@ class Job(val id: String,
     res match {
       case Api.MapResult(_, _, data) => {
         val (_, rows) = Codec.decodeDataframe(data)
-        results ++= rows
+        _results ++= rows
       }
     }
     _completed = _completed + 1
