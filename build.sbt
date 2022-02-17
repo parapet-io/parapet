@@ -146,7 +146,7 @@ lazy val testUtils = project
     name := "test-utils",
     libraryDependencies += "org.scalatest" %% "scalatest" % scalaTestVersion,
     libraryDependencies += dependencies.flexmark
-  ).dependsOn(core, interopCats, interopMonix)
+  ).dependsOn(core)
 
 lazy val interopCats = project
   .in(file("interop-cats"))
@@ -183,7 +183,7 @@ lazy val intgTests = project
       "ch.qos.logback" % "logback-classic" % "1.2.3",
       "net.logstash.logback" % "logstash-logback-encoder" % "5.3"
     ),
-  ).dependsOn(core, testUtils)
+  ).dependsOn(core, testUtils, interopCats, interopMonix)
 
 lazy val benchmark = project
   .in(file("benchmark"))

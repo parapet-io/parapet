@@ -6,7 +6,7 @@ import io.parapet.core.Process
 import io.parapet.core.exceptions.{EventDeliveryException, UnknownProcessException}
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.tests.intg.SchedulerSpec._
-import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.testutils.EventStore
 import io.parapet.{Envelope, Event}
 import org.scalatest.OptionValues._
 import org.scalatest.matchers.should.Matchers._

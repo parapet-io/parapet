@@ -1,11 +1,12 @@
 package io.parapet.spark
 
 import com.sksamuel.avro4s.{AvroInputStream, AvroOutputStream, AvroSchema}
+import io.parapet.Event
 import org.apache.avro.Schema
 
 import java.io.ByteArrayOutputStream
 
-sealed trait Api {
+sealed trait Api extends Event {
   def toByteArray: Array[Byte] = {
     val os = new ByteArrayOutputStream()
     val aos = AvroOutputStream.binary[Api].to(os).build()
@@ -20,22 +21,31 @@ sealed trait Api {
 object Api {
   private val schema: Schema = AvroSchema[Api]
 
+  // Opaque Type Aliases
+  class ClientId(val underlying: String) extends AnyVal
+  class TaskId(val underlying: String) extends AnyVal
+  class JobId(val underlying: String) extends AnyVal
+
   sealed trait Task extends Api {
-    val id: String
-    val jobId: String
+    val clientId:ClientId
+    val taskId: TaskId
+    val jobId: JobId
   }
 
   sealed trait TaskResult extends Api {
-    val id: String
-    val jobId: String
+    val clientId:ClientId
+    val taskId: TaskId
+    val jobId: JobId
   }
 
-  case class MapTask(id: String, jobId: String,
+  case class MapTask(clientId: ClientId,
+                     taskId: TaskId,
+                     jobId: JobId,
                      data: Array[Byte]) extends Task
 
-  // schema
-  // rows
-  case class MapResult(id: String, jobId: String,
+  case class MapResult(clientId: ClientId,
+                       taskId: TaskId,
+                       jobId: JobId,
                        data: Array[Byte]) extends TaskResult
 
   def apply(bytes: Array[Byte]): Api = {

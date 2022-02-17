@@ -2,7 +2,7 @@ package io.parapet.tests.intg.catsio
 
 import cats.effect.IO
 import io.parapet.core.{Context, DslInterpreter}
-import io.parapet.testutils.BasicCatsIOSpec
+import io.parapet.tests.intg.BasicCatsIOSpec
 import io.parapet.testutils.tags.CatsTest
 import org.scalatest.tags.Slow
 import org.scalatest.{Ignore, Outcome, Retries}

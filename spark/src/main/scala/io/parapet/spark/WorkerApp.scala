@@ -4,7 +4,7 @@ import cats.effect.IO
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.api.Cmd.netServer
 import io.parapet.net.{Address, AsyncServer}
-import io.parapet.spark.Api.{MapResult, MapTask}
+import io.parapet.spark.Api.{MapResult, MapTask, TaskId}
 import io.parapet.{CatsApp, ProcessRef, core}
 import org.slf4j.LoggerFactory
 import org.zeromq.ZContext
@@ -18,7 +18,7 @@ abstract class WorkerApp extends CatsApp {
   val workerRef: ProcessRef = ProcessRef("worker")
 
   val serverRef: ProcessRef = ProcessRef("server")
-  
+
   class Worker(zmqCtx: ZContext) extends io.parapet.core.Process[IO] {
     override val ref: ProcessRef = workerRef
 
@@ -39,7 +39,7 @@ abstract class WorkerApp extends CatsApp {
         }
     }
 
-    def createMapResult(taskId: String, jobId: String,
+    def createMapResult(taskId: TaskId, jobId: String,
                         rows: Seq[Row], schema: SparkSchema): Array[Byte] = {
       MapResult(taskId, jobId, Codec.encodeDataframe(rows, schema)).toByteArray
     }

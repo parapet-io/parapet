@@ -4,7 +4,7 @@ import cats.effect.IO
 import io.parapet.core.Parapet
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Scheduler.SchedulerConfig
-import io.parapet.testutils.BasicCatsIOSpec
+import io.parapet.tests.intg.BasicCatsIOSpec
 import io.parapet.testutils.tags.CatsTest
 import org.scalatest.Ignore
 

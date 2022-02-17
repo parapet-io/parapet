@@ -1,4 +1,4 @@
-package io.parapet.testutils
+package io.parapet.tests.intg
 
 import io.parapet.core.Parapet
 import io.parapet.core.processes.DeadLetterProcess
@@ -7,7 +7,8 @@ import monix.eval.Task
 
 import scala.concurrent.ExecutionContext
 
-trait BasicMonixTaskSpec extends IntegrationSpec[Task] with MonixApp { self =>
+trait BasicMonixTaskSpec extends IntegrationSpec[Task] with MonixApp {
+  self =>
 
   override def createApp(processes0: Task[Seq[core.Process[Task]]],
                          deadLetter0: Option[Task[DeadLetterProcess[Task]]],

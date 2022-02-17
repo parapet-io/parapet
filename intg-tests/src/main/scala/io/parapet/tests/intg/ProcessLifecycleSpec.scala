@@ -6,7 +6,7 @@ import io.parapet.core.Events._
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Process
 import io.parapet.tests.intg.ProcessLifecycleSpec._
-import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.testutils.EventStore
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers._

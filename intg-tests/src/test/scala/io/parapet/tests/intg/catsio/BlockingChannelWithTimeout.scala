@@ -4,7 +4,8 @@ import cats.effect.IO
 import io.parapet.Event.{ByteEvent, StringEvent}
 import io.parapet.core.Events.Start
 import io.parapet.core.{Channel, Process}
-import io.parapet.testutils.{BasicCatsIOSpec, EventStore}
+import io.parapet.tests.intg.BasicCatsIOSpec
+import io.parapet.testutils.EventStore
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.Ignore
 import org.scalatest.funsuite.AnyFunSuite

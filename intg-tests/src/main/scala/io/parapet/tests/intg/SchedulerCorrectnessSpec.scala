@@ -8,7 +8,7 @@ import io.parapet.implicits._
 import io.parapet.syntax.logger.MDCFields
 import io.parapet.tests.intg.SchedulerCorrectnessSpec.TaskProcessingTime._
 import io.parapet.tests.intg.SchedulerCorrectnessSpec._
-import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.testutils.EventStore
 import io.parapet.{Envelope, Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers._
