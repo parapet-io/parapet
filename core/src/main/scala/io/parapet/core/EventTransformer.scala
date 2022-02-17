@@ -7,6 +7,9 @@ class EventTransformer(f: PartialFunction[Event, Event]) {
 }
 
 object EventTransformer {
+
+  val Noop: EventTransformer = EventTransformer(e => e)
+
   def apply(f: PartialFunction[Event, Event]): EventTransformer = {
     new EventTransformer(f)
   }

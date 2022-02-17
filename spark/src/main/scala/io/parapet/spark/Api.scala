@@ -22,9 +22,9 @@ object Api {
   private val schema: Schema = AvroSchema[Api]
 
   // Opaque Type Aliases
-  class ClientId(val underlying: String) extends AnyVal
-  class TaskId(val underlying: String) extends AnyVal
-  class JobId(val underlying: String) extends AnyVal
+  case class ClientId(val underlying: String) extends AnyVal
+  case class TaskId(val underlying: String) extends AnyVal
+  case class JobId(val underlying: String) extends AnyVal
 
   sealed trait Task extends Api {
     val clientId:ClientId

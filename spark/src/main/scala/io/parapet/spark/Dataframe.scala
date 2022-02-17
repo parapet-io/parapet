@@ -4,7 +4,7 @@ import cats.effect.concurrent.Deferred
 import cats.effect.{Concurrent, IO}
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.api.Cmd.netClient
-import io.parapet.spark.Api.{MapResult, MapTask, Task}
+import io.parapet.spark.Api.{ClientId, JobId, MapResult, MapTask, Task, TaskId}
 import io.parapet.spark.Spark.SparkContext
 
 import java.nio.ByteBuffer
@@ -16,8 +16,8 @@ class Dataframe(rows: Seq[Row], schema: SparkSchema,
 
   import dsl._
 
-  private val jobs = new ConcurrentHashMap[String, Job]()
-  private val tasks = new ConcurrentHashMap[String, Task]
+  private val jobs = new ConcurrentHashMap[JobId, Job]()
+  private val tasks = new ConcurrentHashMap[TaskId, Task]
 
   def send(tasks: Iterator[Seq[Task]]): DslF[IO, Unit] = {
     def step(idx: Int): DslF[IO, Unit] = {
@@ -34,7 +34,7 @@ class Dataframe(rows: Seq[Row], schema: SparkSchema,
   }
 
   def map(f: Row => Row): DslF[IO, Dataframe] = {
-    val jobId = UUID.randomUUID().toString
+    val jobId = JobId(UUID.randomUUID().toString)
     val tasks = rows.map { row =>
       val dfBytes = Codec.encodeDataframe(Seq(row), schema)
       val buf = ByteBuffer.allocate(dfBytes.length + 1000) // random number
@@ -42,11 +42,12 @@ class Dataframe(rows: Seq[Row], schema: SparkSchema,
       buf.putInt(lambdaBytes.length)
       buf.put(lambdaBytes)
       buf.put(dfBytes)
-      MapTask(UUID.randomUUID().toString, jobId, Codec.toByteArray(buf))
+      MapTask(ClientId(UUID.randomUUID().toString),
+        TaskId(UUID.randomUUID().toString), jobId, Codec.toByteArray(buf))
     }
 
     println(s"Job[id=$jobId] tasks:")
-    tasks.foreach(task => println(s"mapTask id=${task.id}"))
+    tasks.foreach(task => println(s"mapTask id=${task.taskId}"))
 
     // split tasks across available workers
     val partitioned = tasks.grouped(tasks.size / ctx.workers.size)
@@ -73,7 +74,7 @@ class Dataframe(rows: Seq[Row], schema: SparkSchema,
   override def handle: Receive = {
     case netClient.Rep(Some(data)) => Api(data) match {
       case mapResult: MapResult => suspend {
-        val taskId = mapResult.id
+        val taskId = mapResult.taskId
         val jobId = mapResult.jobId
         println(s"received mapResult(taskId=$taskId, jobId=$jobId)")
         println(s"task id=$taskId completed")

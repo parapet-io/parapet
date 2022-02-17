@@ -48,6 +48,7 @@ object TestUtils {
     }
   }
 
+  @deprecated("use EvalInterpreter from io.parapet.instances.interpreter")
   class EvalInterpreter(val execution: Execution, mapper: Event => Event) extends (FlowOp[CatsEval, *] ~> cats.Id) {
 
     override def apply[A](fa: FlowOp[CatsEval, A]): Id[A] = {

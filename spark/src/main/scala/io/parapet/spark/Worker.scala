@@ -1,15 +1,15 @@
 package io.parapet.spark
 
-import cats.effect.IO
 import com.typesafe.scalalogging.Logger
 import io.parapet.ProcessRef
+import io.parapet.core.Process
 import io.parapet.spark.Api._
 
 import java.nio.ByteBuffer
 
-class Worker(override val ref: ProcessRef, sink: ProcessRef) extends io.parapet.core.Process[IO] {
+class Worker[F[_]](override val ref: ProcessRef, sink: ProcessRef) extends Process[F] {
 
-  private val logger = Logger[Worker]
+  private val logger = Logger[Worker[F]]
 
   override def handle: Receive = {
     case MapTask(clientId, taskId, jobId, data) =>

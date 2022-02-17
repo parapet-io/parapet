@@ -4,7 +4,7 @@ import cats.effect.IO
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.api.Cmd.netServer
 import io.parapet.net.{Address, AsyncServer}
-import io.parapet.spark.Api.{MapResult, MapTask, TaskId}
+import io.parapet.spark.Api.{ClientId, JobId, MapResult, MapTask, TaskId}
 import io.parapet.{CatsApp, ProcessRef, core}
 import org.slf4j.LoggerFactory
 import org.zeromq.ZContext
@@ -25,7 +25,7 @@ abstract class WorkerApp extends CatsApp {
     override def handle: Receive = {
       case netServer.Message(clientId, msg) =>
         Api(msg) match {
-          case MapTask(taskId, jobId, data) =>
+          case MapTask(clientId, taskId, jobId, data) =>
             logger.debug(s"received mapTask(taskId=$taskId, jobId=$jobId)")
             val buf = ByteBuffer.wrap(data)
             val lambdaSize = buf.getInt()
@@ -35,13 +35,15 @@ abstract class WorkerApp extends CatsApp {
             val (schema, rows) = Codec.decodeDataframe(buf)
             val mapped = rows.map(f)
             Codec.encodeDataframe(mapped, schema)
-            netServer.Send(clientId, createMapResult(taskId, jobId, mapped, schema)) ~> serverRef
+            netServer.Send(clientId.underlying, createMapResult(clientId, taskId, jobId, mapped, schema)) ~> serverRef
         }
     }
 
-    def createMapResult(taskId: TaskId, jobId: String,
+    def createMapResult(
+                         clientId: ClientId,
+                         taskId: TaskId, jobId: JobId,
                         rows: Seq[Row], schema: SparkSchema): Array[Byte] = {
-      MapResult(taskId, jobId, Codec.encodeDataframe(rows, schema)).toByteArray
+      MapResult(clientId, taskId, jobId, Codec.encodeDataframe(rows, schema)).toByteArray
     }
 
     private def show(rows: Array[Row]): Unit = {
