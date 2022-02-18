@@ -1,33 +1,31 @@
 package io.parapet.spark
 
 import cats.effect.IO
-import io.parapet.core.Dsl.DslF
+import io.parapet.core.Events
+import io.parapet.net.Address
 import io.parapet.spark.SparkType._
+import io.parapet.{CatsApp, core}
 
-object SimpleMapApp extends DriverApp {
+object SimpleMapApp extends CatsApp {
 
-  val sparkSchema = SparkSchema(Seq(SchemaField("1", IntType)))
+  private val sparkSchema = SparkSchema(Seq(SchemaField("1", IntType)))
 
-  override val clusterInfo: ClusterInfo =
-    ClusterInfo(
-      "",
-      List.empty,
-      List.empty
-    )
-
-  import dsl._
-
-  override def execute: DslF[IO, Unit] = flow {
-    for {
-      df <- createDataframe(sparkSchema, Seq(Row.of(1), Row.of(2)))
-      _ <- eval(println("hi"))
-      updated <- df.map { r =>
-        Row(r.values.map(v => v.asInstanceOf[Int] + 1))
-      }
-      _ <- eval(println("result df:"))
-      _ <- updated.show
-    } yield ()
+  class SimpleMap extends io.parapet.core.Process[IO] {
+    override def handle: Receive = {
+      case Events.Start =>
+        for {
+          sparkContext <- SparkContext.builder[IO]
+            .clusterMode(false)
+            .workerServers(List(Address.tcp("")))
+            .build
+          df <- sparkContext.createDataframe(Seq(Row.of(1)), sparkSchema)
+          outDf <- df.map(r => r)
+          _ <- outDf.show
+        } yield ()
+    }
   }
 
-  override val workersAddr: Vector[String] = Vector("tcp://localhost:5555", "tcp://localhost:5556")
+  override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] = IO {
+    Seq(new SimpleMap)
+  }
 }

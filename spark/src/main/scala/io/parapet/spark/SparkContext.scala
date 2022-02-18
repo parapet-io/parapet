@@ -19,7 +19,7 @@ class SparkContext[F[_]](override val ref: ProcessRef,
     case _ => unit
   }
 
-  def mapDataframe(rows: Seq[Row], schema: SparkSchema, f: Row => Row): DslF[F, Dataframe] = {
+  def mapDataframe(rows: Seq[Row], schema: SparkSchema, f: Row => Row): DslF[F, Dataframe[F]] = {
     eval(throw new RuntimeException("todo"))
   }
 
@@ -124,6 +124,8 @@ object SparkContext {
       } yield sparkContext
     }
   }
+
+  def builder[F[_] : Concurrent]: Builder[F] = new Builder[F]
 
   class ClusterWorker[F[_]](id: String, nodeRef: ProcessRef) extends io.parapet.core.Process[F] {
     override val ref: ProcessRef = ProcessRef(id)

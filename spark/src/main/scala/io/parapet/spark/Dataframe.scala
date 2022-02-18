@@ -8,7 +8,7 @@ class Dataframe[F[_]](rows: Seq[Row], schema: SparkSchema,
   import dsl._
 
 
-  def map(f: Row => Row): DslF[F, Dataframe] = {
+  def map(f: Row => Row): DslF[F, Dataframe[F]] = {
     ctx.mapDataframe(rows, schema, f)
   }
 
