@@ -23,7 +23,7 @@ object WorkerApp extends CatsApp {
     val workerId = props.id
     val address = props.address
     val clusterServers = props.servers
-    val clusterMode = clusterServers.isEmpty
+    val clusterMode = clusterServers.nonEmpty
     val workerRef = ProcessRef(workerId)
     val nodeRef = ProcessRef(s"node-$workerId")
     val serverRef = ProcessRef(s"server-$workerId")
@@ -33,12 +33,12 @@ object WorkerApp extends CatsApp {
     val router = new Router[IO](clusterMode, workerRef, if (clusterMode) nodeRef else serverRef)
 
     val backend = if (clusterMode) {
-      AsyncServer[IO](serverRef, zmqContext, address, router.ref)
-    } else {
       new NodeProcess[IO](nodeRef, NodeProcess.Config(id, address, clusterServers), router.ref, zmqContext)
+    } else {
+      AsyncServer[IO](serverRef, zmqContext, address, router.ref)
     }
 
-    Seq(new Worker[IO](workerRef, router.ref), backend)
+    Seq(new Worker[IO](workerRef, router.ref), backend, router)
   }
 
 
@@ -85,7 +85,7 @@ object WorkerApp extends CatsApp {
     }
 
     def address: Address = {
-      Option(props.getProperty(WorkerApp.address)).map(v => Address(v.trim)) match {
+      Option(props.getProperty(WorkerApp.address)).map(v => Address.tcp(v.trim)) match {
         case Some(value) => value
         case None => throw new RuntimeException("worker server is required")
       }

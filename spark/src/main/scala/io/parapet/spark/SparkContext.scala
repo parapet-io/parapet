@@ -5,8 +5,12 @@ import io.parapet.ProcessRef
 import io.parapet.cluster.node.NodeProcess
 import io.parapet.core.Dsl.DslF
 import io.parapet.net.{Address, AsyncClient}
+import io.parapet.spark.Api.{JobId, MapTask, TaskId}
 import io.parapet.syntax.FlowSyntax
 import org.zeromq.ZContext
+
+import java.nio.ByteBuffer
+import java.util.UUID
 
 class SparkContext[F[_]](override val ref: ProcessRef,
                          workers: List[ProcessRef]) extends io.parapet.core.Process[F] {
@@ -19,8 +23,30 @@ class SparkContext[F[_]](override val ref: ProcessRef,
     case _ => unit
   }
 
-  def mapDataframe(rows: Seq[Row], schema: SparkSchema, f: Row => Row): DslF[F, Dataframe[F]] = {
-    eval(throw new RuntimeException("todo"))
+  def mapDataframe(rows: Seq[Row], schema: SparkSchema, f: Row => Row): DslF[F, Dataframe[F]] = flow{
+    val lambdaBytes = Codec.encodeObj(f)
+    val jobId = JobId(UUID.randomUUID().toString)
+    val mapTasks = rows.grouped(rows.size / workers.size).map { batch =>
+      val taskId = TaskId(UUID.randomUUID().toString)
+      val dfBytes = Codec.encodeDataframe(batch, schema)
+      val buf = ByteBuffer.allocate(4 + lambdaBytes.length + dfBytes.length)
+      buf.putInt(lambdaBytes.length)
+      buf.put(lambdaBytes)
+      buf.put(dfBytes)
+      MapTask(taskId, jobId, Codec.toByteArray(buf))
+    }
+
+    // round robin
+    var idx = 0
+    def nextWorker: ProcessRef = {
+      val tmp = workers(idx)
+      idx = idx + 1
+      idx = idx % workers.size
+      tmp
+    }
+
+    mapTasks.map(t => t ~> nextWorker).fold(unit)(_ ++ _) ++
+    eval(new Dataframe[F](rows, schema, self))
   }
 
   def createDataframe(rows: Seq[Row], schema: SparkSchema): DslF[F, Dataframe[F]] = {
@@ -93,11 +119,11 @@ object SparkContext {
             }))
             node <- eval(new NodeProcess[F](nodeRef,
               NodeProcess.Config(id, _address, _clusterServers), nodeInMapper.ref, zmqContext))
-            _ <- register(sparkContextRef, nodeInMapper)
-            _ <- register(sparkContextRef, node)
+            _ <- register(ProcessRef.SystemRef, nodeInMapper)
+            _ <- register(ProcessRef.SystemRef, node)
             workers <- _workers.map { workerId =>
               val wp = new ClusterWorker[F](workerId, node.ref)
-              register(sparkContextRef, wp) ++ eval(wp.ref)
+              register(ProcessRef.SystemRef, wp) ++ eval(wp.ref)
             }.sequence
             // init cluster node
             _ <- NodeProcess.Init ~> node.ref ++ NodeProcess.Join(_clusterGroup) ~> node.ref
@@ -107,14 +133,17 @@ object SparkContext {
           for {
             workers <- _workerServers.zipWithIndex.map { case (address, i) =>
               val name = s"worker-$i"
-              val netCli = AsyncClient[F](
+              val netClient = AsyncClient[F](
                 ref = ProcessRef(name),
                 zmqContext: ZContext,
                 clientId = name,
                 address = address)
-              register(sparkContextRef, netCli) ++ eval(netCli.ref)
+              val worker = new StandaloneWorker[F](netClient.ref, sparkContextRef)
+              register(ProcessRef.SystemRef, netClient) ++
+                register(ProcessRef.SystemRef, worker) ++
+                eval(worker.ref)
             }.sequence
-          } yield (workers)
+          } yield workers
         }
 
       for {
@@ -132,6 +161,19 @@ object SparkContext {
 
     override def handle: Receive = {
       case cmd: Api => NodeProcess.Req(id, cmd.toByteArray) ~> nodeRef
+    }
+  }
+
+  class StandaloneWorker[F[_]](netClientRef: ProcessRef, sinkRef: ProcessRef) extends io.parapet.core.Process[F] {
+
+    import dsl._
+    import io.parapet.core.api.Cmd.netClient
+
+    override def handle: Receive = {
+      case cmd: Api =>
+        netClient.Send(cmd.toByteArray, Option(ref)) ~> netClientRef
+      case netClient.Rep(Some(data)) => Api(data) ~> sinkRef
+      case _ => unit
     }
   }
 

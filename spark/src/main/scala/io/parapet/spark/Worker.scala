@@ -12,23 +12,22 @@ class Worker[F[_]](override val ref: ProcessRef, sink: ProcessRef) extends Proce
   private val logger = Logger[Worker[F]]
 
   override def handle: Receive = {
-    case MapTask(clientId, taskId, jobId, data) =>
-      logger.debug(s"received mapTask(clientId=$clientId, taskId=$taskId, jobId=$jobId)")
+    case MapTask(taskId, jobId, data) =>
+      logger.debug(s"received mapTask(taskId=$taskId, jobId=$jobId)")
       val buf = ByteBuffer.wrap(data)
       val lambdaSize = buf.getInt()
       val lambdaBytes = new Array[Byte](lambdaSize)
       buf.get(lambdaBytes)
-      val f = Codec.deserializeObj(lambdaBytes).asInstanceOf[Row => Row]
+      val f = Codec.decodeObj(lambdaBytes).asInstanceOf[Row => Row]
       val (schema, rows) = Codec.decodeDataframe(buf)
       val mapped = rows.map(f)
-      createMapResult(clientId, taskId, jobId, mapped, schema) ~> sink
+      createMapResult(taskId, jobId, mapped, schema) ~> sink
   }
 
-  def createMapResult(clientId: ClientId,
-                      taskId: TaskId,
+  def createMapResult(taskId: TaskId,
                       jobId: JobId,
                       rows: Seq[Row],
                       schema: SparkSchema): MapResult = {
-    MapResult(clientId, taskId, jobId, Codec.encodeDataframe(rows, schema))
+    MapResult(taskId, jobId, Codec.encodeDataframe(rows, schema))
   }
 }

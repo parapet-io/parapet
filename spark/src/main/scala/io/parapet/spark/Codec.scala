@@ -25,7 +25,7 @@ object Codec {
   }
 
   def encode(row: Row, sparkSchema: SparkSchema): Array[Byte] = {
-    val buf = ByteBuffer.allocate(100) // some random value
+    val buf = ByteBuffer.allocate(1000) // some random value, todo precalculate size
     for ((f, i) <- sparkSchema.fields.view.zipWithIndex) {
       f.t match {
         case StringType =>
@@ -115,14 +115,14 @@ object Codec {
     rows
   }
 
-  def serializeObj(obj: Any): Array[Byte] = {
+  def encodeObj(obj: Any): Array[Byte] = {
     val bios = new ByteArrayOutputStream()
     val objectOutputStream = new ObjectOutputStream(bios)
     objectOutputStream.writeObject(obj)
     bios.toByteArray
   }
 
-  def deserializeObj[A](bytes: Array[Byte]): A = {
+  def decodeObj[A](bytes: Array[Byte]): A = {
     val bios = new ByteArrayInputStream(bytes)
     val objectInputStream = new ObjectInputStream(bios)
     objectInputStream.readObject().asInstanceOf[A]

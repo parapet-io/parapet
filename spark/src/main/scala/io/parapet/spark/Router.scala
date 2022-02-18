@@ -9,8 +9,10 @@ import io.parapet.spark.Api.MapResult
 class Router[F[_]](clusterMode: Boolean, in: ProcessRef, out: ProcessRef) extends io.parapet.core.Process[F] {
   override val ref: ProcessRef = ProcessRef("router")
 
+  import dsl._
+
   override def handle: Receive = {
-    case mr: MapResult => sendToOut(mr.clientId.underlying, mr.toByteArray)
+    case mr: MapResult => sendToOut("", mr.toByteArray)
     case NodeProcess.Req(_, data) => Api(data) ~> in
     case netServer.Message(_, data) => Api(data) ~> in
   }

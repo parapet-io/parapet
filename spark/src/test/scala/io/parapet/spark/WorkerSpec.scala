@@ -25,14 +25,14 @@ class WorkerSpec extends AnyFunSuite {
 
     def mapFun(row: Row): Row = Row.of(row.getAs[Int](0) + 1)
 
-    val mapTask = MapTask(ClientId("client-id"),
+    val mapTask = MapTask(
       TaskId("task-1"), JobId("job-1"),
       encodeMap(mapFun, Seq(Row.of(1)), testSchema))
     worker(mapTask).foldMap(interpreter)
 
 
     val mapResult = eventLog.incoming(sink).collect {
-      case mr@MapResult(ClientId("client-id"), TaskId("task-1"), JobId("job-1"), _) => mr
+      case mr@MapResult(TaskId("task-1"), JobId("job-1"), _) => mr
     }.head
 
     val (_, output) = Codec.decodeDataframe(mapResult.data)
@@ -42,7 +42,7 @@ class WorkerSpec extends AnyFunSuite {
 
   def encodeMap(map: Row => Row, rows: Seq[Row], schema: SparkSchema): Array[Byte] = {
     val buf = ByteBuffer.allocate(1000)
-    val mapBytes = Codec.serializeObj(map)
+    val mapBytes = Codec.encodeObj(map)
     buf.putInt(mapBytes.length)
     buf.put(mapBytes)
     buf.put(Codec.encodeDataframe(rows, schema))
