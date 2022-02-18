@@ -197,11 +197,32 @@ lazy val spark = project
   .in(file("spark"))
   .settings(
     name := "spark",
-    libraryDependencies += dependencies.scalaTest,
+    libraryDependencies ++= Seq(
+      "com.github.scopt" %% "scopt" % "4.0.1",
+      dependencies.scalaTest)  ,
     publishLocal := {},
     publish := {},
   ).dependsOn(core, clusterNode)
 
+lazy val sparkWorker = project
+  .in(file("spark-worker"))
+  .enablePlugins(JavaAppPackaging, UniversalDeployPlugin)
+  .settings(
+    name := "spark-worker",
+    mainClass in Compile := Some("io.parapet.spark.WorkerApp"),
+    maintainer in Universal := "parapet.io",
+    packageName in Universal := "spark-worker-" + version.value,
+//    mappings in Universal += {
+//      val src = (sourceDirectory in Compile).value
+//      src / "resources" / "log4j.xml" -> "etc/log4j.xml"
+//    },
+//    mappings in Universal += {
+//      val src = (sourceDirectory in Compile).value
+//      src / "resources" / "etc" / "node.properties.template" -> "etc/node.properties.template"
+//    },
+//    bashScriptExtraDefines += """addJava "-Dlog4j.configuration=file:${app_home}/../etc/log4j.xml""""
+
+  ).dependsOn(spark)
 
 lazy val protobuf = project
   .settings(

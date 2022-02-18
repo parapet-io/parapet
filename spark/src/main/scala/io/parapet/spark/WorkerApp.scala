@@ -1,65 +1,109 @@
 package io.parapet.spark
 
 import cats.effect.IO
-import com.typesafe.scalalogging.Logger
-import io.parapet.core.api.Cmd.netServer
+import io.parapet.cluster.node.NodeProcess
 import io.parapet.net.{Address, AsyncServer}
-import io.parapet.spark.Api.{ClientId, JobId, MapResult, MapTask, TaskId}
 import io.parapet.{CatsApp, ProcessRef, core}
-import org.slf4j.LoggerFactory
 import org.zeromq.ZContext
 
-import java.nio.ByteBuffer
+import java.io.FileInputStream
+import java.util.Properties
+import scala.util.Using
 
-abstract class WorkerApp extends CatsApp {
 
-  val address: String
+object WorkerApp extends CatsApp {
 
   val workerRef: ProcessRef = ProcessRef("worker")
-
   val serverRef: ProcessRef = ProcessRef("server")
+  val nodeRef: ProcessRef = ProcessRef("node")
 
-  class Worker(zmqCtx: ZContext) extends io.parapet.core.Process[IO] {
-    override val ref: ProcessRef = workerRef
+  override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] = IO {
+    val config = parseConfig(args)
+    val props = loadProperties(config.configPath)
+    val workerId = props.id
+    val address = props.address
+    val clusterServers = props.servers
+    val clusterMode = clusterServers.isEmpty
+    val workerRef = ProcessRef(workerId)
+    val nodeRef = ProcessRef(s"node-$workerId")
+    val serverRef = ProcessRef(s"server-$workerId")
 
-    override def handle: Receive = {
-      case netServer.Message(clientId, msg) =>
-        Api(msg) match {
-          case MapTask(clientId, taskId, jobId, data) =>
-            logger.debug(s"received mapTask(taskId=$taskId, jobId=$jobId)")
-            val buf = ByteBuffer.wrap(data)
-            val lambdaSize = buf.getInt()
-            val lambdaArr = new Array[Byte](lambdaSize)
-            buf.get(lambdaArr)
-            val f = Codec.deserializeObj(lambdaArr).asInstanceOf[Row => Row]
-            val (schema, rows) = Codec.decodeDataframe(buf)
-            val mapped = rows.map(f)
-            Codec.encodeDataframe(mapped, schema)
-            netServer.Send(clientId.underlying, createMapResult(clientId, taskId, jobId, mapped, schema)) ~> serverRef
-        }
+    val zmqContext = new ZContext(1)
+
+    val router = new Router[IO](clusterMode, workerRef, if (clusterMode) nodeRef else serverRef)
+
+    val backend = if (clusterMode) {
+      AsyncServer[IO](serverRef, zmqContext, address, router.ref)
+    } else {
+      new NodeProcess[IO](nodeRef, NodeProcess.Config(id, address, clusterServers), router.ref, zmqContext)
     }
 
-    def createMapResult(
-                         clientId: ClientId,
-                         taskId: TaskId, jobId: JobId,
-                        rows: Seq[Row], schema: SparkSchema): Array[Byte] = {
-      MapResult(clientId, taskId, jobId, Codec.encodeDataframe(rows, schema)).toByteArray
-    }
+    Seq(new Worker[IO](workerRef, router.ref), backend)
+  }
 
-    private def show(rows: Array[Row]): Unit = {
-      rows.foreach { row =>
-        logger.debug(row.values.mkString(","))
+
+  case class Config(configPath: String = "")
+
+  import scopt.OParser
+
+  private val builder = OParser.builder[Config]
+  private val parser = {
+    import builder._
+    OParser.sequence(
+      programName("worker"),
+      head("worker", "1.0"),
+
+      opt[String]('c', "config")
+        .required()
+        .action((x, c) => c.copy(configPath = x))
+        .text("path to properties file")
+    )
+  }
+
+  def parseConfig(args: Array[String]): Config = {
+    OParser.parse(parser, args, Config()) match {
+      case Some(config) => config
+      case _ => throw new RuntimeException("bad args")
+    }
+  }
+
+  def loadProperties(path: String): Properties = {
+    Using.resource(new FileInputStream(path)) { is =>
+      val prop = new Properties()
+      prop.load(is)
+      prop
+    }
+  }
+
+  implicit class PropertiesOps(props: Properties) {
+
+    def id: String = {
+      Option(props.getProperty(WorkerApp.address)).map(_.trim).filter(_.nonEmpty) match {
+        case Some(value) => value
+        case None => throw new RuntimeException("worker id is required")
       }
     }
 
+    def address: Address = {
+      Option(props.getProperty(WorkerApp.address)).map(v => Address(v.trim)) match {
+        case Some(value) => value
+        case None => throw new RuntimeException("worker server is required")
+      }
+    }
+
+    def servers: Array[Address] = {
+      Option(props.getProperty(WorkerApp.servers))
+        .map(_.split(",").map(_.trim).map(Address.tcp)).getOrElse(Array.empty)
+    }
   }
 
-  override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] = IO {
-    val zmqContext = new ZContext(1)
-    val worker = new Worker(zmqContext)
-    Seq(
-      worker,
-      AsyncServer(serverRef, zmqContext, Address(address), worker.ref)
-    )
-  }
+  /**
+    * ===========================
+    * Properties
+    * ===========================
+    */
+  val id = "id"
+  val address = "address"
+  val servers = "worker.cluster-servers"
+
 }
