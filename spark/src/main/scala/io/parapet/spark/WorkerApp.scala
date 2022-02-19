@@ -1,14 +1,16 @@
 package io.parapet.spark
 
-import cats.effect.IO
+import cats.effect.{Concurrent, IO}
 import io.parapet.cluster.node.NodeProcess
+import io.parapet.core.{Channel, Events}
 import io.parapet.net.{Address, AsyncServer}
 import io.parapet.{CatsApp, ProcessRef, core}
 import org.zeromq.ZContext
 
 import java.io.FileInputStream
 import java.util.Properties
-import scala.util.Using
+import scala.util.{Failure, Success, Using}
+import io.parapet.core.api.Cmd.netServer
 
 
 object WorkerApp extends CatsApp {
@@ -33,12 +35,15 @@ object WorkerApp extends CatsApp {
     val router = new Router[IO](clusterMode, workerRef, if (clusterMode) nodeRef else serverRef)
 
     val backend = if (clusterMode) {
-      new NodeProcess[IO](nodeRef, NodeProcess.Config(id, address, clusterServers), router.ref, zmqContext)
+      Seq(new NodeProcess[IO](nodeRef,
+        NodeProcess.Config(id, address, clusterServers), router.ref, zmqContext))
     } else {
-      AsyncServer[IO](serverRef, zmqContext, address, router.ref)
+      val standaloneWorker = new StandaloneWorker[IO](workerRef)
+      Seq(standaloneWorker,
+        AsyncServer[IO](serverRef, zmqContext, address, standaloneWorker.ref))
     }
 
-    Seq(new Worker[IO](workerRef, router.ref), backend, router)
+    Seq(new Worker[IO](workerRef)) ++ backend
   }
 
 
@@ -105,5 +110,24 @@ object WorkerApp extends CatsApp {
   val id = "id"
   val address = "address"
   val servers = "worker.cluster-servers"
+
+  // receives messages from AsyncServer process and forwards to Worker
+  // implements strict request - reply dialog
+  class StandaloneWorker[F[_] : Concurrent](workerRef: ProcessRef) extends io.parapet.core.Process[F] {
+
+    import dsl._
+
+    private val chan = Channel[F]
+
+    override def handle: Receive = {
+      case Events.Start => register(ref, chan)
+      case netServer.Message(clientId, data) => withSender { server =>
+        chan.send(Api(data), workerRef).flatMap {
+          case Failure(exception) => raiseError(exception) // uh oh
+          case Success(value: Api) => netServer.Send(clientId, value.toByteArray) ~> server
+        }
+      }
+    }
+  }
 
 }

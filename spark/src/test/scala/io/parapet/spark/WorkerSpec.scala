@@ -20,7 +20,7 @@ class WorkerSpec extends AnyFunSuite {
   test("submit map task") {
     val sink = new ProcessRef("sink")
     val eventLog = new EventLog()
-    val worker = new Worker[CatsEval](ProcessRef("worker"), sink)
+    val worker = new Worker[CatsEval](ProcessRef("worker"), Option(sink))
     val interpreter = new EvalInterpreter(testRef, eventLog)
 
     def mapFun(row: Row): Row = Row.of(row.getAs[Int](0) + 1)

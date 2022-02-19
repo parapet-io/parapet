@@ -5,7 +5,7 @@ import io.parapet.ProcessRef
 import io.parapet.cluster.node.NodeProcess
 import io.parapet.core.Dsl.DslF
 import io.parapet.net.{Address, AsyncClient}
-import io.parapet.spark.Api.{JobId, MapTask, TaskId}
+import io.parapet.spark.Api.{JobId, MapResult, MapTask, TaskId}
 import io.parapet.syntax.FlowSyntax
 import org.zeromq.ZContext
 
@@ -19,11 +19,12 @@ class SparkContext[F[_]](override val ref: ProcessRef,
   import dsl._
 
   override def handle: Receive = {
-    // todo mapResult
+    case MapResult(taskId, jobId, _) =>
+      eval(println(s"received mapResult[jobId=$jobId, taskId=$taskId]"))
     case _ => unit
   }
 
-  def mapDataframe(rows: Seq[Row], schema: SparkSchema, f: Row => Row): DslF[F, Dataframe[F]] = flow{
+  def mapDataframe(rows: Seq[Row], schema: SparkSchema, f: Row => Row): DslF[F, Dataframe[F]] = flow {
     val lambdaBytes = Codec.encodeObj(f)
     val jobId = JobId(UUID.randomUUID().toString)
     val mapTasks = rows.grouped(rows.size / workers.size).map { batch =>
@@ -38,6 +39,7 @@ class SparkContext[F[_]](override val ref: ProcessRef,
 
     // round robin
     var idx = 0
+
     def nextWorker: ProcessRef = {
       val tmp = workers(idx)
       idx = idx + 1
@@ -45,8 +47,8 @@ class SparkContext[F[_]](override val ref: ProcessRef,
       tmp
     }
 
-    mapTasks.map(t => t ~> nextWorker).fold(unit)(_ ++ _) ++
-    eval(new Dataframe[F](rows, schema, self))
+    par(mapTasks.map(t => t ~> nextWorker).toSeq: _*) ++
+      eval(new Dataframe[F](rows, schema, self))
   }
 
   def createDataframe(rows: Seq[Row], schema: SparkSchema): DslF[F, Dataframe[F]] = {
