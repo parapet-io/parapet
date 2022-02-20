@@ -19,7 +19,6 @@ object WorkerApp extends CatsApp {
     val config = parseConfig(args)
     val props = loadProperties(config.configPath)
     val workerId = props.id
-    val address = props.address
     val clusterServers = props.servers
     val clusterMode = clusterServers.nonEmpty
     val workerRef = ProcessRef(workerId)
