@@ -2,6 +2,7 @@ package io.parapet.spark
 
 import cats.effect.{Concurrent, IO}
 import io.parapet.cluster.node.NodeProcess
+import io.parapet.core.Dsl.DslF
 import io.parapet.core.api.Cmd.netServer
 import io.parapet.core.{Channel, Events}
 import io.parapet.net.{Address, AsyncServer}
@@ -133,15 +134,18 @@ object WorkerApp extends CatsApp {
       NodeProcess.Config(props.id, props.address, props.servers), ref, zmqContext)
     private val chan = new Channel[F](ProcessRef("worker-chan"))
 
+    private def init: DslF[F, Unit] = {
+      register(ref, node) ++ register(ref, chan) ++
+        NodeProcess.Init ~> node.ref ++ NodeProcess.Join(props.clusterGroup) ~> node.ref
+    }
+
     override def handle: Receive = {
-      case Events.Start =>
-        register(ref, node) ++
-          register(ref, chan) ++
-          NodeProcess.Init ~> node.ref ++ NodeProcess.Join(props.clusterGroup) ~> node.ref
+      case Events.Start => init
       case NodeProcess.Req(clientId, data) =>
         chan.send(Api(data), backend).flatMap {
           case Failure(exception) => raiseError(exception) // uh oh
-          case Success(value: Api) => NodeProcess.Req(clientId, value.toByteArray) ~> node.ref
+          case Success(event: Api) => NodeProcess.Req(clientId, event.toByteArray) ~> node.ref
+          case Success(event) => eval(logger.warn(s"unknown event: $event"))
         }
     }
   }
