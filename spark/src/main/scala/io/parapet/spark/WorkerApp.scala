@@ -2,6 +2,7 @@ package io.parapet.spark
 
 import cats.effect.{Concurrent, IO}
 import io.parapet.cluster.node.NodeProcess
+import io.parapet.core.api.Cmd.netServer
 import io.parapet.core.{Channel, Events}
 import io.parapet.net.{Address, AsyncServer}
 import io.parapet.{CatsApp, ProcessRef, core}
@@ -10,14 +11,9 @@ import org.zeromq.ZContext
 import java.io.FileInputStream
 import java.util.Properties
 import scala.util.{Failure, Success, Using}
-import io.parapet.core.api.Cmd.netServer
 
 
 object WorkerApp extends CatsApp {
-
-  val workerRef: ProcessRef = ProcessRef("worker")
-  val serverRef: ProcessRef = ProcessRef("server")
-  val nodeRef: ProcessRef = ProcessRef("node")
 
   override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] = IO {
     val config = parseConfig(args)
@@ -27,23 +23,13 @@ object WorkerApp extends CatsApp {
     val clusterServers = props.servers
     val clusterMode = clusterServers.nonEmpty
     val workerRef = ProcessRef(workerId)
-    val nodeRef = ProcessRef(s"node-$workerId")
-    val serverRef = ProcessRef(s"server-$workerId")
-
-    val zmqContext = new ZContext(1)
-
-    val router = new Router[IO](clusterMode, workerRef, if (clusterMode) nodeRef else serverRef)
-
     val backend = if (clusterMode) {
-      Seq(new NodeProcess[IO](nodeRef,
-        NodeProcess.Config(id, address, clusterServers), router.ref, zmqContext))
+      new ClusterWorker[IO](props, workerRef)
     } else {
-      val standaloneWorker = new StandaloneWorker[IO](workerRef)
-      Seq(standaloneWorker,
-        AsyncServer[IO](serverRef, zmqContext, address, standaloneWorker.ref))
+      new StandaloneWorker[IO](props, workerRef)
     }
 
-    Seq(new Worker[IO](workerRef)) ++ backend
+    Seq(new Worker[IO](workerRef), backend)
   }
 
 
@@ -100,6 +86,11 @@ object WorkerApp extends CatsApp {
       Option(props.getProperty(WorkerApp.servers))
         .map(_.split(",").map(_.trim).map(Address.tcp)).getOrElse(Array.empty)
     }
+
+    def clusterGroup: String = {
+      Option(props.getProperty(WorkerApp.clusterGroup)).map(_.trim).getOrElse("")
+    }
+
   }
 
   /**
@@ -110,23 +101,48 @@ object WorkerApp extends CatsApp {
   val id = "id"
   val address = "address"
   val servers = "worker.cluster-servers"
+  val clusterGroup = "worker.cluster-group"
 
   // receives messages from AsyncServer process and forwards to Worker
   // implements strict request - reply dialog
-  class StandaloneWorker[F[_] : Concurrent](workerRef: ProcessRef) extends io.parapet.core.Process[F] {
+  class StandaloneWorker[F[_] : Concurrent](props: Properties, backend: ProcessRef) extends io.parapet.core.Process[F] {
 
     import dsl._
+
+    private lazy val zmqContext: ZContext = new ZContext(1)
+    private lazy val server = AsyncServer[F](ProcessRef(s"${props.id}-server"), zmqContext, props.address, ref)
 
     private val chan = Channel[F]
 
     override def handle: Receive = {
-      case Events.Start => register(ref, chan)
-      case netServer.Message(clientId, data) => withSender { server =>
-        chan.send(Api(data), workerRef).flatMap {
+      case Events.Start => register(ref, chan) ++ register(ref, server)
+      case netServer.Message(clientId, data) =>
+        chan.send(Api(data), backend).flatMap {
           case Failure(exception) => raiseError(exception) // uh oh
-          case Success(value: Api) => netServer.Send(clientId, value.toByteArray) ~> server
+          case Success(value: Api) => netServer.Send(clientId, value.toByteArray) ~> server.ref
         }
-      }
+    }
+  }
+
+  class ClusterWorker[F[_] : Concurrent](props: Properties, backend: ProcessRef)
+    extends io.parapet.core.Process[F] {
+
+    import dsl._
+
+    private lazy val zmqContext: ZContext = new ZContext(1)
+    private lazy val node = new NodeProcess[F](ProcessRef(s"${props.id}-node"),
+      NodeProcess.Config(props.id, props.address, props.servers), ref, zmqContext)
+    private val chan = Channel[F]
+
+    override def handle: Receive = {
+      case Events.Start =>
+        register(ref, node) ++
+          NodeProcess.Init ~> node.ref ++ NodeProcess.Join(props.clusterGroup) ~> node.ref
+      case NodeProcess.Req(_, data) =>
+        chan.send(Api(data), backend).flatMap {
+          case Failure(exception) => raiseError(exception) // uh oh
+          case Success(value: Api) => NodeProcess.Req(props.id, value.toByteArray) ~> node.ref
+        }
     }
   }
 
