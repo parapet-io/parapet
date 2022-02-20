@@ -68,7 +68,7 @@ object WorkerApp extends CatsApp {
   implicit class PropertiesOps(props: Properties) {
 
     def id: String = {
-      Option(props.getProperty(WorkerApp.address)).map(_.trim).filter(_.nonEmpty) match {
+      Option(props.getProperty(WorkerApp.id)).map(_.trim).filter(_.nonEmpty) match {
         case Some(value) => value
         case None => throw new RuntimeException("worker id is required")
       }
@@ -131,16 +131,17 @@ object WorkerApp extends CatsApp {
     private lazy val zmqContext: ZContext = new ZContext(1)
     private lazy val node = new NodeProcess[F](ProcessRef(s"${props.id}-node"),
       NodeProcess.Config(props.id, props.address, props.servers), ref, zmqContext)
-    private val chan = Channel[F]
+    private val chan = new Channel[F](ProcessRef("worker-chan"))
 
     override def handle: Receive = {
       case Events.Start =>
         register(ref, node) ++
+          register(ref, chan) ++
           NodeProcess.Init ~> node.ref ++ NodeProcess.Join(props.clusterGroup) ~> node.ref
-      case NodeProcess.Req(_, data) =>
+      case NodeProcess.Req(clientId, data) =>
         chan.send(Api(data), backend).flatMap {
           case Failure(exception) => raiseError(exception) // uh oh
-          case Success(value: Api) => NodeProcess.Req(props.id, value.toByteArray) ~> node.ref
+          case Success(value: Api) => NodeProcess.Req(clientId, value.toByteArray) ~> node.ref
         }
     }
   }

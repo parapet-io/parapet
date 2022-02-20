@@ -21,7 +21,7 @@ class SparkContext[F[_]](override val ref: ProcessRef,
   override def handle: Receive = {
     case MapResult(taskId, jobId, _) =>
       eval(println(s"received mapResult[jobId=$jobId, taskId=$taskId]"))
-    case _ => unit
+    case e => eval(println(s"unknown event: $e"))
   }
 
   def mapDataframe(rows: Seq[Row], schema: SparkSchema, f: Row => Row): DslF[F, Dataframe[F]] = flow {
@@ -109,7 +109,7 @@ object SparkContext {
 
     def build: DslF[F, SparkContext[F]] = flow {
       val sparkContextRef = ProcessRef(id)
-      val nodeRef = ProcessRef(s"node-$id")
+      val nodeRef = ProcessRef("driver") // ProcessRef(s"node-$id")
       val zmqContext = new ZContext(_ioTreads)
 
       val workersF =
@@ -119,10 +119,12 @@ object SparkContext {
               // todo replace clientId with workerId in MapResult ?
               case NodeProcess.Req(_ /*workerId*/ , data) => Api(data)
             }))
+            _ <- eval(println("step-1"))
             node <- eval(new NodeProcess[F](nodeRef,
               NodeProcess.Config(id, _address, _clusterServers), nodeInMapper.ref, zmqContext))
             _ <- register(ProcessRef.SystemRef, nodeInMapper)
             _ <- register(ProcessRef.SystemRef, node)
+            _ <- eval(println("step-2"))
             workers <- _workers.map { workerId =>
               val wp = new ClusterWorker[F](workerId, node.ref)
               register(ProcessRef.SystemRef, wp) ++ eval(wp.ref)
@@ -161,8 +163,12 @@ object SparkContext {
   class ClusterWorker[F[_]](id: String, nodeRef: ProcessRef) extends io.parapet.core.Process[F] {
     override val ref: ProcessRef = ProcessRef(id)
 
+    import dsl._
+
     override def handle: Receive = {
-      case cmd: Api => NodeProcess.Req(id, cmd.toByteArray) ~> nodeRef
+      case cmd: Api =>
+        eval(println(s"send $cmd to $nodeRef worker=$id")) ++
+          NodeProcess.Req(id, cmd.toByteArray) ~> nodeRef
     }
   }
 

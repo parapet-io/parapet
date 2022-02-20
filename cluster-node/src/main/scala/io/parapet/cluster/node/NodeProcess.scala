@@ -10,7 +10,7 @@ import io.parapet.core.api.Cmd.cluster._
 import io.parapet.core.api.Cmd.leaderElection.{Who, WhoRep, Req => LeReq}
 import io.parapet.core.api.Cmd.{cluster, netClient, netServer}
 import io.parapet.core.{Channel, Cond, Process}
-import io.parapet.net.{Address, AsyncClient, Node}
+import io.parapet.net.{Address, AsyncClient, AsyncServer, Node}
 import io.parapet.{Event, ProcessRef}
 import org.zeromq.{SocketType, ZContext}
 
@@ -29,6 +29,14 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
   private var _leader: ProcessRef = _
   // {host}:{port} -> netClientRef
   private var _servers: Map[String, ProcessRef] = Map.empty
+
+  private def createServer: DslF[F, Unit] = flow {
+    val srv = AsyncServer[F](ref = ProcessRef(s"${config.id}-server"),
+      zmqContext = zmqContext,
+      address = Address.tcp("*", config.address.port),
+      sink = ref)
+    register(ref, srv)
+  }
 
   private def initServers: DslF[F, Unit] =
     flow {
@@ -163,7 +171,7 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
   }
 
   override def handle: Receive = {
-    case Init => initServers ++ getLeader
+    case Init => createServer ++ initServers ++ getLeader
     case NodeProcess.Send(data) => netClient.Send(LeReq(config.id, data).toByteArray) ~> _leader
     case NodeProcess.Join(group) => join(group)
     case NodeProcess.Req(id, data) =>

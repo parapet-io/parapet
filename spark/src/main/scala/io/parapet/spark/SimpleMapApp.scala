@@ -16,7 +16,11 @@ object SimpleMapApp extends CatsApp {
         for {
           sparkContext <- SparkContext.builder[IO]
             .clusterMode(false)
-            .workerServers(List(Address.tcp("localhost:5556")))
+            //.workerServers(List(Address.tcp("localhost:5556")))
+            .clusterMode(true)
+            .clusterServers(List(Address.tcp("localhost:8886"), Address.tcp("localhost:8887")))
+            .address(Address.tcp("127.0.0.1:5560"))
+            .workers(List("worker-1"))
             .build
           df <- sparkContext.createDataframe(Seq(Row.of(1)), sparkSchema)
           outDf <- df.map(r => r)
