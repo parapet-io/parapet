@@ -28,7 +28,6 @@ class SparkContext[F[_] : Concurrent](override val ref: ProcessRef,
     case res@MapResult(taskId, jobId, _) =>
       eval(logger.debug(s"received mapResult[jobId=$jobId, taskId=$taskId]")) ++
         jobs(res.jobId).complete(res)
-    case e => eval(println(s"unknown event: $e"))
   }
 
   def mapDataframe(rows: Seq[Row], schema: SparkSchema, f: Row => Row): DslF[F, Dataframe[F]] = flow {
