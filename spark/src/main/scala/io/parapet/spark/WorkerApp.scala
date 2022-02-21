@@ -110,7 +110,8 @@ object WorkerApp extends CatsApp {
     import dsl._
 
     private lazy val zmqContext: ZContext = new ZContext(1)
-    private lazy val server = AsyncServer[F](ProcessRef(s"${props.id}-server"), zmqContext, props.address, ref)
+    private lazy val server = AsyncServer[F](ProcessRef(s"${props.id}-server"),
+      zmqContext, Address.tcp("*", props.address.port), ref)
 
     private val chan = Channel[F]
 

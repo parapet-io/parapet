@@ -1,6 +1,7 @@
 package io.parapet.spark
 
 import cats.effect.Concurrent
+import cats.effect.concurrent.Deferred
 import io.parapet.ProcessRef
 import io.parapet.cluster.node.NodeProcess
 import io.parapet.core.Dsl.DslF
@@ -11,16 +12,20 @@ import org.zeromq.ZContext
 
 import java.nio.ByteBuffer
 import java.util.UUID
+import scala.collection.mutable
 
-class SparkContext[F[_]](override val ref: ProcessRef,
-                         workers: List[ProcessRef]) extends io.parapet.core.Process[F] {
+class SparkContext[F[_] : Concurrent](override val ref: ProcessRef,
+                                      workers: List[ProcessRef]) extends io.parapet.core.Process[F] {
   self =>
 
   import dsl._
 
+  private val jobs = mutable.Map.empty[JobId, Job[F]]
+
   override def handle: Receive = {
-    case MapResult(taskId, jobId, _) =>
-      eval(println(s"received mapResult[jobId=$jobId, taskId=$taskId]"))
+    case res@MapResult(taskId, jobId, _) =>
+      eval(println(s"received mapResult[jobId=$jobId, taskId=$taskId]")) ++
+        jobs(res.jobId).complete(res)
     case e => eval(println(s"unknown event: $e"))
   }
 
@@ -35,7 +40,7 @@ class SparkContext[F[_]](override val ref: ProcessRef,
       buf.put(lambdaBytes)
       buf.put(dfBytes)
       MapTask(taskId, jobId, Codec.toByteArray(buf))
-    }
+    }.toList
 
     // round robin
     var idx = 0
@@ -47,8 +52,15 @@ class SparkContext[F[_]](override val ref: ProcessRef,
       tmp
     }
 
-    par(mapTasks.map(t => t ~> nextWorker).toSeq: _*) ++
-      eval(new Dataframe[F](rows, schema, self))
+    for {
+      signal <- suspend(Deferred[F, List[Row]])
+      _ <- eval {
+        jobs += jobId -> new Job[F](mapTasks.map(_.taskId).toSet, signal)
+      }
+      _ <- par(mapTasks.map(t => t ~> nextWorker).toSeq: _*)
+      result <- suspend(signal.get)
+      dataframe <- createDataframe(result, schema)
+    } yield dataframe
   }
 
   def createDataframe(rows: Seq[Row], schema: SparkSchema): DslF[F, Dataframe[F]] = {
