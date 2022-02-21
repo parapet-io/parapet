@@ -2,6 +2,7 @@ package io.parapet.spark
 
 import cats.effect.Concurrent
 import cats.effect.concurrent.Deferred
+import com.typesafe.scalalogging.Logger
 import io.parapet.ProcessRef
 import io.parapet.cluster.node.NodeProcess
 import io.parapet.core.Dsl.DslF
@@ -20,11 +21,12 @@ class SparkContext[F[_] : Concurrent](override val ref: ProcessRef,
 
   import dsl._
 
+  private val logger = Logger[SparkContext[F]]
   private val jobs = mutable.Map.empty[JobId, Job[F]]
 
   override def handle: Receive = {
     case res@MapResult(taskId, jobId, _) =>
-      eval(println(s"received mapResult[jobId=$jobId, taskId=$taskId]")) ++
+      eval(logger.debug(s"received mapResult[jobId=$jobId, taskId=$taskId]")) ++
         jobs(res.jobId).complete(res)
     case e => eval(println(s"unknown event: $e"))
   }
@@ -32,7 +34,7 @@ class SparkContext[F[_] : Concurrent](override val ref: ProcessRef,
   def mapDataframe(rows: Seq[Row], schema: SparkSchema, f: Row => Row): DslF[F, Dataframe[F]] = flow {
     val lambdaBytes = Codec.encodeObj(f)
     val jobId = JobId(UUID.randomUUID().toString)
-    val mapTasks = rows.grouped(rows.size / workers.size).map { batch =>
+    val mapTasks = rows.grouped(Math.max(1, rows.size / workers.size)).map { batch =>
       val taskId = TaskId(UUID.randomUUID().toString)
       val dfBytes = Codec.encodeDataframe(batch, schema)
       val buf = ByteBuffer.allocate(4 + lambdaBytes.length + dfBytes.length)

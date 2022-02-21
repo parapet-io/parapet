@@ -1,3 +1,5 @@
+import com.typesafe.sbt.packager.MappingsHelper.directory
+
 name := "parapet"
 
 ThisBuild / organization := "io.parapet"
@@ -71,7 +73,8 @@ lazy val global = project
     interopCats,
     interopMonix,
     testUtils,
-    benchmark)
+    benchmark,
+    spark)
 
 lazy val core = project
   .settings(
@@ -198,10 +201,9 @@ lazy val spark = project
   .settings(
     name := "spark",
     libraryDependencies ++= Seq(
+      "com.github.freva" % "ascii-table" % "1.2.0",
       "com.github.scopt" %% "scopt" % "4.0.1",
-      dependencies.scalaTest)  ,
-    publishLocal := {},
-    publish := {},
+      dependencies.scalaTest),
   ).dependsOn(core, clusterNode)
 
 lazy val sparkWorker = project
@@ -212,15 +214,16 @@ lazy val sparkWorker = project
     mainClass in Compile := Some("io.parapet.spark.WorkerApp"),
     maintainer in Universal := "parapet.io",
     packageName in Universal := "spark-worker-" + version.value,
-//    mappings in Universal += {
-//      val src = (sourceDirectory in Compile).value
-//      src / "resources" / "log4j.xml" -> "etc/log4j.xml"
-//    },
-//    mappings in Universal += {
-//      val src = (sourceDirectory in Compile).value
-//      src / "resources" / "etc" / "node.properties.template" -> "etc/node.properties.template"
-//    },
-//    bashScriptExtraDefines += """addJava "-Dlog4j.configuration=file:${app_home}/../etc/log4j.xml""""
+    scriptClasspath := Seq("*")
+    //    mappings in Universal += {
+    //      val src = (sourceDirectory in Compile).value
+    //      src / "resources" / "log4j.xml" -> "etc/log4j.xml"
+    //    },
+    //    mappings in Universal += {
+    //      val src = (sourceDirectory in Compile).value
+    //      src / "resources" / "etc" / "node.properties.template" -> "etc/node.properties.template"
+    //    },
+    //    bashScriptExtraDefines += """addJava "-Dlog4j.configuration=file:${app_home}/../etc/log4j.xml""""
 
   ).dependsOn(spark)
 
