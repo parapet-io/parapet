@@ -1,13 +1,14 @@
-package io.parapet.testutils
+package io.parapet.tests.intg
 
 import cats.effect.IO
-import io.parapet.{CatsApp, ParApp, core}
 import io.parapet.core.Parapet
 import io.parapet.core.processes.DeadLetterProcess
+import io.parapet.{CatsApp, ParApp, core}
 
 import scala.concurrent.ExecutionContext
 
-trait BasicCatsIOSpec extends IntegrationSpec[IO] with CatsApp { self =>
+trait BasicCatsIOSpec extends IntegrationSpec[IO] with CatsApp {
+  self =>
   override def createApp(processes0: IO[Seq[core.Process[IO]]],
                          deadLetter0: Option[IO[DeadLetterProcess[IO]]],
                          config0: Parapet.ParConfig): ParApp[IO] = new CatsApp {

@@ -1,4 +1,4 @@
-package io.parapet.testutils
+package io.parapet.tests.intg
 
 import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.Events.Start

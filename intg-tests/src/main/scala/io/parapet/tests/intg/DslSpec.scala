@@ -4,7 +4,7 @@ import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.Start
 import io.parapet.core.Process
 import io.parapet.tests.intg.DslSpec._
-import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.testutils.EventStore
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.OptionValues._
 import org.scalatest.matchers.should.Matchers._

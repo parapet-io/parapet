@@ -2,7 +2,7 @@ package io.parapet.tests.intg.monixtask
 
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.{Context, DslInterpreter}
-import io.parapet.testutils.BasicMonixTaskSpec
+import io.parapet.tests.intg.BasicMonixTaskSpec
 import monix.eval.Task
 
 class SchedulerCorrectnessSpec

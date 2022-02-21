@@ -31,7 +31,7 @@ object DeadLetterProcess {
       )
 
       eval {
-        val canonicalEventName = Option(event).map(e => e.getClass.getCanonicalName).getOrElse("null")
+        val canonicalEventName = Option(event).map(e => e.getClass).getOrElse("null")
         logger.mdc(mdcFields) { _ =>
           logger.error(s"event $canonicalEventName cannot be processed", error)
         }

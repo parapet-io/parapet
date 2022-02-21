@@ -337,6 +337,9 @@ object Dsl {
   }
 
   object FlowOps {
+
+    type Aux[F[_]] = FlowOps[F, Dsl[F, *]]
+
     implicit def flowOps[F[_], G[_]](implicit I: InjectK[FlowOp[F, *], G]): FlowOps[F, G] = new FlowOps[F, G]
   }
 

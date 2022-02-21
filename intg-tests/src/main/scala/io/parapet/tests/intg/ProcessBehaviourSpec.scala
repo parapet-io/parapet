@@ -3,7 +3,7 @@ package io.parapet.tests.intg
 import io.parapet.core.Process
 import io.parapet.Event
 import io.parapet.tests.intg.ProcessBehaviourSpec._
-import io.parapet.testutils.{EventStore, IntegrationSpec}
+import io.parapet.testutils.EventStore
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers._
 
