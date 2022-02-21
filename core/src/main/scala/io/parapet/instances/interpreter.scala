@@ -28,6 +28,8 @@ object interpreter {
           fork.flow.foldMap(new EvalInterpreter(senderRef, eventLog, eventTransformer))
         case _: Delay[CatsEval] => ()
         case _: SuspendF[CatsEval, Dsl[CatsEval, *], A] => ().asInstanceOf[A] // s.thunk().foldMap(new IdInterpreter(execution))
+        case withSender: WithSender[CatsEval, Dsl[CatsEval, *], A] =>
+          withSender.f(senderRef).foldMap(new EvalInterpreter(senderRef, eventLog, eventTransformer))
         case RaiseError(err) => throw err
       }
     }

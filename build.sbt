@@ -1,5 +1,3 @@
-import com.typesafe.sbt.packager.MappingsHelper.directory
-
 name := "parapet"
 
 ThisBuild / organization := "io.parapet"
@@ -8,14 +6,14 @@ ThisBuild / organizationHomepage := Some(url("http://parapet.io/"))
 
 ThisBuild / scalaVersion := "2.13.4"
 
-scalacOptions in ThisBuild ++= Seq(
+ThisBuild / scalacOptions ++= Seq(
   "-language:higherKinds",
   "-feature",
   "-deprecation"
 )
 
 resolvers += Resolver.sonatypeRepo("releases")
-resolvers in ThisBuild += "maven2" at "https://repo1.maven.org/maven2/"
+ThisBuild / resolvers += "maven2" at "https://repo1.maven.org/maven2/"
 
 useGpg := false
 
@@ -47,13 +45,13 @@ lazy val dependencies =
     val sourcecode = "com.lihaoyi" %% "sourcecode" % "0.2.1"
   }
 
-libraryDependencies in ThisBuild += dependencies.pegdown
+ThisBuild / libraryDependencies += dependencies.pegdown
 
-libraryDependencies in ThisBuild += compilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3")
+ThisBuild / libraryDependencies += compilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3")
 // if your project uses multiple Scala versions, use this for cross building
-libraryDependencies in ThisBuild += compilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3" cross CrossVersion.binary)
+ThisBuild / libraryDependencies += compilerPlugin("org.typelevel" %% "kind-projector" % "0.10.3" cross CrossVersion.binary)
 // if your project uses both 2.10 and polymorphic lambdas
-libraryDependencies in ThisBuild ++= (scalaBinaryVersion.value match {
+ThisBuild / libraryDependencies ++= (scalaBinaryVersion.value match {
   case "2.10" =>
     compilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full) :: Nil
   case _ =>
@@ -83,7 +81,8 @@ lazy val core = project
     libraryDependencies += "org.json4s" %% "json4s-native" % "3.6.7",
     libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.6.7",
     libraryDependencies += "io.monix" %% "monix-eval" % "3.3.0",
-    libraryDependencies += "com.typesafe.play" %% "play-json" % "2.9.1"
+    libraryDependencies += "com.typesafe.play" %% "play-json" % "2.9.1",
+    libraryDependencies += "com.vladsch.flexmark" % "flexmark-all" % "0.36.8" % Test
   ).dependsOn(protobuf, coreApi, common)
 
 lazy val cluster = project
@@ -92,14 +91,14 @@ lazy val cluster = project
     name := "cluster",
     libraryDependencies ++= Seq("com.github.scopt" %% "scopt" % "4.0.1",
       "org.slf4j" % "slf4j-log4j12" % "1.7.25"),
-    maintainer in Universal := "parapet.io",
-    packageName in Universal := "parapet-cluster-" + version.value,
-    mappings in Universal += {
+    Universal / maintainer := "parapet.io",
+    Universal / packageName := "parapet-cluster-" + version.value,
+    Universal / mappings += {
       val src = (sourceDirectory in Compile).value
       src / "resources" / "log4j.xml" -> "etc/log4j.xml"
     },
-    mappings in Universal += {
-      val src = (sourceDirectory in Compile).value
+    Universal / mappings += {
+      val src = (Compile / sourceDirectory).value
       src / "resources" / "etc" / "node.properties.template" -> "etc/node.properties.template"
     },
     bashScriptExtraDefines += """addJava "-Dlog4j.configuration=file:${app_home}/../etc/log4j.xml""""
@@ -203,6 +202,7 @@ lazy val spark = project
     libraryDependencies ++= Seq(
       "com.github.freva" % "ascii-table" % "1.2.0",
       "com.github.scopt" %% "scopt" % "4.0.1",
+      "com.vladsch.flexmark" % "flexmark-all" % "0.36.8" % Test,
       dependencies.scalaTest),
   ).dependsOn(core, clusterNode)
 
@@ -211,9 +211,9 @@ lazy val sparkWorker = project
   .enablePlugins(JavaAppPackaging, UniversalDeployPlugin)
   .settings(
     name := "spark-worker",
-    mainClass in Compile := Some("io.parapet.spark.WorkerApp"),
-    maintainer in Universal := "parapet.io",
-    packageName in Universal := "spark-worker-" + version.value,
+    Compile / mainClass := Some("io.parapet.spark.WorkerApp"),
+    Universal / maintainer := "parapet.io",
+    Universal / packageName := "spark-worker-" + version.value,
     scriptClasspath := Seq("*")
     //    mappings in Universal += {
     //      val src = (sourceDirectory in Compile).value
@@ -236,9 +236,9 @@ lazy val protobuf = project
   )
 
 
-PB.protoSources in protobuf in Compile := Seq(file("protobuf/src/main/protobuf"))
-PB.targets in protobuf in Compile := Seq(
-  PB.gens.java -> (sourceManaged in protobuf in Compile).value
+protobuf / Compile / PB.protoSources := Seq(file("protobuf/src/main/protobuf"))
+protobuf / Compile / PB.targets  in Compile := Seq(
+  PB.gens.java -> (protobuf / Compile / sourceManaged).value
 )
 
 lazy val catsDependencies = Seq(dependencies.catsEffect, dependencies.catsFree)
@@ -254,8 +254,8 @@ lazy val commonDependencies = Seq(
   dependencies.sourcecode
 )
 
-testOptions in ThisBuild in Test += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports")
-testOptions in intgTests in Test += Tests.Argument(TestFrameworks.ScalaTest, "-n", "io.parapet.testutils.tags.CatsTest")
+ThisBuild / Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports")
+intgTests / Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-n", "io.parapet.testutils.tags.CatsTest")
 
 def testUntilFailed = Command.args("testUntilFailed", "") { (state, args) =>
   val argsList = args.mkString(" ")
@@ -264,12 +264,12 @@ def testUntilFailed = Command.args("testUntilFailed", "") { (state, args) =>
 
 ThisBuild / commands += testUntilFailed
 
-parallelExecution in Test := false
-concurrentRestrictions in Global += Tags.limit(Tags.Test, 1)
+Test / parallelExecution := false
+Global / concurrentRestrictions += Tags.limit(Tags.Test, 1)
 
 // PUBLISH TO MAVEN
-publishArtifact in global := false
-publishArtifact in intgTests := false
+global / publishArtifact := false
+intgTests / publishArtifact := false
 
 ThisBuild / scmInfo := Some(
   ScmInfo(
