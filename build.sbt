@@ -94,7 +94,7 @@ lazy val cluster = project
     Universal / maintainer := "parapet.io",
     Universal / packageName := "parapet-cluster-" + version.value,
     Universal / mappings += {
-      val src = (sourceDirectory in Compile).value
+      val src = (Compile / sourceDirectory).value
       src / "resources" / "log4j.xml" -> "etc/log4j.xml"
     },
     Universal / mappings += {
@@ -214,17 +214,12 @@ lazy val sparkWorker = project
     Compile / mainClass := Some("io.parapet.spark.WorkerApp"),
     Universal / maintainer := "parapet.io",
     Universal / packageName := "spark-worker-" + version.value,
-    scriptClasspath := Seq("*")
-    //    mappings in Universal += {
-    //      val src = (sourceDirectory in Compile).value
-    //      src / "resources" / "log4j.xml" -> "etc/log4j.xml"
-    //    },
-    //    mappings in Universal += {
-    //      val src = (sourceDirectory in Compile).value
-    //      src / "resources" / "etc" / "node.properties.template" -> "etc/node.properties.template"
-    //    },
-    //    bashScriptExtraDefines += """addJava "-Dlog4j.configuration=file:${app_home}/../etc/log4j.xml""""
-
+    scriptClasspath := Seq("*"),
+    Universal / mappings += {
+      val src = (Compile / sourceDirectory).value
+      src / "resources" / "log4j.xml" -> "etc/log4j.xml"
+    },
+    bashScriptExtraDefines += """addJava "-Dlog4j.configuration=file:${app_home}/../etc/log4j.xml""""
   ).dependsOn(spark)
 
 lazy val protobuf = project
@@ -237,7 +232,7 @@ lazy val protobuf = project
 
 
 protobuf / Compile / PB.protoSources := Seq(file("protobuf/src/main/protobuf"))
-protobuf / Compile / PB.targets  in Compile := Seq(
+protobuf / Compile / PB.targets in Compile := Seq(
   PB.gens.java -> (protobuf / Compile / sourceManaged).value
 )
 
