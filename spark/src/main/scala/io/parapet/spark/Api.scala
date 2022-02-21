@@ -27,13 +27,11 @@ object Api {
   case class JobId(val underlying: String) extends AnyVal
 
   sealed trait Task extends Api {
-   // val clientId:ClientId
     val taskId: TaskId
     val jobId: JobId
   }
 
   sealed trait TaskResult extends Api {
-    //val clientId:ClientId
     val taskId: TaskId
     val jobId: JobId
   }

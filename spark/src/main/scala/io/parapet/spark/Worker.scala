@@ -17,7 +17,7 @@ class Worker[F[_]](override val ref: ProcessRef, sink: Option[ProcessRef] = Opti
   override def handle: Receive = {
     case MapTask(taskId, jobId, data) =>
       withSender { sender =>
-        logger.debug(s"received mapTask(taskId=$taskId, jobId=$jobId)")
+        logger.info(s"received mapTask(taskId=$taskId, jobId=$jobId)")
         val buf = ByteBuffer.wrap(data)
         val lambdaSize = buf.getInt()
         val lambdaBytes = new Array[Byte](lambdaSize)
