@@ -20,6 +20,8 @@ class Node(val id: String,
 
   def send(data: Array[Byte]): Unit = socket.send(data)
 
+  def receive(): Option[Array[Byte]] = Option(socket.recv())
+
   def reconnect(): Try[Unit] = Try {
     socket.disconnect(protocol + "://" + _address)
     socket.connect(protocol + "://" + _address)

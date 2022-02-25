@@ -29,9 +29,9 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
   private var _leader: ProcessRef = _
   // {host}:{port} -> netClientRef
   private var _servers: Map[String, ProcessRef] = Map.empty
-
+  private val serverRef = ProcessRef(s"${config.id}-server")
   private def createServer: DslF[F, Unit] = flow {
-    val srv = AsyncServer[F](ref = ProcessRef(s"${config.id}-server"),
+    val srv = AsyncServer[F](ref = serverRef,
       zmqContext = zmqContext,
       address = Address.tcp("*", config.address.port),
       sink = ref)
@@ -134,9 +134,18 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
               socket.setIdentity(config.id.getBytes())
               socket.connect(s"tcp://$address")
               val node = new Node(id, address, socket)
-              logger.debug(s"node $node has been created")
-              peers.put(id, node)
-              Option(node)
+
+              node.send(Cmd.cluster.Handshake.toByteArray)
+              node.receive() match {
+                case Some(value) =>
+                  logger.debug(s"node $node has been created")
+                  peers.put(id, node)
+                  Option(node)
+                case None =>
+                  println(s"node id=$id is not responding")
+                  Option.empty
+              }
+
             }
           case Right(None) => eval(Option.empty)
         }
@@ -186,6 +195,9 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
         case Cmd.clusterNode.Req(id, data) => NodeProcess.Req(id, data) ~> client
         case Cmd.leaderElection.LeaderUpdate(_, leaderAddr) =>
           eval(logger.debug(s"leader has been updated. old=${_leader} new=$leaderAddr")) ++ getLeader
+        case Cmd.cluster.Handshake =>
+          eval(println(s"received Handshake from $id")) ++
+          Cmd.netServer.Send(id, Cmd.cluster.Ack("", Cmd.cluster.Code.HandshakeOk).toByteArray) ~> serverRef
         case Cmd.cluster.NodeInfo(id, addr, code) if code == Cmd.cluster.Code.Joined =>
           eval {
             peers.get(id) match {

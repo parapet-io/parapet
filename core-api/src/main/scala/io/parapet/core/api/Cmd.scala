@@ -103,6 +103,7 @@ object Cmd {
       case object Error extends Code
       case object Joined extends Code
       case object StateUpdate extends Code
+      case object HandshakeOk extends Code
     }
 
     case class Join(nodeId: String, address: String, group: String) extends Api
@@ -113,6 +114,7 @@ object Cmd {
 
     case class Node(id: String, protocol: String, address: String, groups: Set[String]) extends Api
     case class State(version: Long, nodes: List[Node]) extends Api
+    case object Handshake extends Api
     case object GetState extends Api
     case object PrintState extends Api
 

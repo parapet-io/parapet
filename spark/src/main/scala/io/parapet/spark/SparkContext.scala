@@ -76,7 +76,7 @@ object SparkContext {
     import cats.implicits._
     import dsl._
 
-    private val id = "driver-" + System.nanoTime()
+    private var _id = "driver-" + System.nanoTime()
     private var _address: Address = _
     private var _clusterMode: Boolean = true
     private var _ioTreads: Int = 1
@@ -84,6 +84,11 @@ object SparkContext {
     private var _clusterGroup: String = ""
     private var _workers: List[String] = List.empty
     private var _workerServers: List[Address] = List.empty
+
+    def id(value: String): Builder[F] = {
+      _id = value
+      this
+    }
 
     def address(value: Address): Builder[F] = {
       _address = value
@@ -121,7 +126,7 @@ object SparkContext {
     }
 
     def build: DslF[F, SparkContext[F]] = flow {
-      val sparkContextRef = ProcessRef(id)
+      val sparkContextRef = ProcessRef(_id)
       val nodeRef = ProcessRef("driver") // ProcessRef(s"node-$id")
       val zmqContext = new ZContext(_ioTreads)
 
@@ -133,7 +138,7 @@ object SparkContext {
               case NodeProcess.Req(_ /*workerId*/ , data) => Api(data)
             }))
             node <- eval(new NodeProcess[F](nodeRef,
-              NodeProcess.Config(id, _address, _clusterServers), nodeInMapper.ref, zmqContext))
+              NodeProcess.Config(_id, _address, _clusterServers), nodeInMapper.ref, zmqContext))
             _ <- register(ProcessRef.SystemRef, nodeInMapper)
             _ <- register(ProcessRef.SystemRef, node)
             workers <- _workers.map { workerId =>
