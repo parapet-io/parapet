@@ -144,7 +144,7 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
                   peers.put(id, node)
                   Option(node)
                 case None =>
-                  println(s"node id=$id is not responding")
+                  logger.warn(s"node id=$id is not responding")
                   Option.empty
               }
 
@@ -188,7 +188,6 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
     case NodeProcess.Req(id, data) =>
       getOrCreateNode(id).flatMap {
         case Some(node) =>
-          eval(println(s"send zmq req to $node")) ++
             eval(node.send(Cmd.clusterNode.Req(config.id, data).toByteArray))
         case None => eval(logger.debug(s"node id=$id not found"))
       }
@@ -199,7 +198,7 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
         case Cmd.leaderElection.LeaderUpdate(_, leaderAddr) =>
           eval(logger.debug(s"leader has been updated. old=${_leader} new=$leaderAddr")) ++ getLeader
         case Cmd.cluster.Handshake =>
-          eval(println(s"received Handshake from $id")) ++
+          eval(logger.debug(s"received Handshake from $id")) ++
             Cmd.netServer.Send(id, Cmd.cluster.Ack("", Cmd.cluster.Code.HandshakeOk).toByteArray) ~> serverRef
         case Cmd.cluster.NodeInfo(id, addr, code) if code == Cmd.cluster.Code.Joined =>
           eval {
@@ -215,7 +214,7 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
         case Cmd.cluster.Leave(peerId) =>
           peers.remove(peerId) match {
             case Some(peer) => eval {
-              logger.debug(s"peer with id: $peerId left the cluster")
+              logger.debug(s"peer: $peerId has left the cluster")
               peer.close()
             }
             case None => eval(logger.warn(s"cmd leave: peer with id: $peerId not found"))
