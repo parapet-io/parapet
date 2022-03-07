@@ -211,14 +211,13 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
               case None => ()
             }
           }
-        case Cmd.cluster.Leave(peerId) =>
-          peers.remove(peerId) match {
-            case Some(peer) => eval {
-              logger.debug(s"peer: $peerId has left the cluster")
-              peer.close()
-            }
-            case None => eval(logger.warn(s"cmd leave: peer with id: $peerId not found"))
+        case Cmd.cluster.Leave(peerId) => eval(peers.remove(peerId)).flatMap {
+          case Some(peer) => eval {
+            logger.debug(s"peer: $peerId has left the cluster")
+            peer.close()
           }
+          case None => eval(logger.warn(s"cmd leave: peer with id: $peerId not found"))
+        }
         case e => eval(logger.debug(s"unsupported cmd: $e"))
       }
     case Stop => flow {
