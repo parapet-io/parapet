@@ -66,7 +66,8 @@ object TestUtils {
             execution.trace.append(Message(event, p))
           })
         case fork: Fork[CatsEval, Dsl[CatsEval, *], A] =>
-          fork.flow.foldMap(new EvalInterpreter(execution, mapper))
+          val res = fork.flow.foldMap(new EvalInterpreter(execution, mapper))
+          new io.parapet.core.Fiber.IdFiber[A](res).asInstanceOf[A]
         case _: Delay[CatsEval] => ()
         case _: SuspendF[CatsEval, Dsl[CatsEval, *], A] => ().asInstanceOf[A] // s.thunk().foldMap(new IdInterpreter(execution))
         case RaiseError(err) => throw err
