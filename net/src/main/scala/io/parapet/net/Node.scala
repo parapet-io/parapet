@@ -16,6 +16,7 @@ class Node(val id: String,
            private val socket: Socket,
            val protocol: String = "tcp") {
 
+  // todo socket.setReceiveTimeOut
   def address: String = _address
 
   def send(data: Array[Byte]): Unit = socket.send(data)

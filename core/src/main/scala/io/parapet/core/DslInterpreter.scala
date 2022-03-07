@@ -5,7 +5,8 @@ import cats.effect.{Concurrent, Timer}
 import cats.implicits._
 import cats.~>
 import io.parapet.core.Context.ProcessState
-import io.parapet.core.Dsl.{Blocking, Delay, Dsl, Eval, FlowOp, Fork, Forward, Halt, HandelError, Par, Race, RaiseError, Register, Send, Suspend, SuspendF, UnitFlow, WithSender}
+import io.parapet.core.Dsl.{Blocking, Delay, Dsl, Eval, FlowOp, Fork, Forward, Halt, HandelError, Par, Race,
+  RaiseError, Register, Send, Suspend, SuspendF, UnitFlow, WithSender}
 import io.parapet.core.Scheduler.{Deliver, ProcessQueueIsFull}
 import io.parapet.{Envelope, Event, ProcessRef}
 
@@ -58,8 +59,9 @@ object DslInterpreter {
             case par: Par[F, Dsl[F, *]]@unchecked =>
               par.flow.foldMap[F](interpret(sender, ps, execTrace))
             //--------------------------------------------------------------
-            case fork: Fork[F, Dsl[F, *]]@unchecked =>
-              ct.start(fork.flow.foldMap[F](interpret(sender, ps, execTrace))).void
+            case fork: Fork[F, Dsl[F, *], A]@unchecked =>
+              ct.start(fork.flow.foldMap[F](interpret(sender, ps, execTrace)))
+                .map(new Fiber.CatsEffect[F, A](_))
             //--------------------------------------------------------------
             case delay: Delay[F]@unchecked =>
               timer.sleep(delay.duration)
@@ -97,6 +99,14 @@ object DslInterpreter {
                 err => he.handle(err).foldMap[F](interpret(sender, ps, execTrace))
               }
             case Halt(ref) => context.remove(ref).void
+            case io.parapet.core.Dsl.Lock(ref) =>
+              context.getProcessState(ref).get.acquire.map {res =>
+                println(res)
+              }
+            case io.parapet.core.Dsl.Unlock(ref) =>
+              context.getProcessState(ref).get.release >>
+              context.schedule(Scheduler.Deliver(Envelope(ProcessRef.SystemRef,
+                Scheduler.Inbox, ref), execTrace)).void
           }
       }
 

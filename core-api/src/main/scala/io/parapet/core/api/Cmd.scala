@@ -108,6 +108,7 @@ object Cmd {
 
     case class Join(nodeId: String, address: String, group: String) extends Api
     case class JoinResult(nodeId: String, code: Code) extends Api
+    case class Leave(nodeId: String) extends Api
     case class GetNodeInfo(senderId: String, id: String) extends Api
     case class NodeInfo(id: String, address: String, code: Code) extends Api
     case class Ack(msg: String, code: Code) extends Api

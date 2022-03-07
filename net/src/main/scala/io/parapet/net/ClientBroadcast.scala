@@ -1,64 +1,68 @@
 package io.parapet.net
 
+import cats.effect.Concurrent
+import cats.implicits._
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Process
 import io.parapet.core.api.Cmd.netClient
+import io.parapet.core.{Channel, Process}
+import io.parapet.net.ClientBroadcast._
 import io.parapet.{Event, ProcessRef}
+import io.parapet.net.Exceptions._
 
-import scala.collection.mutable
-import scala.concurrent.duration.FiniteDuration
+import java.util.concurrent.atomic.AtomicInteger
+import scala.concurrent.duration.{Duration, FiniteDuration}
+import scala.util.Try
 
-class ClientBroadcast[F[_]](refs: Seq[ProcessRef],
-                            acksRequired: Int,
-                            timeout: FiniteDuration) extends Process[F] {
+class ClientBroadcast[F[_] : Concurrent] extends Process[F] {
 
   import dsl._
 
-  private val _replies = mutable.ListBuffer.empty[netClient.Rep]
-  private var _event: Event = _
-  private var _started = false
-  private var _completed = false
-  private var _reply: ProcessRef = _
-
-  def complete: DslF[F, Unit] = flow {
-    if (!_completed && _replies.size >= acksRequired) {
-      eval {
-        _completed = true
-      } ++ ClientBroadcast.Done(_replies.toList) ~> _reply
-    } else unit
-  }
+  val counter = new AtomicInteger()
 
   override def handle: Receive = {
-    case rep: netClient.Rep =>
-      if (rep.data != null) {
-        eval {
-          _replies += rep
-        } ++ complete
-      } else unit
+    case Send(e, receivers, timeout) =>
+      withSender { sender =>
+        val channels = List.fill(receivers.size)(Channel[F])
+        register(ref, channels: _*) ++
+          par(receivers.zip(channels).map {
+            case (receiver, chan) => send(e, chan, receiver, timeout)
+          }: _*).flatMap { fibers =>
+            fibers.map(_.join).sequence
+          }.flatMap(res => Response(res) ~> sender) ++
+          channels.map(ch => halt(ch.ref)).fold(unit)(_ ++ _)
+      }
 
-    case ClientBroadcast.Send(data) => withSender { sender =>
-      eval {
-        if (_started) {
-          throw new IllegalStateException("broadcast is in progress")
-        }
-        _started = true
-        _reply = sender
-        _event = netClient.Send(data, Option(ref))
-      } ++ execute
-    }
-    case ClientBroadcast.Timeout => execute
   }
 
-  private def execute: DslF[F, Unit] = {
-    eval(_replies.clear()) ++
-      par(refs.map(ref => _event ~> ref): _*) ++ fork(delay(timeout) ++ ClientBroadcast.Timeout ~> ref)
+  private def send(data: Array[Byte], channel: Channel[F],
+                   receiver: ProcessRef, timeout: FiniteDuration): DslF[F, Try[Event]] = flow {
+    for {
+      res <- if (timeout != Duration.Zero) {
+        withTimeout(channel.send(netClient.Send(data, Option(channel.ref)), receiver), timeout)
+      } else {
+        channel.send(netClient.Send(data, Option(channel.ref)), receiver)
+      }
+    } yield res
+  }
+
+  private def withTimeout(f: => DslF[F, Try[Event]],
+                          timeout: FiniteDuration): DslF[F, Try[Event]] = {
+    race(f,
+      delay(timeout) ++ eval(scala.util.Failure[Event](TimeoutException("request timed out")))
+    ).map {
+      case scala.util.Left(v) => v
+      case scala.util.Right(v) => v
+    }
   }
 }
 
 object ClientBroadcast {
-  object Timeout extends Event
 
-  case class Send(data: Array[Byte]) extends Event
+  // ClientBroadcast[F[_] : Concurrent]
+  def apply[F[_] : Concurrent] = new ClientBroadcast[F]
 
-  case class Done(replies: List[netClient.Rep]) extends Event
+  case class Send(data: Array[Byte], receivers: List[ProcessRef],
+                  timeout: FiniteDuration = Duration.Zero) extends Event
+
+  case class Response(res: Seq[Try[Event]]) extends Event
 }

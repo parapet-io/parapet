@@ -59,7 +59,7 @@ class AsyncServer[F[_]](override val ref: ProcessRef,
   }
 
   override def handle: Receive = {
-    case Start => init ++ fork(loop)
+    case Start => init ++ fork(loop).map(_ => ())
 
     case netServer.Send(clientId, data) =>
       eval {

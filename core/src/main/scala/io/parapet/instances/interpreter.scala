@@ -3,7 +3,7 @@ package io.parapet.instances
 import cats.{Id, Monad, ~>, Eval => CatsEval}
 import io.parapet.ProcessRef
 import io.parapet.core.Dsl._
-import io.parapet.core.{EventLog, EventTransformer}
+import io.parapet.core.{EventLog, EventTransformer, Fiber}
 
 object interpreter {
 
@@ -24,8 +24,9 @@ object interpreter {
           send.receivers.foreach(p => {
             eventLog.add(senderRef, event, p)
           })
-        case fork: Fork[CatsEval, Dsl[CatsEval, *]] =>
-          fork.flow.foldMap(new EvalInterpreter(senderRef, eventLog, eventTransformer))
+        case fork: Fork[CatsEval, Dsl[CatsEval, *], A] =>
+          val res = fork.flow.foldMap(new EvalInterpreter(senderRef, eventLog, eventTransformer))
+          new Fiber.IdFiber[A](res).asInstanceOf[A]
         case _: Delay[CatsEval] => ()
         case _: SuspendF[CatsEval, Dsl[CatsEval, *], A] => ().asInstanceOf[A] // s.thunk().foldMap(new IdInterpreter(execution))
         case withSender: WithSender[CatsEval, Dsl[CatsEval, *], A] =>

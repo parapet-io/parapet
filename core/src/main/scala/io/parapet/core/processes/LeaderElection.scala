@@ -156,7 +156,7 @@ class LeaderElection[F[_] : Concurrent](override val ref: ProcessRef,
 
   // -----------------------HELPERS------------------------------- //
 
-  private def heartbeatLoopAsync: DslF[F, Unit] = fork(heartbeatLoop)
+  private def heartbeatLoopAsync: DslF[F, Unit] = fork(heartbeatLoop).map(_ => ())
 
   private def heartbeatLoop: DslF[F, Unit] = {
     def step: DslF[F, Unit] = flow {
@@ -183,7 +183,7 @@ class LeaderElection[F[_] : Concurrent](override val ref: ProcessRef,
     } yield ()
   }
 
-  private[core] def monitorClusterLoopAsync: DslF[F, Unit] = fork(monitorClusterLoop)
+  private[core] def monitorClusterLoopAsync: DslF[F, Unit] = fork(monitorClusterLoop).void
 
   private[core] def monitorClusterLoop: DslF[F, Unit] = {
     val step = handleError(monitorCluster, err => eval(logger.error("cluster monitor has failed", err)))

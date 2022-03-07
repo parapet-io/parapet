@@ -10,7 +10,7 @@ import io.parapet.core.api.Cmd.cluster._
 import io.parapet.core.api.Cmd.leaderElection.{Who, WhoRep, Req => LeReq}
 import io.parapet.core.api.Cmd.{cluster, netClient, netServer}
 import io.parapet.core.{Channel, Cond, Process}
-import io.parapet.net.{Address, AsyncClient, AsyncServer, Node}
+import io.parapet.net.{Address, AsyncClient, AsyncServer, ClientBroadcast, Node}
 import io.parapet.{Event, ProcessRef}
 import org.zeromq.{SocketType, ZContext}
 
@@ -30,6 +30,8 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
   // {host}:{port} -> netClientRef
   private var _servers: Map[String, ProcessRef] = Map.empty
   private val serverRef = ProcessRef(s"${config.id}-server")
+  private val broadcast = ClientBroadcast[F]
+
   private def createServer: DslF[F, Unit] = flow {
     val srv = AsyncServer[F](ref = serverRef,
       zmqContext = zmqContext,
@@ -44,7 +46,7 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
         zmqContext, config.id, address))
       clients.map(client => register(ref, client)).fold(unit)(_ ++ _) ++ eval {
         _servers = config.servers.map(_.simple).zip(clients.map(_.ref)).toMap
-      }
+      } ++ register(ref, broadcast)
     }
 
   private def getLeader: DslF[F, Unit] = {
@@ -115,7 +117,7 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
             eval(Right(Option.empty[NodeInfo]).withLeft[Throwable])
           case scala.util.Failure(err) => eval(Left(err).withRight[Option[NodeInfo]])
         }
-        .finalize(release)
+        .guaranteed(release)
   }
 
   private def getOrCreateNode(id: String): DslF[F, Option[Node]] =
@@ -186,7 +188,8 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
     case NodeProcess.Req(id, data) =>
       getOrCreateNode(id).flatMap {
         case Some(node) =>
-          eval(node.send(Cmd.clusterNode.Req(config.id, data).toByteArray))
+          eval(println(s"send zmq req to $node")) ++
+            eval(node.send(Cmd.clusterNode.Req(config.id, data).toByteArray))
         case None => eval(logger.debug(s"node id=$id not found"))
       }
 
@@ -197,7 +200,7 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
           eval(logger.debug(s"leader has been updated. old=${_leader} new=$leaderAddr")) ++ getLeader
         case Cmd.cluster.Handshake =>
           eval(println(s"received Handshake from $id")) ++
-          Cmd.netServer.Send(id, Cmd.cluster.Ack("", Cmd.cluster.Code.HandshakeOk).toByteArray) ~> serverRef
+            Cmd.netServer.Send(id, Cmd.cluster.Ack("", Cmd.cluster.Code.HandshakeOk).toByteArray) ~> serverRef
         case Cmd.cluster.NodeInfo(id, addr, code) if code == Cmd.cluster.Code.Joined =>
           eval {
             peers.get(id) match {
@@ -209,9 +212,23 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
               case None => ()
             }
           }
+        case Cmd.cluster.Leave(peerId) =>
+          peers.remove(peerId) match {
+            case Some(peer) => eval {
+              logger.debug(s"peer with id: $peerId left the cluster")
+              peer.close()
+            }
+            case None => eval(logger.warn(s"cmd leave: peer with id: $peerId not found"))
+          }
         case e => eval(logger.debug(s"unsupported cmd: $e"))
       }
-    case Stop => eval(logger.debug("node is closed"))
+    case Stop => flow {
+      val leave = Cmd.cluster.Leave(config.id).toByteArray
+      ClientBroadcast.Send(Cmd.leaderElection.Req(config.id, leave).toByteArray,
+        _servers.values.toList) ~> broadcast ++
+      eval(peers.values.foreach(peer => peer.send(leave))) ++
+      eval(logger.debug("node is closed"))
+    }
   }
 
 }
