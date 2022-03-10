@@ -27,6 +27,8 @@ trait Scheduler[F[_]] {
 
 object Scheduler {
 
+  case object Inbox extends Event
+
   case class Signal(envelop: Envelope, execTrace: ExecutionTrace) {
     override def toString: String = s"Signal($envelop, $execTrace)"
   }
@@ -245,7 +247,8 @@ object Scheduler {
         def step: F[Unit] =
           ps.tryTakeTask >>= {
             case Some(task: Deliver[F]) =>
-              deliver(ps, task) >> ps.isBlocking.flatMap(if (_) waitForCompletion(task, ps) else step)
+              if (task.envelope.event.isInstanceOf[Scheduler.Inbox.type]) step
+              else deliver(ps, task) >> ps.isBlocking.flatMap(if (_) waitForCompletion(task, ps) else step)
             case Some(task) => ct.raiseError(new UnsupportedOperationException(s"unsupported task type: $task"))
             case None       => releaseWithOptNotify(ps)
           }

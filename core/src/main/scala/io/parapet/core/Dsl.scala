@@ -17,6 +17,8 @@ object Dsl {
 
   case class UnitFlow[F[_]]() extends FlowOp[F, Unit]
 
+  case class Pure[F[_], A](a: A) extends FlowOp[F, A]
+
   case class Send[F[_]](e: () => Event, sender: Option[ProcessRef],
                         receiver: ProcessRef, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
 
@@ -28,7 +30,7 @@ object Dsl {
 
   case class WithSender[F[_], G[_], A](f: ProcessRef => Free[G, A]) extends FlowOp[F, A]
 
-  case class Fork[F[_], G[_]](flow: Free[G, Unit]) extends FlowOp[F, Unit]
+  case class Fork[F[_], G[_], A](flow: Free[G, A]) extends FlowOp[F, Fiber[F, A]]
 
   case class Register[F[_]](parent: ProcessRef, child: Process[F]) extends FlowOp[F, Unit]
 
@@ -49,6 +51,10 @@ object Dsl {
 
   case class Halt[F[_]](ref: ProcessRef) extends FlowOp[F, Unit]
 
+  case class Lock[F[_]](ref: ProcessRef) extends FlowOp[F, Unit]
+
+  case class Unlock[F[_]](ref: ProcessRef) extends FlowOp[F, Unit]
+
   /** Smart constructors for FlowOp[F, _].
     *
     * @param I an injection from type constructor `F` into type constructor `C`
@@ -66,6 +72,8 @@ object Dsl {
       * }}}
       */
     val unit: Free[C, Unit] = Free.inject[FlowOp[F, *], C](UnitFlow())
+
+    def pure[A](a: A): Free[C, A] = Free.inject[FlowOp[F, *], C](Pure(a))
 
     /** Suspends the given flow. Semantically this operator is equivalent with `suspend` for effects.
       * This is useful for recursive flows.
@@ -178,8 +186,10 @@ object Dsl {
       * @param flows the flow which operations should be executed in parallel.
       * @return Unit
       */
-
-    def par(flows: Free[C, Unit]*): Free[C, Unit] = flows.map(fork).fold(unit)((a, b) => a.flatMap(_ => b))
+    // todo par should return results, i.e. flows: Free[C, A]*
+    import cats.implicits._
+    def par[A](flows: Free[C, A]*): Free[C, List[Fiber[F, A]]] =
+      flows.toList.map(fork).sequence// .fold(unit)((a, b) => a.flatMap(_ => b))
 
     /** Delays any operation that follows this operator.
       *
@@ -232,7 +242,8 @@ object Dsl {
       * @param flow the flow to run concurrently
       * @return Unit
       */
-    def fork(flow: Free[C, Unit]): Free[C, Unit] = Free.inject[FlowOp[F, *], C](Fork(flow))
+      // todo use instead of blocking
+    def fork[A](flow: Free[C, A]): Free[C, Fiber[F, A]] = Free.inject[FlowOp[F, *], C](Fork(flow))
 
     /** Registers a child process in the parapet context.
       *
@@ -334,6 +345,10 @@ object Dsl {
       * Use to destroy a child process.
       */
     def halt(ref: ProcessRef): Free[C, Unit] = Free.inject[FlowOp[F, *], C](Halt(ref))
+
+    def lock(ref: ProcessRef): Free[C, Unit] = Free.inject[FlowOp[F, *], C](Lock(ref))
+
+    def unlock(ref: ProcessRef): Free[C, Unit] = Free.inject[FlowOp[F, *], C](Unlock(ref))
   }
 
   object FlowOps {

@@ -19,6 +19,11 @@ class AsyncServer[F[_]](override val ref: ProcessRef,
   private val logger = LoggerFactory.getLogger(ref.value)
   private val info: String = s"server[ref=$ref, address=$address]:"
 
+  private val zmqErrors = Map(
+    ZError.EINTR -> "zmq socket has been closed",
+    ZError.ETERM -> "zmq context has been terminated"
+  )
+
   private def init = eval {
     try {
       server.bind(address.value)
@@ -47,8 +52,9 @@ class AsyncServer[F[_]](override val ref: ProcessRef,
         Right(netServer.Message(clientId, msgBytes)).withLeft[Throwable]
       }.handleError(e => eval(Left(e).withRight[netServer.Message])).flatMap {
         case Right(msg) => msg ~> sink ++ step
-        case Left(err: org.zeromq.ZMQException) if err.getErrorCode == ZError.ETERM =>
-          eval(logger.error(s"$info zmq context has been terminated. stop receive loop", err)) ++
+        case Left(err: org.zeromq.ZMQException) if zmqErrors.contains(err.getErrorCode) =>
+          val msg = zmqErrors(err.getErrorCode)
+          eval(logger.error(s"$info $msg. stop receive loop", err)) ++
             eval(Left(err).withRight[netServer.Message])
         case Left(err) => eval(logger.error(s"$info has failed to receive a message", err)) ++ step
       }
@@ -59,7 +65,7 @@ class AsyncServer[F[_]](override val ref: ProcessRef,
   }
 
   override def handle: Receive = {
-    case Start => init ++ fork(loop)
+    case Start => init ++ fork(loop).map(_ => ())
 
     case netServer.Send(clientId, data) =>
       eval {

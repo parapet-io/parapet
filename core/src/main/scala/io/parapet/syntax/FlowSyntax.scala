@@ -9,9 +9,11 @@ trait FlowSyntax[F[_]] extends EventSyntax[F] with WithDsl[F] {
     // alias for Free flatMap
     def ++[B](fb: => DslF[F, B]): DslF[F, B] = fa.flatMap(_ => fb)
 
+    def void: DslF[F, Unit] = fa.map(_ => ())
+
     def handleError[AA >: A](f: Throwable => Free[FlowOp[F, *], AA]): Free[FlowOp[F, *], AA] = dsl.handleError(fa, f)
 
-    def finalize(f: => DslF[F, Unit]): DslF[F, A] = {
+    def guaranteed(f: => DslF[F, Unit]): DslF[F, A] = {
       for {
         a <- fa
         _ <- f

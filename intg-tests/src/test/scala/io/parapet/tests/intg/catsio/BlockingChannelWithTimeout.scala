@@ -40,7 +40,7 @@ class BlockingChannelWithTimeout extends AnyFunSuite with BasicCatsIOSpec {
          blocking {
            race(
              ch.send(ByteEvent("request".getBytes()), server.ref,  {
-               case scala.util.Failure(Channel.ChannelInterruptedException) =>
+               case scala.util.Failure(Channel.ChannelInterruptedException(_, _)) =>
                  eval(println("channel was interrupted")) ++ ByteEvent("help".getBytes()) ~> failover
                case res => eval(println(s"client received: $res"))
              }),

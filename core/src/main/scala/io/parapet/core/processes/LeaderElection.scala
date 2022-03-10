@@ -16,7 +16,7 @@ import org.slf4j.MDC
 import org.slf4j.event.Level
 
 import scala.concurrent.duration._
-import scala.util.Random
+import scala.util.{Failure, Random, Success, Try}
 
 class LeaderElection[F[_] : Concurrent](override val ref: ProcessRef,
                                         state: State,
@@ -148,15 +148,18 @@ class LeaderElection[F[_] : Concurrent](override val ref: ProcessRef,
     case netServer.Message(id, data) =>
       implicit val correlationId: CorrelationId = CorrelationId()
       for {
-        cmd <- eval(Cmd(data))
-        _ <- log(s"$ref received $cmd from $id") ++ cmd ~> ref
+        cmd <- eval(Try(Cmd(data)))
+        _ <- cmd match {
+          case Failure(exception) => log("invalid command format", Level.ERROR, exception)
+          case Success(value) => log(s"$ref received $cmd from $id") ++ value ~> ref
+        }
       } yield ()
 
   }
 
   // -----------------------HELPERS------------------------------- //
 
-  private def heartbeatLoopAsync: DslF[F, Unit] = fork(heartbeatLoop)
+  private def heartbeatLoopAsync: DslF[F, Unit] = fork(heartbeatLoop).map(_ => ())
 
   private def heartbeatLoop: DslF[F, Unit] = {
     def step: DslF[F, Unit] = flow {
@@ -183,7 +186,7 @@ class LeaderElection[F[_] : Concurrent](override val ref: ProcessRef,
     } yield ()
   }
 
-  private[core] def monitorClusterLoopAsync: DslF[F, Unit] = fork(monitorClusterLoop)
+  private[core] def monitorClusterLoopAsync: DslF[F, Unit] = fork(monitorClusterLoop).void
 
   private[core] def monitorClusterLoop: DslF[F, Unit] = {
     val step = handleError(monitorCluster, err => eval(logger.error("cluster monitor has failed", err)))
@@ -215,7 +218,7 @@ class LeaderElection[F[_] : Concurrent](override val ref: ProcessRef,
       }
     } catch {
       case e: Exception =>
-        action = log("unexpected error", Level.ERROR, Option(e))
+        action = log("unexpected error", Level.ERROR, e)
     }
     eval {
       state.peers.peers.foreach(p => p.updateActive() match {
@@ -238,27 +241,23 @@ class LeaderElection[F[_] : Concurrent](override val ref: ProcessRef,
     state.reset()
   }
 
-  def log(msg: => String, lvl: Level = Level.DEBUG, ex: Option[Exception] = Option.empty)(implicit
-                                                                                          line: sourcecode.Line,
-                                                                                          file: sourcecode.File,
-                                                                                          correlationId: CorrelationId,
+  def log(msg: => String, lvl: Level = Level.DEBUG, error: Throwable = null)(implicit
+                                                                          line: sourcecode.Line,
+                                                                          file: sourcecode.File,
+                                                                          correlationId: CorrelationId,
   ): DslF[F, Unit] =
-    eval(logUnsafe(msg, lvl))
+    eval(logUnsafe(msg, lvl, error))
 
-  private def logUnsafe(msg: => String, lvl: Level = Level.DEBUG, ex: Option[Exception] = Option.empty)(implicit
-                                                                                                        line: sourcecode.Line,
-                                                                                                        file: sourcecode.File,
-                                                                                                        correlationId: CorrelationId,
+  private def logUnsafe(msg: => String, lvl: Level = Level.DEBUG, error: Throwable = null)(implicit
+                                                                                           line: sourcecode.Line,
+                                                                                           file: sourcecode.File,
+                                                                                           correlationId: CorrelationId,
   ): Unit = {
     MDC.put("line", line.value.toString)
     MDC.put("correlationId", correlationId.value)
     State.addToMDC(state)
     lvl match {
-      case Level.ERROR =>
-        ex match {
-          case Some(cause) => logger.error(msg, cause)
-          case None => logger.error(msg)
-        }
+      case Level.ERROR => logger.error(msg, error)
       case Level.WARN => logger.warn(msg)
       case Level.INFO => logger.info(msg)
       case Level.DEBUG => logger.debug(msg)

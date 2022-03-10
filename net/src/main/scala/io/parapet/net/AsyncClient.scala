@@ -1,6 +1,5 @@
 package io.parapet.net
 
-import cats.implicits.toFunctorOps
 import io.parapet.ProcessRef
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.{Start, Stop}
@@ -37,8 +36,8 @@ class AsyncClient[F[_]](override val ref: ProcessRef,
 
     case Stop =>
       eval {
+        logger.debug(s"client[$clientId, $address] socket has been closed")
         client.close()
-        zmqContext.close()
       }
 
     case netClient.Send(data, replyOpt) =>

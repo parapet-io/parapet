@@ -103,16 +103,19 @@ object Cmd {
       case object Error extends Code
       case object Joined extends Code
       case object StateUpdate extends Code
+      case object HandshakeOk extends Code
     }
 
     case class Join(nodeId: String, address: String, group: String) extends Api
     case class JoinResult(nodeId: String, code: Code) extends Api
+    case class Leave(nodeId: String) extends Api
     case class GetNodeInfo(senderId: String, id: String) extends Api
     case class NodeInfo(id: String, address: String, code: Code) extends Api
     case class Ack(msg: String, code: Code) extends Api
 
     case class Node(id: String, protocol: String, address: String, groups: Set[String]) extends Api
     case class State(version: Long, nodes: List[Node]) extends Api
+    case object Handshake extends Api
     case object GetState extends Api
     case object PrintState extends Api
 

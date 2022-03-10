@@ -241,6 +241,8 @@ object Context {
     def suspend: F[Unit] = ct.delay {
       if (!_suspended.compareAndSet(false, true)) {
         throw new IllegalStateException(s"process[${process.ref}] is already suspended")
+      } else {
+        println(s"process[${process.ref}] is has been suspended")
       }
     }
 

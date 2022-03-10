@@ -41,7 +41,9 @@ object TestUtils {
           send.receivers.foreach(p => {
             execution.trace.append(Message(event, p))
           })
-        case fork: Fork[Id, Dsl[Id, *]] => fork.flow.foldMap(new IdInterpreter(execution, mapper))
+        case fork: Fork[Id, Dsl[Id, *], A] =>
+          val res = fork.flow.foldMap(new IdInterpreter(execution, mapper))
+          new io.parapet.core.Fiber.IdFiber[A](res).asInstanceOf[A]
         case _: Delay[Id] => ()
         case _: SuspendF[Id, Dsl[Id, *], A] => ().asInstanceOf[A] // s.thunk().foldMap(new IdInterpreter(execution))
       }
@@ -63,8 +65,9 @@ object TestUtils {
           send.receivers.foreach(p => {
             execution.trace.append(Message(event, p))
           })
-        case fork: Fork[CatsEval, Dsl[CatsEval, *]] =>
-          fork.flow.foldMap(new EvalInterpreter(execution, mapper))
+        case fork: Fork[CatsEval, Dsl[CatsEval, *], A] =>
+          val res = fork.flow.foldMap(new EvalInterpreter(execution, mapper))
+          new io.parapet.core.Fiber.IdFiber[A](res).asInstanceOf[A]
         case _: Delay[CatsEval] => ()
         case _: SuspendF[CatsEval, Dsl[CatsEval, *], A] => ().asInstanceOf[A] // s.thunk().foldMap(new IdInterpreter(execution))
         case RaiseError(err) => throw err

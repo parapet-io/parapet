@@ -21,7 +21,7 @@ class Cond[F[_] : Concurrent](cond: Event => Boolean, timeout: FiniteDuration)
     case Cond.Start => withSender { sender =>
       eval {
         _reply = sender
-      } ++ fork(delay(timeout) ++ respond(Result(Option.empty)))
+      } ++ fork(delay(timeout) ++ respond(Result(Option.empty))).void
     }
     case event => eval(Try(cond(event))).flatMap {
       case scala.util.Success(true) => respond(Result(Option(event)))

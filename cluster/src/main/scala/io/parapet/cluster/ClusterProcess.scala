@@ -56,6 +56,11 @@ class ClusterProcess(override val ref: ProcessRef,
           case Some(node) => netServer.Send(clientId, Cmd.cluster.NodeInfo(id, node.address, api.Code.Ok).toByteArray) ~> leaderElection
           case None => netServer.Send(clientId, Cmd.cluster.NodeInfo(id, "", api.Code.NotFound).toByteArray) ~> leaderElection
         }
+        case api.Leave(id) => eval{
+          logger.debug(s"peer id: $id left the cluster")
+          cluster.remove(id)
+        }
+
         case state: api.State =>
           updateState(state).flatMap {
             case true => eval(logger.debug(s"state has been updated. current version=${_stateVersion}"))
@@ -115,19 +120,19 @@ class ClusterProcess(override val ref: ProcessRef,
     def step: DslF[IO, Unit] = {
       flow {
         val ch = new Channel[IO](ProcessRef("pubState-" + System.nanoTime()))
-        val broadcast = new ClientBroadcast[IO](peerRefs, (peers.size + 1) / 2, 60.seconds)
+        val broadcast = new ClientBroadcast[IO]
         val msgData = Req(config.id, stateMsg.toByteArray).toByteArray
 
         def release = halt(ch.ref) ++ halt(broadcast.ref)
 
         val res = (register(ref, ch, broadcast) ++
-          ch.send(ClientBroadcast.Send(msgData), broadcast.ref).flatMap {
+          ch.send(ClientBroadcast.Send(msgData, peerRefs, 60.seconds), broadcast.ref).flatMap {
             case Failure(err) => flow {
               logger.error("failed to replicate the cluster state. retry", err)
               step
             }
             case Success(_) => eval(logger.debug("cluster state has been replicated"))
-          }).finalize(release)
+          }).guaranteed(release)
         res
       }
     }
@@ -162,30 +167,24 @@ class ClusterProcess(override val ref: ProcessRef,
     def step: DslF[IO, Unit] = {
       flow {
         val ch = new Channel[IO](ProcessRef("pullState-" + System.nanoTime()))
-        val broadcast = new ClientBroadcast[IO](peerRefs, (peers.size + 1) / 2, 60.seconds)
+        val broadcast = new ClientBroadcast[IO]
         val msgData = Req(config.id, msg).toByteArray
 
         def release = halt(ch.ref) ++ halt(broadcast.ref)
 
         val res = (register(ref, ch, broadcast) ++
-          ch.send(ClientBroadcast.Send(msgData), broadcast.ref).flatMap {
+          ch.send(ClientBroadcast.Send(msgData, peerRefs, 60.seconds), broadcast.ref).flatMap {
             case Failure(err) => flow {
               logger.error("failed to collect the cluster state. retry", err)
               step
             }
-            case Success(ClientBroadcast.Done(replies)) => eval(logger.debug("pullState: cluster state has been updated")) ++
-              replies.map { rep =>
-                rep.data.map(Cmd(_)) match {
-                  case Some(state: api.State) => updateState(state)
-                  case Some(cmd) => eval {
-                    logger.warn(s"unexpected command=$cmd")
-                    false
-                  }
-                  case None => eval(false)
-                }
-              }.sequence.flatMap(updates => eval(logger.debug(s"${updates.count(a => a)} state updates applied")))
-            case Success(res) => eval(logger.debug(res.toString))
-          }).finalize(release)
+            case Success(ClientBroadcast.Response(replies)) =>
+              // todo assert number of replies >= (peers.size + 1) / 2
+              replies.collect {
+                case scala.util.Success(Cmd.netClient.Rep(Some(value))) => Cmd(value).asInstanceOf[api.State]
+              }.map(updateState).sequence
+                .flatMap(updates => eval(logger.debug(s"${updates.count(a => a)} state updates applied")))
+          }).guaranteed(release)
         res
       }
     }

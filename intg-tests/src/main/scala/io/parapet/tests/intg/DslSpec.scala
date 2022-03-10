@@ -127,7 +127,7 @@ abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
             delay(4.seconds) ++ Request("1") ~> consumerRef,
             delay(3.seconds) ++ Request("2") ~> consumerRef,
             delay(2.seconds) ++ Request("3") ~> consumerRef
-          )
+          ).map(_ => ())
         }).ref(producerRef).build
 
         unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(consumer, producer))).run))
@@ -311,7 +311,7 @@ abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
         }
 
         val process: Process[F] = Process.builder[F](_ => {
-          case Start => fork(loop)
+          case Start => fork(loop).map(_ => ())
         }).ref(ref).build
 
         unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))

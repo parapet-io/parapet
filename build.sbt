@@ -1,3 +1,5 @@
+import sbt.Keys.libraryDependencies
+
 name := "parapet"
 
 ThisBuild / organization := "io.parapet"
@@ -115,8 +117,10 @@ lazy val net = project
   .in(file("net"))
   .settings(
     name := "net",
-    libraryDependencies += "org.zeromq" % "jeromq" % "0.5.1"
-  ).dependsOn(core)
+    libraryDependencies += "org.zeromq" % "jeromq" % "0.5.1",
+    libraryDependencies += "org.scalatest" %% "scalatest" % scalaTestVersion,
+    libraryDependencies += dependencies.flexmark
+  ).dependsOn(core, intgTests)
 
 lazy val clusterNode = project
   .in(file("cluster-node"))

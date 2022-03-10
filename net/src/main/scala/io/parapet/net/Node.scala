@@ -16,9 +16,12 @@ class Node(val id: String,
            private val socket: Socket,
            val protocol: String = "tcp") {
 
+  // todo socket.setReceiveTimeOut
   def address: String = _address
 
   def send(data: Array[Byte]): Unit = socket.send(data)
+
+  def receive(): Option[Array[Byte]] = Option(socket.recv())
 
   def reconnect(): Try[Unit] = Try {
     socket.disconnect(protocol + "://" + _address)
