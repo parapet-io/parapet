@@ -184,7 +184,6 @@ class ClusterProcess(override val ref: ProcessRef,
                 case scala.util.Success(Cmd.netClient.Rep(Some(value))) => Cmd(value).asInstanceOf[api.State]
               }.map(updateState).sequence
                 .flatMap(updates => eval(logger.debug(s"${updates.count(a => a)} state updates applied")))
-            case Success(res) => eval(logger.debug(res.toString))
           }).guaranteed(release)
         res
       }

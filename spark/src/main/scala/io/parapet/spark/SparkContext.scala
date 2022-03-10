@@ -5,7 +5,8 @@ import cats.effect.concurrent.Deferred
 import com.typesafe.scalalogging.Logger
 import io.parapet.ProcessRef
 import io.parapet.cluster.node.NodeProcess
-import io.parapet.core.Dsl.DslF
+import io.parapet.core.Dsl.{DslF, FlowOps}
+import io.parapet.core.Events
 import io.parapet.net.{Address, AsyncClient}
 import io.parapet.spark.Api.{JobId, MapResult, MapTask, TaskId}
 import io.parapet.syntax.FlowSyntax
@@ -16,7 +17,9 @@ import java.util.UUID
 import scala.collection.mutable
 
 class SparkContext[F[_] : Concurrent](override val ref: ProcessRef,
-                                      workers: List[ProcessRef]) extends io.parapet.core.Process[F] {
+                                      zmqCtx: ZContext,
+                                      workers: List[ProcessRef],
+                                      shutdownHook: DslF[F, Unit] = implicitly[FlowOps.Aux[F]].unit) extends io.parapet.core.Process[F] {
   self =>
 
   import dsl._
@@ -28,6 +31,10 @@ class SparkContext[F[_] : Concurrent](override val ref: ProcessRef,
     case res@MapResult(taskId, jobId, _) =>
       eval(logger.debug(s"received mapResult[jobId=$jobId, taskId=$taskId]")) ++
         jobs(res.jobId).complete(res)
+    case Events.Stop => eval {
+      logger.info("shutdown spark context")
+      zmqCtx.close()
+    }
   }
 
   def mapDataframe(rows: Seq[Row], schema: SparkSchema, f: Row => Row): DslF[F, Dataframe[F]] = flow {
@@ -58,7 +65,7 @@ class SparkContext[F[_] : Concurrent](override val ref: ProcessRef,
       _ <- eval {
         jobs += jobId -> new Job[F](mapTasks.map(_.taskId).toSet, signal)
       }
-      _ <- par(mapTasks.map(t => t ~> nextWorker).toSeq: _*)
+      _ <- par(mapTasks.map(t => t ~> nextWorker): _*)
       result <- suspend(signal.get)
       dataframe <- createDataframe(result, schema)
     } yield dataframe
@@ -67,6 +74,8 @@ class SparkContext[F[_] : Concurrent](override val ref: ProcessRef,
   def createDataframe(rows: Seq[Row], schema: SparkSchema): DslF[F, Dataframe[F]] = {
     eval(new Dataframe[F](rows, schema, self))
   }
+
+  def shutdown: DslF[F, Unit] = shutdownHook
 }
 
 object SparkContext {
@@ -127,50 +136,49 @@ object SparkContext {
 
     def build: DslF[F, SparkContext[F]] = flow {
       val sparkContextRef = ProcessRef(_id)
-      val nodeRef = ProcessRef("driver") // ProcessRef(s"node-$id")
+      val nodeRef = ProcessRef("node")
       val zmqContext = new ZContext(_ioTreads)
 
-      val workersF =
-        if (_clusterMode) {
-          for {
-            nodeInMapper <- eval(EventMapper[F](sparkContextRef, {
-              // todo replace clientId with workerId in MapResult ?
-              case NodeProcess.Req(_ /*workerId*/ , data) => Api(data)
-            }))
-            node <- eval(new NodeProcess[F](nodeRef,
-              NodeProcess.Config(_id, _address, _clusterServers), nodeInMapper.ref, zmqContext))
-            _ <- register(ProcessRef.SystemRef, nodeInMapper)
-            _ <- register(ProcessRef.SystemRef, node)
-            workers <- _workers.map { workerId =>
-              val wp = new ClusterWorker[F](workerId, node.ref)
-              register(ProcessRef.SystemRef, wp) ++ eval(wp.ref)
-            }.sequence
-            // init cluster node
-            _ <- NodeProcess.Init ~> node.ref ++ NodeProcess.Join(_clusterGroup) ~> node.ref
-          } yield workers
+      if (_clusterMode) {
+        for {
+          nodeInMapper <- eval(EventMapper[F](sparkContextRef, {
+            case NodeProcess.Req(_ /*workerId*/ , data) => Api(data)
+          }))
+          node <- eval(new NodeProcess[F](nodeRef,
+            NodeProcess.Config(_id, _address, _clusterServers), nodeInMapper.ref, zmqContext))
+          workers <- eval(_workers.map { workerId =>
+            new ClusterWorker[F](workerId, node.ref)
+          })
+          sparkContext <- eval(new SparkContext[F](
+            sparkContextRef,
+            zmqContext,
+            workers.map(_.ref),
+            send(sparkContextRef, NodeProcess.Close, node.ref)))
+          _ <- register(ProcessRef.SystemRef, sparkContext)
+          _ <- register(sparkContextRef, nodeInMapper)
+          _ <- register(sparkContextRef, node)
+          _ <- register(sparkContextRef, workers: _*)
+          _ <- NodeProcess.Init ~> node.ref ++ NodeProcess.Join(_clusterGroup) ~> node.ref
+        } yield sparkContext
+      } else {
+        for {
+          workers <- _workerServers.zipWithIndex.map { case (address, i) =>
+            val name = s"worker-$i"
+            val netClient = AsyncClient[F](
+              ref = ProcessRef(name),
+              zmqContext: ZContext,
+              clientId = name,
+              address = address)
+            val worker = new StandaloneWorker[F](netClient.ref, sparkContextRef)
+            register(sparkContextRef, netClient) ++
+              register(sparkContextRef, worker) ++
+              eval(worker.ref)
+          }.sequence
+          sparkContext <- eval(new SparkContext[F](sparkContextRef, zmqContext, workers))
+          _ <- register(ProcessRef.SystemRef, sparkContext)
+        } yield sparkContext
+      }
 
-        } else {
-          for {
-            workers <- _workerServers.zipWithIndex.map { case (address, i) =>
-              val name = s"worker-$i"
-              val netClient = AsyncClient[F](
-                ref = ProcessRef(name),
-                zmqContext: ZContext,
-                clientId = name,
-                address = address)
-              val worker = new StandaloneWorker[F](netClient.ref, sparkContextRef)
-              register(ProcessRef.SystemRef, netClient) ++
-                register(ProcessRef.SystemRef, worker) ++
-                eval(worker.ref)
-            }.sequence
-          } yield workers
-        }
-
-      for {
-        workers <- workersF
-        sparkContext <- eval(new SparkContext[F](sparkContextRef, workers))
-        _ <- register(ProcessRef.SystemRef, sparkContext)
-      } yield sparkContext
     }
   }
 

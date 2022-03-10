@@ -25,7 +25,8 @@ class Channel[F[_] : Concurrent](override val ref: ProcessRef = ProcessRef.jdkUU
 
   private var callback: Deferred[F, Try[Event]] = _
 
-  private val seqNumber = new AtomicInteger()
+  private val debugCallNumber = new AtomicInteger()
+  private val debugMode = false // enable for extra logging
 
   private def waitForRequest: Receive = {
     case req: Request[F] =>
@@ -51,7 +52,7 @@ class Channel[F[_] : Concurrent](override val ref: ProcessRef = ProcessRef.jdkUU
       suspend(callback.complete(scala.util.Failure(err))) ++ resetAndWaitForRequest
     case e =>
       suspend(callback.complete(scala.util.Success(e))) ++
-        eval(println(s"${seqNumber.incrementAndGet()} $ref resetAndWaitForRequest, event: $e")) ++ resetAndWaitForRequest
+        debug(s"resetAndWaitForRequest, event: $e") ++ resetAndWaitForRequest
   }
 
   private def resetAndWaitForRequest: DslF[F, Unit] =
@@ -81,22 +82,23 @@ class Channel[F[_] : Concurrent](override val ref: ProcessRef = ProcessRef.jdkUU
       _ <- lock(ref)
       d <- suspend(Deferred[F, Try[Event]])
       _ <- sendReq(Request(event, d, receiver))
-      _ <- eval{
-        println(s"${seqNumber.incrementAndGet()} $ref callback is $callback. event = $event")
-        require(callback != null)
-      }
       _ <- unlock(ref)
       e <- suspend(d.get)
     } yield e
 
   private def sendReq(req: Channel.Request[F]): DslF[F, Unit] =
     eval {
+      require(req.cb != null)
       callback = req.cb
-      require(callback != null)
-      println(s"set callback: $callback")
-    } ++ eval(println(s"${seqNumber.incrementAndGet()} $ref waitForResponse")) ++ switch(waitForResponse) ++
+    } ++ debug("waitForResponse") ++ switch(waitForResponse) ++
       dsl.send(ref, req.e, req.receiver)
 
+  private def debug(msg: => String): DslF[F, Unit] = {
+    if (debugMode) eval {
+      val n = debugCallNumber.incrementAndGet()
+      println(s"channel[$ref, $n]: $msg")
+    } else unit
+  }
 
 }
 

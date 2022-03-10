@@ -98,11 +98,11 @@ object DslInterpreter {
               ct.handleErrorWith(he.body().foldMap[F](interpret(sender, ps, execTrace))) {
                 err => he.handle(err).foldMap[F](interpret(sender, ps, execTrace))
               }
-            case Halt(ref) => context.remove(ref).void
+            case Halt(ref) =>
+              // todo send stop event
+              context.remove(ref).void
             case io.parapet.core.Dsl.Lock(ref) =>
-              context.getProcessState(ref).get.acquire.map {res =>
-                println(res)
-              }
+              context.getProcessState(ref).get.acquire.void
             case io.parapet.core.Dsl.Unlock(ref) =>
               context.getProcessState(ref).get.release >>
               context.schedule(Scheduler.Deliver(Envelope(ProcessRef.SystemRef,

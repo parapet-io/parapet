@@ -188,7 +188,7 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
     case NodeProcess.Req(id, data) =>
       getOrCreateNode(id).flatMap {
         case Some(node) =>
-            eval(node.send(Cmd.clusterNode.Req(config.id, data).toByteArray))
+          eval(node.send(Cmd.clusterNode.Req(config.id, data).toByteArray))
         case None => eval(logger.debug(s"node id=$id not found"))
       }
 
@@ -220,13 +220,21 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
         }
         case e => eval(logger.debug(s"unsupported cmd: $e"))
       }
-    case Stop => flow {
+    case Close =>
       val leave = Cmd.cluster.Leave(config.id).toByteArray
-      ClientBroadcast.Send(Cmd.leaderElection.Req(config.id, leave).toByteArray,
-        _servers.values.toList) ~> broadcast ++
-      eval(peers.values.foreach(peer => peer.send(leave))) ++
-      eval(logger.debug("node is closed"))
-    }
+      eval(logger.info("node is closing")) ++
+        eval(peers.values.foreach { peer =>
+          try {
+            peer.send(leave)
+          } catch {
+            case e: Exception => logger.error(s"failed to send leave to $peer", e)
+          }
+        }) ++ (for {
+        bch <- eval(Channel[F])
+        _ <- register(ref, bch)
+        _ <- bch.send(ClientBroadcast.Send(Cmd.leaderElection.Req(config.id, leave).toByteArray,
+          _servers.values.toList), broadcast.ref) // Response(List(Success(Rep(None)), Success(Rep(None))))
+      } yield ())
   }
 
 }
@@ -249,5 +257,7 @@ object NodeProcess {
   case class Send(data: Array[Byte]) extends Event
 
   case class Req(nodeId: String, data: Array[Byte]) extends Event
+
+  case object Close extends Event
 
 }
