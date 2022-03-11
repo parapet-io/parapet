@@ -73,6 +73,13 @@ object Dsl {
       */
     val unit: Free[C, Unit] = Free.inject[FlowOp[F, *], C](UnitFlow())
 
+    /**
+      * Lifts a value to F[_].
+      *
+      * @param a the value
+      * @tparam A a value type
+      * @return the value
+      */
     def pure[A](a: A): Free[C, A] = Free.inject[FlowOp[F, *], C](Pure(a))
 
     /** Suspends the given flow. Semantically this operator is equivalent with `suspend` for effects.
@@ -242,7 +249,6 @@ object Dsl {
       * @param flow the flow to run concurrently
       * @return Unit
       */
-      // todo use instead of blocking
     def fork[A](flow: Free[C, A]): Free[C, Fiber[F, A]] = Free.inject[FlowOp[F, *], C](Fork(flow))
 
     /** Registers a child process in the parapet context.
