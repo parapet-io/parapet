@@ -4,13 +4,11 @@ import cats.effect.Concurrent
 import com.typesafe.scalalogging.Logger
 import io.parapet.cluster.node.NodeProcess._
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Events._
 import io.parapet.core.api.Cmd
-import io.parapet.core.api.Cmd.cluster._
 import io.parapet.core.api.Cmd.leaderElection.{Who, WhoRep, Req => LeReq}
 import io.parapet.core.api.Cmd.{cluster, netClient, netServer}
 import io.parapet.core.{Channel, Cond, Process}
-import io.parapet.net.{Address, AsyncClient, AsyncServer, ClientBroadcast, Node}
+import io.parapet.net._
 import io.parapet.{Event, ProcessRef}
 import org.zeromq.{SocketType, ZContext}
 
@@ -89,16 +87,16 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
     step(0)
   }
 
-  private def getNodeInfo(id: String): DslF[F, Either[Throwable, Option[NodeInfo]]] = {
+  private def getNodeInfo(id: String): DslF[F, Either[Throwable, Option[Cmd.cluster.NodeInfo]]] = {
     // todo instead of using cond for timeout add timeout feature to channel
     val ch = Channel[F]
     val cond = new Cond[F](
       {
-        case netClient.Rep(data) => data.map(Cmd(_)).exists(_.isInstanceOf[NodeInfo])
+        case netClient.Rep(data) => data.map(Cmd(_)).exists(_.isInstanceOf[Cmd.cluster.NodeInfo])
         case _ => false
       },
       10.seconds)
-    val data = LeReq(config.id, GetNodeInfo(config.id, id).toByteArray).toByteArray
+    val data = LeReq(config.id, Cmd.cluster.GetNodeInfo(config.id, id).toByteArray).toByteArray
 
     def release = halt(ch.ref) ++ halt(cond.ref)
 
@@ -108,16 +106,17 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
         .flatMap {
           case scala.util.Success(Cond.Result(Some(netClient.Rep(Some(data))))) =>
             Cmd(data) match {
-              case n@NodeInfo(_, _, cluster.Code.Ok) => eval(Right(Option(n)).withLeft[Throwable])
-              case NodeInfo(_, _, cluster.Code.NotFound) => eval(Right(Option.empty[NodeInfo]).withLeft[Throwable])
+              case n@Cmd.cluster.NodeInfo(_, _, cluster.Code.Ok) =>
+                eval(Right(Option(n)).withLeft[Throwable])
+              case Cmd.cluster.NodeInfo(_, _, cluster.Code.NotFound) =>
+                eval(Right(Option.empty[Cmd.cluster.NodeInfo]).withLeft[Throwable])
             }
           case scala.util.Success(Cond.Result(Some(netClient.Rep(None)))) =>
-            eval(Right(Option.empty[NodeInfo]).withLeft[Throwable])
+            eval(Right(Option.empty[Cmd.cluster.NodeInfo]).withLeft[Throwable])
           case scala.util.Success(Cond.Result(None)) =>
-            eval(Right(Option.empty[NodeInfo]).withLeft[Throwable])
-          case scala.util.Failure(err) => eval(Left(err).withRight[Option[NodeInfo]])
-        }
-        .guaranteed(release)
+            eval(Right(Option.empty[Cmd.cluster.NodeInfo]).withLeft[Throwable])
+          case scala.util.Failure(err) => eval(Left(err).withRight[Option[Cmd.cluster.NodeInfo]])
+        }.through(release)
   }
 
   private def getOrCreateNode(id: String): DslF[F, Option[Node]] =
@@ -130,7 +129,7 @@ class NodeProcess[F[_] : Concurrent](override val ref: ProcessRef,
               logger.error(s"failed to obtain node[$id] info", err)
               Option.empty
             } // todo retry
-          case Right(Some(NodeInfo(_, address, _))) =>
+          case Right(Some(Cmd.cluster.NodeInfo(_, address, _))) =>
             eval {
               val socket = zmqContext.createSocket(SocketType.DEALER)
               socket.setIdentity(config.id.getBytes())

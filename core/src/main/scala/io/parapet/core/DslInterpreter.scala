@@ -5,8 +5,7 @@ import cats.effect.{Concurrent, Timer}
 import cats.implicits._
 import cats.~>
 import io.parapet.core.Context.ProcessState
-import io.parapet.core.Dsl.{Blocking, Delay, Dsl, Eval, FlowOp, Fork, Forward, Halt, HandelError, Par, Race,
-  RaiseError, Register, Send, Suspend, SuspendF, UnitFlow, WithSender}
+import io.parapet.core.Dsl.{Blocking, Delay, Dsl, Eval, FlowOp, Fork, Forward, Halt, HandelError, Par, Race, RaiseError, Register, Send, Suspend, SuspendF, UnitFlow, WithSender}
 import io.parapet.core.Scheduler.{Deliver, ProcessQueueIsFull}
 import io.parapet.{Envelope, Event, ProcessRef}
 
@@ -92,21 +91,29 @@ object DslInterpreter {
             case Register(parent, process: Process[F]) =>
               context.registerAndStart(parent, process).void
             //--------------------------------------------------------------
-            case RaiseError(err)=> ct.raiseError(err)
+            case RaiseError(err) => ct.raiseError(err)
             //--------------------------------------------------------------
             case he: HandelError[F, Dsl[F, *], A, A]@unchecked =>
               ct.handleErrorWith(he.body().foldMap[F](interpret(sender, ps, execTrace))) {
                 err => he.handle(err).foldMap[F](interpret(sender, ps, execTrace))
               }
+            //--------------------------------------------------------------
             case Halt(ref) =>
               // todo send stop event
               context.remove(ref).void
+            //--------------------------------------------------------------
+            case g: io.parapet.core.Dsl.Guarantee[F, Dsl[F, *], A] =>
+              ct.guarantee(g.fa().foldMap[F](interpret(sender, ps, execTrace)))(ct.suspend {
+                g.finalizer().foldMap[F](interpret(sender, ps, execTrace))
+              })
+            //--------------------------------------------------------------
             case io.parapet.core.Dsl.Lock(ref) =>
               context.getProcessState(ref).get.acquire.void
+            //--------------------------------------------------------------
             case io.parapet.core.Dsl.Unlock(ref) =>
               context.getProcessState(ref).get.release >>
-              context.schedule(Scheduler.Deliver(Envelope(ProcessRef.SystemRef,
-                Scheduler.Inbox, ref), execTrace)).void
+                context.schedule(Scheduler.Deliver(Envelope(ProcessRef.SystemRef,
+                  Scheduler.Inbox, ref), execTrace)).void
           }
       }
 

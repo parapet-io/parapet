@@ -51,6 +51,9 @@ object Dsl {
 
   case class Halt[F[_]](ref: ProcessRef) extends FlowOp[F, Unit]
 
+  case class Guarantee[F[_], C[_], A](fa: () => Free[C, A],
+                                      finalizer: () => Free[C, Unit]) extends FlowOp[F, Unit]
+
   case class Lock[F[_]](ref: ProcessRef) extends FlowOp[F, Unit]
 
   case class Unlock[F[_]](ref: ProcessRef) extends FlowOp[F, Unit]
@@ -194,9 +197,11 @@ object Dsl {
       * @return Unit
       */
     // todo par should return results, i.e. flows: Free[C, A]*
+
     import cats.implicits._
+
     def par[A](flows: Free[C, A]*): Free[C, List[Fiber[F, A]]] =
-      flows.toList.map(fork).sequence// .fold(unit)((a, b) => a.flatMap(_ => b))
+      flows.toList.map(fork).sequence // .fold(unit)((a, b) => a.flatMap(_ => b))
 
     /** Delays any operation that follows this operator.
       *
@@ -346,6 +351,17 @@ object Dsl {
     def handleError[A, AA >: A](thunk: => Free[C, A], handle: Throwable => Free[C, AA]): Free[C, AA] = {
       Free.inject[FlowOp[F, *], C](HandelError(() => thunk, handle))
     }
+
+    /**
+      * todo
+      *
+      * @param thunk
+      * @param finalizer
+      * @tparam A
+      * @return
+      */
+    def guarantee[A](thunk: => Free[C, A], finalizer: => Free[C, Unit]): Free[C, Unit] =
+      Free.inject[FlowOp[F, *], C](Guarantee(() => thunk, () => finalizer))
 
     /**
       * Use to destroy a child process.

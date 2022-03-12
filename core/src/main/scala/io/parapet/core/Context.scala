@@ -32,7 +32,7 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig,
 
   private val parents = new java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessRef]
 
-  private val eventLog = new EventLog()
+  private val eventLog = EventLog()
 
   private var _scheduler: Scheduler[F] = _
 
@@ -129,8 +129,8 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig,
   def saveEventLog: F[Unit] =
     if (config.eventLogEnabled) {
       ct.delay {
-        eventLog.close()
-        println(EventLog.Cytoscape.toJson(eventLog)) // todo store to file
+//        eventLog.close()
+//        println(EventLog.Cytoscape.toJson(eventLog)) // todo store to file
       }
     } else {
       ct.unit
