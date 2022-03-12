@@ -353,15 +353,15 @@ object Dsl {
     }
 
     /**
-      * todo
+      * Guaranteed to run finalizer after fa, even if fa completes with error.
       *
-      * @param thunk
-      * @param finalizer
-      * @tparam A
-      * @return
+      * @param fa        flow that produces value of type A
+      * @param finalizer a flow that is guaranteed to run
+      * @tparam A type of value produced by fa
+      * @return a flow that produces Unit
       */
-    def guarantee[A](thunk: => Free[C, A], finalizer: => Free[C, Unit]): Free[C, Unit] =
-      Free.inject[FlowOp[F, *], C](Guarantee(() => thunk, () => finalizer))
+    def guarantee[A](fa: => Free[C, A], finalizer: => Free[C, Unit]): Free[C, Unit] =
+      Free.inject[FlowOp[F, *], C](Guarantee(() => fa, () => finalizer))
 
     /**
       * Use to destroy a child process.
