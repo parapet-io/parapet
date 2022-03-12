@@ -4,6 +4,7 @@ import cats.InjectK
 import cats.free.Free
 import io.parapet.core.annotations.developerApi
 import io.parapet.{Event, ProcessRef}
+import cats.implicits._
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -51,6 +52,9 @@ object Dsl {
 
   case class Halt[F[_]](ref: ProcessRef) extends FlowOp[F, Unit]
 
+  case class Guarantee[F[_], C[_], A](fa: () => Free[C, A],
+                                      finalizer: () => Free[C, Unit]) extends FlowOp[F, Unit]
+
   case class Lock[F[_]](ref: ProcessRef) extends FlowOp[F, Unit]
 
   case class Unlock[F[_]](ref: ProcessRef) extends FlowOp[F, Unit]
@@ -63,7 +67,8 @@ object Dsl {
     */
   class FlowOps[F[_], C[_]](implicit I: InjectK[FlowOp[F, *], C]) {
 
-    /** Semantically this operator is equivalent with `Monad.unit` and obeys the same laws.
+    /**
+      * Semantically this operator is equivalent to `Monad.unit` and obeys the same laws.
       *
       * The following expressions are equivalent:
       * {{{
@@ -76,14 +81,24 @@ object Dsl {
     /**
       * Lifts a value to F[_].
       *
-      * @param a the value
+      * Example:
+      *
+      * {{{
+      *  for {
+      *   a <- pure(1)
+      *   _ <- eval(println(a))
+      *  } yield ()
+      * }}}
+      *
+      * @param a the value of type [[A]]
       * @tparam A a value type
-      * @return the value
+      * @return the value of type [[A]]
       */
     def pure[A](a: A): Free[C, A] = Free.inject[FlowOp[F, *], C](Pure(a))
 
-    /** Suspends the given flow. Semantically this operator is equivalent with `suspend` for effects.
-      * This is useful for recursive flows.
+    /**
+      * Suspends the given flow. Semantically this operator is equivalent to `suspend` for effects.
+      * This is useful when implementing recursive flows.
       *
       * Recursive flow example for some `F[_]`:
       *
@@ -98,12 +113,10 @@ object Dsl {
       *  }
       *
       *  val process = Process[F](_ => {
-      *    case Start => times(5)
+      *    case Start => times(10000000)
       *  })
       *
       * }}}
-      *
-      * The code above will print {{{ 12345 }}}
       *
       * Note: it's strongly not recommended to perform any side effects within `flow` operator:
       *
@@ -128,7 +141,8 @@ object Dsl {
       */
     def flow[A](f: => Free[C, A]): Free[C, A] = Free.inject[FlowOp[F, *], C](SuspendF(() => f))
 
-    /** Lazily constructs and sends an event to one or more receivers.
+    /**
+      * Lazily constructs and sends an event to a one or more receivers.
       * Event must be delivered to all receivers in the specified order.
       *
       * Example:
@@ -149,11 +163,16 @@ object Dsl {
     def send(e: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
       Free.inject[FlowOp[F, *], C](Send(() => e, Option.empty, receiver, other))
 
+    /**
+      * This function is equivalent to [[FlowOps.send]].
+      * The main difference is that it overrides the sender process.
+      */
     @developerApi
     def send(sender: ProcessRef, e: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
       Free.inject[FlowOp[F, *], C](Send(() => e, Option(sender), receiver, other))
 
-    /** Sends an event to the receiver using original sender reference.
+    /**
+      * Sends an event to the receiver using original sender reference.
       * This is useful for implementing a proxy process.
       *
       * Proxy example for some `F[_]`:
@@ -172,7 +191,7 @@ object Dsl {
       * }).ref(ProcessRef("client")).build
       * }}}
       *
-      * The code above will print: `client-proxy-ping`
+      * console output: {{{client-proxy-ping}}}
       *
       * @param e        the event to send
       * @param receiver the receiver
@@ -182,7 +201,8 @@ object Dsl {
     def forward(e: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
       Free.inject[FlowOp[F, *], C](Forward(() => e, receiver +: other))
 
-    /** Executes operations from the given flow in parallel.
+    /**
+      * Executes operations from the given flow in parallel.
       *
       * Example:
       *
@@ -191,14 +211,13 @@ object Dsl {
       * possible outputs: {{{ 12 or 21 }}}
       *
       * @param flows the flow which operations should be executed in parallel.
-      * @return Unit
+      * @return a list of [[Fiber]]
       */
-    // todo par should return results, i.e. flows: Free[C, A]*
-    import cats.implicits._
     def par[A](flows: Free[C, A]*): Free[C, List[Fiber[F, A]]] =
-      flows.toList.map(fork).sequence// .fold(unit)((a, b) => a.flatMap(_ => b))
+      flows.toList.map(fork).sequence // .fold(unit)((a, b) => a.flatMap(_ => b))
 
-    /** Delays any operation that follows this operator.
+    /**
+      * Delays any operation that follows this flow.
       *
       * Example:
       *
@@ -206,12 +225,15 @@ object Dsl {
       *   delay(duration) ++ eval(println("hello from the future"))
       * }}}
       *
+      * After some duration "hello from the future" will be printed to the console.
+      *
       * @param duration is the time span to wait before executing next operation
       * @return Unit
       */
     def delay(duration: FiniteDuration): Free[C, Unit] = Free.inject[FlowOp[F, *], C](Delay(duration))
 
-    /** Accepts a callback function that takes a sender reference and produces a new flow.
+    /**
+      * Accepts a callback function that takes a sender reference and produces a new flow.
       *
       * The code below will print `client says hello` :
       * {{{
@@ -232,7 +254,8 @@ object Dsl {
       */
     def withSender[A](f: ProcessRef => Free[C, A]): Free[C, A] = Free.inject[FlowOp[F, *], C](WithSender(f))
 
-    /** Executes the given flow concurrently.
+    /**
+      * Executes the given flow asynchronously.
       *
       * Example:
       *
@@ -244,25 +267,39 @@ object Dsl {
       *
       * Possible outputs: {{{  12 or 21  }}}
       *
-      * NOTE: it's a fire and forget operator, a process can receive new events immediately
+      * In order to get the result from asynchronous computation use [[Fiber.join]].
       *
-      * @param flow the flow to run concurrently
+      * Example:
+      *
+      * for {
+      * fiber <- fork(eval("long running operation"))
+      * res <- fiber.join
+      * _ <- eval(print(res))
+      * } yield ()
+      *
+      * {{{
+      *   print to console: long running operation
+      * }}}
+      *
+      * @param flow the flow to run asynchronously
       * @return Unit
       */
     def fork[A](flow: Free[C, A]): Free[C, Fiber[F, A]] = Free.inject[FlowOp[F, *], C](Fork(flow))
 
-    /** Registers a child process in the parapet context.
+    /**
+      * Registers a list of child processes.
       *
       * @param parent the parent process
-      * @param child  the child process
+      * @param child  the list of processes
       * @return Unit
       */
-    def register(parent: ProcessRef, childList: Process[F]*): Free[C, Unit] = {
-      childList.map(child => Free.inject[FlowOp[F, *], C](Register(parent, child)))
+    def register(parent: ProcessRef, child: Process[F]*): Free[C, Unit] = {
+      child.map(c => Free.inject[FlowOp[F, *], C](Register(parent, c)))
         .foldLeft(unit)((res, a) => res.flatMap(_ => a))
     }
 
-    /** Runs two flows concurrently. The loser of the race is canceled.
+    /**
+      * Runs two flows concurrently. The loser of the race is canceled.
       *
       * Example:
       *
@@ -283,40 +320,54 @@ object Dsl {
     def race[A, B](first: Free[C, A], second: Free[C, B]): Free[C, Either[A, B]] =
       Free.inject[FlowOp[F, *], C](Race(first, second))
 
-    /** Adds an effect which produces `F` to the current flow.
+    /**
+      * Suspends an effect which produces [[F]].
       *
       * {{{ suspend(IO(print("hi"))) }}}
       *
       * @param thunk an effect
       * @tparam A value type
-      * @return value
+      * @return a flow that produces a value of type [[A]]
       */
     def suspend[A](thunk: => F[A]): Free[C, A] = Free.inject[FlowOp[F, *], C](Suspend(() => thunk))
 
-    /** Suspends a side effect in `F` and then adds that to the current flow.
+    /**
+      * Suspends a side effect in [[F]].
       *
       * @param thunk a side effect
       * @tparam A value type
-      * @return value
+      * @return a flow that produces a value of type [[A]]
       */
     def eval[A](thunk: => A): Free[C, A] = Free.inject[FlowOp[F, *], C](Eval(() => thunk))
 
-    /** Asynchronously executes a flow produced by the given thunk w/o blocking a worker.
+    /**
+      * Asynchronously executes a flow produced by the given thunk w/o blocking a worker.
+      * The main purpose of this operator is to tell Parapet
+      * that the given flow can take indefinite amount of time complete.
       *
       * Example:
       * {{{
-      *
       *   class BlockingProcess extends Process[IO] {
       *     override def handle: Receive = {
       *       case Start => blocking(eval(while (true) {})) ++ eval(println("now"))
       *     }
       *   }
-      *
       * }}}
+      *
+      * Note: never write a code like this:
+      *
+      * {{{
+      *   eval {
+      *     while (true) {}
+      *   }
+      * }}}
+      *
+      * it was used only to demonstrate how this operator works.
       *
       * output {{{ now }}}
       *
-      * Note: there is a significant difference between fork and blocking. fork is fire and forget ,
+      * Note: there is a significant difference between [[fork]] and [[blocking]].
+      * fork is "fire and forget" with an optional blocking via [[Fiber.join]],
       * i.e. a process will be available for new events;
       * however, when using blocking it wont receive any events until an operation withing blocking is completed.
       *
@@ -348,12 +399,43 @@ object Dsl {
     }
 
     /**
-      * Use to destroy a child process.
+      * Guaranteed to run finalizer after fa, even if fa completes with an error.
+      *
+      * Example:
+      * {{{
+      *  eval(throw new RuntimeException("error")).guarantee(eval(println("fallback")))
+      *  console output: fallback
+      *  error: java.lang.RuntimeException: error
+      * }}}
+      *
+      * @param fa        the flow that produces a value of type [[A]]
+      * @param finalizer the flow that is guaranteed to run
+      * @tparam A type of value produced by fa
+      * @return a flow that produces [[Unit]]
+      */
+    def guarantee[A](fa: => Free[C, A], finalizer: => Free[C, Unit]): Free[C, Unit] =
+      Free.inject[FlowOp[F, *], C](Guarantee(() => fa, () => finalizer))
+
+    /**
+      * Destroys a child process.
       */
     def halt(ref: ProcessRef): Free[C, Unit] = Free.inject[FlowOp[F, *], C](Halt(ref))
 
+    /**
+      * Lock the given process.
+      * The process won't receive any events until [[unlock]] is called for the process.
+      *
+      * @param ref the process ref
+      * @return [[Unit]]
+      */
     def lock(ref: ProcessRef): Free[C, Unit] = Free.inject[FlowOp[F, *], C](Lock(ref))
 
+    /**
+      * Unlocks the given process.
+      *
+      * @param ref the process ref
+      * @return [[Unit]]
+      */
     def unlock(ref: ProcessRef): Free[C, Unit] = Free.inject[FlowOp[F, *], C](Unlock(ref))
   }
 

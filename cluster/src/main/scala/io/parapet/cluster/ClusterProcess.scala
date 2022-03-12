@@ -132,7 +132,7 @@ class ClusterProcess(override val ref: ProcessRef,
               step
             }
             case Success(_) => eval(logger.debug("cluster state has been replicated"))
-          }).guaranteed(release)
+          }).guarantee(release)
         res
       }
     }
@@ -184,7 +184,7 @@ class ClusterProcess(override val ref: ProcessRef,
                 case scala.util.Success(Cmd.netClient.Rep(Some(value))) => Cmd(value).asInstanceOf[api.State]
               }.map(updateState).sequence
                 .flatMap(updates => eval(logger.debug(s"${updates.count(a => a)} state updates applied")))
-          }).guaranteed(release)
+          }).guarantee(release)
         res
       }
     }

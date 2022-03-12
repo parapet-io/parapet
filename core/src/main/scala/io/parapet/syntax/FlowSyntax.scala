@@ -13,7 +13,9 @@ trait FlowSyntax[F[_]] extends EventSyntax[F] with WithDsl[F] {
 
     def handleError[AA >: A](f: Throwable => Free[FlowOp[F, *], AA]): Free[FlowOp[F, *], AA] = dsl.handleError(fa, f)
 
-    def guaranteed(f: => DslF[F, Unit]): DslF[F, A] = {
+    def guarantee(f: => DslF[F, Unit]): DslF[F, Unit] = dsl.guarantee(fa, f)
+
+    def through(f: => DslF[F, Unit]): DslF[F, A] = {
       for {
         a <- fa
         _ <- f

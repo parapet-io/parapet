@@ -4,7 +4,7 @@ import cats.{Eval => CatsEval}
 import io.parapet.ProcessRef
 import io.parapet.core.EventLog
 import io.parapet.instances.interpreter._
-import io.parapet.spark.Api.{ClientId, JobId, MapResult, MapTask, TaskId}
+import io.parapet.spark.Api.{JobId, MapResult, MapTask, TaskId}
 import io.parapet.spark.SparkType.IntType
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers._
@@ -19,7 +19,7 @@ class WorkerSpec extends AnyFunSuite {
 
   test("submit map task") {
     val sink = new ProcessRef("sink")
-    val eventLog = new EventLog()
+    val eventLog = new EventLog.Impl()
     val worker = new Worker[CatsEval](ProcessRef("worker"), Option(sink))
     val interpreter = new EvalInterpreter(testRef, eventLog)
 
@@ -29,7 +29,6 @@ class WorkerSpec extends AnyFunSuite {
       TaskId("task-1"), JobId("job-1"),
       encodeMap(mapFun, Seq(Row.of(1)), testSchema))
     worker(mapTask).foldMap(interpreter)
-
 
     val mapResult = eventLog.incoming(sink).collect {
       case mr@MapResult(TaskId("task-1"), JobId("job-1"), _) => mr
