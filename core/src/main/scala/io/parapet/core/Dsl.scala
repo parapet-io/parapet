@@ -353,12 +353,19 @@ object Dsl {
     }
 
     /**
-      * Guaranteed to run finalizer after fa, even if fa completes with error.
+      * Guaranteed to run finalizer after fa, even if fa completes with an error.
       *
-      * @param fa        flow that produces value of type A
-      * @param finalizer a flow that is guaranteed to run
+      * Example:
+      * {{{
+      *  eval(throw new RuntimeException("error")).guarantee(eval(println("fallback")))
+      *  console output: fallback
+      *  error: java.lang.RuntimeException: error
+      * }}}
+      *
+      * @param fa        the flow that produces a value of type [[A]]
+      * @param finalizer the flow that is guaranteed to run
       * @tparam A type of value produced by fa
-      * @return a flow that produces Unit
+      * @return a flow that produces [[Unit]]
       */
     def guarantee[A](fa: => Free[C, A], finalizer: => Free[C, Unit]): Free[C, Unit] =
       Free.inject[FlowOp[F, *], C](Guarantee(() => fa, () => finalizer))
