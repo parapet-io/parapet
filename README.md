@@ -13,6 +13,23 @@ Parapet is the modular library where almost any component can be replaced with a
 
 Distributed engineers unite!
 
+
+```
+Sure, here are some high-level comparisons between Parapet and Akka:
+
+1. Architecture: Parapet is designed to be a minimalistic, purely functional library that provides only the core abstractions needed to build concurrent and distributed applications, whereas Akka is a much more comprehensive toolkit that includes many more features and abstractions, such as actors, streams, and distributed data.
+
+2. Language: Parapet is primarily designed for Scala, although it also supports other JVM languages such as Java and Kotlin. Akka, on the other hand, supports both Scala and Java, making it more accessible to developers who are more comfortable with Java.
+
+3. Performance: Parapet is built on top of the Cats Effect library, which provides high-performance abstractions for asynchronous and concurrent programming in Scala. Akka is also designed for high performance, but its performance characteristics may depend on which features are being used and how they are configured.
+
+4. Complexity: Because Parapet is a smaller and more focused library, it can be easier to reason about and use than Akka, which has a much larger API surface area and many more features.
+
+5. Community: Akka has a larger and more established community, with more resources and examples available online. Parapet is a newer library with a smaller community, although it has been gaining popularity in recent years.
+
+Ultimately, the choice between Parapet and Akka depends on your specific needs and preferences. If you are looking for a more lightweight and functional library for building concurrent and distributed applications in Scala, Parapet may be a good choice. If you need a more comprehensive toolkit with a larger community and more resources, Akka may be a better fit.
+```
+
 **NOTE** - Github documentation may be out of date. It's preferable to use the [official documentation](http://parapet.io/).
 
 ## Contents
