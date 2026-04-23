@@ -14,7 +14,8 @@ object Json:
       "completed" -> bool(state.completed),
       "nodes" -> arr(state.nodes.map(renderNode)),
       "cluster" -> arr(state.cluster.map(renderClusterNode)),
-      "events" -> arr(state.events.map(renderEvent))
+      "events" -> arr(state.events.map(renderEvent)),
+      "clusters" -> arr(state.clusters.map(renderClusterSummary))
     )
 
   private def renderNode(node: ColoringNodeState): String =
@@ -26,7 +27,14 @@ object Json:
       "status" -> string(node.status.toString),
       "color" -> optNum(node.color),
       "proposedColor" -> optNum(node.proposedColor),
-      "conflict" -> bool(node.conflict)
+      "conflict" -> bool(node.conflict),
+      "clusterId" -> num(node.clusterId)
+    )
+
+  private def renderClusterSummary(summary: ClusterSummary): String =
+    obj(
+      "id" -> num(summary.id),
+      "size" -> num(summary.size)
     )
 
   private def renderClusterNode(node: ClusterNodeState): String =

@@ -27,23 +27,31 @@ final class GraphColoringSimulation(
   private var running = false
   private var events = Vector.empty[DemoEvent]
   private var cluster = Vector.empty[ClusterNodeState]
+  private var clusterCounter = 0
 
   configureGraph(nodeCount, paletteSize, graphId, initialization = true)
 
   def snapshot(): DemoState = synchronized {
+    val clusterSizes = nodesById.values
+      .groupBy(_.clusterId)
+      .view
+      .map { case (id, ns) => ClusterSummary(id, ns.size) }
+      .toVector
+      .sortBy(_.id)
     DemoState(
       graphId = template.graphId,
       round = round,
       tick = tick,
-      nodeCount = template.nodeCount,
+      nodeCount = nodesById.size,
       paletteSize = template.paletteSize,
       canvasWidth = template.canvasWidth,
       canvasHeight = template.canvasHeight,
       running = running,
-      completed = nodesById.values.forall(_.status == ColoringNodeStatus.Locked),
+      completed = nodesById.nonEmpty && nodesById.values.forall(_.status == ColoringNodeStatus.Locked),
       nodes = nodesById.values.toVector,
       cluster = cluster,
-      events = events.takeRight(36)
+      events = events.takeRight(36),
+      clusters = clusterSizes
     )
   }
 
@@ -62,6 +70,118 @@ final class GraphColoringSimulation(
 
   def reset(): DemoState = synchronized {
     resetState("simulation reset")
+    snapshot()
+  }
+
+  def burst(size: Int, bridges: Int = 1): DemoState = synchronized {
+    val requested = size.max(2).min(60)
+    val room = (GraphColoringSimulation.MaxNodes - nodesById.size).max(0)
+    val amount = requested.min(room)
+    if amount <= 0 then
+      pushEvent("burst", None, "capacity reached, skipping burst")
+    else
+      clusterCounter = clusterCounter + 1
+      val clusterId = clusterCounter
+      val random = new Random(seed + tick.toInt * 131 + amount * 29 + nodesById.size * 17 + clusterId * 997)
+
+      val existingIds = nodesById.keys.toVector
+      val bridgeCount = bridges.max(1).min(existingIds.size.max(0)).min(amount)
+      val anchors: Vector[String] =
+        if existingIds.isEmpty then Vector.empty
+        else
+          val picks = mutable.LinkedHashSet.empty[String]
+          while picks.size < bridgeCount do
+            picks += existingIds(random.nextInt(existingIds.size))
+          picks.toVector
+
+      val anchorNode = anchors.headOption.flatMap(nodesById.get)
+      val centerX = anchorNode.map(_.x).getOrElse(template.canvasWidth.toDouble / 2.0)
+      val centerY = anchorNode.map(_.y).getOrElse(template.canvasHeight.toDouble / 2.0)
+      val spread = 40.0 + math.sqrt(amount.toDouble) * 18.0
+
+      val nextIndex = maxNodeIndex() + 1
+      val newIds = (0 until amount).toVector.map(i => s"n${nextIndex + i}")
+
+      val positions = newIds.map { id =>
+        val angle = random.nextDouble() * 2.0 * math.Pi
+        val radius = random.nextDouble() * spread + 25.0
+        (id, centerX + math.cos(angle) * radius, centerY + math.sin(angle) * radius)
+      }
+
+      val neighborMap = mutable.Map.empty[String, mutable.Set[String]]
+      newIds.foreach(id => neighborMap(id) = mutable.Set.empty[String])
+
+      def connect(a: String, b: String): Unit =
+        if a != b then
+          neighborMap.getOrElseUpdate(a, mutable.Set.empty) += b
+          neighborMap.getOrElseUpdate(b, mutable.Set.empty) += a
+
+      // Random spanning tree over the new nodes so the cluster is connected.
+      (1 until amount).foreach { i =>
+        val parent = random.nextInt(i)
+        connect(newIds(i), newIds(parent))
+      }
+
+      // Add internal extra edges to give the cluster a bit of density (capped degree).
+      val degreeCap = math.min(math.max(3, template.paletteSize - 1), 6)
+      val extraEdges = math.max(amount / 2, amount / 3 + 1)
+      var attempts = 0
+      var added = 0
+      while added < extraEdges && attempts < extraEdges * 6 do
+        attempts += 1
+        val a = newIds(random.nextInt(amount))
+        val b = newIds(random.nextInt(amount))
+        if a != b && !neighborMap(a).contains(b)
+          && neighborMap(a).size < degreeCap && neighborMap(b).size < degreeCap
+        then
+          connect(a, b)
+          added += 1
+
+      // Bridge edges back to the existing graph via the anchors.
+      val bridgeEdges = mutable.Set.empty[(String, String)]
+      anchors.foreach { anchorId =>
+        val attach = newIds(random.nextInt(amount))
+        neighborMap.getOrElseUpdate(attach, mutable.Set.empty) += anchorId
+        val ordered = if anchorId < attach then (anchorId, attach) else (attach, anchorId)
+        bridgeEdges += ordered
+      }
+
+      val newStates = positions.map { case (id, x, y) =>
+        ColoringNodeState(
+          id = id,
+          x = x,
+          y = y,
+          neighbors = neighborMap(id).toVector.sorted,
+          clusterId = clusterId
+        )
+      }
+      newStates.foreach(n => nodesById.put(n.id, n))
+
+      anchors.foreach { anchorId =>
+        nodesById.get(anchorId).foreach { anchor =>
+          val newLinks = bridgeEdges.collect {
+            case (a, b) if a == anchorId => b
+            case (a, b) if b == anchorId => a
+          }
+          val merged = anchor.copy(
+            neighbors = (anchor.neighbors ++ newLinks).distinct.sorted,
+            status = ColoringNodeStatus.Uncolored,
+            color = None,
+            proposedColor = None,
+            conflict = true
+          )
+          nodesById.update(anchorId, merged)
+        }
+      }
+
+      val anchorLabel =
+        if anchors.isEmpty then ""
+        else s" via ${anchors.mkString(", ")}"
+      pushEvent(
+        "burst",
+        anchors.headOption,
+        s"cluster #$clusterId joined ($amount processes$anchorLabel)"
+      )
     snapshot()
   }
 
@@ -146,6 +266,7 @@ final class GraphColoringSimulation(
     running = false
     events = Vector.empty
     cluster = template.cluster
+    clusterCounter = 0
     proposalRandom = new Random(seed + template.nodeCount * 17 + template.paletteSize * 31)
     pushEvent("control", None, reason)
 
@@ -252,7 +373,11 @@ final class GraphColoringSimulation(
 
   private def pushEvent(kind: String, nodeId: Option[String], detail: String): Unit =
     tick = tick + 1
-    events = events :+ DemoEvent(tick = tick, kind = kind, nodeId = nodeId, detail = detail)
+    events = (events :+ DemoEvent(tick = tick, kind = kind, nodeId = nodeId, detail = detail))
+      .takeRight(GraphColoringSimulation.EventHistoryLimit)
+
+  private def maxNodeIndex(): Int =
+    nodesById.keys.flatMap(id => id.stripPrefix("n").toIntOption).maxOption.getOrElse(0)
 
   private def shuffledBuckets(nodeCount: Int, paletteSize: Int, random: Random): Vector[Int] =
     val values = Array.tabulate(nodeCount)(index => index % paletteSize)
@@ -269,10 +394,14 @@ final class GraphColoringSimulation(
     (random.nextDouble() - 0.5) * 2.0 * magnitude
 
   private def sanitizeNodeCount(value: Int): Int =
-    value.max(4).min(140)
+    value.max(4).min(GraphColoringSimulation.MaxNodes)
 
   private def sanitizePaletteSize(value: Int): Int =
     value.max(2).min(12)
 
   private def emptyTemplate: GraphTemplate =
     GraphTemplate("empty", 0, 0, 0, 0, Vector.empty, Vector.empty)
+
+object GraphColoringSimulation:
+  val MaxNodes: Int = 2000
+  val EventHistoryLimit: Int = 512

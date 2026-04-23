@@ -18,6 +18,7 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
   server.createContext("/api/pause", exchange => json(exchange, Json.render(simulation.setRunning(false))))
   server.createContext("/api/reset", exchange => json(exchange, Json.render(simulation.reset())))
   server.createContext("/api/configure", exchange => json(exchange, Json.render(configure(exchange))))
+  server.createContext("/api/burst", exchange => json(exchange, Json.render(burst(exchange))))
 
   def start(): Unit =
     server.start()
@@ -33,6 +34,12 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
     val nodes = query.get("nodes").flatMap(_.toIntOption).getOrElse(simulation.snapshot().nodeCount)
     val colors = query.get("colors").flatMap(_.toIntOption).getOrElse(simulation.snapshot().paletteSize)
     simulation.configure(nodes, colors)
+
+  private def burst(exchange: HttpExchange): DemoState =
+    val query = parseQuery(exchange.getRequestURI.getRawQuery)
+    val size = query.get("size").flatMap(_.toIntOption).getOrElse(8)
+    val bridges = query.get("bridges").flatMap(_.toIntOption).getOrElse(1)
+    simulation.burst(size, bridges)
 
   private def parseQuery(raw: String | Null): Map[String, String] =
     Option(raw)
@@ -74,479 +81,598 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |  <head>
       |    <meta charset="utf-8" />
       |    <meta name="viewport" content="width=device-width, initial-scale=1" />
-      |    <title>Parapet Distributed Graph Lab</title>
+      |    <title>Parapet · Distributed Graph Lab</title>
       |    <style>
       |      :root {
-      |        --bg: #f6f1e8;
-      |        --panel: rgba(255,255,255,0.78);
-      |        --ink: #20312f;
-      |        --muted: #5f736d;
-      |        --accent: #cf5c36;
-      |        --accent-2: #14746f;
-      |        --line: rgba(32,49,47,0.18);
+      |        --bg: #05070d;
+      |        --bg-2: #0b111b;
+      |        --panel: rgba(12, 18, 28, 0.72);
+      |        --ink: #e8eef5;
+      |        --muted: #8797ab;
+      |        --accent: #ff8b5a;
+      |        --accent-2: #59e0c4;
+      |        --accent-3: #6ab8ff;
+      |        --line: rgba(255,255,255,0.08);
       |      }
       |      * { box-sizing: border-box; }
+      |      html, body { height: 100%; }
       |      body {
       |        margin: 0;
-      |        font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+      |        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       |        color: var(--ink);
       |        background:
-      |          radial-gradient(circle at top left, rgba(207,92,54,0.14), transparent 34%),
-      |          radial-gradient(circle at bottom right, rgba(20,116,111,0.18), transparent 36%),
-      |          var(--bg);
+      |          radial-gradient(1200px 600px at 10% -10%, rgba(106,184,255,0.14), transparent 60%),
+      |          radial-gradient(900px 500px at 110% 110%, rgba(89,224,196,0.12), transparent 55%),
+      |          linear-gradient(180deg, var(--bg), var(--bg-2));
+      |        overflow: hidden;
       |      }
       |      .layout {
       |        display: grid;
-      |        grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr);
-      |        gap: 18px;
-      |        min-height: 100vh;
-      |        padding: 18px;
+      |        grid-template-columns: minmax(0, 1fr) 360px;
+      |        gap: 14px;
+      |        height: 100vh;
+      |        padding: 14px;
       |      }
       |      .panel {
       |        background: var(--panel);
-      |        backdrop-filter: blur(8px);
-      |        border: 1px solid rgba(255,255,255,0.65);
-      |        border-radius: 24px;
-      |        box-shadow: 0 18px 40px rgba(40, 40, 32, 0.08);
+      |        border: 1px solid var(--line);
+      |        border-radius: 18px;
+      |        box-shadow: 0 20px 50px rgba(0,0,0,0.4);
+      |        backdrop-filter: blur(10px);
+      |        -webkit-backdrop-filter: blur(10px);
       |        overflow: hidden;
       |      }
-      |      .canvas-shell { padding: 18px; }
-      |      .title {
-      |        display: flex;
-      |        align-items: center;
-      |        justify-content: space-between;
-      |        gap: 18px;
-      |        margin-bottom: 14px;
-      |      }
-      |      h1, h2, h3, p { margin: 0; }
-      |      h1 { font-size: 2rem; line-height: 1.05; }
-      |      .sub { color: var(--muted); margin-top: 6px; }
-      |      .controls {
-      |        display: flex;
-      |        flex-wrap: wrap;
-      |        gap: 10px;
-      |        margin-top: 14px;
-      |      }
-      |      .controls-row {
-      |        display: flex;
-      |        flex-wrap: wrap;
-      |        align-items: end;
-      |        gap: 12px;
-      |        margin-top: 14px;
-      |      }
-      |      .field {
+      |      .canvas-shell {
       |        display: grid;
-      |        gap: 6px;
+      |        grid-template-rows: auto auto auto 1fr;
+      |        padding: 16px;
+      |        gap: 12px;
+      |        min-height: 0;
       |      }
+      |      .title { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+      |      h1 { font-size: 1.35rem; letter-spacing: 0.02em; margin: 0; font-weight: 600; }
+      |      .sub { color: var(--muted); font-size: 0.82rem; margin-top: 4px; }
+      |      .chip {
+      |        font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+      |        font-size: 0.72rem;
+      |        color: var(--muted);
+      |        padding: 4px 10px;
+      |        border-radius: 999px;
+      |        border: 1px solid var(--line);
+      |      }
+      |      .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+      |      .field { display: grid; gap: 4px; }
       |      .field label {
       |        color: var(--muted);
-      |        font-size: 0.9rem;
+      |        font-size: 0.7rem;
+      |        text-transform: uppercase;
+      |        letter-spacing: 0.08em;
       |      }
       |      input[type="number"] {
-      |        min-width: 100px;
-      |        border-radius: 14px;
-      |        border: 1px solid rgba(32,49,47,0.15);
-      |        padding: 10px 12px;
+      |        min-width: 86px;
+      |        background: rgba(255,255,255,0.04);
+      |        border: 1px solid var(--line);
+      |        color: var(--ink);
+      |        padding: 8px 10px;
+      |        border-radius: 10px;
       |        font: inherit;
-      |        background: rgba(255,255,255,0.9);
       |      }
       |      button {
-      |        border: 0;
+      |        border: 1px solid var(--line);
+      |        color: var(--ink);
+      |        background: rgba(255,255,255,0.04);
+      |        padding: 8px 14px;
       |        border-radius: 999px;
-      |        padding: 11px 16px;
-      |        font: inherit;
       |        cursor: pointer;
-      |        color: white;
-      |        background: var(--accent-2);
-      |        box-shadow: 0 10px 18px rgba(20,116,111,0.18);
+      |        font: inherit;
+      |        transition: transform 80ms ease, background 160ms ease, border-color 160ms ease;
       |      }
-      |      button.secondary { background: #876445; box-shadow: 0 10px 18px rgba(135,100,69,0.16); }
-      |      button.warning { background: var(--accent); box-shadow: 0 10px 18px rgba(207,92,54,0.16); }
+      |      button:hover { background: rgba(255,255,255,0.08); transform: translateY(-1px); }
+      |      button.primary { background: linear-gradient(135deg, #ff8b5a, #ff5a8b); border-color: transparent; color: #fff; }
+      |      button.secondary { background: rgba(106,184,255,0.12); border-color: rgba(106,184,255,0.25); }
+      |      button.accent { background: rgba(89,224,196,0.12); border-color: rgba(89,224,196,0.25); }
+      |      button.toggle[aria-pressed="true"] {
+      |        background: linear-gradient(135deg, #59e0c4, #6ab8ff);
+      |        border-color: transparent;
+      |        color: #05070d;
+      |        font-weight: 600;
+      |      }
       |      .stats {
       |        display: grid;
       |        grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-      |        gap: 10px;
-      |        margin: 16px 0;
+      |        gap: 8px;
       |      }
       |      .stat {
-      |        padding: 12px 14px;
-      |        border-radius: 18px;
-      |        background: rgba(255,255,255,0.66);
-      |        border: 1px solid rgba(32,49,47,0.08);
+      |        padding: 10px 12px;
+      |        border-radius: 12px;
+      |        background: rgba(255,255,255,0.03);
+      |        border: 1px solid var(--line);
       |      }
-      |      .stat .label { display: block; color: var(--muted); font-size: 0.9rem; }
-      |      .stat .value { display: block; margin-top: 4px; font-size: 1.3rem; font-weight: 600; }
+      |      .stat .label {
+      |        color: var(--muted);
+      |        font-size: 0.7rem;
+      |        text-transform: uppercase;
+      |        letter-spacing: 0.06em;
+      |      }
+      |      .stat .value {
+      |        font-size: 1.15rem;
+      |        font-weight: 600;
+      |        margin-top: 2px;
+      |        font-variant-numeric: tabular-nums;
+      |      }
       |      .graph-shell {
       |        position: relative;
-      |      }
-      |      .zoom-bar {
-      |        position: absolute;
-      |        top: 14px;
-      |        right: 14px;
-      |        display: flex;
-      |        gap: 8px;
-      |        z-index: 1;
-      |      }
-      |      .zoom-bar button {
-      |        padding: 9px 13px;
       |        border-radius: 12px;
+      |        overflow: hidden;
+      |        border: 1px solid var(--line);
+      |        background: #03060c;
+      |        min-height: 0;
       |      }
-      |      svg {
-      |        width: 100%;
-      |        height: auto;
-      |        display: block;
-      |        border-radius: 18px;
-      |        background: rgba(255,255,255,0.55);
-      |        touch-action: none;
-      |        cursor: grab;
+      |      .graph-shell #graph { position: absolute; inset: 0; }
+      |      .legend {
+      |        position: absolute;
+      |        left: 12px;
+      |        bottom: 12px;
+      |        display: flex;
+      |        gap: 10px;
+      |        flex-wrap: wrap;
+      |        padding: 8px 10px;
+      |        background: rgba(5,7,13,0.65);
+      |        border: 1px solid var(--line);
+      |        border-radius: 12px;
+      |        font-size: 0.72rem;
+      |        color: var(--muted);
+      |        z-index: 2;
       |      }
-      |      svg.dragging { cursor: grabbing; }
+      |      .legend .dot {
+      |        display: inline-block;
+      |        width: 10px;
+      |        height: 10px;
+      |        border-radius: 50%;
+      |        margin-right: 6px;
+      |        vertical-align: middle;
+      |      }
       |      .sidebar {
       |        display: grid;
-      |        grid-template-rows: auto auto 1fr;
-      |        gap: 18px;
-      |        padding: 18px;
+      |        grid-template-rows: auto 1fr;
+      |        gap: 12px;
+      |        padding: 16px;
+      |        overflow: hidden;
+      |        min-height: 0;
       |      }
-      |      .list {
-      |        display: grid;
-      |        gap: 10px;
-      |        max-height: 280px;
-      |        overflow: auto;
+      |      .sidebar section { min-height: 0; display: flex; flex-direction: column; }
+      |      .sidebar h2 {
+      |        font-size: 0.8rem;
+      |        text-transform: uppercase;
+      |        letter-spacing: 0.1em;
+      |        color: var(--muted);
+      |        margin: 0 0 8px 0;
+      |        font-weight: 600;
       |      }
-      |      .card {
-      |        padding: 14px;
-      |        border-radius: 16px;
-      |        background: rgba(255,255,255,0.66);
-      |        border: 1px solid rgba(32,49,47,0.08);
+      |      .status-card {
+      |        padding: 12px;
+      |        border-radius: 12px;
+      |        background: rgba(255,255,255,0.03);
+      |        border: 1px solid var(--line);
+      |        color: var(--muted);
+      |        font-size: 0.85rem;
       |      }
       |      .event-log {
-      |        max-height: 360px;
       |        overflow: auto;
       |        display: grid;
-      |        gap: 8px;
+      |        gap: 6px;
+      |        padding-right: 4px;
+      |        min-height: 0;
       |      }
       |      .event {
-      |        padding: 12px 14px;
-      |        border-radius: 14px;
-      |        background: rgba(255,255,255,0.72);
-      |        border-left: 4px solid var(--accent-2);
+      |        padding: 8px 10px;
+      |        border-radius: 10px;
+      |        background: rgba(255,255,255,0.03);
+      |        border-left: 3px solid var(--accent-3);
+      |        font-size: 0.78rem;
       |      }
       |      .event[data-kind="conflict"] { border-left-color: var(--accent); }
-      |      .event[data-kind="lock"] { border-left-color: #7c9d3a; }
-      |      .muted { color: var(--muted); }
-      |      @media (max-width: 980px) {
+      |      .event[data-kind="lock"] { border-left-color: var(--accent-2); }
+      |      .event[data-kind="burst"] { border-left-color: #ffd15c; }
+      |      .event strong {
+      |        text-transform: uppercase;
+      |        font-size: 0.7rem;
+      |        letter-spacing: 0.08em;
+      |        color: var(--muted);
+      |        margin-right: 6px;
+      |      }
+      |      .event .detail { margin-top: 2px; color: var(--ink); }
+      |      .event .target { color: var(--muted); font-family: ui-monospace, SFMono-Regular, monospace; }
+      |      @media (max-width: 1100px) {
       |        .layout { grid-template-columns: 1fr; }
+      |        .sidebar { display: none; }
       |      }
       |    </style>
       |  </head>
       |  <body>
       |    <div class="layout">
       |      <section class="panel canvas-shell">
-      |        <div class="title">
+      |        <header class="title">
       |          <div>
-      |            <h1>Distributed Graph Lab</h1>
-      |            <p class="sub">Randomized graph coloring with live controls. Use the wheel to zoom, drag to pan, and regenerate larger graphs like 100 processes.</p>
+      |            <h1>Parapet · Distributed Graph Lab</h1>
+      |            <div class="sub">Randomized graph coloring in 3D. Drag to orbit, scroll to zoom, right-click to pan. Spawn "burst" sub-clusters at runtime.</div>
       |          </div>
-      |          <div class="muted" id="graph-id"></div>
-      |        </div>
+      |          <div class="chip" id="graph-id">—</div>
+      |        </header>
       |        <div class="controls">
-      |          <button id="start-btn">Auto Run</button>
-      |          <button class="secondary" id="pause-btn">Pause</button>
-      |          <button class="warning" id="step-btn">Step Round</button>
-      |          <button class="secondary" id="reset-btn">Reset</button>
-      |        </div>
-      |        <div class="controls-row">
+      |          <button class="primary" id="start-btn">Auto Run</button>
+      |          <button class="secondary" id="step-btn">Step</button>
+      |          <button id="pause-btn">Pause</button>
+      |          <button id="reset-btn">Reset</button>
+      |          <span style="width: 6px;"></span>
       |          <div class="field">
       |            <label for="nodes-input">Processes</label>
-      |            <input id="nodes-input" type="number" min="4" max="140" value="12" />
+      |            <input id="nodes-input" type="number" min="4" max="2000" step="1" value="200" />
       |          </div>
       |          <div class="field">
       |            <label for="colors-input">Colors</label>
-      |            <input id="colors-input" type="number" min="2" max="12" value="4" />
+      |            <input id="colors-input" type="number" min="2" max="12" step="1" value="5" />
       |          </div>
-      |          <button id="apply-btn">Apply Graph</button>
-      |          <div class="muted">Bigger graphs stay colorable by construction so the demo remains usable.</div>
+      |          <button class="accent" id="apply-btn">Apply</button>
+      |          <span style="width: 6px;"></span>
+      |          <div class="field">
+      |            <label for="burst-input">Cluster size</label>
+      |            <input id="burst-input" type="number" min="2" max="60" step="1" value="10" />
+      |          </div>
+      |          <div class="field">
+      |            <label for="bridges-input">Bridges</label>
+      |            <input id="bridges-input" type="number" min="1" max="6" step="1" value="1" />
+      |          </div>
+      |          <button class="accent" id="burst-btn">Spawn Cluster</button>
+      |          <button class="toggle" id="auto-burst-btn" aria-pressed="false">Auto Spawn</button>
       |        </div>
       |        <div class="stats">
-      |          <div class="stat"><span class="label">Round</span><span class="value" id="round-value">0</span></div>
-      |          <div class="stat"><span class="label">Colored</span><span class="value" id="colored-value">0</span></div>
-      |          <div class="stat"><span class="label">Conflicts</span><span class="value" id="conflicts-value">0</span></div>
-      |          <div class="stat"><span class="label">Processes</span><span class="value" id="nodes-value">0</span></div>
-      |          <div class="stat"><span class="label">Palette</span><span class="value" id="palette-value">0</span></div>
+      |          <div class="stat"><div class="label">Round</div><div class="value" id="round-value">0</div></div>
+      |          <div class="stat"><div class="label">Colored</div><div class="value" id="colored-value">0</div></div>
+      |          <div class="stat"><div class="label">Conflicts</div><div class="value" id="conflicts-value">0</div></div>
+      |          <div class="stat"><div class="label">Processes</div><div class="value" id="nodes-value">0</div></div>
+      |          <div class="stat"><div class="label">Clusters</div><div class="value" id="clusters-value">0</div></div>
+      |          <div class="stat"><div class="label">Palette</div><div class="value" id="palette-value">0</div></div>
       |        </div>
-      |        <div class="graph-shell">
-      |          <div class="zoom-bar">
-      |            <button class="secondary" id="zoom-out-btn">-</button>
-      |            <button class="secondary" id="zoom-reset-btn">Reset View</button>
-      |            <button class="secondary" id="zoom-in-btn">+</button>
-      |          </div>
-      |          <svg id="graph" viewBox="0 0 760 600" aria-label="graph visualization"></svg>
+      |        <div class="graph-shell" id="graph-shell">
+      |          <div id="graph"></div>
+      |          <div class="legend" id="legend"></div>
       |        </div>
       |      </section>
       |      <aside class="panel sidebar">
       |        <section>
-      |          <h2>Cluster</h2>
-      |          <p class="sub">Placeholder control plane panel for now. This will later reflect real remote Raft workers.</p>
-      |          <div class="list" id="cluster-list"></div>
-      |        </section>
-      |        <section>
       |          <h2>Status</h2>
-      |          <div class="card">
-      |            <div id="status-copy" class="muted">Waiting for state...</div>
-      |          </div>
+      |          <div class="status-card" id="status-copy">Waiting for state…</div>
       |        </section>
       |        <section>
-      |          <h2>Event Stream</h2>
+      |          <h2>Events</h2>
       |          <div class="event-log" id="event-log"></div>
       |        </section>
       |      </aside>
       |    </div>
+      |    <script src="https://unpkg.com/three@0.164.1/build/three.min.js"></script>
+      |    <script src="https://unpkg.com/3d-force-graph@1.73.4/dist/3d-force-graph.min.js"></script>
       |    <script src="/app.js" defer></script>
       |  </body>
       |</html>
       |""".stripMargin
 
   private def appJs(): String =
-    """const palette = ["#6d597a", "#e76f51", "#2a9d8f", "#e9c46a", "#457b9d", "#90be6d", "#b56576", "#355070", "#588157", "#f28482", "#8ecae6", "#ffb703"];
-      |let autoTimer = null;
-      |let latestState = null;
-      |const viewState = { scale: 1, offsetX: 0, offsetY: 0, dragging: false, dragStartX: 0, dragStartY: 0 };
+    """const palette = [0x6ab8ff, 0xff8b5a, 0x59e0c4, 0xffd15c, 0xb490ff, 0xff6ab8, 0x90ef8b, 0xff4e50, 0x6effe6, 0xf7a072, 0x94d2bd, 0xffadad];
+      |const UNCOLORED = 0x4a5a6c;
+      |const CONFLICT  = 0xff5a8b;
+      |const PULSE_MS  = 1400;
+      |const POLL_MS   = 650;
       |
-      |async function call(endpoint) {
-      |  const response = await fetch(endpoint, { method: "POST" });
-      |  return response.json();
+      |const nodeMap = new Map();
+      |const linkMap = new Map();
+      |let topologySig = '';
+      |let graph = null;
+      |let autoRunTimer = null;
+      |let autoBurstTimer = null;
+      |let suppressAutoFit = false;
+      |
+      |function linkKey(a, b) { return a < b ? `${a}::${b}` : `${b}::${a}`; }
+      |function toHex(value) { return '#' + (value >>> 0).toString(16).padStart(6, '0'); }
+      |
+      |function blend(a, b, t) {
+      |  const ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
+      |  const br = (b >> 16) & 0xff, bg = (b >> 8) & 0xff, bb = b & 0xff;
+      |  const r = Math.round(ar + (br - ar) * t);
+      |  const g = Math.round(ag + (bg - ag) * t);
+      |  const bl = Math.round(ab + (bb - ab) * t);
+      |  return (r << 16) | (g << 8) | bl;
+      |}
+      |
+      |function baseColor(n) {
+      |  if (n.conflict) return CONFLICT;
+      |  if (n.color == null) return UNCOLORED;
+      |  return palette[n.color % palette.length];
+      |}
+      |
+      |function visualColor(n) {
+      |  if (n.__pulse && n.__pulse > 0) {
+      |    return blend(baseColor(n), 0xffffff, Math.min(1, n.__pulse));
+      |  }
+      |  return baseColor(n);
+      |}
+      |
+      |function ensureGraph() {
+      |  if (graph) return graph;
+      |  if (typeof ForceGraph3D !== 'function') {
+      |    console.error('3d-force-graph failed to load.');
+      |    return null;
+      |  }
+      |  const mount = document.getElementById('graph');
+      |  graph = ForceGraph3D()(mount)
+      |    .backgroundColor('#03060c')
+      |    .showNavInfo(false)
+      |    .nodeRelSize(3)
+      |    .nodeOpacity(1.0)
+      |    .nodeResolution(12)
+      |    .linkOpacity(0.32)
+      |    .linkWidth(link => link.__bridge ? 1.8 : 0.5)
+      |    .linkColor(link => link.__bridge ? '#ffd15c' : '#3b475a')
+      |    .linkDirectionalParticles(link => link.__hot ? 5 : (link.__bridge ? 2 : 0))
+      |    .linkDirectionalParticleWidth(link => link.__bridge ? 2.0 : 1.6)
+      |    .linkDirectionalParticleSpeed(link => link.__bridge ? 0.008 : 0.012)
+      |    .linkDirectionalParticleColor(link => link.__bridge ? '#ffe69c' : '#ffd15c')
+      |    .nodeLabel(n => {
+      |      const clr = n.color == null ? '—' : 'c' + n.color;
+      |      const cid = n.clusterId != null ? ' · k' + n.clusterId : '';
+      |      return '<div style="font-family: ui-monospace, monospace; font-size: 12px; padding: 4px 8px; background: rgba(5,7,13,0.85); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e8eef5;"><strong>' + n.id + '</strong> · ' + clr + cid + (n.conflict ? ' · conflict' : '') + '</div>';
+      |    })
+      |    .nodeColor(n => toHex(visualColor(n)))
+      |    .nodeVal(n => {
+      |      const base = n.conflict ? 5 : 2.2;
+      |      const pulse = n.__pulse ? 26 * n.__pulse : 0;
+      |      return base + pulse;
+      |    })
+      |    .d3AlphaDecay(0.035)
+      |    .d3VelocityDecay(0.32)
+      |    .cooldownTicks(220)
+      |    .warmupTicks(40);
+      |
+      |  const shell = document.getElementById('graph-shell');
+      |  const sizeGraph = () => graph.width(shell.clientWidth).height(shell.clientHeight);
+      |  sizeGraph();
+      |  window.addEventListener('resize', sizeGraph);
+      |
+      |  const animatePulses = () => {
+      |    const now = performance.now();
+      |    let anyActive = false;
+      |    nodeMap.forEach(n => {
+      |      if (n.__spawnAt != null) {
+      |        const t = (now - n.__spawnAt) / PULSE_MS;
+      |        if (t >= 1) {
+      |          delete n.__spawnAt;
+      |          delete n.__pulse;
+      |        } else {
+      |          n.__pulse = 1 - t * t;
+      |          anyActive = true;
+      |        }
+      |      }
+      |    });
+      |    let linksDirty = false;
+      |    linkMap.forEach(link => {
+      |      if (link.__hotUntil != null && link.__hotUntil < now) {
+      |        link.__hot = false;
+      |        delete link.__hotUntil;
+      |        linksDirty = true;
+      |      }
+      |    });
+      |    if (anyActive || linksDirty) graph.refresh();
+      |    requestAnimationFrame(animatePulses);
+      |  };
+      |  requestAnimationFrame(animatePulses);
+      |
+      |  return graph;
+      |}
+      |
+      |async function callPost(path) {
+      |  const res = await fetch(path, { method: 'POST' });
+      |  return res.json();
       |}
       |
       |async function fetchState() {
-      |  const response = await fetch("/api/state");
-      |  return response.json();
+      |  const res = await fetch('/api/state');
+      |  return res.json();
       |}
       |
-      |function edgeKey(a, b) {
-      |  return a < b ? `${a}:${b}` : `${b}:${a}`;
-      |}
+      |function applyState(state) {
+      |  if (!ensureGraph()) return;
+      |  const incomingIds = new Set(state.nodes.map(n => n.id));
       |
-      |function nodeRadius(state) {
-      |  return Math.max(8, 24 - Math.floor(state.nodeCount / 8));
-      |}
-      |
-      |function resetView() {
-      |  viewState.scale = 1;
-      |  viewState.offsetX = 0;
-      |  viewState.offsetY = 0;
-      |  applyViewport();
-      |}
-      |
-      |function applyViewport() {
-      |  const viewport = document.getElementById("graph-viewport");
-      |  const svg = document.getElementById("graph");
-      |  if (!viewport || !svg) return;
-      |  viewport.setAttribute("transform", `translate(${viewState.offsetX} ${viewState.offsetY}) scale(${viewState.scale})`);
-      |  svg.classList.toggle("dragging", viewState.dragging);
-      |}
-      |
-      |function renderGraph(state) {
-      |  const svg = document.getElementById("graph");
-      |  const radius = nodeRadius(state);
-      |  const nodesById = Object.fromEntries(state.nodes.map(node => [node.id, node]));
-      |  const edges = new Set();
-      |  let lines = "";
-      |  let circles = "";
-      |  let labels = "";
-      |
-      |  svg.setAttribute("viewBox", `0 0 ${state.canvasWidth} ${state.canvasHeight}`);
-      |
-      |  state.nodes.forEach(node => {
-      |    node.neighbors.forEach(neighborId => {
-      |      const neighbor = nodesById[neighborId];
-      |      if (!neighbor) return;
-      |      const key = edgeKey(node.id, neighborId);
-      |      if (edges.has(key)) return;
-      |      edges.add(key);
-      |      lines += `<line x1="${node.x}" y1="${node.y}" x2="${neighbor.x}" y2="${neighbor.y}" stroke="rgba(32,49,47,0.18)" stroke-width="${Math.max(1, radius / 8)}" />`;
-      |    });
+      |  [...nodeMap.keys()].forEach(id => {
+      |    if (!incomingIds.has(id)) nodeMap.delete(id);
       |  });
       |
-      |  state.nodes.forEach(node => {
-      |    const fill = node.color == null ? "rgba(255,255,255,0.86)" : palette[node.color % palette.length];
-      |    const stroke = node.conflict ? "#cf5c36" : "#20312f";
-      |    const strokeWidth = node.conflict ? Math.max(3, radius / 3) : Math.max(1.5, radius / 10);
-      |    circles += `<circle cx="${node.x}" cy="${node.y}" r="${radius}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" />`;
-      |    if (state.nodeCount <= 50) {
-      |      labels += `<text x="${node.x}" y="${node.y + 4}" text-anchor="middle" font-size="${Math.max(8, radius * 0.58)}" fill="#20312f">${node.id}</text>`;
+      |  const freshNodes = [];
+      |  state.nodes.forEach(remote => {
+      |    let node = nodeMap.get(remote.id);
+      |    if (!node) {
+      |      node = { id: remote.id, __spawnAt: performance.now() };
+      |      if (nodeMap.size > 0) {
+      |        const anchorList = [...nodeMap.values()];
+      |        const anchor = anchorList[Math.floor(Math.random() * anchorList.length)];
+      |        node.x = (anchor.x || 0) + (Math.random() - 0.5) * 40;
+      |        node.y = (anchor.y || 0) + (Math.random() - 0.5) * 40;
+      |        node.z = (anchor.z || 0) + (Math.random() - 0.5) * 40;
+      |      }
+      |      nodeMap.set(remote.id, node);
+      |      freshNodes.push(node);
       |    }
-      |    if (node.proposedColor != null && state.nodeCount <= 80) {
-      |      labels += `<text x="${node.x}" y="${node.y - radius - 8}" text-anchor="middle" font-size="${Math.max(8, radius * 0.52)}" fill="#5f736d">p:${node.proposedColor}</text>`;
-      |    }
+      |    node.color = remote.color;
+      |    node.proposedColor = remote.proposedColor;
+      |    node.conflict = remote.conflict;
+      |    node.status = remote.status;
+      |    node.neighbors = remote.neighbors;
+      |    node.clusterId = remote.clusterId != null ? remote.clusterId : 0;
       |  });
       |
-      |  svg.innerHTML = `<g id="graph-viewport">${lines}${circles}${labels}</g>`;
-      |  applyViewport();
+      |  const wantedKeys = new Set();
+      |  state.nodes.forEach(n => n.neighbors.forEach(m => {
+      |    if (incomingIds.has(m) && n.id < m) wantedKeys.add(linkKey(n.id, m));
+      |  }));
+      |
+      |  [...linkMap.keys()].forEach(k => { if (!wantedKeys.has(k)) linkMap.delete(k); });
+      |
+      |  const addedLinks = [];
+      |  const now = performance.now();
+      |  wantedKeys.forEach(k => {
+      |    const sep = k.indexOf('::');
+      |    const a = k.substring(0, sep);
+      |    const b = k.substring(sep + 2);
+      |    let link = linkMap.get(k);
+      |    if (!link) {
+      |      link = { source: nodeMap.get(a), target: nodeMap.get(b), __hot: true, __hotUntil: now + 1700 };
+      |      linkMap.set(k, link);
+      |      addedLinks.push(link);
+      |    }
+      |    const srcNode = nodeMap.get(a);
+      |    const tgtNode = nodeMap.get(b);
+      |    link.__bridge = srcNode && tgtNode && srcNode.clusterId !== tgtNode.clusterId;
+      |  });
+      |
+      |  const sig = nodeMap.size + '#' + wantedKeys.size;
+      |  if (sig !== topologySig) {
+      |    topologySig = sig;
+      |    graph.graphData({ nodes: [...nodeMap.values()], links: [...linkMap.values()] });
+      |    if (freshNodes.length > 0 && !suppressAutoFit) {
+      |      setTimeout(() => graph.zoomToFit(700, 60), 900);
+      |    }
+      |  } else {
+      |    graph.refresh();
+      |  }
+      |
+      |  renderStats(state);
+      |  renderEvents(state);
+      |  renderLegend(state);
       |}
       |
-      |function renderCluster(state) {
-      |  const root = document.getElementById("cluster-list");
-      |  const limit = state.cluster.length > 24 ? 24 : state.cluster.length;
-      |  const visible = state.cluster.slice(0, limit);
-      |  const overflow = state.cluster.length - visible.length;
-      |  root.innerHTML = visible.map(node => {
-      |    return `
-      |      <div class="card">
-      |        <strong>${node.id}</strong>
-      |        <div class="muted">${node.address}</div>
-      |        <div>Role: ${node.role}</div>
-      |        <div>Term: ${node.term}</div>
-      |        <div>Online: ${node.online}</div>
-      |      </div>
-      |    `;
-      |  }).join("") + (overflow > 0 ? `<div class="card muted">... and ${overflow} more workers</div>` : "");
+      |function renderStats(state) {
+      |  document.getElementById('graph-id').textContent = state.graphId;
+      |  document.getElementById('round-value').textContent = state.round;
+      |  document.getElementById('colored-value').textContent = state.nodes.filter(n => n.color != null).length;
+      |  document.getElementById('conflicts-value').textContent = state.nodes.filter(n => n.conflict).length;
+      |  document.getElementById('palette-value').textContent = state.paletteSize;
+      |  document.getElementById('nodes-value').textContent = state.nodeCount;
+      |  document.getElementById('clusters-value').textContent = (state.clusters || []).length;
+      |  const nodesInput = document.getElementById('nodes-input');
+      |  const colorsInput = document.getElementById('colors-input');
+      |  if (document.activeElement !== nodesInput) nodesInput.value = state.nodeCount;
+      |  if (document.activeElement !== colorsInput) colorsInput.value = state.paletteSize;
+      |  const status = state.completed
+      |    ? `Colored in ${state.round} rounds with ${state.nodeCount} processes.`
+      |    : state.running
+      |      ? 'Auto-run active. Drag to orbit · wheel to zoom · right-click to pan.'
+      |      : 'Paused. Hit Step, Auto Run, or trigger a Burst.';
+      |  document.getElementById('status-copy').textContent = status;
       |}
       |
       |function renderEvents(state) {
-      |  const root = document.getElementById("event-log");
-      |  root.innerHTML = state.events.slice().reverse().map(event => {
-      |    const target = event.nodeId ? `<div class="muted">${event.nodeId}</div>` : "";
-      |    return `<div class="event" data-kind="${event.kind}">
-      |      <strong>${event.kind}</strong>
-      |      ${target}
-      |      <div>${event.detail}</div>
-      |    </div>`;
-      |  }).join("");
+      |  const root = document.getElementById('event-log');
+      |  root.innerHTML = state.events.slice().reverse().map(evt => {
+      |    const target = evt.nodeId ? `<span class="target">${evt.nodeId}</span>` : '';
+      |    return `<div class="event" data-kind="${evt.kind}"><strong>${evt.kind}</strong>${target}<div class="detail">${evt.detail}</div></div>`;
+      |  }).join('');
       |}
       |
-      |function renderState(state) {
-      |  latestState = state;
-      |  document.getElementById("graph-id").textContent = state.graphId;
-      |  document.getElementById("round-value").textContent = state.round;
-      |  document.getElementById("colored-value").textContent = state.nodes.filter(node => node.color != null).length;
-      |  document.getElementById("conflicts-value").textContent = state.nodes.filter(node => node.conflict).length;
-      |  document.getElementById("palette-value").textContent = state.paletteSize;
-      |  document.getElementById("nodes-value").textContent = state.nodeCount;
-      |  document.getElementById("nodes-input").value = state.nodeCount;
-      |  document.getElementById("colors-input").value = state.paletteSize;
-      |  document.getElementById("status-copy").textContent = state.completed
-      |    ? `Completed in ${state.round} rounds with ${state.nodeCount} processes`
-      |    : state.running
-      |      ? "Auto-run active. Mouse wheel zooms, drag pans."
-      |      : "Paused. Adjust process/color counts, then step or auto-run.";
-      |  renderGraph(state);
-      |  renderCluster(state);
-      |  renderEvents(state);
+      |function renderLegend(state) {
+      |  const root = document.getElementById('legend');
+      |  const cells = [];
+      |  for (let i = 0; i < state.paletteSize; i++) {
+      |    cells.push(`<span><span class="dot" style="background: ${toHex(palette[i % palette.length])}"></span>c${i}</span>`);
+      |  }
+      |  cells.push(`<span><span class="dot" style="background: ${toHex(UNCOLORED)}"></span>uncolored</span>`);
+      |  cells.push(`<span><span class="dot" style="background: ${toHex(CONFLICT)}"></span>conflict</span>`);
+      |  cells.push('<span><span class="dot" style="background: #ffd15c"></span>cluster bridge</span>');
+      |  root.innerHTML = cells.join('');
       |}
       |
       |async function refresh() {
-      |  renderState(await fetchState());
+      |  applyState(await fetchState());
       |}
       |
       |function startAutoRun() {
-      |  clearInterval(autoTimer);
-      |  autoTimer = setInterval(async () => {
-      |    const state = await call("/api/step");
-      |    renderState(state);
-      |    if (state.completed) {
-      |      stopAutoRun();
-      |    }
-      |  }, 800);
+      |  stopAutoRun();
+      |  autoRunTimer = setInterval(async () => {
+      |    const state = await callPost('/api/step');
+      |    applyState(state);
+      |    if (state.completed && autoBurstTimer == null) stopAutoRun();
+      |  }, POLL_MS);
       |}
       |
       |function stopAutoRun() {
-      |  if (autoTimer) {
-      |    clearInterval(autoTimer);
-      |    autoTimer = null;
+      |  if (autoRunTimer) clearInterval(autoRunTimer);
+      |  autoRunTimer = null;
+      |}
+      |
+      |function scheduleAutoBurst() {
+      |  const delay = 1400 + Math.random() * 1800;
+      |  autoBurstTimer = setTimeout(async () => {
+      |    const size = 5 + Math.floor(Math.random() * 14);
+      |    const bridges = 1 + Math.floor(Math.random() * 3);
+      |    suppressAutoFit = true;
+      |    try {
+      |      applyState(await callPost(`/api/burst?size=${size}&bridges=${bridges}`));
+      |    } finally {
+      |      suppressAutoFit = false;
+      |    }
+      |    if (autoBurstTimer != null) scheduleAutoBurst();
+      |  }, delay);
+      |}
+      |
+      |function toggleAutoBurst() {
+      |  const btn = document.getElementById('auto-burst-btn');
+      |  const isOn = btn.getAttribute('aria-pressed') === 'true';
+      |  if (isOn) {
+      |    btn.setAttribute('aria-pressed', 'false');
+      |    if (autoBurstTimer) clearTimeout(autoBurstTimer);
+      |    autoBurstTimer = null;
+      |  } else {
+      |    btn.setAttribute('aria-pressed', 'true');
+      |    scheduleAutoBurst();
+      |    if (!autoRunTimer) startAutoRun();
       |  }
       |}
       |
-      |function zoomBy(factor, centerX, centerY) {
-      |  const svg = document.getElementById("graph");
-      |  const rect = svg.getBoundingClientRect();
-      |  const viewBox = svg.viewBox.baseVal;
-      |  const pointerX = centerX ?? rect.width / 2;
-      |  const pointerY = centerY ?? rect.height / 2;
-      |  const svgX = pointerX * (viewBox.width / rect.width);
-      |  const svgY = pointerY * (viewBox.height / rect.height);
-      |  const newScale = Math.max(0.35, Math.min(4.5, viewState.scale * factor));
-      |  const worldX = (svgX - viewState.offsetX) / viewState.scale;
-      |  const worldY = (svgY - viewState.offsetY) / viewState.scale;
-      |  viewState.scale = newScale;
-      |  viewState.offsetX = svgX - worldX * newScale;
-      |  viewState.offsetY = svgY - worldY * newScale;
-      |  applyViewport();
+      |function hardReset() {
+      |  nodeMap.clear();
+      |  linkMap.clear();
+      |  topologySig = '';
       |}
       |
-      |function attachGraphInteractions() {
-      |  const svg = document.getElementById("graph");
-      |  svg.addEventListener("wheel", event => {
-      |    event.preventDefault();
-      |    zoomBy(event.deltaY < 0 ? 1.14 : 0.88, event.offsetX, event.offsetY);
-      |  }, { passive: false });
-      |
-      |  svg.addEventListener("pointerdown", event => {
-      |    viewState.dragging = true;
-      |    viewState.dragStartX = event.clientX;
-      |    viewState.dragStartY = event.clientY;
-      |    svg.setPointerCapture(event.pointerId);
-      |    applyViewport();
-      |  });
-      |
-      |  svg.addEventListener("pointermove", event => {
-      |    if (!viewState.dragging) return;
-      |    const rect = svg.getBoundingClientRect();
-      |    const viewBox = svg.viewBox.baseVal;
-      |    const dx = (event.clientX - viewState.dragStartX) * (viewBox.width / rect.width);
-      |    const dy = (event.clientY - viewState.dragStartY) * (viewBox.height / rect.height);
-      |    viewState.offsetX += dx;
-      |    viewState.offsetY += dy;
-      |    viewState.dragStartX = event.clientX;
-      |    viewState.dragStartY = event.clientY;
-      |    applyViewport();
-      |  });
-      |
-      |  svg.addEventListener("pointerup", event => {
-      |    viewState.dragging = false;
-      |    svg.releasePointerCapture(event.pointerId);
-      |    applyViewport();
-      |  });
-      |
-      |  svg.addEventListener("pointerleave", () => {
-      |    if (!viewState.dragging) return;
-      |    viewState.dragging = false;
-      |    applyViewport();
-      |  });
-      |}
-      |
-      |document.getElementById("start-btn").addEventListener("click", async () => {
-      |  renderState(await call("/api/start"));
+      |document.getElementById('start-btn').addEventListener('click', async () => {
+      |  applyState(await callPost('/api/start'));
       |  startAutoRun();
       |});
-      |
-      |document.getElementById("pause-btn").addEventListener("click", async () => {
+      |document.getElementById('pause-btn').addEventListener('click', async () => {
       |  stopAutoRun();
-      |  renderState(await call("/api/pause"));
+      |  applyState(await callPost('/api/pause'));
       |});
-      |
-      |document.getElementById("step-btn").addEventListener("click", async () => {
+      |document.getElementById('step-btn').addEventListener('click', async () => {
       |  stopAutoRun();
-      |  renderState(await call("/api/step"));
+      |  applyState(await callPost('/api/step'));
       |});
-      |
-      |document.getElementById("reset-btn").addEventListener("click", async () => {
+      |document.getElementById('reset-btn').addEventListener('click', async () => {
       |  stopAutoRun();
-      |  resetView();
-      |  renderState(await call("/api/reset"));
+      |  hardReset();
+      |  applyState(await callPost('/api/reset'));
       |});
-      |
-      |document.getElementById("apply-btn").addEventListener("click", async () => {
+      |document.getElementById('apply-btn').addEventListener('click', async () => {
       |  stopAutoRun();
-      |  resetView();
-      |  const nodes = document.getElementById("nodes-input").value;
-      |  const colors = document.getElementById("colors-input").value;
-      |  renderState(await call(`/api/configure?nodes=${encodeURIComponent(nodes)}&colors=${encodeURIComponent(colors)}`));
+      |  hardReset();
+      |  const nodes = document.getElementById('nodes-input').value;
+      |  const colors = document.getElementById('colors-input').value;
+      |  applyState(await callPost(`/api/configure?nodes=${encodeURIComponent(nodes)}&colors=${encodeURIComponent(colors)}`));
       |});
+      |document.getElementById('burst-btn').addEventListener('click', async () => {
+      |  const size = document.getElementById('burst-input').value || 8;
+      |  const bridges = document.getElementById('bridges-input').value || 1;
+      |  applyState(await callPost(`/api/burst?size=${encodeURIComponent(size)}&bridges=${encodeURIComponent(bridges)}`));
+      |});
+      |document.getElementById('auto-burst-btn').addEventListener('click', toggleAutoBurst);
       |
-      |document.getElementById("zoom-in-btn").addEventListener("click", () => zoomBy(1.16));
-      |document.getElementById("zoom-out-btn").addEventListener("click", () => zoomBy(0.86));
-      |document.getElementById("zoom-reset-btn").addEventListener("click", () => resetView());
-      |
-      |attachGraphInteractions();
       |refresh();
       |""".stripMargin

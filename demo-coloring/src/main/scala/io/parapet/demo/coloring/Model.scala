@@ -13,8 +13,11 @@ final case class ColoringNodeState(
     status: ColoringNodeStatus = ColoringNodeStatus.Uncolored,
     color: Option[Int] = None,
     proposedColor: Option[Int] = None,
-    conflict: Boolean = false
+    conflict: Boolean = false,
+    clusterId: Int = 0
 )
+
+final case class ClusterSummary(id: Int, size: Int)
 
 final case class ClusterNodeState(
     id: String,
@@ -43,5 +46,6 @@ final case class DemoState(
     completed: Boolean,
     nodes: Vector[ColoringNodeState],
     cluster: Vector[ClusterNodeState],
-    events: Vector[DemoEvent]
+    events: Vector[DemoEvent],
+    clusters: Vector[ClusterSummary] = Vector.empty
 )
