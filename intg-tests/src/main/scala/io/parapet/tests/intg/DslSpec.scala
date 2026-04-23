@@ -110,6 +110,55 @@ abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
     }
   }
 
+  "reply operator" when {
+    "used with a single event" should {
+      "send the event back to the sender" in {
+
+        val eventStore = new EventStore[F, Response]
+
+        val server = Process[F](_ => {
+          case Request(data) => reply(Response(s"echo-$data"))
+        })
+
+        val client: Process[F] = Process[F](ref => {
+          case Start => Request("hello") ~> server
+          case res: Response => eval(eventStore.add(ref, res))
+        })
+
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(server, client))).run))
+        eventStore.get(client.ref).headOption.value shouldBe Response("echo-hello")
+
+      }
+    }
+  }
+
+  "reply operator" when {
+    "used with a sequence of events" should {
+      "send each event back to the sender in order" in {
+
+        val eventStore = new EventStore[F, Response]
+
+        val server = Process[F](_ => {
+          case Request(data) =>
+            reply(Seq(Response(s"1-$data"), Response(s"2-$data"), Response(s"3-$data")))
+        })
+
+        val client: Process[F] = Process.builder[F](ref => {
+          case Start => Request("x") ~> server
+          case res: Response => eval(eventStore.add(ref, res))
+        }).ref(ProcessRef("client")).build
+
+        unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(server, client))).run))
+        eventStore.get(client.ref) shouldBe Seq(
+          Response("1-x"),
+          Response("2-x"),
+          Response("3-x"),
+        )
+
+      }
+    }
+  }
+
   "Par operator" when {
     "applied to a flow" should {
       "execute operations in parallel" in {

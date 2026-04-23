@@ -1,8 +1,19 @@
 language: scala
+
+jdk:
+  - openjdk21
+
 scala:
-  - 2.13.4
+  - 3.8.3
+
 env:
-  - TRAVIS_SCALA_VERSION=2.13.4
+  - TRAVIS_SCALA_VERSION=3.8.3
+
+cache:
+  directories:
+    - $HOME/.ivy2/cache
+    - $HOME/.sbt
+    - $HOME/.coursier/cache
 
 script:
-  - sbt ++$TRAVIS_SCALA_VERSION test
+  - sbt ++$TRAVIS_SCALA_VERSION scalafmtCheckAll test
