@@ -12,7 +12,7 @@ import scala.concurrent.duration.FiniteDuration
   * events, forking fibers, racing concurrent computations, etc.) and later interpreted by
   * the runtime via [[DslInterpreter]] into the user's effect type `F[_]`.
   *
-  * Encoding the DSL as a free monad over [[Dsl.FlowOp]] means programs are just data —
+  * Encoding the DSL as a free monad over [[Dsl.FlowOp]] means programs are just data -
   * inspectable, composable, and decoupled from any particular effect runtime. The same
   * program runs on any effect type that provides an [[io.parapet.effect.Effect]] instance
   * (parapet's own [[io.parapet.effect.ParIO]] is the bundled implementation).
@@ -121,28 +121,96 @@ object Dsl:
     * via the `dsl` accessor on [[Process]] (see [[Dsl.WithDsl]]).
     *
     * @tparam F the underlying effect type.
-    * @tparam C the algebra coproduct in which `FlowOp` sits — usually just
+    * @tparam C the algebra coproduct in which `FlowOp` sits - usually just
     *           `[x] =>> FlowOp[F, x]`, but generalized so users can mix the parapet DSL
     *           with their own algebras.
     */
   class FlowOps[F[_], C[_]](using inject: Inject[[x] =>> FlowOp[F, x], C]):
 
-    /** A program that does nothing. */
+    /** A program that does nothing - semantically equivalent to `Monad.unit`.
+      *
+      * Useful as a fold seed and as the explicit "do nothing" branch of a handler.
+      *
+      * The following expressions are equivalent:
+      *
+      * {{{
+      * event ~> process <-> unit ++ event ~> process
+      * event ~> process <-> event ~> process ++ unit
+      * }}}
+      *
+      * Example - combining flows over a list:
+      *
+      * {{{
+      * processes.map(event ~> _).foldLeft(unit)(_ ++ _)
+      * }}}
+      *
+      * Example - empty handler branches:
+      *
+      * {{{
+      * {
+      *   case Start => unit // do nothing
+      *   case Stop  => unit // do nothing
+      * }
+      * }}}
+      */
     val unit: Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](UnitFlow[F]())
 
-    /** Lifts a pure value into the program. */
+    /** Lifts a pure value into the program.
+      *
+      * Example:
+      *
+      * {{{
+      * for
+      *   a <- pure(1)
+      *   _ <- eval(println(a))
+      * yield ()
+      * }}}
+      */
     def pure[A](value: A): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](Pure[F, A](value))
 
-    /** Defers construction of `value` until interpretation; equivalent to wrapping a
-      * sub-program in a thunk.
+    /** Defers construction of a sub-program until interpretation.
+      *
+      * The main use is writing recursive flows - without `flow`, recursion happens at
+      * program-construction time and overflows the stack before the runtime ever sees
+      * the program. With `flow`, each recursive step is built on demand.
+      *
+      * Example - prints `n n-1 ... 1`:
+      *
+      * {{{
+      * def times[F[_]](n: Int): DslF[F, Unit] = flow {
+      *   if n == 0 then unit
+      *   else eval(print(n)) ++ times(n - 1)
+      * }
+      * }}}
+      *
+      * Note: do not perform side effects directly inside `flow` - the body runs at
+      * interpretation time but only to build the next step of the program, so anything
+      * outside [[eval]] / [[suspend]] is still effectively construction-time code.
       */
     def flow[A](value: => Free[C, A]): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](SuspendF[F, C, A](() => value))
 
-    /** Sends `event` to `receiver` (and any additional refs in `other`). The current
-      * process is used as the sender.
+    /** Lazily constructs and sends `event` to `receiver` (and any additional refs in
+      * `other`). The current process is recorded as the sender.
+      *
+      * Events are emitted in the order given. Delivery order across receivers is not
+      * guaranteed (it depends on each receiver's mailbox depth and processing speed).
+      *
+      * Example:
+      *
+      * {{{
+      * send(Ping, processA, processB, processC)
+      * }}}
+      *
+      * `Ping` is enqueued for `processA`, then `processB`, then `processC`. The symbolic
+      * `~>` form is preferred for the single-receiver case:
+      *
+      * {{{
+      * Ping ~> processA
+      * Seq(e1, e2, e3) ~> processA  // batch in order
+      * }}}
       */
     def send(event: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Send[F](() => event, None, receiver, other))
@@ -155,31 +223,182 @@ object Dsl:
     def send(sender: ProcessRef, event: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Send[F](() => event, Some(sender), receiver, other))
 
-    /** Forwards `event` to `receiver` (and `other`) preserving the original sender. */
+    /** Forwards `event` to `receiver` (and `other`) while preserving the sender of the
+      * event currently being handled - the typical building block of a proxy process.
+      *
+      * Example:
+      *
+      * {{{
+      * val server = Process[F](_ => {
+      *   case Request(body) => withSender(sender => eval(println(s"$sender-$body")))
+      * })
+      *
+      * val proxy = Process[F](_ => {
+      *   case Request(body) => forward(Request(s"proxy-$body"), server.ref)
+      * })
+      *
+      * val client = Process.builder[F](_ =>
+      *   { case Start => Request("ping") ~> proxy }
+      * ).ref(ProcessRef("client")).build
+      * }}}
+      *
+      * Console output: `client-proxy-ping`
+      */
     def forward(event: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Forward[F](() => event, receiver +: other))
 
-    /** Forks every program in `flows` concurrently and returns their fibers. */
+    /** Runs the given `flows` in parallel and returns their [[Fiber]] handles for later
+      * `join` / `cancel`.
+      *
+      * Example:
+      *
+      * {{{
+      * par(eval(print(1)) ++ eval(print(2)))
+      * }}}
+      *
+      * Possible outputs: `12` or `21`.
+      */
     def par[A](flows: Free[C, A]*): Free[C, List[Fiber[F, A]]] =
       sequence(flows.toList.map(fork))
 
-    /** Non-blocking sleep — suspends the current program for `duration`. */
+    /** Non-blocking sleep - suspends every operation that follows for `duration`.
+      *
+      * For sequential flows the following are equivalent:
+      *
+      * {{{
+      * delay(d) ++ x ~> p ++ y ~> p
+      * delay(d, x ~> p ++ y ~> p)
+      * delay(d, x ~> p) ++ delay(d, y ~> p)
+      * }}}
+      *
+      * For parallel flows the delay applies once before the parallel block begins:
+      *
+      * {{{
+      * delay(d, par(x ~> p ++ y ~> p)) <-> delay(d) ++ par(x ~> p ++ y ~> p)
+      * }}}
+      *
+      * Note: inside `par` only the first operation is delayed; wrap each parallel branch
+      * to delay every one of them individually:
+      *
+      * {{{
+      * par(delay(d, eval(print(1))), delay(d, eval(print(2))))
+      * }}}
+      */
     def delay(duration: FiniteDuration): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Delay[F](duration))
 
     /** Runs `f` with the current sender's [[ProcessRef]] in scope. The most idiomatic way to
-      * reply to the originator of the event being handled.
+      * inspect or reuse the originator of the event being handled.
+      *
+      * For the common "send one event back to the sender" case prefer the [[reply]] sugar
+      * below.
+      *
+      * Example:
+      *
+      * {{{
+      * val server = Process[F](_ => {
+      *   case Request(data) => withSender(sender => eval(println(s"$sender says $data")))
+      * })
+      *
+      * val client = Process.builder[F](_ =>
+      *   { case Start => Request("hello") ~> server }
+      * ).ref(ProcessRef("client")).build
+      * }}}
+      *
+      * Console output: `client says hello`
       */
     def withSender[A](f: ProcessRef => Free[C, A]): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](WithSender[F, C, A](f))
 
-    /** Forks `flow` as a [[Fiber]]. The fiber runs concurrently and can be awaited or
-      * cancelled via the returned handle.
+    /** Sends `event` back to the sender of the message currently being handled.
+      * Sugar for `withSender(event ~> _)`.
+      *
+      * Example:
+      *
+      * {{{
+      * val echo = Process[F](_ => {
+      *   case Request(data) => reply(Response(s"echo: $data"))
+      * })
+      * }}}
+      *
+      * If the event being handled has no real sender (e.g. a lifecycle event delivered
+      * by [[io.parapet.core.processes.SystemProcess]]) the reply lands at the system /
+      * dead-letter ref - same semantics as a manual `withSender` reply.
+      */
+    def reply(event: => Event): Free[C, Unit] =
+      withSender(sender => send(event, sender))
+
+    /** Sends each of `events` back to the sender, in order. Useful when a handler emits
+      * a small batch of replies.
+      *
+      * Example:
+      *
+      * {{{
+      * val acker = Process[F](_ => {
+      *   case Batch(items) => reply(items.map(Ack(_)))
+      * })
+      * }}}
+      */
+    def reply(events: Seq[Event]): Free[C, Unit] =
+      withSender { sender =>
+        events.toList match
+          case Nil => unit
+          case head :: tail =>
+            tail.foldLeft(send(head, sender)) { (acc, event) =>
+              acc.flatMap(_ => send(event, sender))
+            }
+      }
+
+    /** Executes `flow` asynchronously as a [[Fiber]]. The fiber runs concurrently and the
+      * returned handle can be awaited via [[Fiber.join]] or cancelled.
+      *
+      * Example:
+      *
+      * {{{
+      * val process = Process[F](_ => {
+      *   case Start => fork(eval(print(1))) ++ fork(eval(print(2)))
+      * })
+      * }}}
+      *
+      * Possible outputs: `12` or `21`.
+      *
+      * Awaiting a fiber's result:
+      *
+      * {{{
+      * for
+      *   fiber <- fork(eval("long running operation"))
+      *   res   <- fiber.join
+      *   _     <- eval(print(res))
+      * yield ()
+      * }}}
       */
     def fork[A](flow: Free[C, A]): Free[C, Fiber[F, A]] =
       Free.inject[[x] =>> FlowOp[F, x], C, Fiber[F, A]](Fork[F, C, A](flow))
 
-    /** Registers each process in `child` as a sub-process of `parent`. */
+    /** Registers one or more child processes under `parent`.
+      *
+      * Children are guaranteed to receive [[io.parapet.core.Events.Stop]] before their
+      * parent does - useful for releasing resources in the right order.
+      *
+      * Example:
+      *
+      * {{{
+      * val server = Process[F](ref => {
+      *   case Start =>
+      *     register(ref, Process[F](_ => {
+      *       case Stop => eval(println("stop worker"))
+      *     }))
+      *   case Stop  => eval(println("stop server"))
+      * })
+      * }}}
+      *
+      * Console output on shutdown:
+      *
+      * {{{
+      * stop worker
+      * stop server
+      * }}}
+      */
     def register(parent: ProcessRef, child: Process[F]*): Free[C, Unit] =
       child
         .map(process => Free.inject[[x] =>> FlowOp[F, x], C, Unit](Register(parent, process)))
@@ -187,34 +406,108 @@ object Dsl:
           result.flatMap(_ => next)
         }
 
-    /** Races `first` against `second`. The loser is cancelled. */
+    /** Runs `first` and `second` concurrently and returns whichever wins. The loser is
+      * cancelled.
+      *
+      * Example:
+      *
+      * {{{
+      * val forever = eval(while true do {})
+      *
+      * val process = Process[F](_ => {
+      *   case Start => race(forever, eval(println("winner")))
+      * })
+      * }}}
+      *
+      * Output: `winner`.
+      */
     def race[A, B](first: Free[C, A], second: Free[C, B]): Free[C, Either[A, B]] =
       Free.inject[[x] =>> FlowOp[F, x], C, Either[A, B]](Race[F, C, A, B](first, second))
 
-    /** Lifts a side-effecting `F`-program into the DSL. */
+    /** Suspends a side-effecting `F`-program inside the DSL.
+      *
+      * Example:
+      *
+      * {{{
+      * suspend(ParIO.delay(println("hello world")))
+      * }}}
+      *
+      * Prefer [[eval]] for plain (non-`F`) side effects; reserve `suspend` for cases where
+      * you genuinely need to lift an existing `F[A]`.
+      */
     def suspend[A](thunk: => F[A]): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](Suspend[F, C, A](() => thunk))
 
-    /** Evaluates a pure but lazy `A`. */
+    /** Suspends a pure but lazy computation. The thunk is evaluated when the DSL program
+      * is interpreted, not when the program value is constructed.
+      *
+      * Example:
+      *
+      * {{{
+      * eval(println("hello world"))
+      * }}}
+      *
+      * Output: `hello world`.
+      */
     def eval[A](thunk: => A): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](Eval[F, C, A](() => thunk))
 
     /** Marks `thunk` as blocking; the runtime offloads it so it does not stall scheduler
       * worker threads.
+      *
+      * Example:
+      *
+      * {{{
+      * class BlockingProcess extends Process[F]:
+      *   override def handle: Receive =
+      *     case Start => blocking(eval(while true do {})) ++ eval(println("now"))
+      * }}}
+      *
+      * Output: `now`. The infinite loop runs on a separate worker, so the process is free
+      * to handle subsequent events.
+      *
+      * Note: `blocking` differs from [[fork]] - a forked program is fire-and-forget and
+      * the parent process keeps consuming new events while it runs; with `blocking` the
+      * process is suspended until the body completes.
       */
     def blocking[A](thunk: => Free[C, A]): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Blocking[F, C, A](() => thunk))
 
-    /** Aborts the program with `error`; recoverable via [[handleError]]. */
+    /** Aborts the program with `error`. Subsequent steps are skipped unless the error is
+      * caught by [[handleError]].
+      */
     def raiseError[A](error: Throwable): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](RaiseError[F, A](error))
 
-    /** Runs `thunk`; on failure delegates to `handle` to recover. Mirrors `try / catch`. */
+    /** Runs `thunk`; on failure delegates to `handle` to recover. Mirrors `try / catch`.
+      *
+      * Example:
+      *
+      * {{{
+      * handleError(
+      *   eval(throw RuntimeException("boom")),
+      *   err => eval(println(s"caught: ${err.getMessage}"))
+      * )
+      * }}}
+      *
+      * Console output: `caught: boom`.
+      */
     def handleError[A, B >: A](thunk: => Free[C, A], handle: Throwable => Free[C, B]): Free[C, B] =
       Free.inject[[x] =>> FlowOp[F, x], C, B](HandleError[F, C, A, B](() => thunk, handle))
 
-    /** Runs `fa` and ensures `finalizer` runs afterwards regardless of outcome. Mirrors
-      * `try / finally`.
+    /** Runs `fa` and ensures `finalizer` runs afterwards, regardless of success or
+      * failure. Mirrors `try / finally`.
+      *
+      * Example:
+      *
+      * {{{
+      * guarantee(
+      *   eval(throw RuntimeException("error")),
+      *   eval(println("fallback"))
+      * )
+      * }}}
+      *
+      * Console output: `fallback` (followed by the rethrown error).
       */
     def guarantee[A](fa: => Free[C, A], finalizer: => Free[C, Unit]): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Guarantee[F, C, A](() => fa, () => finalizer))
@@ -223,7 +516,7 @@ object Dsl:
     def halt(ref: ProcessRef): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Halt[F](ref))
 
-    /** Acquires the per-process lock for `ref`. Cooperative — only meaningful between
+    /** Acquires the per-process lock for `ref`. Cooperative - only meaningful between
       * programs that opt into it.
       */
     def lock(ref: ProcessRef): Free[C, Unit] =
@@ -251,7 +544,7 @@ object Dsl:
     given [F[_], G[_]](using Inject[[x] =>> FlowOp[F, x], G]): FlowOps[F, G] =
       new FlowOps[F, G]
 
-  /** Mixin granting access to the `dsl` member — a [[FlowOps]] instance over the parapet
+  /** Mixin granting access to the `dsl` member - a [[FlowOps]] instance over the parapet
     * algebra. Mixed into [[Process]] so that handlers can write `dsl.send(...)`,
     * `dsl.eval(...)`, etc.
     */
