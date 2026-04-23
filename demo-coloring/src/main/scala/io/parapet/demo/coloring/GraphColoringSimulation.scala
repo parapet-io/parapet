@@ -28,8 +28,21 @@ final class GraphColoringSimulation(
   private var events = Vector.empty[DemoEvent]
   private var cluster = Vector.empty[ClusterNodeState]
   private var clusterCounter = 0
+  private var mode: GameMode = GameMode.Coloring
+  private var victor: Option[Int] = None
+  private var stalemateStreak = 0
 
   configureGraph(nodeCount, paletteSize, graphId, initialization = true)
+
+  private def battleHasAttacks: Boolean =
+    val limit = GraphColoringSimulation.MaxConquests
+    nodesById.values.exists { node =>
+      node.conquests < limit && node.color.exists { myColor =>
+        node.neighbors.exists { nid =>
+          nodesById.get(nid).exists(t => !t.color.contains(myColor) && t.conquests < limit)
+        }
+      }
+    }
 
   def snapshot(): DemoState = synchronized {
     val clusterSizes = nodesById.values
@@ -38,6 +51,18 @@ final class GraphColoringSimulation(
       .map { case (id, ns) => ClusterSummary(id, ns.size) }
       .toVector
       .sortBy(_.id)
+    val raceStats = nodesById.values
+      .flatMap(_.color)
+      .groupBy(identity)
+      .view
+      .map { case (color, xs) => RaceStat(color, xs.size) }
+      .toVector
+      .sortBy(stat => (-stat.size, stat.color))
+    val completed = mode match
+      case GameMode.Coloring =>
+        nodesById.nonEmpty && nodesById.values.forall(_.status == ColoringNodeStatus.Locked)
+      case GameMode.Battle =>
+        nodesById.nonEmpty && (raceStats.size <= 1 || !battleHasAttacks)
     DemoState(
       graphId = template.graphId,
       round = round,
@@ -47,12 +72,194 @@ final class GraphColoringSimulation(
       canvasWidth = template.canvasWidth,
       canvasHeight = template.canvasHeight,
       running = running,
-      completed = nodesById.nonEmpty && nodesById.values.forall(_.status == ColoringNodeStatus.Locked),
+      completed = completed,
       nodes = nodesById.values.toVector,
       cluster = cluster,
       events = events.takeRight(36),
-      clusters = clusterSizes
+      clusters = clusterSizes,
+      mode = mode,
+      races = raceStats,
+      victor = victor
     )
+  }
+
+  def currentMode: GameMode = synchronized(mode)
+
+  def step(): DemoState = synchronized {
+    mode match
+      case GameMode.Coloring => stepRound()
+      case GameMode.Battle   => battleRound()
+  }
+
+  def startBattle(): DemoState = synchronized {
+    if mode == GameMode.Battle then
+      snapshot()
+    else
+      mode = GameMode.Battle
+      victor = None
+      val rng = new Random(seed + tick.toInt + nodesById.size * 31)
+      nodesById.keys.toVector.foreach { id =>
+        val node = nodesById(id)
+        val conscriptedColor = node.color.getOrElse(rng.nextInt(template.paletteSize.max(1)))
+        nodesById.update(
+          id,
+          node.copy(
+            color = Some(conscriptedColor),
+            status = ColoringNodeStatus.Locked,
+            proposedColor = None,
+            conflict = false,
+            conquests = 0
+          )
+        )
+      }
+      round = 0
+      running = false
+      stalemateStreak = 0
+      val races = nodesById.values.flatMap(_.color).toSet.size
+      pushEvent(
+        "battle",
+        None,
+        s"the alien war begins with $races race${if races == 1 then "" else "s"} (siege > defenders wins; ${GraphColoringSimulation.MaxConquests} wounds lock a tile)"
+      )
+      snapshot()
+  }
+
+  def stopBattle(): DemoState = synchronized {
+    if mode == GameMode.Battle then
+      mode = GameMode.Coloring
+      victor = None
+      running = false
+      stalemateStreak = 0
+      pushEvent("battle", None, "ceasefire declared")
+    snapshot()
+  }
+
+  def battleRound(): DemoState = synchronized {
+    if mode != GameMode.Battle then return snapshot()
+
+    val livingColors = nodesById.values.flatMap(_.color).toSet
+    if livingColors.size <= 1 then
+      running = false
+      victor = livingColors.headOption
+      return snapshot()
+
+    val maxConquests = GraphColoringSimulation.MaxConquests
+
+    def isLocked(node: ColoringNodeState): Boolean =
+      node.conquests >= maxConquests
+
+    round = round + 1
+    val rng = new Random(seed + round * 7919 + tick.toInt * 11)
+
+    // Each colored, unlocked attacker picks one differently-colored, unlocked neighbor.
+    val attacks = mutable.Map.empty[String, String]
+    nodesById.foreach { case (attackerId, attacker) =>
+      if !isLocked(attacker) then
+        attacker.color.foreach { myColor =>
+          val targets = attacker.neighbors.flatMap(nodesById.get).filter { neighbor =>
+            !neighbor.color.contains(myColor) && !isLocked(neighbor)
+          }
+          if targets.nonEmpty then
+            val target = targets(rng.nextInt(targets.size))
+            attacks.put(attackerId, target.id)
+        }
+    }
+
+    val attacksByTarget: Map[String, Vector[String]] =
+      attacks.groupBy(_._2).view.mapValues(_.keys.toVector).toMap
+
+    val nextColor = mutable.Map.empty[String, Int]
+    val woundedIds = mutable.Set.empty[String]
+    var conquestEvents = 0
+    var woundEvents = 0
+
+    attacksByTarget.foreach { case (targetId, attackers) =>
+      val target = nodesById(targetId)
+      if !isLocked(target) then
+        val attackerColors = attackers.flatMap(aid => nodesById.get(aid).flatMap(_.color))
+        if attackerColors.nonEmpty then
+          val grouped = attackerColors.groupBy(identity).view.mapValues(_.size).toVector
+          val leaderCount = grouped.map(_._2).max
+          val topColors = grouped.filter(_._2 == leaderCount).map(_._1).sorted
+          val leader = topColors(rng.nextInt(topColors.size))
+
+          val defenders = target.color match
+            case Some(c) =>
+              target.neighbors.count(nid => nodesById.get(nid).flatMap(_.color).contains(c))
+            case None => 0
+
+          if leaderCount > defenders && !target.color.contains(leader) then
+            nextColor.put(targetId, leader)
+            conquestEvents += 1
+          else
+            // Siege failed — defender takes a wound. This guarantees forward progress
+            // so perpetual stalemates along a fortified border can't loop forever.
+            woundedIds += targetId
+            woundEvents += 1
+    }
+
+    val conqueredIds = nextColor.keySet
+    val changedIds = conqueredIds ++ woundedIds
+    nodesById.keys.toVector.foreach { id =>
+      val node = nodesById(id)
+      nextColor.get(id) match
+        case Some(winner) =>
+          val newConquests = (node.conquests + 1).min(maxConquests)
+          val from = node.color.map(c => s"c$c").getOrElse("neutral")
+          val remaining = maxConquests - newConquests
+          val suffix = if remaining == 0 then " (locked)" else s" (${remaining} left)"
+          pushEvent("conquer", Some(id), s"$from falls to c$winner$suffix")
+          nodesById.update(
+            id,
+            node.copy(color = Some(winner), conflict = true, conquests = newConquests)
+          )
+        case None if woundedIds.contains(id) =>
+          val newConquests = (node.conquests + 1).min(maxConquests)
+          val myColor = node.color.map(c => s"c$c").getOrElse("tile")
+          if newConquests >= maxConquests then
+            pushEvent("defend", Some(id), s"$myColor holds the siege and locks in place")
+          nodesById.update(id, node.copy(conquests = newConquests, conflict = false))
+        case _ =>
+          if node.conflict && !changedIds.contains(id) then
+            nodesById.update(id, node.copy(conflict = false))
+    }
+
+    if conquestEvents == 0 && woundEvents == 0 then
+      stalemateStreak += 1
+    else
+      stalemateStreak = 0
+
+    val finalColors = nodesById.values.flatMap(_.color).toSet
+    val attacksPossible = nodesById.values.exists { node =>
+      !isLocked(node) && node.color.exists { myColor =>
+        node.neighbors.exists { nid =>
+          nodesById.get(nid).exists(t => !t.color.contains(myColor) && !isLocked(t))
+        }
+      }
+    }
+
+    def endByTerritory(reason: String): Unit =
+      running = false
+      victor = finalColors.toVector.maxByOption { color =>
+        nodesById.values.count(_.color.contains(color))
+      }
+      val winnerLabel = victor.map(c => s"c$c").getOrElse("no one")
+      pushEvent("victory", None, s"$reason — $winnerLabel holds the most territory")
+
+    if finalColors.size <= 1 then
+      running = false
+      victor = finalColors.headOption
+      pushEvent("victory", None, s"c${victor.getOrElse(-1)} conquers the graph")
+    else if !attacksPossible then
+      endByTerritory("all borders locked")
+    else if stalemateStreak >= GraphColoringSimulation.StalemateLimit then
+      endByTerritory(s"stalemate after ${GraphColoringSimulation.StalemateLimit} quiet rounds")
+    else if conquestEvents == 0 && woundEvents > 0 then
+      pushEvent("stalemate", None, s"round $round: $woundEvents siege${if woundEvents == 1 then "" else "s"} failed, defenders wounded")
+    else if conquestEvents == 0 then
+      pushEvent("stalemate", None, s"round $round ended quietly (${stalemateStreak}/${GraphColoringSimulation.StalemateLimit})")
+
+    snapshot()
   }
 
   def setRunning(value: Boolean): DemoState = synchronized {
@@ -267,6 +474,9 @@ final class GraphColoringSimulation(
     events = Vector.empty
     cluster = template.cluster
     clusterCounter = 0
+    mode = GameMode.Coloring
+    victor = None
+    stalemateStreak = 0
     proposalRandom = new Random(seed + template.nodeCount * 17 + template.paletteSize * 31)
     pushEvent("control", None, reason)
 
@@ -405,3 +615,5 @@ final class GraphColoringSimulation(
 object GraphColoringSimulation:
   val MaxNodes: Int = 2000
   val EventHistoryLimit: Int = 512
+  val MaxConquests: Int = 3
+  val StalemateLimit: Int = 6

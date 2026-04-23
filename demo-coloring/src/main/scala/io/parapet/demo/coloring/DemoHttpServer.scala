@@ -13,12 +13,14 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
   server.createContext("/", respond(indexHtml(), "text/html; charset=utf-8"))
   server.createContext("/app.js", respond(appJs(), "application/javascript; charset=utf-8"))
   server.createContext("/api/state", exchange => json(exchange, Json.render(simulation.snapshot())))
-  server.createContext("/api/step", exchange => json(exchange, Json.render(simulation.stepRound())))
+  server.createContext("/api/step", exchange => json(exchange, Json.render(simulation.step())))
   server.createContext("/api/start", exchange => json(exchange, Json.render(simulation.setRunning(true))))
   server.createContext("/api/pause", exchange => json(exchange, Json.render(simulation.setRunning(false))))
   server.createContext("/api/reset", exchange => json(exchange, Json.render(simulation.reset())))
   server.createContext("/api/configure", exchange => json(exchange, Json.render(configure(exchange))))
   server.createContext("/api/burst", exchange => json(exchange, Json.render(burst(exchange))))
+  server.createContext("/api/battle/start", exchange => json(exchange, Json.render(simulation.startBattle())))
+  server.createContext("/api/battle/stop", exchange => json(exchange, Json.render(simulation.stopBattle())))
 
   def start(): Unit =
     server.start()
@@ -234,7 +236,7 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |      }
       |      .sidebar {
       |        display: grid;
-      |        grid-template-rows: auto 1fr;
+      |        grid-template-rows: auto auto 1fr;
       |        gap: 12px;
       |        padding: 16px;
       |        overflow: hidden;
@@ -274,6 +276,58 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |      .event[data-kind="conflict"] { border-left-color: var(--accent); }
       |      .event[data-kind="lock"] { border-left-color: var(--accent-2); }
       |      .event[data-kind="burst"] { border-left-color: #ffd15c; }
+      |      .event[data-kind="battle"] { border-left-color: #ff4e50; }
+      |      .event[data-kind="conquer"] { border-left-color: #ff4e50; }
+      |      .event[data-kind="defend"] { border-left-color: #6ab8ff; }
+      |      .event[data-kind="victory"] { border-left-color: #ffd15c; background: rgba(255,209,92,0.12); }
+      |      .event[data-kind="stalemate"] { border-left-color: #8797ab; }
+      |      .race-board {
+      |        display: grid;
+      |        gap: 6px;
+      |      }
+      |      .race-row {
+      |        display: grid;
+      |        grid-template-columns: 28px 1fr auto;
+      |        align-items: center;
+      |        gap: 8px;
+      |        font-size: 0.8rem;
+      |      }
+      |      .race-row .swatch {
+      |        width: 20px;
+      |        height: 20px;
+      |        border-radius: 5px;
+      |        border: 1px solid rgba(255,255,255,0.15);
+      |      }
+      |      .race-row .bar {
+      |        position: relative;
+      |        height: 8px;
+      |        border-radius: 4px;
+      |        background: rgba(255,255,255,0.06);
+      |        overflow: hidden;
+      |      }
+      |      .race-row .bar-fill {
+      |        position: absolute;
+      |        inset: 0 auto 0 0;
+      |        border-radius: 4px;
+      |        transition: width 260ms ease;
+      |      }
+      |      .race-row .count {
+      |        font-variant-numeric: tabular-nums;
+      |        color: var(--muted);
+      |      }
+      |      .race-row.winner .count { color: #ffd15c; font-weight: 600; }
+      |      .mode-chip {
+      |        font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+      |        font-size: 0.7rem;
+      |        padding: 3px 9px;
+      |        border-radius: 999px;
+      |        border: 1px solid var(--line);
+      |        background: rgba(255,255,255,0.04);
+      |        color: var(--muted);
+      |        margin-left: 8px;
+      |      }
+      |      .mode-chip.battle { background: rgba(255,78,80,0.15); border-color: rgba(255,78,80,0.3); color: #ffadad; }
+      |      body.mode-battle .canvas-shell { box-shadow: inset 0 0 0 1px rgba(255,78,80,0.35); }
       |      .event strong {
       |        text-transform: uppercase;
       |        font-size: 0.7rem;
@@ -294,8 +348,8 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |      <section class="panel canvas-shell">
       |        <header class="title">
       |          <div>
-      |            <h1>Parapet · Distributed Graph Lab</h1>
-      |            <div class="sub">Randomized graph coloring in 3D. Drag to orbit, scroll to zoom, right-click to pan. Spawn "burst" sub-clusters at runtime.</div>
+      |            <h1>Parapet · Distributed Graph Lab<span class="mode-chip" id="mode-chip">coloring</span></h1>
+      |            <div class="sub">Randomized graph coloring in 3D. Drag to orbit, scroll to zoom, right-click to pan. Spawn clusters, then start the battle.</div>
       |          </div>
       |          <div class="chip" id="graph-id">—</div>
       |        </header>
@@ -325,6 +379,8 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |          </div>
       |          <button class="accent" id="burst-btn">Spawn Cluster</button>
       |          <button class="toggle" id="auto-burst-btn" aria-pressed="false">Auto Spawn</button>
+      |          <span style="width: 6px;"></span>
+      |          <button class="toggle" id="battle-btn" aria-pressed="false">Start Battle</button>
       |        </div>
       |        <div class="stats">
       |          <div class="stat"><div class="label">Round</div><div class="value" id="round-value">0</div></div>
@@ -332,6 +388,7 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |          <div class="stat"><div class="label">Conflicts</div><div class="value" id="conflicts-value">0</div></div>
       |          <div class="stat"><div class="label">Processes</div><div class="value" id="nodes-value">0</div></div>
       |          <div class="stat"><div class="label">Clusters</div><div class="value" id="clusters-value">0</div></div>
+      |          <div class="stat"><div class="label">Locked</div><div class="value" id="locked-value">0</div></div>
       |          <div class="stat"><div class="label">Palette</div><div class="value" id="palette-value">0</div></div>
       |        </div>
       |        <div class="graph-shell" id="graph-shell">
@@ -343,6 +400,10 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |        <section>
       |          <h2>Status</h2>
       |          <div class="status-card" id="status-copy">Waiting for state…</div>
+      |        </section>
+      |        <section>
+      |          <h2>Races</h2>
+      |          <div class="status-card race-board" id="race-board"></div>
       |        </section>
       |        <section>
       |          <h2>Events</h2>
@@ -363,6 +424,7 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |const CONFLICT  = 0xff5a8b;
       |const PULSE_MS  = 1400;
       |const POLL_MS   = 650;
+      |const MAX_CONQUESTS = 3;
       |
       |const nodeMap = new Map();
       |const linkMap = new Map();
@@ -371,6 +433,7 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |let autoRunTimer = null;
       |let autoBurstTimer = null;
       |let suppressAutoFit = false;
+      |let currentMode = 'coloring';
       |
       |function linkKey(a, b) { return a < b ? `${a}::${b}` : `${b}::${a}`; }
       |function toHex(value) { return '#' + (value >>> 0).toString(16).padStart(6, '0'); }
@@ -385,14 +448,21 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |}
       |
       |function baseColor(n) {
-      |  if (n.conflict) return CONFLICT;
+      |  if (n.conflict && currentMode !== 'battle') return CONFLICT;
       |  if (n.color == null) return UNCOLORED;
       |  return palette[n.color % palette.length];
+      |}
+      |
+      |function isExhausted(n) {
+      |  return currentMode === 'battle' && (n.conquests != null) && n.conquests >= MAX_CONQUESTS;
       |}
       |
       |function visualColor(n) {
       |  if (n.__pulse && n.__pulse > 0) {
       |    return blend(baseColor(n), 0xffffff, Math.min(1, n.__pulse));
+      |  }
+      |  if (isExhausted(n)) {
+      |    return blend(baseColor(n), 0x000000, 0.35);
       |  }
       |  return baseColor(n);
       |}
@@ -420,13 +490,18 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |    .nodeLabel(n => {
       |      const clr = n.color == null ? '—' : 'c' + n.color;
       |      const cid = n.clusterId != null ? ' · k' + n.clusterId : '';
-      |      return '<div style="font-family: ui-monospace, monospace; font-size: 12px; padding: 4px 8px; background: rgba(5,7,13,0.85); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e8eef5;"><strong>' + n.id + '</strong> · ' + clr + cid + (n.conflict ? ' · conflict' : '') + '</div>';
+      |      let conq = '';
+      |      if (currentMode === 'battle' && n.conquests != null) {
+      |        conq = n.conquests >= MAX_CONQUESTS ? ' · locked' : (n.conquests > 0 ? ` · ${n.conquests}/${MAX_CONQUESTS} wounds` : '');
+      |      }
+      |      return '<div style="font-family: ui-monospace, monospace; font-size: 12px; padding: 4px 8px; background: rgba(5,7,13,0.85); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #e8eef5;"><strong>' + n.id + '</strong> · ' + clr + cid + conq + (n.conflict ? ' · conflict' : '') + '</div>';
       |    })
       |    .nodeColor(n => toHex(visualColor(n)))
       |    .nodeVal(n => {
       |      const base = n.conflict ? 5 : 2.2;
+      |      const locked = isExhausted(n) ? 1.4 : 0;
       |      const pulse = n.__pulse ? 26 * n.__pulse : 0;
-      |      return base + pulse;
+      |      return base + locked + pulse;
       |    })
       |    .d3AlphaDecay(0.035)
       |    .d3VelocityDecay(0.32)
@@ -481,6 +556,19 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |
       |function applyState(state) {
       |  if (!ensureGraph()) return;
+      |  currentMode = state.mode || 'coloring';
+      |  document.body.classList.toggle('mode-battle', currentMode === 'battle');
+      |  const modeChip = document.getElementById('mode-chip');
+      |  if (modeChip) {
+      |    modeChip.textContent = currentMode;
+      |    modeChip.classList.toggle('battle', currentMode === 'battle');
+      |  }
+      |  const battleBtn = document.getElementById('battle-btn');
+      |  if (battleBtn) {
+      |    const isBattle = currentMode === 'battle';
+      |    battleBtn.setAttribute('aria-pressed', isBattle ? 'true' : 'false');
+      |    battleBtn.textContent = isBattle ? 'Stop Battle' : 'Start Battle';
+      |  }
       |  const incomingIds = new Set(state.nodes.map(n => n.id));
       |
       |  [...nodeMap.keys()].forEach(id => {
@@ -502,12 +590,17 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |      nodeMap.set(remote.id, node);
       |      freshNodes.push(node);
       |    }
+      |    const prevColor = node.color;
       |    node.color = remote.color;
       |    node.proposedColor = remote.proposedColor;
       |    node.conflict = remote.conflict;
       |    node.status = remote.status;
       |    node.neighbors = remote.neighbors;
       |    node.clusterId = remote.clusterId != null ? remote.clusterId : 0;
+      |    node.conquests = remote.conquests != null ? remote.conquests : 0;
+      |    if (state.mode === 'battle' && prevColor != null && prevColor !== node.color) {
+      |      node.__spawnAt = performance.now();
+      |    }
       |  });
       |
       |  const wantedKeys = new Set();
@@ -548,6 +641,7 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |  renderStats(state);
       |  renderEvents(state);
       |  renderLegend(state);
+      |  renderRaces(state);
       |}
       |
       |function renderStats(state) {
@@ -558,16 +652,54 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |  document.getElementById('palette-value').textContent = state.paletteSize;
       |  document.getElementById('nodes-value').textContent = state.nodeCount;
       |  document.getElementById('clusters-value').textContent = (state.clusters || []).length;
+      |  const lockedCount = state.mode === 'battle'
+      |    ? state.nodes.filter(n => (n.conquests || 0) >= MAX_CONQUESTS).length
+      |    : 0;
+      |  document.getElementById('locked-value').textContent = lockedCount;
       |  const nodesInput = document.getElementById('nodes-input');
       |  const colorsInput = document.getElementById('colors-input');
       |  if (document.activeElement !== nodesInput) nodesInput.value = state.nodeCount;
       |  if (document.activeElement !== colorsInput) colorsInput.value = state.paletteSize;
-      |  const status = state.completed
-      |    ? `Colored in ${state.round} rounds with ${state.nodeCount} processes.`
-      |    : state.running
-      |      ? 'Auto-run active. Drag to orbit · wheel to zoom · right-click to pan.'
-      |      : 'Paused. Hit Step, Auto Run, or trigger a Burst.';
+      |  let status;
+      |  if (state.mode === 'battle') {
+      |    if (state.completed) {
+      |      const victor = state.victor != null ? ('c' + state.victor) : 'the void';
+      |      status = `Conquest complete after ${state.round} rounds — ${victor} reigns.`;
+      |    } else if (state.running) {
+      |      status = `Battle in progress · round ${state.round}. Survive by having ≥2 same-color neighbors.`;
+      |    } else {
+      |      status = `Battle paused at round ${state.round}. Step manually or resume Auto Run.`;
+      |    }
+      |  } else {
+      |    status = state.completed
+      |      ? `Colored in ${state.round} rounds with ${state.nodeCount} processes.`
+      |      : state.running
+      |        ? 'Auto-run active. Drag to orbit · wheel to zoom · right-click to pan.'
+      |        : 'Paused. Hit Step, Auto Run, Spawn Cluster, or Start Battle.';
+      |  }
       |  document.getElementById('status-copy').textContent = status;
+      |}
+      |
+      |function renderRaces(state) {
+      |  const root = document.getElementById('race-board');
+      |  const races = (state.races || []).slice().sort((a, b) => b.size - a.size || a.color - b.color);
+      |  if (races.length === 0) {
+      |    root.innerHTML = '<div style="color: var(--muted); font-size: 0.8rem;">No colored processes yet.</div>';
+      |    return;
+      |  }
+      |  const total = races.reduce((acc, r) => acc + r.size, 0) || 1;
+      |  const top = races[0] ? races[0].size : 0;
+      |  root.innerHTML = races.map(race => {
+      |    const color = toHex(palette[race.color % palette.length]);
+      |    const pct = Math.round((race.size / total) * 100);
+      |    const width = Math.max(2, (race.size / Math.max(top, 1)) * 100);
+      |    const isWinner = state.mode === 'battle' && state.completed && state.victor === race.color;
+      |    return `<div class="race-row${isWinner ? ' winner' : ''}">
+      |      <span class="swatch" style="background: ${color}"></span>
+      |      <div class="bar"><div class="bar-fill" style="width: ${width}%; background: ${color}"></div></div>
+      |      <span class="count">c${race.color} · ${race.size} · ${pct}%</span>
+      |    </div>`;
+      |  }).join('');
       |}
       |
       |function renderEvents(state) {
@@ -587,6 +719,9 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |  cells.push(`<span><span class="dot" style="background: ${toHex(UNCOLORED)}"></span>uncolored</span>`);
       |  cells.push(`<span><span class="dot" style="background: ${toHex(CONFLICT)}"></span>conflict</span>`);
       |  cells.push('<span><span class="dot" style="background: #ffd15c"></span>cluster bridge</span>');
+      |  if (state.mode === 'battle') {
+      |    cells.push('<span><span class="dot" style="background: #3a3a3a; border: 1px solid #888;"></span>locked (' + MAX_CONQUESTS + '×)</span>');
+      |  }
       |  root.innerHTML = cells.join('');
       |}
       |
@@ -599,7 +734,8 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |  autoRunTimer = setInterval(async () => {
       |    const state = await callPost('/api/step');
       |    applyState(state);
-      |    if (state.completed && autoBurstTimer == null) stopAutoRun();
+      |    const shouldStop = state.completed && (state.mode === 'battle' || autoBurstTimer == null);
+      |    if (shouldStop) stopAutoRun();
       |  }, POLL_MS);
       |}
       |
@@ -673,6 +809,13 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |  applyState(await callPost(`/api/burst?size=${encodeURIComponent(size)}&bridges=${encodeURIComponent(bridges)}`));
       |});
       |document.getElementById('auto-burst-btn').addEventListener('click', toggleAutoBurst);
+      |document.getElementById('battle-btn').addEventListener('click', async () => {
+      |  const isBattle = currentMode === 'battle';
+      |  stopAutoRun();
+      |  const endpoint = isBattle ? '/api/battle/stop' : '/api/battle/start';
+      |  applyState(await callPost(endpoint));
+      |  if (!isBattle) startAutoRun();
+      |});
       |
       |refresh();
       |""".stripMargin

@@ -5,6 +5,12 @@ enum ColoringNodeStatus derives CanEqual:
   case Proposing
   case Locked
 
+enum GameMode derives CanEqual:
+  case Coloring
+  case Battle
+
+final case class RaceStat(color: Int, size: Int)
+
 final case class ColoringNodeState(
     id: String,
     x: Double,
@@ -14,7 +20,8 @@ final case class ColoringNodeState(
     color: Option[Int] = None,
     proposedColor: Option[Int] = None,
     conflict: Boolean = false,
-    clusterId: Int = 0
+    clusterId: Int = 0,
+    conquests: Int = 0
 )
 
 final case class ClusterSummary(id: Int, size: Int)
@@ -47,5 +54,8 @@ final case class DemoState(
     nodes: Vector[ColoringNodeState],
     cluster: Vector[ClusterNodeState],
     events: Vector[DemoEvent],
-    clusters: Vector[ClusterSummary] = Vector.empty
+    clusters: Vector[ClusterSummary] = Vector.empty,
+    mode: GameMode = GameMode.Coloring,
+    races: Vector[RaceStat] = Vector.empty,
+    victor: Option[Int] = None
 )

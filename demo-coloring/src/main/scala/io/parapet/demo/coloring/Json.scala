@@ -15,7 +15,10 @@ object Json:
       "nodes" -> arr(state.nodes.map(renderNode)),
       "cluster" -> arr(state.cluster.map(renderClusterNode)),
       "events" -> arr(state.events.map(renderEvent)),
-      "clusters" -> arr(state.clusters.map(renderClusterSummary))
+      "clusters" -> arr(state.clusters.map(renderClusterSummary)),
+      "mode" -> string(state.mode.toString.toLowerCase),
+      "races" -> arr(state.races.map(renderRace)),
+      "victor" -> optNum(state.victor)
     )
 
   private def renderNode(node: ColoringNodeState): String =
@@ -28,13 +31,20 @@ object Json:
       "color" -> optNum(node.color),
       "proposedColor" -> optNum(node.proposedColor),
       "conflict" -> bool(node.conflict),
-      "clusterId" -> num(node.clusterId)
+      "clusterId" -> num(node.clusterId),
+      "conquests" -> num(node.conquests)
     )
 
   private def renderClusterSummary(summary: ClusterSummary): String =
     obj(
       "id" -> num(summary.id),
       "size" -> num(summary.size)
+    )
+
+  private def renderRace(stat: RaceStat): String =
+    obj(
+      "color" -> num(stat.color),
+      "size" -> num(stat.size)
     )
 
   private def renderClusterNode(node: ClusterNodeState): String =
