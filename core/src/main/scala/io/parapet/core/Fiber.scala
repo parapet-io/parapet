@@ -1,31 +1,42 @@
 package io.parapet.core
 
-import cats.Id
 import io.parapet.core.Dsl.{DslF, WithDsl}
+import io.parapet.effect.EffectFiber
 
-trait Fiber[F[_], A] {
-
+/** Handle to a forked, concurrently-running [[Dsl]] computation.
+  *
+  * Returned from [[Dsl.FlowOps.fork]]. Use [[join]] to await its result, or [[cancel]] to
+  * stop it before completion.
+  */
+trait Fiber[F[_], A]:
+  /** Suspends until the fiber completes and returns its result. */
   def join: DslF[F, A]
 
+  /** Requests cancellation. Idempotent. */
   def cancel: DslF[F, Unit]
-}
 
-object Fiber {
-  class CatsEffect[F[_], A](f: cats.effect.Fiber[F, A]) extends Fiber[F, A] with WithDsl[F] {
+/** [[Fiber]] implementations. */
+object Fiber:
+  /** A real concurrent [[Fiber]] backed by an [[EffectFiber]] from the underlying effect
+    * runtime.
+    */
+  final class RuntimeFiber[F[_], A](fiber: EffectFiber[F, A]) extends Fiber[F, A] with WithDsl[F]:
+    import dsl.*
 
-    import dsl._
+    def join: DslF[F, A] =
+      suspend(fiber.join)
 
-    override def join: DslF[F, A] = suspend(f.join)
+    def cancel: DslF[F, Unit] =
+      suspend(fiber.cancel)
 
-    override def cancel: DslF[F, Unit] = suspend(f.cancel)
-  }
+  /** A trivial fiber that wraps an already-known value; used by the `Id` interpreter where
+    * fork is degenerate.
+    */
+  final class IdFiber[A](value: A) extends Fiber[[x] =>> x, A] with WithDsl[[x] =>> x]:
+    import dsl.*
 
-  class IdFiber[A](a: Id[A]) extends Fiber[Id, A] with WithDsl[Id] {
+    def join: DslF[[x] =>> x, A] =
+      pure(value)
 
-    import dsl._
-
-    override def join: DslF[Id, A] = pure(a)
-
-    override def cancel: DslF[Id, Unit] = unit
-  }
-}
+    def cancel: DslF[[x] =>> x, Unit] =
+      unit

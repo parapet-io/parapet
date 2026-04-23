@@ -1,15 +1,14 @@
 package io.parapet.core
 
-import cats.effect.IO
 import io.parapet.core.Dsl.FlowOps
+import io.parapet.effect.ParIO
 import org.scalatest.funsuite.AnyFunSuite
 
-class ImplicitDslSpec extends AnyFunSuite {
+class ImplicitDslSpec extends AnyFunSuite:
+  def summonDsl[F[_]](using FlowOps.Aux[F]): FlowOps.Aux[F] =
+    summon[FlowOps.Aux[F]]
 
-  def implicitDsl[F[_] : FlowOps.Aux]: FlowOps.Aux[F] = implicitly[FlowOps.Aux[F]]
-
-  test("find dsl instance") {
-    implicitDsl[IO]
-    implicitDsl[cats.Eval]
+  test("find DSL instances for built-in effects") {
+    summonDsl[ParIO]
+    summonDsl[TestUtils.Id]
   }
-}

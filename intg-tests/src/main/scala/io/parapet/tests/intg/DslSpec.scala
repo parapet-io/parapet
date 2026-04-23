@@ -226,7 +226,7 @@ abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
         })
         unsafeRun(eventStore.await(5, createApp(ct.pure(Seq(process))).run))
 
-        eventStore.get(process.ref) shouldBe (5 to 1 by -1).map(IntEvent)
+        eventStore.get(process.ref) shouldBe (5 to 1 by -1).map(IntEvent.apply)
 
       }
     }
@@ -282,7 +282,7 @@ abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
         val process: Process[F] = Process[F](ref => {
           case Start =>
-            handleError(failure, err => eval(eventStore.add(ref, Response(err))))
+            failure.handleError((err: Throwable) => eval(eventStore.add(ref, Response(err))))
         })
         unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
 

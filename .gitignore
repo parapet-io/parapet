@@ -8,6 +8,10 @@ project/project
 project/target
 project/build.properties
 site/node_modules
+.bsp
+.coursier
+.ivy2
+.sbt
 
 # IntelliJ project files
 *.iml

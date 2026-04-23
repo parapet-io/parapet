@@ -1,31 +1,34 @@
 package io.parapet.core
 
-import cats.effect.Concurrent
 import com.typesafe.scalalogging.StrictLogging
 import io.parapet.Envelope
+import io.parapet.effect.Effect
 
-/** Persistent storage for events that were rejected due to backpressure.
+/** Spillover sink for envelopes that the runtime cannot deliver because a process's
+  * mailbox is full.
   *
-  * @tparam F effect
+  * Implementations may persist to disk, replay later, or simply log the drop. The default
+  * is [[EventStore.Stub]] which logs at debug.
   */
-trait EventStore[F[_]] {
+trait EventStore[F[_]]:
+  /** Persists or otherwise records a rejected envelope. */
+  def write(envelope: Envelope): F[Unit]
 
-  def write(e: Envelope): F[Unit]
-
+  /** Returns previously written envelopes (for replay scenarios). */
   def read: F[Seq[Envelope]]
 
-}
+/** Built-in [[EventStore]] implementations. */
+object EventStore:
+  /** No-op [[EventStore]]. Logs each dropped envelope at debug and never returns anything
+    * from [[read]]. Suitable for development and tests.
+    */
+  final class Stub[F[_]](using effect: Effect[F]) extends EventStore[F] with StrictLogging:
+    def write(envelope: Envelope): F[Unit] =
+      effect.delay(logger.debug(s"event queue is full. drop event: $envelope"))
 
-object EventStore {
+    def read: F[Seq[Envelope]] =
+      effect.pure(Seq.empty)
 
-  class Stub[F[_] : Concurrent] extends EventStore[F] with StrictLogging {
-
-    override def write(e: Envelope): F[Unit] =
-      implicitly[Concurrent[F]].delay(logger.debug(s"event queue is full. drop event: $e"))
-
-    override def read: F[Seq[Envelope]] = implicitly[Concurrent[F]].pure(Seq.empty)
-  }
-
-  def stub[F[_] : Concurrent]: EventStore[F] = new Stub()
-
-}
+  /** Returns the singleton stub instance. */
+  def stub[F[_]](using effect: Effect[F]): EventStore[F] =
+    new Stub[F]

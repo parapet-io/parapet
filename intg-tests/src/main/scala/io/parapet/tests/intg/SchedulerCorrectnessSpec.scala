@@ -1,11 +1,10 @@
 package io.parapet.tests.intg
 
-import cats.effect.Concurrent
-import cats.implicits._
 import io.parapet.core.Scheduler._
 import io.parapet.core.{Context, EventTransformers, ExecutionTrace, Parapet, Process, Scheduler}
-import io.parapet.implicits._
-import io.parapet.syntax.logger.MDCFields
+import io.parapet.effect.Effect
+import io.parapet.effect.Monad.*
+import io.parapet.syntax.logger.*
 import io.parapet.tests.intg.SchedulerCorrectnessSpec.TaskProcessingTime._
 import io.parapet.tests.intg.SchedulerCorrectnessSpec._
 import io.parapet.testutils.EventStore
@@ -192,7 +191,7 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with Integrati
 
       val program = for {
         context <- Context[F](Parapet.ParConfig(processBufferSize = -1,
-          schedulerConfig = spec.config), io.parapet.core.EventStore.stub, EventTransformers.empty)(ct, contextShift)
+          schedulerConfig = spec.config), io.parapet.core.EventStore.stub, EventTransformers.empty)
         scheduler <- Scheduler[F](spec.config, context, interpreter(context))
         fiber <- ct.start(scheduler.start)
         _ <- context.start(scheduler)
@@ -269,10 +268,8 @@ object SchedulerCorrectnessSpec {
     }
   }
 
-  def submitAll[F[_] : Concurrent](scheduler: Scheduler[F], tasks: Seq[Task[F]]): F[Unit] = {
-    val ct = implicitly[Concurrent[F]]
-    tasks.map(t => scheduler.submit(t).void).foldLeft(ct.unit)(_ >> _)
-  }
+  def submitAll[F[_]](scheduler: Scheduler[F], tasks: Seq[Task[F]])(using effect: Effect[F]): F[Unit] =
+    tasks.map(t => scheduler.submit(t).void).foldLeft(effect.pure(()))(_ >> _)
 
   @tailrec
   def assertEventsOrder(events: Seq[TestEvent]): Unit = {

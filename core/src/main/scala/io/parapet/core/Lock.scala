@@ -1,49 +1,56 @@
 package io.parapet.core
 
-import cats.effect.Concurrent
-import cats.effect.concurrent.{MVar, Semaphore}
-import cats.effect.syntax.bracket._
-import cats.syntax.flatMap._
-import cats.syntax.functor._
+import io.parapet.effect.Effect
 
-trait Lock[F[_]] {
+import java.util.concurrent.Semaphore
 
+/** A binary mutex over the effect type `F`.
+  *
+  * Backed by a single-permit `java.util.concurrent.Semaphore`. The acquiring fiber may
+  * block on the underlying thread when no permit is available — implementations dispatch
+  * the wait through [[Effect.blocking]] so it does not stall a scheduler worker.
+  */
+trait Lock[F[_]]:
+  /** Suspends until the permit is acquired. */
   def acquire: F[Unit]
 
+  /** Non-blocking attempt to acquire the permit. Returns `true` on success. */
   def tryAcquire: F[Boolean]
 
+  /** Releases the permit. Calling without a prior successful acquire is undefined. */
   def release: F[Unit]
 
-  def withPermit[A](body: => F[A])(implicit ct: Concurrent[F]): F[A] =
-    (acquire >> body).guaranteeCase(_ => release)
-
+  /** Returns `true` while the lock is held. */
   def isAcquired: F[Boolean]
 
-}
+  /** Runs `body` while holding the lock and releases it afterwards regardless of success
+    * or failure.
+    */
+  def withPermit[A](body: => F[A])(using effect: Effect[F]): F[A] =
+    effect.guarantee(acquire.flatMap(_ => body))(release)
 
-object Lock {
-  def apply[F[_]: Concurrent]: F[Lock[F]] = Semaphore(1).map { s =>
-    new Lock[F] {
-      override def acquire: F[Unit] = s.acquire
+/** [[Lock]] factory. */
+object Lock:
+  /** Allocates a fresh `Lock` in `F`. */
+  def apply[F[_]]()(using effect: Effect[F]): F[Lock[F]] =
+    effect.delay {
+      val semaphore = new Semaphore(1)
+      new Lock[F]:
+        def acquire: F[Unit] =
+          effect.blocking {
+            semaphore.acquire()
+            ()
+          }
 
-      override def release: F[Unit] = s.release
+        def tryAcquire: F[Boolean] =
+          effect.delay(semaphore.tryAcquire())
 
-      override def tryAcquire: F[Boolean] = s.tryAcquire
+        def release: F[Unit] =
+          effect.delay {
+            semaphore.release()
+            ()
+          }
 
-      override def isAcquired: F[Boolean] = s.available.map(_ == 1)
+        def isAcquired: F[Boolean] =
+          effect.delay(semaphore.availablePermits() == 0)
     }
-  }
-
-  def mvar[F[_]: Concurrent]: F[Lock[F]] = MVar.of[F, Unit](()).map { s =>
-    new Lock[F] {
-      override def acquire: F[Unit] = s.take
-
-      override def release: F[Unit] = s.put(())
-
-      override def tryAcquire: F[Boolean] = s.tryTake.map(_.isDefined)
-
-      override def isAcquired: F[Boolean] = s.isEmpty
-    }
-  }
-
-}

@@ -1,90 +1,74 @@
 package io.parapet.core
 
-import cats.Monad
-import cats.effect.{Concurrent, ContextShift}
-import cats.syntax.flatMap._
-import cats.syntax.functor._
-import io.parapet.core.Queue.{Dequeue, Enqueue}
-import monix.catnap.ConcurrentQueue
-import monix.execution.BufferCapacity.{Bounded, Unbounded}
+import io.parapet.effect.{Effect, Monad}
 
-trait Queue[F[_], A] extends Enqueue[F, A] with Dequeue[F, A]
+import java.util.concurrent.{ArrayBlockingQueue, BlockingQueue, LinkedBlockingQueue}
 
-object Queue {
+/** Asynchronous FIFO queue over the effect type `F`.
+  *
+  * Combines an [[Queue.Enqueue]] producer side with a [[Queue.Dequeue]] consumer side.
+  * Used for process mailboxes and the scheduler's signal queue.
+  */
+trait Queue[F[_], A] extends Queue.Enqueue[F, A] with Queue.Dequeue[F, A]
 
-  sealed trait ChannelType
-  object ChannelType {
-    case object MPMC extends ChannelType
-    case object MPSC extends ChannelType
-    case object SPMC extends ChannelType
-    case object SPSC extends ChannelType
-  }
+/** [[Queue]] type-class members and built-in implementations. */
+object Queue:
+  /** Hint describing the expected concurrency pattern. Implementations may use this to
+    * pick a more efficient backing structure (e.g., SPSC ring buffer for single-producer/
+    * single-consumer mailboxes).
+    *
+    * The default JDK-backed [[JdkQueue]] ignores this hint.
+    */
+  enum ChannelType:
+    case MPMC, MPSC, SPMC, SPSC
 
-  trait Enqueue[F[_], A] {
-    def enqueue(a: A): F[Unit]
+  /** Producer-side interface. */
+  trait Enqueue[F[_], A]:
+    /** Suspends until `value` can be added. */
+    def enqueue(value: A): F[Unit]
 
-    def enqueueAll(elements: Seq[A])(implicit M: Monad[F]): F[Unit] =
-      elements.map(e => enqueue(e)).foldLeft(M.unit)(_ >> _)
+    /** Non-blocking attempt to add `value`; returns `false` when the queue is full. */
+    def tryEnqueue(value: A): F[Boolean]
 
-    def tryEnqueue(a: A): F[Boolean]
+    /** Convenience: enqueues each element of `values` in order, awaiting each. */
+    def enqueueAll(values: Seq[A])(using monad: Monad[F]): F[Unit] =
+      Monad.sequenceDiscard(values.map(enqueue))
 
-  }
-
-  trait Dequeue[F[_], A] {
+  /** Consumer-side interface. */
+  trait Dequeue[F[_], A]:
+    /** Suspends until an element is available. */
     def dequeue: F[A]
 
+    /** Non-blocking attempt to take an element; returns `None` when empty. */
     def tryDequeue: F[Option[A]]
 
-    def dequeueThrough[B](f: A => F[B])(implicit M: Monad[F]): F[B] =
-      implicitly[Monad[F]].flatMap(dequeue)(a => f(a))
-  }
+    /** Dequeues one element and pipes it through `f`. */
+    def dequeueThrough[B](f: A => F[B])(using monad: Monad[F]): F[B] =
+      dequeue.flatMap(f)
 
-  class MonixBasedQueue[F[_]: Concurrent, A](q: ConcurrentQueue[F, A]) extends Queue[F, A] {
-    val ct: Concurrent[F] = implicitly[Concurrent[F]]
-
-    override def dequeue: F[A] = q.poll
-
-    override def tryDequeue: F[Option[A]] = q.tryPoll
-
-    override def enqueue(a: A): F[Unit] = q.offer(a)
-
-    override def tryEnqueue(a: A): F[Boolean] = q.tryOffer(a)
-  }
-
-  object MonixBasedQueue {
-
-    def toMonix(ct: ChannelType): monix.execution.ChannelType =
-      ct match {
-        case ChannelType.MPMC => monix.execution.ChannelType.MPMC
-        case ChannelType.MPSC => monix.execution.ChannelType.MPSC
-        case ChannelType.SPMC => monix.execution.ChannelType.SPMC
-        case ChannelType.SPSC => monix.execution.ChannelType.SPSC
+  /** [[Queue]] adapter over a JDK [[java.util.concurrent.BlockingQueue]]. Blocking
+    * enqueue/dequeue is dispatched through [[Effect.blocking]].
+    */
+  final class JdkQueue[F[_], A](queue: BlockingQueue[A])(using effect: Effect[F]) extends Queue[F, A]:
+    def enqueue(value: A): F[Unit] =
+      effect.blocking {
+        queue.put(value)
+        ()
       }
 
-    def bounded[F[_]: Concurrent: ContextShift, A](capacity: Int, channelType: ChannelType): F[Queue[F, A]] =
-      for {
-        q <- ConcurrentQueue[F].withConfig[A](
-          capacity = Bounded(capacity),
-          channelType = toMonix(channelType),
-        )
-      } yield new MonixBasedQueue[F, A](q)
+    def tryEnqueue(value: A): F[Boolean] =
+      effect.delay(queue.offer(value))
 
-    def unbounded[F[_]: Concurrent: ContextShift, A](channelType: ChannelType): F[Queue[F, A]] =
-      for {
-        q <- ConcurrentQueue[F].withConfig[A](
-          capacity = Unbounded(),
-          channelType = toMonix(channelType),
-        )
-      } yield new MonixBasedQueue[F, A](q)
-  }
+    def dequeue: F[A] =
+      effect.blocking(queue.take())
 
-  def bounded[F[_]: Concurrent: ContextShift, A](
-      capacity: Int,
-      channelType: ChannelType = ChannelType.MPMC,
-  ): F[Queue[F, A]] =
-    MonixBasedQueue.bounded(capacity, channelType)
+    def tryDequeue: F[Option[A]] =
+      effect.delay(Option(queue.poll()))
 
-  def unbounded[F[_]: Concurrent: ContextShift, A](channelType: ChannelType = ChannelType.MPMC): F[Queue[F, A]] =
-    MonixBasedQueue.unbounded(channelType)
+  /** Bounded [[Queue]] backed by [[java.util.concurrent.ArrayBlockingQueue]]. */
+  def bounded[F[_], A](capacity: Int, channelType: ChannelType = ChannelType.MPMC)(using effect: Effect[F]): F[Queue[F, A]] =
+    effect.delay(new JdkQueue[F, A](new ArrayBlockingQueue[A](capacity)))
 
-}
+  /** Unbounded [[Queue]] backed by [[java.util.concurrent.LinkedBlockingQueue]]. */
+  def unbounded[F[_], A](channelType: ChannelType = ChannelType.MPMC)(using effect: Effect[F]): F[Queue[F, A]] =
+    effect.delay(new JdkQueue[F, A](new LinkedBlockingQueue[A]()))

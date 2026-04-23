@@ -1,37 +1,30 @@
 package io.parapet.core
 
-import cats.effect.{ContextShift, IO, Timer}
-import org.scalatest.flatspec.AnyFlatSpec
-import org.scalatest.matchers.should.Matchers._
+import io.parapet.effect.ParIO
+import org.scalatest.funsuite.AnyFunSuite
+import org.scalatest.matchers.should.Matchers.*
 
-import scala.concurrent.ExecutionContext.Implicits.global
+class LockSpec extends AnyFunSuite:
+  private given io.parapet.effect.Effect[ParIO] = ParIO.effect
 
-class LockSpec extends AnyFlatSpec {
-
-
-  private implicit val ctx: ContextShift[IO] = IO.contextShift(global)
-  private implicit val timer: Timer[IO] = IO.timer(global)
-
-  "Lock" should "be released" in {
-    val program = for {
-      lock <- Lock[IO]
-      _ <- lock.withPermit(IO.unit)
-      acquired <- lock.tryAcquire
-    } yield acquired
+  test("lock is released after success") {
+    val program =
+      for
+        lock <- Lock[ParIO]()
+        _ <- lock.withPermit(ParIO.unit)
+        acquired <- lock.tryAcquire
+      yield acquired
 
     program.unsafeRunSync() shouldBe true
-
   }
 
-  "Failed operation" should "be released" in {
-    val program = for {
-      lock <- Lock[IO]
-      _ <- lock.withPermit(IO.raiseError(new RuntimeException("error"))).handleErrorWith(_ => IO.unit)
-      acquired <- lock.tryAcquire
-    } yield acquired
+  test("lock is released after failure") {
+    val program =
+      for
+        lock <- Lock[ParIO]()
+        _ <- lock.withPermit(ParIO.raiseError(new RuntimeException("error"))).handleErrorWith(_ => ParIO.unit)
+        acquired <- lock.tryAcquire
+      yield acquired
 
     program.unsafeRunSync() shouldBe true
-
   }
-
-}

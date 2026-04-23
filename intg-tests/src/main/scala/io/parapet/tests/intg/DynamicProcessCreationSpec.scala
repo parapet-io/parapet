@@ -1,6 +1,5 @@
 package io.parapet.tests.intg
 
-import cats.implicits._
 import io.parapet.core.Events.Start
 import io.parapet.core.Process
 import io.parapet.tests.intg.DynamicProcessCreationSpec._
@@ -72,7 +71,7 @@ object DynamicProcessCreationSpec {
 
     override def handle: Receive = {
       case Start =>
-        (0 until workersCount).map(i => register(ref, new Worker(i, db, tasksCount, eventStore)).void).fold(unit)(_ ++ _)
+        (0 until workersCount).map(i => register(ref, new Worker(i, db, tasksCount, eventStore)).map(_ => ())).fold(unit)(_ ++ _)
     }
   }
 

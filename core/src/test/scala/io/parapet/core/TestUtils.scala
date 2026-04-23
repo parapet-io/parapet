@@ -1,159 +1,106 @@
 package io.parapet.core
 
-import cats.effect.{CancelToken, Concurrent, ExitCase, Fiber}
-import cats.{Id, Monad, ~>}
-import io.parapet.core.Dsl.{Delay, Dsl, Eval, FlowOp, Fork, RaiseError, Send, SuspendF, UnitFlow}
+import io.parapet.core.Dsl.*
+import io.parapet.effect.Monad
+import io.parapet.free.FunctionK
 import io.parapet.{Event, ProcessRef}
-import cats.{Eval => CatsEval}
 
 import scala.collection.mutable.ListBuffer
 
-object TestUtils {
+object TestUtils:
+  type Id[A] = A
 
-  case class Message(e: Event, target: ProcessRef)
+  given Monad[Id] with
+    def pure[A](value: A): A = value
 
-  class Execution(val trace: ListBuffer[Message] = ListBuffer.empty) {
-    override def toString: String = trace.toString()
+    extension [A](fa: A)
+      def flatMap[B](f: A => B): B = f(fa)
 
-    def print(): Unit = {
-      val margin = "=" * 20
-      val title = " TRACE "
-      println(trace.zipWithIndex.foldLeft(new StringBuilder("\n")
-        .append(margin)
-        .append(title)
-        .append(margin)
-        .append("\n"))
-      ((b, p) => b.append(s"${p._2}: ${p._1}\n")).append(margin * 2 + "=" * title.length).toString())
-    }
-  }
+  final case class Message(event: Event, target: ProcessRef)
 
-  class IdInterpreter(val execution: Execution, mapper: Event => Event) extends (FlowOp[Id, *] ~> Id) {
+  final class Execution(val trace: ListBuffer[Message] = ListBuffer.empty):
+    override def toString: String =
+      trace.toString()
 
-    override def apply[A](fa: FlowOp[Id, A]): Id[A] = {
-      fa match {
-        case f: SuspendF[Id,Dsl[Id, *], A] => f.thunk().foldMap(this)
-        case _: UnitFlow[Id]@unchecked => ()
-        case eval: Eval[Id, Dsl[Id, *], A]@unchecked =>
-          implicitly[Monad[Id]].pure(eval.thunk())
-        case send: Send[Id]@unchecked =>
-          val event = mapper(send.e())
-          execution.trace.append(Message(event, send.receiver))
-          send.receivers.foreach(p => {
-            execution.trace.append(Message(event, p))
-          })
-        case fork: Fork[Id, Dsl[Id, *], A] =>
-          val res = fork.flow.foldMap(new IdInterpreter(execution, mapper))
-          new io.parapet.core.Fiber.IdFiber[A](res).asInstanceOf[A]
-        case _: Delay[Id] => ()
-        case _: SuspendF[Id, Dsl[Id, *], A] => ().asInstanceOf[A] // s.thunk().foldMap(new IdInterpreter(execution))
-      }
-    }
-  }
+  final class IdInterpreter(
+      execution: Execution = new Execution(),
+      mapper: Event => Event = identity,
+      senderRef: ProcessRef = ProcessRef.UndefinedRef
+  ) extends FunctionK[[x] =>> FlowOp[Id, x], Id]:
 
-  @deprecated("use EvalInterpreter from io.parapet.instances.interpreter")
-  class EvalInterpreter(val execution: Execution, mapper: Event => Event) extends (FlowOp[CatsEval, *] ~> cats.Id) {
+    def apply[A](fa: FlowOp[Id, A]): A =
+      fa match
+        case UnitFlow() =>
+          ().asInstanceOf[A]
 
-    override def apply[A](fa: FlowOp[CatsEval, A]): Id[A] = {
-      fa match {
-        case f: SuspendF[CatsEval,Dsl[CatsEval, *], A] => f.thunk().foldMap(this)
-        case _: UnitFlow[CatsEval]@unchecked => ()
-        case eval: Eval[CatsEval, Dsl[CatsEval, *], A]@unchecked =>
-            implicitly[Monad[Id]].pure(eval.thunk())
-        case send: Send[CatsEval]@unchecked =>
-          val event = mapper(send.e())
-          execution.trace.append(Message(event, send.receiver))
-          send.receivers.foreach(p => {
-            execution.trace.append(Message(event, p))
-          })
-        case fork: Fork[CatsEval, Dsl[CatsEval, *], A] =>
-          val res = fork.flow.foldMap(new EvalInterpreter(execution, mapper))
-          new io.parapet.core.Fiber.IdFiber[A](res).asInstanceOf[A]
-        case _: Delay[CatsEval] => ()
-        case _: SuspendF[CatsEval, Dsl[CatsEval, *], A] => ().asInstanceOf[A] // s.thunk().foldMap(new IdInterpreter(execution))
-        case RaiseError(err) => throw err
-      }
-    }
-  }
+        case Pure(value) =>
+          value
 
+        case Send(event, _, receiver, receivers) =>
+          val mapped = mapper(event())
+          execution.trace.append(Message(mapped, receiver))
+          receivers.foreach(target => execution.trace.append(Message(mapped, target)))
+          ().asInstanceOf[A]
 
-  class EvalFiber[A](a: A) extends cats.effect.Fiber[cats.Eval, A] {
-    override def cancel: CancelToken[cats.Eval] = cats.Eval.Unit
+        case Forward(event, receivers) =>
+          val mapped = mapper(event())
+          receivers.foreach(target => execution.trace.append(Message(mapped, target)))
+          ().asInstanceOf[A]
 
-    override def join: cats.Eval[A] = cats.Eval.now(a)
-  }
+        case Par(flow) =>
+          flow.asInstanceOf[DslF[Id, Unit]].foldMap(this)
+          ().asInstanceOf[A]
 
-  implicit object EvalConcurrent extends Concurrent[cats.Eval] {
-    override def start[A](fa: cats.Eval[A]): cats.Eval[Fiber[cats.Eval, A]] = fa.map(new EvalFiber[A](_))
+        case Delay(_) =>
+          ().asInstanceOf[A]
 
-    def racePairLeft[A, B](fa: cats.Eval[A], fb: cats.Eval[B]):
-    cats.Eval[Either[(A, Fiber[cats.Eval, B]), (Fiber[cats.Eval, A], B)]] =
-      cats.Eval.now(Left((fa.value, new EvalFiber[B](fb.value))))
+        case WithSender(run) =>
+          run.asInstanceOf[ProcessRef => DslF[Id, A]](senderRef).foldMap(this)
 
-    override def racePair[A, B](fa: cats.Eval[A], fb: cats.Eval[B]):
-    cats.Eval[Either[(A, Fiber[cats.Eval, B]), (Fiber[cats.Eval, A], B)]] = racePairLeft(fa, fb)
+        case Fork(flow) =>
+          new Fiber.IdFiber(flow.asInstanceOf[DslF[Id, A]].foldMap(this)).asInstanceOf[A]
 
-    override def async[A](k: (Either[Throwable, A] => Unit) => Unit): cats.Eval[A] = {
-      var res: cats.Eval[A] = null
-      k {
-        case Left(err) => res = cats.Eval.later(throw err)
-        case Right(value) => res = cats.Eval.now(value)
-      }
-      res
-    }
+        case Register(_, _) =>
+          ().asInstanceOf[A]
 
-    override def asyncF[A](k: (Either[Throwable, A] => Unit) => cats.Eval[Unit]): cats.Eval[A] = {
-      var res: cats.Eval[A] = null
-      k {
-        case Left(err) => res = cats.Eval.later(throw err)
-        case Right(value) => res = cats.Eval.now(value)
-      }.value
-      res
-    }
+        case Race(first, _) =>
+          Left(first.asInstanceOf[DslF[Id, Any]].foldMap(this)).asInstanceOf[A]
 
-    override def suspend[A](thunk: => cats.Eval[A]): cats.Eval[A] = thunk
+        case Suspend(thunk) =>
+          thunk().asInstanceOf[A]
 
-    override def bracketCase[A, B](acquire: cats.Eval[A])
-                                  (use: A => cats.Eval[B])
-                                  (release: (A, ExitCase[Throwable]) => cats.Eval[Unit]): cats.Eval[B] =
-      cats.Eval.defer {
-        try {
-          val a = acquire.value
-          try {
-            val b = use(a).value
-            cats.Eval.now(b)
-          } catch {
-            case err: Throwable =>
-              release(a, ExitCase.Error(err)).flatMap(_ => cats.Eval.later[B](throw err))
-          }
-        } catch {
-          case err: Throwable => cats.Eval.later[B](throw err)
-        }
-      }
-    override def raiseError[A](e: Throwable): cats.Eval[A] = cats.Eval.later(throw e)
+        case SuspendF(thunk) =>
+          thunk().asInstanceOf[DslF[Id, A]].foldMap(this)
 
-    override def handleErrorWith[A](fa: cats.Eval[A])(f: Throwable => cats.Eval[A]): cats.Eval[A] = {
-      try {
-        cats.Eval.now(fa.value)
-      } catch {
-        case err: Throwable => f(err)
-      }
-    }
+        case Eval(thunk) =>
+          thunk().asInstanceOf[A]
 
-    override def flatMap[A, B](fa: cats.Eval[A])(f: A => cats.Eval[B]): cats.Eval[B] = fa.flatMap(f)
+        case Blocking(body) =>
+          body().asInstanceOf[DslF[Id, Any]].foldMap(this)
+          ().asInstanceOf[A]
 
-    override def tailRecM[A, B](a: A)(f: A => cats.Eval[Either[A, B]]): cats.Eval[B] =
-      implicitly[Monad[cats.Eval]].tailRecM(a)(f)
+        case RaiseError(error) =>
+          throw error
 
-    override def pure[A](x: A): cats.Eval[A] = cats.Eval.now(x)
-  }
+        case HandleError(body, onError) =>
+          try body().asInstanceOf[DslF[Id, A]].foldMap(this)
+          catch case error: Throwable => onError(error).asInstanceOf[DslF[Id, A]].foldMap(this)
 
-  object IdInterpreter {
-    def apply(execution: Execution, mapper: Event => Event = e => e): IdInterpreter =
-      new IdInterpreter(execution, mapper)
-  }
+        case Halt(_) =>
+          ().asInstanceOf[A]
 
-  object EvalInterpreter {
-    def apply(execution: Execution, mapper: Event => Event = e => e): EvalInterpreter =
-      new EvalInterpreter(execution, mapper)
-  }
-}
+        case Guarantee(body, finalizer) =>
+          try
+            body().asInstanceOf[DslF[Id, Any]].foldMap(this)
+            finalizer().asInstanceOf[DslF[Id, Unit]].foldMap(this)
+            ().asInstanceOf[A]
+          catch
+            case error: Throwable =>
+              finalizer().asInstanceOf[DslF[Id, Unit]].foldMap(this)
+              throw error
+
+        case Dsl.Lock(_) =>
+          ().asInstanceOf[A]
+
+        case Dsl.Unlock(_) =>
+          ().asInstanceOf[A]
