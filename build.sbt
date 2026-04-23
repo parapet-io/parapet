@@ -11,6 +11,8 @@ ThisBuild / scalacOptions ++= Seq(
 )
 
 val scalaTestVersion = "3.2.19"
+val jeromqVersion = "0.6.0"
+val aeronVersion = "1.50.3"
 
 lazy val baseSettings = Seq(
   Test / parallelExecution := false
@@ -18,7 +20,7 @@ lazy val baseSettings = Seq(
 
 lazy val global = project
   .in(file("."))
-  .aggregate(core, intgTests)
+  .aggregate(core, protocol, net, raft, demoColoring, intgTests)
   .settings(
     publish / skip := true
   )
@@ -38,9 +40,59 @@ lazy val core = project
     )
   )
 
+lazy val protocol = project
+  .in(file("protocol"))
+  .settings(
+    baseSettings,
+    name := "parapet-protocol",
+    Compile / PB.targets := Seq(
+      scalapb.gen(grpc = false, flatPackage = true, scala3Sources = true) -> (Compile / sourceManaged).value / "scalapb"
+    ),
+    libraryDependencies += "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion % "protobuf"
+  )
+
+lazy val net = project
+  .in(file("net"))
+  .dependsOn(core % "compile->compile;test->test")
+  .settings(
+    baseSettings,
+    name := "parapet-net",
+    libraryDependencies ++= Seq(
+      "org.zeromq" % "jeromq" % jeromqVersion,
+      "io.aeron" % "aeron-all" % aeronVersion,
+      "ch.qos.logback" % "logback-classic" % "1.5.6" % Test,
+      "org.scalatest" %% "scalatest" % scalaTestVersion % Test
+    )
+  )
+
+lazy val raft = project
+  .in(file("raft"))
+  .dependsOn(core % "compile->compile;test->test", protocol)
+  .settings(
+    baseSettings,
+    name := "parapet-raft",
+    libraryDependencies ++= Seq(
+      "ch.qos.logback" % "logback-classic" % "1.5.6" % Test,
+      "org.scalatest" %% "scalatest" % scalaTestVersion % Test
+    )
+  )
+
+lazy val demoColoring = project
+  .in(file("demo-coloring"))
+  .dependsOn(core, protocol, net, raft)
+  .settings(
+    baseSettings,
+    name := "parapet-demo-coloring",
+    publish / skip := true,
+    libraryDependencies ++= Seq(
+      "ch.qos.logback" % "logback-classic" % "1.5.6",
+      "org.scalatest" %% "scalatest" % scalaTestVersion % Test
+    )
+  )
+
 lazy val intgTests = project
   .in(file("intg-tests"))
-  .dependsOn(core)
+  .dependsOn(core, protocol, net, raft)
   .settings(
     baseSettings,
     name := "parapet-intg-tests",
