@@ -1,101 +1,94 @@
 package io.parapet.core
 
-import cats.effect.concurrent.Deferred
-import cats.effect.{Concurrent, ContextShift, Fiber}
-import cats.implicits._
-import io.parapet.core.Context._
+import io.parapet.core.Context.*
 import io.parapet.core.Events.Start
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.{Noop, SystemProcess}
+import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
+import io.parapet.effect.Monad.*
 import io.parapet.{Envelope, ProcessRef}
 
 import java.util.UUID
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.collection.mutable.ListBuffer
-import scala.jdk.CollectionConverters._
+import scala.jdk.CollectionConverters.*
 
-class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig,
-                                              val eventStore: EventStore[F],
-                                              val eventTransformers: EventTransformers) { self =>
+class Context[F[_]](
+    config: Parapet.ParConfig,
+    val eventStore: EventStore[F],
+    val eventTransformers: EventTransformers
+)(using effect: Effect[F]):
+  self =>
 
   val devMode: Boolean = config.devMode
-
   val tracingEnabled: Boolean = config.tracingEnabled
 
-  private val ct = implicitly[Concurrent[F]]
-
-  private val processes = new java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessState[F]]()
-
-  private val graph = new java.util.concurrent.ConcurrentHashMap[ProcessRef, ListBuffer[ProcessRef]]
-
-  private val parents = new java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessRef]
-
+  private val processes = java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessState[F]]()
+  private val graph = java.util.concurrent.ConcurrentHashMap[ProcessRef, ListBuffer[ProcessRef]]()
+  private val parents = java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessRef]()
   private val eventLog = EventLog()
 
-  private var _scheduler: Scheduler[F] = _
+  private var scheduler: Scheduler[F] = _
 
-  def start(scheduler: Scheduler[F]): F[Unit] =
-    ct.delay {
-      _scheduler = scheduler
+  def start(scheduler0: Scheduler[F]): F[Unit] =
+    effect.delay {
+      scheduler = scheduler0
     } >> createSysProcesses >> sendStartEvent(ProcessRef.SystemRef).void
 
-  private[core] def createSysProcesses: F[Unit] = {
-    for {
-      sysProcesses <- ct.delay(List(new SystemProcess[F](), new  Noop[F]))
-      states <- sysProcesses.map(p => ProcessState(p, config)).sequence
-      _ <- ct.delay(states.foreach(s => processes.put(s.process.ref, s)))
-    } yield ()
-  }
+  private[core] def createSysProcesses: F[Unit] =
+    for
+      sysProcesses <- effect.delay(List(new SystemProcess[F], new Noop[F]))
+      states <- Monad.sequence(sysProcesses.map(ProcessState(_, config)))
+      _ <- effect.delay(states.foreach(state => processes.put(state.process.ref, state)))
+    yield ()
 
-  def schedule(task: Task[F]): F[SubmissionResult] = _scheduler.submit(task)
+  def schedule(task: Task[F]): F[SubmissionResult] =
+    scheduler.submit(task)
 
-  def register(parent: ProcessRef, child: Process[F]): F[ProcessRef] = {
-    ct.suspend {
-      if (!processes.containsKey(parent)) {
-        ct.raiseError(UnknownProcessException(s"process cannot be registered because parent $parent doesn't exist"))
-      } else if (parents.contains(child)) {
-        ct.raiseError(
-          new IllegalStateException(s"$child has been already registered. its parent=${parents.get(child)}"))
-      } else {
+  def register(parent: ProcessRef, child: Process[F]): F[ProcessRef] =
+    effect.suspend {
+      if !processes.containsKey(parent) then
+        effect.raiseError(UnknownProcessException(s"process cannot be registered because parent $parent doesn't exist"))
+      else if parents.containsKey(child.ref) then
+        effect.raiseError(new IllegalStateException(s"$child has been already registered. its parent=${parents.get(child.ref)}"))
+      else
         child.init(self)
         ProcessState(child, config).flatMap { state =>
-          ct.delay {
-            if (processes.putIfAbsent(child.ref, state) != null) {
+          effect.delay {
+            if processes.putIfAbsent(child.ref, state) != null then
               throw new RuntimeException(s"duplicated process. ref = ${child.ref}")
-            }
+
             parents.put(child.ref, parent)
             graph.computeIfAbsent(parent, _ => ListBuffer.empty)
-            graph.computeIfPresent(parent, (_, v) => v :+ child.ref)
+            graph.computeIfPresent(parent, (_, values) => values :+ child.ref)
             child.ref
           }
         }
-      }
     }
 
-  }
-
-  def child(parent: ProcessRef): Vector[ProcessRef] = graph.getOrDefault(parent, ListBuffer.empty).toVector
+  def child(parent: ProcessRef): Vector[ProcessRef] =
+    graph.getOrDefault(parent, ListBuffer.empty).toVector
 
   def registerAndStart(parent: ProcessRef, process: Process[F]): F[SubmissionResult] =
     register(parent, process) >> sendStartEvent(process.ref)
 
-  private def sendStartEvent(processRef: ProcessRef): F[SubmissionResult] = {
-    val e = Envelope(ProcessRef.SystemRef, Start, processRef)
-    _scheduler.submit(Deliver(e, createTrace(e.id)))
-  }
+  private def sendStartEvent(processRef: ProcessRef): F[SubmissionResult] =
+    val envelope = Envelope(ProcessRef.SystemRef, Start, processRef)
+    scheduler.submit(Deliver(envelope, createTrace(envelope.id)))
 
-  def registerAll(processes: List[Process[F]]): F[List[ProcessRef]] =
-    registerAll(ProcessRef.SystemRef, processes)
+  def registerAll(processes0: List[Process[F]]): F[List[ProcessRef]] =
+    registerAll(ProcessRef.SystemRef, processes0)
 
-  def registerAll(parent: ProcessRef, processes: List[Process[F]]): F[List[ProcessRef]] =
-    for {
-      refs <- processes.map(p => register(parent, p)).sequence
-      res <- refs.map(ref => sendStartEvent(ref) >> ct.pure(ref)).sequence
-    } yield res
+  def registerAll(parent: ProcessRef, processes0: List[Process[F]]): F[List[ProcessRef]] =
+    for
+      refs <- Monad.sequence(processes0.map(register(parent, _)))
+      result <- Monad.sequence(refs.map(ref => sendStartEvent(ref).as(ref)))
+    yield result
 
-  def getProcesses: List[Process[F]] = processes.values().asScala.map(_.process).toList
+  def getProcesses: List[Process[F]] =
+    processes.values().asScala.map(_.process).toList
 
   def getProcess(ref: ProcessRef): Option[Process[F]] =
     getProcessState(ref).map(_.process)
@@ -103,15 +96,14 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig,
   def getProcessState(ref: ProcessRef): Option[ProcessState[F]] =
     Option(processes.get(ref))
 
-  def interrupt(pRef: ProcessRef): F[Boolean] =
-    getProcessState(pRef) match {
-      case Some(s) => s.terminate
-      case None => ct.pure(false)
-    }
+  def interrupt(ref: ProcessRef): F[Boolean] =
+    getProcessState(ref) match
+      case Some(state) => state.terminate
+      case None        => effect.pure(false)
 
   def remove(ref: ProcessRef): F[Boolean] =
-    ct.delay{
-      graph.computeIfPresent(parents.get(ref), (_, v) => v -= ref)
+    effect.delay {
+      graph.computeIfPresent(parents.get(ref), (_, values) => values -= ref)
       processes.remove(ref) != null
     }
 
@@ -119,179 +111,143 @@ class Context[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig,
     createTrace(UUID.randomUUID().toString)
 
   def createTrace(id: String): ExecutionTrace =
-    if (tracingEnabled) ExecutionTrace(id)
-    else ExecutionTrace.Dummy
+    if tracingEnabled then ExecutionTrace(id) else ExecutionTrace.Dummy
 
-  def addToEventLog(e: Envelope): F[Unit] =
-    if (config.eventLogEnabled) ct.delay(eventLog.add(e))
-    else ct.unit
+  def addToEventLog(envelope: Envelope): F[Unit] =
+    if config.eventLogEnabled then effect.delay(eventLog.add(envelope)) else effect.pure(())
 
   def saveEventLog: F[Unit] =
-    if (config.eventLogEnabled) {
-      ct.delay {
-//        eventLog.close()
-//        println(EventLog.Cytoscape.toJson(eventLog)) // todo store to file
+    if config.eventLogEnabled then effect.delay(()) else effect.pure(())
+
+object Context:
+  def apply[F[_]](
+      config: Parapet.ParConfig,
+      eventStore: EventStore[F],
+      eventTransformers: EventTransformers
+  )(using effect: Effect[F]): F[Context[F]] =
+    effect.delay(new Context[F](config, eventStore, eventTransformers))
+
+  final case class BlockingOp[F[_]](blockingOperation: EffectFiber[F, Unit], done: Deferred[F, Unit])
+
+  final class AsyncOps[F[_]](using effect: Effect[F]):
+    private val signals = new AtomicReference[List[BlockingOp[F]]](Nil)
+
+    def add(blockingOperation: EffectFiber[F, Unit], done: Deferred[F, Unit]): F[Unit] =
+      effect.delay {
+        signals.updateAndGet(list => list :+ BlockingOp(blockingOperation, done))
+        ()
       }
-    } else {
-      ct.unit
-    }
-
-}
-
-object Context {
-
-  def apply[F[_]: Concurrent: ContextShift](config: Parapet.ParConfig,
-                                            eventLog: EventStore[F],
-                                            eventTransformers: EventTransformers): F[Context[F]] =
-    implicitly[Concurrent[F]].delay(new Context[F](config, eventLog, eventTransformers))
-
-  /** Represents a blocking operation executed by a process.
-    *
-    * @param blockingOperation the forked blocking operation. Also this fiber is used to cancel the operation.
-    * @param done the promise that will be completed once the blocking operation has finished.
-    * @tparam F effect type
-    */
-  case class BlockingOp[F[_]: Concurrent](blockingOperation: Fiber[F, Unit], done: Deferred[F, Unit])
-
-  class AsyncOps[F[_]: Concurrent] {
-
-    private val signals = new AtomicReference[List[BlockingOp[F]]](List.empty)
-    private val ct = implicitly[Concurrent[F]]
-
-    def add(blockingOperation: Fiber[F, Unit], done: Deferred[F, Unit]): F[Unit] =
-      ct.delay(signals.updateAndGet(l => l :+ BlockingOp(blockingOperation, done)))
 
     def waitForCompletion: F[Unit] =
-      signals.get().map(o => o.done.get).sequence_
+      Monad.sequenceDiscard(signals.get().map(_.done.get))
 
     def clear: F[Unit] =
-      ct.delay(signals.set(List.empty))
+      effect.delay {
+        signals.set(Nil)
+        ()
+      }
 
-    def size: F[Int] = ct.pure(signals.get.size)
+    def size: F[Int] =
+      effect.pure(signals.get().size)
 
-    /** Completes all blocking operations. Any running blocking operations will be canceled via [[Fiber.cancel]].
-      * @return
-      */
-    def completeAll: F[Unit] = for {
-      _ <- signals.get.map(_.blockingOperation.cancel).sequence_
-      _ <- signals.get.map(_.done.complete(())).sequence_
-    } yield ()
-  }
+    def completeAll: F[Unit] =
+      for
+        _ <- Monad.sequenceDiscard(signals.get().map(_.blockingOperation.cancel))
+        _ <- Monad.sequenceDiscard(signals.get().map(_.done.complete(()).void))
+      yield ()
 
-  /** Process state used to manage a process lifecycle, e.g.: access control,
-    * locking mechanism, termination, blocking operations management.
-    *
-    * @param queue the tasks queue
-    * @param process the process
-    * @param terminationSignal completed once the process terminated via [[terminate]].
-    *                          Used to cancel all outgoing computations related to this process.
-    * @tparam [[F]] effect
-    */
-  class ProcessState[F[_]: Concurrent](
+  final class ProcessState[F[_]](
       queue: TaskQueue[F],
       val process: Process[F],
-      val terminationSignal: Deferred[F, Unit],
-  ) {
+      val terminationSignal: Deferred[F, Unit]
+  )(using effect: Effect[F]):
 
-    import ProcessState._
+    private val terminatedRef = new AtomicBoolean(false)
+    private val stoppedRef = new AtomicBoolean(false)
+    private val suspendedRef = new AtomicBoolean(false)
+    private val blockingRef = new AsyncOps[F]
+    private val processLock = new ProcessState.ProcessLock[F]
 
-    private val ct = implicitly[Concurrent[F]]
+    def blocking: AsyncOps[F] =
+      blockingRef
 
-    private[this] val _terminated: AtomicBoolean = new AtomicBoolean(false)
-    private[this] val _stopped: AtomicBoolean = new AtomicBoolean(false)
-    private[this] val _suspended: AtomicBoolean = new AtomicBoolean(false)
-    private[this] val _blocking: AsyncOps[F] = new AsyncOps()
-    private[this] val pLock = new ProcessLock[F]()
+    def tryPut(task: Task[F]): F[Boolean] =
+      queue.tryEnqueue(task)
 
-    def blocking: AsyncOps[F] = _blocking
+    def tryTakeTask: F[Option[Task[F]]] =
+      queue.tryDequeue
 
-    def tryPut(t: Task[F]): F[Boolean] =
-      queue.tryEnqueue(t)
-
-    def tryTakeTask: F[Option[Task[F]]] = queue.tryDequeue
-
-    /** Changes the process state to terminated.
-      *
-      * @return true if the operation was successful
-      */
     def terminate: F[Boolean] =
-      ct.delay(_terminated.compareAndSet(false, true)).flatMap {
-        case true => terminationSignal.complete(()).map(_ => true)
-        case false => ct.pure(false)
+      effect.delay(terminatedRef.compareAndSet(false, true)).flatMap {
+        case true  => terminationSignal.complete(()).as(true)
+        case false => effect.pure(false)
       }
 
-    def stop(): F[Boolean] = ct.delay(_stopped.compareAndSet(false, true))
+    def stop(): F[Boolean] =
+      effect.delay(stoppedRef.compareAndSet(false, true))
 
-    def terminated: F[Boolean] = ct.pure(_terminated.get())
+    def terminated: F[Boolean] =
+      effect.pure(terminatedRef.get())
 
-    def stopped: F[Boolean] = ct.pure(_stopped.get())
+    def stopped: F[Boolean] =
+      effect.pure(stoppedRef.get())
 
-    def isBlocking: F[Boolean] = blocking.size.map(_ > 0)
+    def isBlocking: F[Boolean] =
+      blocking.size.map(_ > 0)
 
-    def acquired: F[Boolean] = pLock.acquired
+    def acquired: F[Boolean] =
+      processLock.acquired
 
-    def acquire: F[Boolean] = pLock.acquire
+    def acquire: F[Boolean] =
+      processLock.acquire
 
-    def release: F[Boolean] = pLock.release
+    def release: F[Boolean] =
+      processLock.release
 
-    /** returns `true` if this process performing some blocking operations, other `false`
-      */
-    def suspended: F[Boolean] = ct.pure(_suspended.get())
+    def suspended: F[Boolean] =
+      effect.pure(suspendedRef.get())
 
-    def suspend: F[Unit] = ct.delay {
-      if (!_suspended.compareAndSet(false, true)) {
-        throw new IllegalStateException(s"process[${process.ref}] is already suspended")
-      } else {
-        println(s"process[${process.ref}] is has been suspended")
+    def suspend: F[Unit] =
+      effect.delay {
+        if !suspendedRef.compareAndSet(false, true) then
+          throw new IllegalStateException(s"process[${process.ref}] is already suspended")
+        ()
       }
-    }
 
-    def resume: F[Unit] = ct.delay {
-      if (!_suspended.compareAndSet(true, false)) {
-        throw new IllegalStateException(s"process[${process.ref}] is not suspended")
+    def resume: F[Unit] =
+      effect.delay {
+        if !suspendedRef.compareAndSet(true, false) then
+          throw new IllegalStateException(s"process[${process.ref}] is not suspended")
+        ()
       }
-    }
 
-  }
-
-  object ProcessState {
-    def apply[F[_]: Concurrent: ContextShift](process: Process[F], config: Parapet.ParConfig): F[ProcessState[F]] = {
-      val processBufferSize = if (process.bufferSize != -1) process.bufferSize else config.processBufferSize
-      for {
-        queue <-
-          if (processBufferSize == -1) Queue.unbounded[F, Task[F]]()
-          else Queue.bounded[F, Task[F]](processBufferSize, ChannelType.SPSC)
-        terminationSignal <- Deferred[F, Unit]
-      } yield new ProcessState[F](queue, process, terminationSignal)
-    }
-
-    class ProcessLock[F[_]: Concurrent] {
+  object ProcessState:
+    final class ProcessLock[F[_]](using effect: Effect[F]):
       private val lock = new AtomicBoolean()
-
-      /** used to track whenever the lock is checked via [[acquired]].
-        */
       private val lockSentinel = new AtomicBoolean()
-      private val ct = implicitly[Concurrent[F]]
 
-      def acquired: F[Boolean] = ct.delay {
-        lockSentinel.set(true)
-        lock.get()
-      }
+      def acquired: F[Boolean] =
+        effect.delay {
+          lockSentinel.set(true)
+          lock.get()
+        }
 
-      def acquire: F[Boolean] = ct.delay {
-        lock.compareAndSet(false, true)
-      }
+      def acquire: F[Boolean] =
+        effect.delay(lock.compareAndSet(false, true))
 
-      /** Releases the lock.
-        * @return true - if [[acquired]] was called while the lock was acquired, otherwise false.
-        */
       def release: F[Boolean] =
-        ct.delay {
+        effect.delay {
           lock.compareAndSet(true, false)
           !lockSentinel.compareAndSet(true, false)
         }
-    }
 
-  }
+    def apply[F[_]](process: Process[F], config: Parapet.ParConfig)(using effect: Effect[F]): F[ProcessState[F]] =
+      val processBufferSize =
+        if process.bufferSize != -1 then process.bufferSize else config.processBufferSize
 
-}
+      for
+        queue <-
+          if processBufferSize == -1 then Queue.unbounded[F, Task[F]]()
+          else Queue.bounded[F, Task[F]](processBufferSize, ChannelType.SPSC)
+        terminationSignal <- Deferred[F, Unit]()
+      yield new ProcessState[F](queue, process, terminationSignal)

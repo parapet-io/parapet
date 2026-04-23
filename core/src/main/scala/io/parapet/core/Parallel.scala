@@ -1,15 +1,7 @@
 package io.parapet.core
 
-trait Parallel[F[_]] {
+trait Parallel[F[_]]:
+  def par(effects: Seq[F[Unit]]): F[Unit]
 
-  /** Runs the given effects in parallel and returns an effect with no value.
-    *
-    * @param effects the effects that should be processes in parallel.
-    * @return Unit
-    */
-  def par(effects: Seq[F[_]]): F[Unit]
-}
-
-object Parallel {
-  def apply[F[_]: Parallel]: Parallel[F] = implicitly[Parallel[F]]
-}
+object Parallel:
+  def apply[F[_]](using parallel: Parallel[F]): Parallel[F] = parallel

@@ -2,6 +2,8 @@
 
 # Parapet - purely functional library to develop distributed and event-driven systems
 
+> Note: the active repository now contains only the Scala 3 `core` and `intg-tests` modules. Older README sections that mention Cats/Monix/ZIO interop, Spark, cluster modules, or `test-utils` are historical and need a documentation refresh.
+
 [![Build Status](https://travis-ci.org/parapet-io/parapet.svg?branch=master)](https://travis-ci.org/parapet-io/parapet)
 [![Join the chat](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/io-parapet/parapet)
 [![Maven Central](https://maven-badges.herokuapp.com/maven-central/io.parapet/core_2.12/badge.svg)](https://maven-badges.herokuapp.com/maven-central/io.parapet/core_2.12)

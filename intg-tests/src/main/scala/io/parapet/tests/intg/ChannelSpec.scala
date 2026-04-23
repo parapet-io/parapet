@@ -1,6 +1,5 @@
 package io.parapet.tests.intg
 
-import cats.effect.{Concurrent, IO}
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.{Start, Stop}
 import io.parapet.core.Parapet.ParConfig
@@ -13,7 +12,7 @@ import org.scalatest.Ignore
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers._
 
-import scala.util.{Success, Failure => SFailure}
+import scala.util.{Failure => SFailure, Success}
 
 @Ignore
 abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
@@ -83,6 +82,7 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
         case Start => flow {
           register(ref) ++ ch.send(Request(0), serverRef).flatMap {
             case Success(response) => eval(eventStore.add(ref, response))
+            case SFailure(err)     => eval(throw err)
           } ++ halt(ch.ref)
         }
       }

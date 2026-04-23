@@ -1,7 +1,5 @@
 package io.parapet.tests.intg
 
-import cats.syntax.flatMap._
-import cats.syntax.functor._
 import io.parapet.core.Events._
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Process
@@ -158,7 +156,7 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
     }
 
     val init = onStart(Seq(DataEvent(1), DataEvent(2), Stop) ~> process.ref)
-    val config = ParConfig.numberOfWorkersLens.set(ParConfig.default.enableTracing.withDevMode)(1)
+    val config = ParConfig.default.enableTracing.withDevMode.withWorkerCount(1)
 
     unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(init, process)), config0 = config).run))
 

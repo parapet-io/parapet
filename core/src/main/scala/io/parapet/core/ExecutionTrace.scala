@@ -1,47 +1,29 @@
 package io.parapet.core
 
-import cats.data.NonEmptyList
-
-trait ExecutionTrace {
-
+trait ExecutionTrace:
   val values: List[String]
-
-  /** Gets the most recently added value in this trace or `"disabled"` if [[ExecutionTrace.Dummy]] implementation is used.
-    * @return the most recently in this trace or `"disabled"` if [[ExecutionTrace.Dummy]] implementation is used.
-    */
   val last: String
-
-  /** Creates a new trace and appends the given value.
-    * @param value value to append to this trace
-    * @return new trace
-    */
   def add(value: String): ExecutionTrace
 
-}
+object ExecutionTrace:
+  def apply(value: String): ExecutionTrace =
+    Impl(List(value))
 
-object ExecutionTrace {
+  final case class Impl(values: List[String]) extends ExecutionTrace:
+    val last: String = values.last
 
-  def apply(x: String): ExecutionTrace = new Impl(NonEmptyList(x, List.empty))
+    def add(value: String): ExecutionTrace =
+      copy(values = values :+ value)
 
-  class Impl(_values: NonEmptyList[String]) extends ExecutionTrace {
+    override def toString: String =
+      s"Trace(${values.mkString("->")})"
 
-    override val values: List[String] = _values.toList
+  object Dummy extends ExecutionTrace:
+    val values: List[String] = Nil
+    val last: String = "disabled"
 
-    override def add(value: String): ExecutionTrace = new Impl(_values :+ value)
+    def add(value: String): ExecutionTrace =
+      this
 
-    override val last: String = values.last
-
-    override def toString: String = s"Trace(${values.mkString("->")})"
-  }
-
-  object Dummy extends ExecutionTrace { self =>
-    override val values: List[String] = List.empty
-
-    override def add(value: String): ExecutionTrace = self
-
-    override val last: String = "disabled"
-
-    override def toString: String = "disabled"
-  }
-
-}
+    override def toString: String =
+      "disabled"

@@ -1,31 +1,27 @@
 package io.parapet.core
 
-import cats.Id
 import io.parapet.core.Dsl.{DslF, WithDsl}
+import io.parapet.effect.EffectFiber
 
-trait Fiber[F[_], A] {
-
+trait Fiber[F[_], A]:
   def join: DslF[F, A]
-
   def cancel: DslF[F, Unit]
-}
 
-object Fiber {
-  class CatsEffect[F[_], A](f: cats.effect.Fiber[F, A]) extends Fiber[F, A] with WithDsl[F] {
+object Fiber:
+  final class RuntimeFiber[F[_], A](fiber: EffectFiber[F, A]) extends Fiber[F, A] with WithDsl[F]:
+    import dsl.*
 
-    import dsl._
+    def join: DslF[F, A] =
+      suspend(fiber.join)
 
-    override def join: DslF[F, A] = suspend(f.join)
+    def cancel: DslF[F, Unit] =
+      suspend(fiber.cancel)
 
-    override def cancel: DslF[F, Unit] = suspend(f.cancel)
-  }
+  final class IdFiber[A](value: A) extends Fiber[[x] =>> x, A] with WithDsl[[x] =>> x]:
+    import dsl.*
 
-  class IdFiber[A](a: Id[A]) extends Fiber[Id, A] with WithDsl[Id] {
+    def join: DslF[[x] =>> x, A] =
+      pure(value)
 
-    import dsl._
-
-    override def join: DslF[Id, A] = pure(a)
-
-    override def cancel: DslF[Id, Unit] = unit
-  }
-}
+    def cancel: DslF[[x] =>> x, Unit] =
+      unit

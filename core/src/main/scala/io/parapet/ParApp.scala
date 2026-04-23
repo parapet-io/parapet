@@ -1,70 +1,64 @@
 package io.parapet
 
-import cats.effect.{Concurrent, ContextShift, Timer}
-import cats.syntax.flatMap._
-import cats.syntax.functor._
 import com.typesafe.scalalogging.Logger
-import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.{Context, DslInterpreter, EventStore, EventTransformer, EventTransformers, Parallel, Process, Scheduler}
+import io.parapet.effect.Effect
 import io.parapet.syntax.FlowSyntax
 import org.slf4j.LoggerFactory
 
-import scala.language.{higherKinds, implicitConversions, reflectiveCalls}
+trait ParApp[F[_]] extends FlowSyntax[F]:
+  protected def effectInstance: Effect[F]
+  protected def parallelInstance: Parallel[F]
 
-trait ParApp[F[_]] extends WithDsl[F] with FlowSyntax[F] {
+  protected given Effect[F] = effectInstance
+  protected given Parallel[F] = parallelInstance
 
-  type FlowOp[A] = io.parapet.core.Dsl.FlowOp[F, A]
-  type Program = DslF[F, Unit]
+  type Program = io.parapet.core.Dsl.DslF[F, Unit]
 
-  lazy val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
+  lazy val logger: Logger =
+    Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
 
   val config: ParConfig = ParConfig.default
 
   private val eventTransformers = EventTransformers.builder
 
-  implicit def contextShift: ContextShift[F]
-
-  implicit def ct: Concurrent[F]
-
-  implicit def parallel: Parallel[F]
-
-  implicit def timer: Timer[F]
-
   val eventLog: EventStore[F] = EventStore.stub
 
   def processes(args: Array[String]): F[Seq[Process[F]]]
 
-  def deadLetter: F[DeadLetterProcess[F]] = ct.pure(DeadLetterProcess.logging)
+  def deadLetter: F[DeadLetterProcess[F]] =
+    summon[Effect[F]].pure(DeadLetterProcess.logging)
 
-  def interpreter(context: Context[F]): Interpreter[F]
+  def interpreter(context: Context[F]): Interpreter[F] =
+    DslInterpreter(context)
 
-  def unsafeRun(f: F[Unit]): Unit
+  def unsafeRun(program: F[Unit]): Unit
 
-  def run: F[Unit] = run(Array.empty)
+  def run: F[Unit] =
+    run(Array.empty)
 
-  def eventTransformer(ref: ProcessRef, t: EventTransformer): Unit = {
-    eventTransformers.add(ref, t)
-  }
+  def eventTransformer(ref: ProcessRef, transformer: EventTransformer): Unit =
+    eventTransformers.add(ref, transformer)
 
   def run(args: Array[String]): F[Unit] =
-    for {
+    val effect = summon[Effect[F]]
+
+    for
       ps <- processes(args)
       _ <-
-        if (ps.isEmpty) {
-          ct.raiseError[Unit](new RuntimeException("Initialization error:  at least one process must be provided"))
-        } else ct.unit
+        if ps.isEmpty then
+          effect.raiseError[Unit](new RuntimeException("Initialization error: at least one process must be provided"))
+        else effect.pure(())
       context <- Context(config, eventLog, eventTransformers.build)
-      interpreter <- ct.pure(interpreter(context))
-      scheduler <- Scheduler.apply[F](config.schedulerConfig, context, interpreter)
+      scheduler <- Scheduler(config.schedulerConfig, context, interpreter(context))
       _ <- context.start(scheduler)
-      dlProcess <- deadLetter
-      _ <- context.registerAll(ps.toList :+ dlProcess)
+      deadLetterProcess <- deadLetter
+      _ <- context.registerAll(ps.toList :+ deadLetterProcess)
       _ <- scheduler.start
-    } yield ()
+    yield ()
 
   def main(args: Array[String]): Unit =
     unsafeRun(run(args))
-}
