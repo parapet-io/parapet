@@ -7,6 +7,12 @@ import org.zeromq.{SocketType, ZContext}
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 
+/** Connection settings for [[ZmqTcpClient]].
+  *
+  * @param remote            target server address (must be TCP).
+  * @param receiveTimeoutMs  read timeout for `recv` calls; `null` reply maps to `None`.
+  * @param ioThreads         size of the underlying ZMQ I/O thread pool.
+  */
 final case class ZmqTcpClientConfig(
     remote: NetworkAddress,
     receiveTimeoutMs: Int = 5000,
@@ -14,6 +20,12 @@ final case class ZmqTcpClientConfig(
 ):
   require(remote.protocol == TransportProtocol.Tcp, "ZMQ TCP client requires a tcp address")
 
+/** Bind settings for [[ZmqTcpServer]].
+  *
+  * @param bind              address to bind the ROUTER socket on (must be TCP).
+  * @param receiveTimeoutMs  poll timeout for [[ZmqTcpServer.receive]] calls.
+  * @param ioThreads         size of the underlying ZMQ I/O thread pool.
+  */
 final case class ZmqTcpServerConfig(
     bind: NetworkAddress,
     receiveTimeoutMs: Int = 250,
@@ -21,6 +33,11 @@ final case class ZmqTcpServerConfig(
 ):
   require(bind.protocol == TransportProtocol.Tcp, "ZMQ TCP server requires a tcp address")
 
+/** [[RequestResponseClient]] backed by a ZeroMQ REQ socket.
+  *
+  * REQ enforces strict request/reply alternation; concurrent calls from multiple fibers
+  * are not safe — wrap with a [[io.parapet.core.Lock]] if needed.
+  */
 final class ZmqTcpClient[F[_]](config: ZmqTcpClientConfig)(using effect: Effect[F]) extends RequestResponseClient[F]:
   private val context = new ZContext(config.ioThreads)
   private val socket = context.createSocket(SocketType.REQ)
@@ -42,6 +59,12 @@ final class ZmqTcpClient[F[_]](config: ZmqTcpClientConfig)(using effect: Effect[
       ()
     }
 
+/** [[RequestResponseServer]] backed by a ZeroMQ ROUTER socket.
+  *
+  * ROUTER prefixes each inbound message with an opaque "identity" frame which the server
+  * uses to address replies. The server keeps a `clientId → identity` map (with
+  * Base64-encoded ids for portability) so callers can refer to clients via plain strings.
+  */
 final class ZmqTcpServer[F[_]](config: ZmqTcpServerConfig)(using effect: Effect[F]) extends RequestResponseServer[F]:
   private val context = new ZContext(config.ioThreads)
   private val socket = context.createSocket(SocketType.ROUTER)

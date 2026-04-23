@@ -16,26 +16,53 @@ import java.util.concurrent.{
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 import scala.concurrent.duration.FiniteDuration
 
+/** Parapet's effect type.
+  *
+  * `ParIO` programs are values describing computations; nothing runs until
+  * [[ParIO.unsafeRunSync]] is called (typically by [[io.parapet.ParIOApp]]).
+  *
+  * The implementation is a trampolined interpreter over an algebra of constructors
+  * ([[ParIO.Pure]], [[ParIO.Delay]], [[ParIO.Blocking]], [[ParIO.Suspend]],
+  * [[ParIO.FlatMap]], [[ParIO.HandleError]], [[ParIO.Sleep]]) avoiding stack growth even
+  * for deeply nested binds. Concurrency primitives (start/race/par) delegate to a cached
+  * thread pool of daemon worker threads.
+  */
 sealed trait ParIO[+A]:
+  /** Maps the result. */
   final def map[B](f: A => B): ParIO[B] =
     flatMap(a => ParIO.pure(f(a)))
 
+  /** Sequences the next computation. */
   final def flatMap[B](f: A => ParIO[B]): ParIO[B] =
     ParIO.FlatMap(this, f)
 
+  /** Recovers from an exception via `f`. */
   final def handleErrorWith[B >: A](f: Throwable => ParIO[B]): ParIO[B] =
     ParIO.HandleError(this, f)
 
+  /** Synchronously runs the program on the calling thread, blocking until it completes
+    * (or rethrowing any uncaught error).
+    */
   final def unsafeRunSync(): A =
     ParIO.unsafeRun(this)
 
+/** [[ParIO]] constructors, the trampolined interpreter, and the type-class instances
+  * required by the parapet runtime.
+  */
 object ParIO:
+  /** Wraps an already-known value. */
   final case class Pure[A](value: A) extends ParIO[A]
+  /** A pure but lazy computation. */
   final case class Delay[A](thunk: () => A) extends ParIO[A]
+  /** A blocking computation that should run on the worker pool. */
   final case class Blocking[A](thunk: () => A) extends ParIO[A]
+  /** Defers construction of a `ParIO`. */
   final case class Suspend[A](thunk: () => ParIO[A]) extends ParIO[A]
+  /** Sequencing constructor used by [[ParIO.flatMap]]. */
   final case class FlatMap[A, B](source: ParIO[A], bind: A => ParIO[B]) extends ParIO[B]
+  /** Error-recovery constructor used by [[ParIO.handleErrorWith]]. */
   final case class HandleError[A](source: ParIO[A], handler: Throwable => ParIO[A]) extends ParIO[A]
+  /** Non-blocking-style sleep that uses `Thread.sleep` under the hood. */
   final case class Sleep(duration: FiniteDuration) extends ParIO[Unit]
 
   private sealed trait Frame
@@ -53,24 +80,31 @@ object ParIO:
         thread
     )
 
+  /** Lifts a pure value. */
   def pure[A](value: A): ParIO[A] =
     Pure(value)
 
+  /** The `pure(())` constant. */
   def unit: ParIO[Unit] =
     pure(())
 
+  /** Defers a pure but lazy computation. */
   def delay[A](thunk: => A): ParIO[A] =
     Delay(() => thunk)
 
+  /** Defers a blocking computation. */
   def blocking[A](thunk: => A): ParIO[A] =
     Blocking(() => thunk)
 
+  /** Defers construction of a `ParIO`. */
   def suspend[A](thunk: => ParIO[A]): ParIO[A] =
     Suspend(() => thunk)
 
+  /** Aborts with `error` when interpreted. */
   def raiseError[A](error: Throwable): ParIO[A] =
     Delay(() => throw error)
 
+  /** Sleeps for `duration`. */
   def sleep(duration: FiniteDuration): ParIO[Unit] =
     Sleep(duration)
 
@@ -142,6 +176,10 @@ object ParIO:
 
     throw new IllegalStateException("unreachable")
 
+  /** [[Effect]] type-class instance for [[ParIO]] — the bridge that lets the parapet
+    * runtime drive `ParIO` programs via the same generic interpreter used for other effect
+    * types.
+    */
   given effect: Effect[ParIO] with
     def pure[A](value: A): ParIO[A] =
       ParIO.pure(value)
@@ -246,6 +284,9 @@ object ParIO:
           case Right(value) => value
       }
 
+  /** [[io.parapet.core.Parallel]] instance for [[ParIO]] — backs the scheduler's
+    * `parallel.par` calls used to spin up worker fibers and fan out child shutdowns.
+    */
   given parallel: io.parapet.core.Parallel[ParIO] with
     def par(effects: Seq[ParIO[Unit]]): ParIO[Unit] =
       ParIO.blocking {

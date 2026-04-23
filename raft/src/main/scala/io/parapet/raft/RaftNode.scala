@@ -5,9 +5,24 @@ import io.parapet.core.Process
 import io.parapet.raft.RaftEvents.*
 import io.parapet.{Event, ProcessRef}
 
-/** Raft node organised around section 6.2 of `dist-sys-notes.pdf`:
-  * leader election, vote collection, log replication, follower log update,
-  * and quorum commit advancement.
+/** Single Raft replica implemented as a parapet [[Process]].
+  *
+  * Implements the canonical Raft consensus algorithm — leader election, log
+  * replication, follower log update, and quorum commit advancement — organised
+  * around section 6.2 of `dist-sys-notes.pdf`. Inbound RPCs are modelled as
+  * [[RaftEvents.RaftEvent]]s; replies are delivered through `config.peers`. Clients
+  * submit work via [[RaftEvents.ClientCommand]] and observe progress through
+  * `config.observer` (see [[RaftEvents.RoleChanged]] / [[RaftEvents.CommandCommitted]]).
+  *
+  * The node is intentionally single-threaded: parapet's per-process inbox serialises
+  * all events, so the mutable [[RaftNodeState]] held internally can be updated
+  * without locking.
+  *
+  * @param config       node configuration (peers, timeouts, observer).
+  * @param stateMachine pure command applier invoked once per committed entry.
+  * @param initialState seed state passed to `stateMachine` for the first apply.
+  * @param ref          optional address; defaults to a freshly-generated UUID ref so
+  *                     multiple replicas can coexist in the same runtime.
   */
 class RaftNode[F[_], Command, State](
     val config: RaftConfig,
@@ -22,6 +37,7 @@ class RaftNode[F[_], Command, State](
 
   private val node = new RaftNodeState[Command, State](initialState)
 
+  /** Return a read-only [[RaftSnapshot]] of this replica's current state. */
   def snapshot: RaftSnapshot[State] =
     node.snapshot(config)
 

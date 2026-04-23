@@ -9,11 +9,24 @@ import io.parapet.syntax.logger.*
 import io.parapet.{Envelope, ProcessRef}
 import org.slf4j.LoggerFactory
 
+/** Marker trait for the singleton process that consumes [[io.parapet.core.Events.DeadLetter]]
+  * messages.
+  *
+  * Subclasses are pinned to [[io.parapet.ProcessRef.DeadLetterRef]] so the runtime can
+  * route undeliverable envelopes without registry lookups.
+  *
+  * Override [[io.parapet.ParApp.deadLetter]] to substitute a custom implementation
+  * (metrics, alerting, persistence, etc.).
+  */
 trait DeadLetterProcess[F[_]] extends Process[F]:
   override val name: String = DeadLetterRef.value
   override final val ref: ProcessRef = DeadLetterRef
 
+/** Built-in [[DeadLetterProcess]] implementations. */
 object DeadLetterProcess:
+  /** Default dead-letter handler: logs each undeliverable envelope at `error`, with
+    * sender/receiver/event details surfaced as SLF4J MDC fields for structured log search.
+    */
   final class DeadLetterLoggingProcess[F[_]] extends DeadLetterProcess[F]:
     import dsl.*
 
@@ -38,5 +51,6 @@ object DeadLetterProcess:
         }
     }
 
+  /** Returns the default logging implementation. */
   def logging[F[_]](using Effect[F]): DeadLetterProcess[F] =
     new DeadLetterLoggingProcess[F]

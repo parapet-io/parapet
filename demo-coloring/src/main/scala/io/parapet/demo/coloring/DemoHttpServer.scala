@@ -6,6 +6,21 @@ import java.net.{InetSocketAddress, URLDecoder}
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.Executors
 
+/** Minimal HTTP front-end for [[GraphColoringSimulation]].
+  *
+  * Built directly on the JDK's `com.sun.net.httpserver` to keep the demo
+  * dependency-free. Serves three kinds of resources:
+  *
+  *   - `GET /` — the single-page UI HTML.
+  *   - `GET /app.js` — the front-end JavaScript driving the 3D force graph.
+  *   - `GET /api/...` — JSON endpoints wrapping individual simulation actions
+  *     (`state`, `step`, `start`, `pause`, `reset`, `configure`, `burst`,
+  *     `battle/start`, `battle/stop`); each returns the post-call [[DemoState]].
+  *
+  * @param simulation engine the server fronts.
+  * @param host       interface to bind; defaults to loopback.
+  * @param port       TCP port to listen on; defaults to 8088.
+  */
 final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "127.0.0.1", port: Int = 8088):
   private val server = HttpServer.create(InetSocketAddress(host, port), 0)
   server.setExecutor(Executors.newCachedThreadPool())
@@ -22,12 +37,15 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
   server.createContext("/api/battle/start", exchange => json(exchange, Json.render(simulation.startBattle())))
   server.createContext("/api/battle/stop", exchange => json(exchange, Json.render(simulation.stopBattle())))
 
+  /** Start accepting connections on the configured host/port. */
   def start(): Unit =
     server.start()
 
+  /** Stop the server, allowing in-flight requests up to `delaySeconds` to complete. */
   def stop(delaySeconds: Int = 0): Unit =
     server.stop(delaySeconds)
 
+  /** Base URL the front-end and API are served from. */
   def url: String =
     s"http://$host:$port/"
 

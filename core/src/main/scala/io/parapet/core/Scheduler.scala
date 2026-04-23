@@ -16,22 +16,54 @@ import org.slf4j.LoggerFactory
 
 import scala.util.Try
 
+/** Routes [[Scheduler.Task]]s (envelope deliveries) to the right per-process mailbox and
+  * runs the resulting handler programs on a pool of worker fibers.
+  *
+  * The scheduler enforces parapet's core concurrency invariants:
+  *   - Per-process serialization: only one worker holds a process's lock at a time.
+  *   - Bounded mailboxes: when full, [[submit]] returns [[Scheduler.ProcessQueueIsFull]]
+  *     so callers can apply backpressure.
+  *   - Cooperative shutdown: stopping a process cascades to descendants via the
+  *     [[Context]] supervision graph.
+  *
+  * Implementations are expected to be thread-safe.
+  */
 trait Scheduler[F[_]]:
+  /** Starts the worker pool. Returns once the pool has begun consuming the signal queue;
+    * shutdown is handled by [[Effect.guarantee]] inside the implementation when cancelled.
+    */
   def start: F[Unit]
+
+  /** Submits a task for routing to its addressed process. The returned
+    * [[Scheduler.SubmissionResult]] indicates whether delivery is guaranteed
+    * ([[Scheduler.Ok]]) or has been refused (queue full, unknown process, etc.).
+    */
   def submit(task: Task[F]): F[SubmissionResult]
 
+/** Companion holding scheduler primitives, configuration, and the default implementation. */
 object Scheduler:
+  /** Internal heartbeat event used to wake worker fibers without delivering a payload. */
   case object Inbox extends Event
 
+  /** A single notification placed on the scheduler's signal queue, instructing workers to
+    * pull from the addressed process's mailbox.
+    */
   final case class Signal(envelope: Envelope, execTrace: ExecutionTrace):
     override def toString: String =
       s"Signal($envelope, $execTrace)"
 
+  /** Algebra of work items the scheduler accepts. Currently only [[Deliver]] but the type
+    * is sealed to allow future expansion (e.g. timers, cron).
+    */
   sealed trait Task[F[_]]
+
+  /** Deliver `envelope` to its addressed process; `execTrace` carries causal id. */
   final case class Deliver[F[_]](envelope: Envelope, execTrace: ExecutionTrace) extends Task[F]
 
+  /** A mailbox holding [[Task]]s for a single process. */
   type TaskQueue[F[_]] = Queue[F, Task[F]]
 
+  /** Builds the default [[SchedulerImpl]] with an unbounded MPMC signal queue. */
   def apply[F[_]](
       config: SchedulerConfig,
       context: Context[F],
@@ -39,13 +71,19 @@ object Scheduler:
   )(using effect: Effect[F], parallel: Parallel[F]): F[Scheduler[F]] =
     SchedulerImpl.apply(config, context, interpreter)
 
+  /** @param numberOfWorkers number of worker fibers to spin up; must be positive. */
   final case class SchedulerConfig(numberOfWorkers: Int):
     require(numberOfWorkers > 0)
 
   object SchedulerConfig:
+    /** Defaults to one worker per available CPU. */
     val default: SchedulerConfig =
       SchedulerConfig(numberOfWorkers = Runtime.getRuntime.availableProcessors())
 
+  /** Thin wrapper around an SLF4J [[Logger]] that elides invocations when not in
+    * [[Parapet.ParConfig.devMode]] — keeps hot paths from constructing message strings
+    * unnecessarily.
+    */
   final case class LoggerWrapper[F[_]](logger: Logger, devMode: Boolean)(using effect: Effect[F]):
     def debug(message: => String): F[Unit] =
       if devMode then effect.delay(logger.debug(message)) else effect.pure(())
@@ -62,14 +100,33 @@ object Scheduler:
     def warn(message: => String): F[Unit] =
       if devMode then effect.delay(logger.warn(message)) else effect.pure(())
 
+  /** Internal "wake up and check the mailbox" event the scheduler enqueues after a release
+    * if there are still pending tasks.
+    */
   private[core] case object NotifyEvent extends Event
 
+  /** Outcome of [[Scheduler.submit]]. */
   sealed trait SubmissionResult
+
+  /** Accepted; delivery will happen. */
   case object Ok extends SubmissionResult
+
+  /** Rejected: the receiver's [[ProcessRef]] is not registered. */
   case object UnknownProcess extends SubmissionResult
+
+  /** Rejected: the receiver has been terminated. */
   case object TerminatedProcess extends SubmissionResult
+
+  /** Rejected: the receiver's mailbox is full. The sender should back off and retry. */
   case object ProcessQueueIsFull extends SubmissionResult
 
+  /** Default [[Scheduler]] implementation backed by a pool of [[SchedulerImpl.Worker]]
+    * fibers reading from a single shared signal queue.
+    *
+    * Tasks land in per-process mailboxes via [[submit]]. Workers race for the per-process
+    * lock and drain the mailbox sequentially, ensuring per-process serialization while
+    * still parallelizing across processes.
+    */
   final class SchedulerImpl[F[_]](
       config: SchedulerConfig,
       context: Context[F],
@@ -162,7 +219,9 @@ object Scheduler:
         .map(index => SchedulerImpl.Worker[F](s"worker-$index", context, signalQueue, interpreter))
         .toList
 
+  /** Helpers and the [[Worker]] type for [[SchedulerImpl]]. */
   object SchedulerImpl:
+    /** Builds an MPMC-backed [[SchedulerImpl]]. */
     def apply[F[_]](
         config: SchedulerConfig,
         context: Context[F],
@@ -171,6 +230,12 @@ object Scheduler:
       Queue.unbounded[F, Signal](ChannelType.MPMC)
         .map(signalQueue => new SchedulerImpl[F](config, context, signalQueue, interpreter))
 
+    /** A worker fiber that pulls from `signalQueue`, races for per-process locks, and
+      * drains the winner's mailbox.
+      *
+      * Multiple workers run in parallel; per-process exclusivity is provided by the
+      * cooperative lock in [[Context.ProcessState]].
+      */
     final case class Worker[F[_]](
         name: String,
         context: Context[F],

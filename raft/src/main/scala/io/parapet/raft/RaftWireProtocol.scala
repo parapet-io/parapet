@@ -14,20 +14,30 @@ import io.parapet.raft.RaftEvents.{AppendEntries, AppendEntriesResponse, Request
 
 import scala.util.Try
 
+/** Protobuf-backed wire protocol used to ship [[RaftEvents]] across the network.
+  *
+  * Encodes a [[RemoteMessage]] together with its [[GroupId]] into a versioned
+  * envelope and decodes the reverse — application command payloads are serialised
+  * via a user-supplied [[WireCodec]].
+  */
 object RaftWireProtocol:
+  /** Protocol version stamped into every envelope. Bump on incompatible changes. */
   final val CurrentProtocolVersion = 1
 
+  /** Tagged union of inter-node messages supported by the wire protocol. */
   enum RemoteMessage[Command]:
     case VoteRequest(value: RequestVote)
     case VoteResponse(value: RequestVoteResponse)
     case LogRequest(value: AppendEntries[Command])
     case LogResponse(value: AppendEntriesResponse)
 
+  /** Result of [[decode]]: the destination group plus the decoded message. */
   final case class Decoded[Command](
       groupId: GroupId,
       message: RemoteMessage[Command]
   )
 
+  /** Serialise a [[RemoteMessage]] addressed to `groupId` to bytes. */
   def encode[Command](
       groupId: GroupId,
       message: RemoteMessage[Command]
@@ -90,6 +100,9 @@ object RaftWireProtocol:
 
     envelope.toByteArray
 
+  /** Deserialise an envelope produced by [[encode]]. Returns `Left` on protocol
+    * version mismatch, parse failure, missing message, or command-codec error.
+    */
   def decode[Command](bytes: Array[Byte])(using commandCodec: WireCodec[Command]): Either[String, Decoded[Command]] =
     Try(ProtoRaftEnvelope.parseFrom(bytes)).toEither.left.map(error => s"invalid raft payload: ${error.getMessage}").flatMap {
       envelope =>

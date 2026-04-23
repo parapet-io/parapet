@@ -1,6 +1,13 @@
 package io.parapet.demo.coloring
 
+/** Hand-rolled JSON renderer for [[DemoState]] and friends.
+  *
+  * The demo-coloring HTTP server intentionally avoids pulling in a JSON dependency
+  * (e.g. circe) — the small surface here keeps the module standalone. Output is
+  * compact (no whitespace) and produces only the field set the front-end consumes.
+  */
 object Json:
+  /** Render the full simulation state as a JSON object string. */
   def render(state: DemoState): String =
     obj(
       "graphId" -> string(state.graphId),

@@ -8,15 +8,39 @@ import io.parapet.effect.Monad.*
 import io.parapet.free.{FunctionK, ~>}
 import io.parapet.{Envelope, Event, ProcessRef}
 
+/** Translates parapet [[Dsl.FlowOp]] programs into the user's effect type `F[_]`.
+  *
+  * The interpreter is the bridge between the abstract DSL and a concrete runtime: every
+  * operation in the algebra is mapped to an `F`-effect and all routing/scheduling work
+  * goes through the surrounding [[Context]] and [[Scheduler]].
+  *
+  * Custom interpreters can be plugged in via [[io.parapet.ParApp.interpreter]] for cases
+  * such as tracing or recording.
+  */
 object DslInterpreter:
+  /** A natural transformation from `FlowOp[F, *]` to `F[*]`. Three overloads adapt the
+    * call-site to whatever target identification is convenient (raw ref vs. resolved
+    * [[ProcessState]]).
+    */
   trait Interpreter[F[_]]:
+    /** Interprets ops in the context of `target`, allocating a fresh trace. */
     def interpret(sender: ProcessRef, target: ProcessRef): ([x] =>> FlowOp[F, x]) ~> F
+
+    /** Interprets ops in the context of `target` reusing `execTrace` for causal id. */
     def interpret(sender: ProcessRef, target: ProcessRef, execTrace: ExecutionTrace): ([x] =>> FlowOp[F, x]) ~> F
+
+    /** Interprets ops directly against a known [[ProcessState]] — the form used by the
+      * scheduler hot path so it can avoid an extra registry lookup.
+      */
     def interpret(sender: ProcessRef, processState: ProcessState[F], execTrace: ExecutionTrace): ([x] =>> FlowOp[F, x]) ~> F
 
+  /** Builds the default [[Impl]] interpreter bound to `context`. */
   def apply[F[_]](context: Context[F])(using effect: Effect[F]): Interpreter[F] =
     Impl(context)
 
+  /** Default [[Interpreter]] implementation. Delegates routing to [[Context.schedule]] and
+    * applies any registered [[EventTransformer]] before enqueueing.
+    */
   final class Impl[F[_]](context: Context[F])(using effect: Effect[F]) extends Interpreter[F]:
     def interpret(sender: ProcessRef, target: ProcessRef): ([x] =>> FlowOp[F, x]) ~> F =
       interpret(sender, target, context.createTrace)

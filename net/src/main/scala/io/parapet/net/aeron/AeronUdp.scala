@@ -9,6 +9,16 @@ import org.agrona.concurrent.UnsafeBuffer
 
 import scala.collection.mutable.ListBuffer
 
+/** Connection settings for [[AeronUdpTransport]].
+  *
+  * @param channel             Aeron channel URI (e.g. `aeron:udp?endpoint=localhost:40123`).
+  * @param streamId            Aeron stream id used for both publication and subscription.
+  * @param embeddedMediaDriver if `true`, launches an in-process [[MediaDriver]] —
+  *                            convenient for tests and standalone deployments.
+  * @param directoryName       optional override for the Aeron CnC directory.
+  * @param offerRetries        number of busy-spin retries on a failed `offer` before
+  *                            giving up.
+  */
 final case class AeronUdpConfig(
     channel: String,
     streamId: Int,
@@ -17,6 +27,14 @@ final case class AeronUdpConfig(
     offerRetries: Int = 1000
 )
 
+/** Aeron-backed [[DatagramTransport]].
+  *
+  * Wraps an Aeron [[Publication]]/[[io.aeron.Subscription]] pair so the broader parapet
+  * stack can speak to peers via UDP without depending on Aeron types directly.
+  *
+  * Lifecycle: the transport opens its publication, subscription, and (optionally) an
+  * embedded [[MediaDriver]] eagerly; [[close]] tears them down in reverse order.
+  */
 final class AeronUdpTransport[F[_]](config: AeronUdpConfig)(using effect: Effect[F]) extends DatagramTransport[F]:
   private val embeddedDriver =
     if config.embeddedMediaDriver then

@@ -3,6 +3,28 @@ package io.parapet.demo.coloring
 import scala.collection.mutable
 import scala.util.Random
 
+/** Engine driving the demo-coloring simulation.
+  *
+  * Exposes a small command surface (`step`, `setRunning`, `configure`, `reset`,
+  * `burst`, `startBattle`, `stopBattle`) consumed by [[DemoHttpServer]]. All public
+  * methods are guarded by `synchronized`, so multiple HTTP threads and the
+  * background ticker may operate on the engine concurrently.
+  *
+  * Two game modes are supported (see [[GameMode]]):
+  *
+  *   - '''Coloring''' — neighbours negotiate a non-conflicting color via random
+  *     proposals and tie-breaking on lexicographic ids.
+  *   - '''Battle''' — colors are treated as alien races; each round attackers may
+  *     overwhelm a target with a strict majority (`leader_attackers > defenders`),
+  *     failed sieges wound the defender, and tiles lock after `MaxConquests`
+  *     wounds. Battles also terminate after `StalemateLimit` quiet rounds.
+  *
+  * @param graphId     stable identifier of the seed graph; bumped when the user
+  *                    reconfigures.
+  * @param paletteSize number of available colors.
+  * @param nodeCount   initial node count.
+  * @param seed        RNG seed used to make graph generation deterministic.
+  */
 final class GraphColoringSimulation(
     graphId: String = "sample-12",
     paletteSize: Int = 4,
@@ -44,6 +66,7 @@ final class GraphColoringSimulation(
       }
     }
 
+  /** Return an immutable snapshot of the current simulation state. */
   def snapshot(): DemoState = synchronized {
     val clusterSizes = nodesById.values
       .groupBy(_.clusterId)
@@ -83,14 +106,17 @@ final class GraphColoringSimulation(
     )
   }
 
+  /** Active game mode. */
   def currentMode: GameMode = synchronized(mode)
 
+  /** Advance the simulation by a single round in the current [[GameMode]]. */
   def step(): DemoState = synchronized {
     mode match
       case GameMode.Coloring => stepRound()
       case GameMode.Battle   => battleRound()
   }
 
+  /** Switch into [[GameMode.Battle]], conscripting every node into a race. */
   def startBattle(): DemoState = synchronized {
     if mode == GameMode.Battle then
       snapshot()
@@ -124,6 +150,7 @@ final class GraphColoringSimulation(
       snapshot()
   }
 
+  /** Switch back from [[GameMode.Battle]] to [[GameMode.Coloring]]. */
   def stopBattle(): DemoState = synchronized {
     if mode == GameMode.Battle then
       mode = GameMode.Coloring
@@ -134,6 +161,16 @@ final class GraphColoringSimulation(
     snapshot()
   }
 
+  /** Run a single battle round.
+    *
+    * Each unlocked, colored node attacks one differently-colored, unlocked
+    * neighbour. Targets resolve attackers by majority color: if `leaderCount`
+    * (the largest attacker faction) strictly exceeds the target's same-color
+    * defenders, the target is conquered; otherwise the target takes a wound.
+    * Three wounds permanently lock a tile. The battle terminates when one color
+    * remains, when no attacks are possible, or after `StalemateLimit` quiet
+    * rounds (won by territory).
+    */
   def battleRound(): DemoState = synchronized {
     if mode != GameMode.Battle then return snapshot()
 
@@ -262,12 +299,14 @@ final class GraphColoringSimulation(
     snapshot()
   }
 
+  /** Pause/resume the background ticker driven by [[DemoHttpServer]]. */
   def setRunning(value: Boolean): DemoState = synchronized {
     running = value
     pushEvent("control", None, if value then "simulation started" else "simulation paused")
     snapshot()
   }
 
+  /** Regenerate the graph with a new node/palette size and reset state. */
   def configure(nodeCount: Int, paletteSize: Int): DemoState = synchronized {
     val sanitizedNodes = sanitizeNodeCount(nodeCount)
     val sanitizedPalette = sanitizePaletteSize(paletteSize)
@@ -275,11 +314,16 @@ final class GraphColoringSimulation(
     snapshot()
   }
 
+  /** Reset rounds, events, and node colors back to the seed graph. */
   def reset(): DemoState = synchronized {
     resetState("simulation reset")
     snapshot()
   }
 
+  /** Add a fresh, internally-connected cluster of `size` nodes, attached to the
+    * existing graph by `bridges` random edges (the "small explosion" feature
+    * surfaced in the UI). Subject to [[GraphColoringSimulation.MaxNodes]].
+    */
   def burst(size: Int, bridges: Int = 1): DemoState = synchronized {
     val requested = size.max(2).min(60)
     val room = (GraphColoringSimulation.MaxNodes - nodesById.size).max(0)
@@ -392,6 +436,14 @@ final class GraphColoringSimulation(
     snapshot()
   }
 
+  /** Run a single distributed-coloring round.
+    *
+    * Every still-uncolored node makes a fresh proposal; for each pair of
+    * conflicting neighbour proposals the higher id loses (deterministic
+    * tie-break) and stays uncolored, the other locks the color. The round
+    * also elects a control leader from the simulated cluster overlay, used
+    * solely for the UI event log.
+    */
   def stepRound(): DemoState = synchronized {
     if nodesById.values.forall(_.status == ColoringNodeStatus.Locked) then
       running = false
@@ -612,8 +664,13 @@ final class GraphColoringSimulation(
   private def emptyTemplate: GraphTemplate =
     GraphTemplate("empty", 0, 0, 0, 0, Vector.empty, Vector.empty)
 
+/** Tunable simulation parameters. */
 object GraphColoringSimulation:
+  /** Hard cap on the total number of nodes. */
   val MaxNodes: Int = 2000
+  /** Sliding-window size for the per-tick event log. */
   val EventHistoryLimit: Int = 512
+  /** Wounds (failed sieges + conquests) before a tile is permanently locked. */
   val MaxConquests: Int = 3
+  /** Quiet rounds (no conquests, no wounds) tolerated before a battle ends. */
   val StalemateLimit: Int = 6

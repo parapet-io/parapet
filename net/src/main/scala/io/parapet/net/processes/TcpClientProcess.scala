@@ -6,6 +6,15 @@ import io.parapet.core.api.Cmd
 import io.parapet.net.RequestResponseClient
 import io.parapet.{ProcessRef, core}
 
+/** Adapter [[Process]] exposing a [[RequestResponseClient]] as an event-driven endpoint.
+  *
+  * Accepts [[Cmd.netClient.Send]] commands; for each, forwards the payload over the
+  * underlying client and (if a `replyTo` ref is given) routes the reply back as a
+  * [[Cmd.netClient.Rep]] event. Closes the client on [[io.parapet.core.Events.Stop]].
+  *
+  * @param client the underlying transport client.
+  * @param ref    optional process address; defaults to the well-known `"net-tcp-client"`.
+  */
 class TcpClientProcess[F[_]](
     client: RequestResponseClient[F],
     override val ref: ProcessRef = ProcessRef("net-tcp-client")
