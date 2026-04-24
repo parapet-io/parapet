@@ -13,8 +13,7 @@ object TestUtils:
   given Monad[Id] with
     def pure[A](value: A): A = value
 
-    extension [A](fa: A)
-      def flatMap[B](f: A => B): B = f(fa)
+    extension [A](fa: A) def flatMap[B](f: A => B): B = f(fa)
 
   final case class Message(event: Event, target: ProcessRef)
 

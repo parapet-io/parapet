@@ -1,11 +1,68 @@
 # Parapet
 
-A purely functional Scala 3 library for building distributed and event-driven systems.
+**A purely functional Scala 3 toolkit for building distributed systems.**
 
-Parapet plays the role of an execution framework for distributed algorithms — it sits
-between a low-level effect runtime and high-level process logic. Distributed engineers
-focus on algorithms; the runtime handles mailboxes, scheduling, lifecycle, and
-back-pressure.
+Parapet lets you describe a distributed system as a composable program - a value -
+and then interpret that program into a running system with scheduling, messaging, and
+supervision.
+
+Each process is an isolated unit with a mailbox. Its handler is an ordinary value in a
+typed DSL, executed by the runtime against any compatible effect type.
+
+```scala
+final case class Ping(n: Int) extends Event
+final case class Pong(n: Int) extends Event
+
+class Echo[F[_]](peer: ProcessRef) extends Process[F]:
+  import dsl.*
+  override def handle: Receive =
+    case Start              => Ping(0) ~> peer              // kick things off
+    case Ping(n) if n < 3   => reply(Pong(n + 1))           // reply to sender
+    case Pong(n)            => eval(println(s"got $n")) ++
+                               (Ping(n) ~> peer)            // sequential DSL
+    case Failure(_, cause)  => eval(println(cause))         // failures are events
+```
+
+## What Parapet is for
+
+Parapet is a library of primitives for building distributed systems. It gives you the
+substrate - processes, mailboxes, a typed DSL, a scheduler, pluggable transports, a
+wire-codec type-class - and trusts you to compose it into whatever topology your problem
+demands.
+
+The toolkit is still filling out. Higher-level building blocks that production systems
+depend on - reliable channels, failure detectors, broadcast, gossip, CRDTs, sharding,
+observability - are being added as standalone modules.
+
+Typical use cases:
+
+* **Consensus and coordination protocols** - Raft, Paxos, leader election, membership,
+  failure detectors.
+* **Replication, broadcast, and streaming systems** built on top of your own wire
+  protocol or transport.
+* **Deterministic testing of distributed algorithms** - every handler is a value, so
+  you can step, replay, and assert on full execution traces under a test interpreter
+  before the code ever hits the network.
+
+## Why Parapet
+
+* **Programs are values.** A handler is an ordinary value (`DslF[F, Unit]`) you can
+  store, compose with `++` / `par` / `race`, inspect, and test deterministically
+  without spinning up a real distributed system. Internally: a `Free` algebra over a
+  small set of operations.
+* **Pure actor semantics without an actor system.** Each process owns one mailbox, sees
+  messages sequentially, and never shares mutable state. No `Props`, no `ActorRef`
+  casting - just a `ProcessRef` and the `~>` operator.
+* **Effect-system agnostic.** Handlers are generic over `F[_]`. Pick `ParIO` for
+  drop-in use, or plug in your own effect type by providing `Effect[F]` and
+  `Parallel[F]` instances.
+* **Composable handlers.** Combine partial behaviours with `and` / `or`, swap them
+  at runtime with `switch`, compose supervised children with `register`.
+* **Batteries for distribution.** Pluggable transports (`net`), protobuf `WireCodec`
+  (`protocol`), a Raft module, and an integration test-kit.
+* **Predictable runtime.** Bounded per-process mailboxes, a configurable scheduler,
+  first-class failure events delivered to senders, overridable dead-letter and event-log
+  hooks.
 
 ## Modules
 
@@ -20,26 +77,15 @@ back-pressure.
 
 ## Contents
 
-* [Key features](#key-features)
 * [Getting started](#getting-started)
 * [Defining a process](#defining-a-process)
 * [Running an application](#running-an-application)
 * [DSL cheatsheet](#dsl-cheatsheet)
-* [Channel — request/response](#channel--requestresponse)
+* [Channel - request/response](#channel--requestresponse)
 * [Error handling](#error-handling)
 * [Configuration](#configuration)
 * [Contributing](#contributing)
 * [License](#license)
-
-## Key features
-
-* Purely functional — Tagless-Final and Free-monad encoded DSL; programs are values.
-* Single-mailbox actor model — sequential delivery, no shared mutable state.
-* Modular runtime — `Effect[F]` / `Parallel[F]` type-classes let you swap effect types;
-  `ParIO` is shipped out of the box.
-* Composable processes — combine handlers with `and` / `or`, swap state with `switch`.
-* Lightweight scheduler — bounded mailboxes, configurable worker pool, optional
-  `EventLog` overflow.
 
 ## Getting started
 
@@ -93,7 +139,7 @@ class Greeter[F[_]](printer: ProcessRef) extends Process[F]:
 
 Notes:
 
-* `Start` and `Stop` are lifecycle events delivered by the runtime — `Start` once on
+* `Start` and `Stop` are lifecycle events delivered by the runtime - `Start` once on
   registration, `Stop` (or `Kill`) on shutdown.
 * `ProcessRef` is the address of a process; prefer it over passing `Process` instances
   around so that wiring stays late-binding.
@@ -124,13 +170,26 @@ instances.
 
 ## DSL cheatsheet
 
-`dsl._` brings the program combinators into scope inside a process:
+`dsl._` brings the program combinators into scope inside a process. Most real programs
+only need a handful:
+
+| Combinator       | Description                                         |
+| ---------------- | --------------------------------------------------- |
+| `event ~> ref`   | Send an event to a process.                         |
+| `reply(event)`   | Send an event back to the current sender.           |
+| `eval { ... }`   | Run a side-effecting computation in `F`.            |
+| `p1 ++ p2`       | Sequential composition.                             |
+| `par(p1, p2)`    | Run two programs concurrently.                      |
+| `race(p1, p2)`   | Run both, keep the first to finish.                 |
+
+The full set of combinators:
 
 | Combinator                 | Description                                              |
 | -------------------------- | -------------------------------------------------------- |
-| `unit`                     | The empty program — useful as a fold seed.               |
+| `unit`                     | The empty program - useful as a fold seed.               |
 | `event ~> ref`             | Send `event` to a process.                               |
 | `forward(event, ref)`      | Send while preserving the original sender.               |
+| `reply(event)`             | Send `event` back to the sender of the current message.  |
 | `withSender(s => program)` | Run a program parameterised by the current sender ref.   |
 | `flow { ... }`             | Suspend program construction (use for recursion).        |
 | `eval { sideEffect }`      | Suspend a side-effecting computation in `F`.             |
@@ -143,9 +202,9 @@ instances.
 | `register(parent, child)`  | Register a child process; child receives `Stop` first.   |
 | `switch(receive)`          | Replace the current process behaviour.                   |
 
-Combine programs with `++` (sequential composition) — e.g. `eval(println("a")) ++ eval(println("b"))`.
+Combine programs with `++` (sequential composition) - e.g. `eval(println("a")) ++ eval(println("b"))`.
 
-## Channel — request/response
+## Channel - request/response
 
 `Channel` turns the asynchronous mailbox model into a strict one-call-at-a-time
 request/reply dialog. Send through it, get a `Try[Event]` back.
@@ -160,7 +219,7 @@ final case class Request(data: String) extends Event
 final case class Response(data: String) extends Event
 
 def server[F[_]]: Process[F] = Process[F](_ => {
-  case Request(data) => withSender(sender => Response(s"echo: $data") ~> sender)
+  case Request(data) => reply(Response(s"echo: $data"))
 })
 
 class Client[F[_]: Effect](backend: ProcessRef) extends Process[F]:
@@ -201,10 +260,10 @@ val client = Process.builder[F](_ => {
 
 Common failure causes:
 
-* `EventHandlingException` — receiver's handler threw.
-* `EventDeliveryException` — receiver's mailbox is full.
-* `EventMatchException` — receiver's handler is not defined for the event.
-* `UnknownProcessException` — receiver isn't registered.
+* `EventHandlingException` - receiver's handler threw.
+* `EventDeliveryException` - receiver's mailbox is full.
+* `EventMatchException` - receiver's handler is not defined for the event.
+* `UnknownProcessException` - receiver isn't registered.
 
 Override `ParApp#deadLetter` to install a custom `DeadLetterProcess` (e.g. one that
 persists or alerts on dropped events).
@@ -224,12 +283,25 @@ object MyApp extends ParIOApp:
 
 `SchedulerConfig` knobs:
 
-* `numberOfWorkers` — worker thread count (defaults to available processors).
-* `queueSize` — bound on the shared task queue.
-* `processQueueSize` — per-process mailbox bound; `-1` means unbounded.
+* `numberOfWorkers` - worker thread count (defaults to available processors).
+* `queueSize` - bound on the shared task queue.
+* `processQueueSize` - per-process mailbox bound; `-1` means unbounded.
 
-When a mailbox overflows, events are routed to `EventLog` (a no-op stub by default —
+When a mailbox overflows, events are routed to `EventLog` (a no-op stub by default -
 override `eventLog` to persist).
+
+## How it differs
+
+* **vs actor frameworks (Akka, etc.)** - similar process/mailbox model, but handlers are
+  programs (values) in a typed DSL. They are composable, inspectable, and
+  re-interpretable rather than directly executed behaviours.
+
+* **vs effect systems (Cats Effect, ZIO)** - builds on an effect runtime and adds a
+  structured model of distributed processes: mailboxes, message passing, supervision.
+
+* **Same program, multiple interpreters.** A handler runs unchanged in production and
+  under a deterministic test interpreter - no test-mode fork of your code, no separate
+  simulation framework.
 
 ## Contributing
 

@@ -6,16 +6,15 @@ import java.util.concurrent.{ArrayBlockingQueue, BlockingQueue, LinkedBlockingQu
 
 /** Asynchronous FIFO queue over the effect type `F`.
   *
-  * Combines an [[Queue.Enqueue]] producer side with a [[Queue.Dequeue]] consumer side.
-  * Used for process mailboxes and the scheduler's signal queue.
+  * Combines an [[Queue.Enqueue]] producer side with a [[Queue.Dequeue]] consumer side. Used for process mailboxes and
+  * the scheduler's signal queue.
   */
 trait Queue[F[_], A] extends Queue.Enqueue[F, A] with Queue.Dequeue[F, A]
 
 /** [[Queue]] type-class members and built-in implementations. */
 object Queue:
-  /** Hint describing the expected concurrency pattern. Implementations may use this to
-    * pick a more efficient backing structure (e.g., SPSC ring buffer for single-producer/
-    * single-consumer mailboxes).
+  /** Hint describing the expected concurrency pattern. Implementations may use this to pick a more efficient backing
+    * structure (e.g., SPSC ring buffer for single-producer/ single-consumer mailboxes).
     *
     * The default JDK-backed [[JdkQueue]] ignores this hint.
     */
@@ -46,8 +45,8 @@ object Queue:
     def dequeueThrough[B](f: A => F[B])(using monad: Monad[F]): F[B] =
       dequeue.flatMap(f)
 
-  /** [[Queue]] adapter over a JDK [[java.util.concurrent.BlockingQueue]]. Blocking
-    * enqueue/dequeue is dispatched through [[Effect.blocking]].
+  /** [[Queue]] adapter over a JDK [[java.util.concurrent.BlockingQueue]]. Blocking enqueue/dequeue is dispatched
+    * through [[Effect.blocking]].
     */
   final class JdkQueue[F[_], A](queue: BlockingQueue[A])(using effect: Effect[F]) extends Queue[F, A]:
     def enqueue(value: A): F[Unit] =
@@ -66,7 +65,9 @@ object Queue:
       effect.delay(Option(queue.poll()))
 
   /** Bounded [[Queue]] backed by [[java.util.concurrent.ArrayBlockingQueue]]. */
-  def bounded[F[_], A](capacity: Int, channelType: ChannelType = ChannelType.MPMC)(using effect: Effect[F]): F[Queue[F, A]] =
+  def bounded[F[_], A](capacity: Int, channelType: ChannelType = ChannelType.MPMC)(using
+      effect: Effect[F]
+  ): F[Queue[F, A]] =
     effect.delay(new JdkQueue[F, A](new ArrayBlockingQueue[A](capacity)))
 
   /** Unbounded [[Queue]] backed by [[java.util.concurrent.LinkedBlockingQueue]]. */

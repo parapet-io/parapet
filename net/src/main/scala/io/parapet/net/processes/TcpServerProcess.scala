@@ -8,14 +8,16 @@ import io.parapet.{ProcessRef, core}
 
 /** Adapter [[Process]] exposing a [[RequestResponseServer]] as an event-driven endpoint.
   *
-  * On [[io.parapet.core.Events.Start]] it forks a receive loop that polls the server and
-  * forwards every inbound frame to `sink` as a [[Cmd.netServer.Message]]. Outbound
-  * [[Cmd.netServer.Send]] events are written back to the originating client. The server
-  * is closed on [[io.parapet.core.Events.Stop]].
+  * On [[io.parapet.core.Events.Start]] it forks a receive loop that polls the server and forwards every inbound frame
+  * to `sink` as a [[Cmd.netServer.Message]]. Outbound [[Cmd.netServer.Send]] events are written back to the originating
+  * client. The server is closed on [[io.parapet.core.Events.Stop]].
   *
-  * @param server the underlying transport server.
-  * @param sink   process to route inbound messages to.
-  * @param ref    optional process address; defaults to the well-known `"net-tcp-server"`.
+  * @param server
+  *   the underlying transport server.
+  * @param sink
+  *   process to route inbound messages to.
+  * @param ref
+  *   optional process address; defaults to the well-known `"net-tcp-server"`.
   */
 class TcpServerProcess[F[_]](
     server: RequestResponseServer[F],
@@ -36,16 +38,15 @@ class TcpServerProcess[F[_]](
     } ++ receiveLoop
   }
 
-  override def handle: Receive =
-    {
-      case Start =>
-        fork(receiveLoop).void
+  override def handle: Receive = {
+    case Start =>
+      fork(receiveLoop).void
 
-      case Cmd.netServer.Send(clientId, data) =>
-        blocking {
-          suspend(server.reply(clientId, data))
-        }
+    case Cmd.netServer.Send(clientId, data) =>
+      blocking {
+        suspend(server.reply(clientId, data))
+      }
 
-      case Stop =>
-        suspend(server.close)
-    }
+    case Stop =>
+      suspend(server.close)
+  }

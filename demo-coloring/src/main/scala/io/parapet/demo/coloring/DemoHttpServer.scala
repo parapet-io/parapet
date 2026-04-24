@@ -8,18 +8,20 @@ import java.util.concurrent.Executors
 
 /** Minimal HTTP front-end for [[GraphColoringSimulation]].
   *
-  * Built directly on the JDK's `com.sun.net.httpserver` to keep the demo
-  * dependency-free. Serves three kinds of resources:
+  * Built directly on the JDK's `com.sun.net.httpserver` to keep the demo dependency-free. Serves three kinds of
+  * resources:
   *
-  *   - `GET /` — the single-page UI HTML.
-  *   - `GET /app.js` — the front-end JavaScript driving the 3D force graph.
-  *   - `GET /api/...` — JSON endpoints wrapping individual simulation actions
-  *     (`state`, `step`, `start`, `pause`, `reset`, `configure`, `burst`,
-  *     `battle/start`, `battle/stop`); each returns the post-call [[DemoState]].
+  *   - `GET /` - the single-page UI HTML.
+  *   - `GET /app.js` - the front-end JavaScript driving the 3D force graph.
+  *   - `GET /api/...` - JSON endpoints wrapping individual simulation actions (`state`, `step`, `start`, `pause`,
+  *     `reset`, `configure`, `burst`, `battle/start`, `battle/stop`); each returns the post-call [[DemoState]].
   *
-  * @param simulation engine the server fronts.
-  * @param host       interface to bind; defaults to loopback.
-  * @param port       TCP port to listen on; defaults to 8088.
+  * @param simulation
+  *   engine the server fronts.
+  * @param host
+  *   interface to bind; defaults to loopback.
+  * @param port
+  *   TCP port to listen on; defaults to 8088.
   */
 final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "127.0.0.1", port: Int = 8088):
   private val server = HttpServer.create(InetSocketAddress(host, port), 0)
@@ -50,14 +52,14 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
     s"http://$host:$port/"
 
   private def configure(exchange: HttpExchange): DemoState =
-    val query = parseQuery(exchange.getRequestURI.getRawQuery)
-    val nodes = query.get("nodes").flatMap(_.toIntOption).getOrElse(simulation.snapshot().nodeCount)
+    val query  = parseQuery(exchange.getRequestURI.getRawQuery)
+    val nodes  = query.get("nodes").flatMap(_.toIntOption).getOrElse(simulation.snapshot().nodeCount)
     val colors = query.get("colors").flatMap(_.toIntOption).getOrElse(simulation.snapshot().paletteSize)
     simulation.configure(nodes, colors)
 
   private def burst(exchange: HttpExchange): DemoState =
-    val query = parseQuery(exchange.getRequestURI.getRawQuery)
-    val size = query.get("size").flatMap(_.toIntOption).getOrElse(8)
+    val query   = parseQuery(exchange.getRequestURI.getRawQuery)
+    val size    = query.get("size").flatMap(_.toIntOption).getOrElse(8)
     val bridges = query.get("bridges").flatMap(_.toIntOption).getOrElse(1)
     simulation.burst(size, bridges)
 
@@ -65,18 +67,22 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
     Option(raw)
       .filter(_.nonEmpty)
       .map { value =>
-        value.split("&").toVector.flatMap { pair =>
-          pair.split("=", 2).toList match
-            case key :: provided :: Nil =>
-              Some(
-                URLDecoder.decode(key, StandardCharsets.UTF_8) ->
-                  URLDecoder.decode(provided, StandardCharsets.UTF_8)
-              )
-            case key :: Nil =>
-              Some(URLDecoder.decode(key, StandardCharsets.UTF_8) -> "")
-            case _ =>
-              None
-        }.toMap
+        value
+          .split("&")
+          .toVector
+          .flatMap { pair =>
+            pair.split("=", 2).toList match
+              case key :: provided :: Nil =>
+                Some(
+                  URLDecoder.decode(key, StandardCharsets.UTF_8) ->
+                    URLDecoder.decode(provided, StandardCharsets.UTF_8)
+                )
+              case key :: Nil =>
+                Some(URLDecoder.decode(key, StandardCharsets.UTF_8) -> "")
+              case _ =>
+                None
+          }
+          .toMap
       }
       .getOrElse(Map.empty)
 
@@ -369,7 +375,7 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |            <h1>Parapet · Distributed Graph Lab<span class="mode-chip" id="mode-chip">coloring</span></h1>
       |            <div class="sub">Randomized graph coloring in 3D. Drag to orbit, scroll to zoom, right-click to pan. Spawn clusters, then start the battle.</div>
       |          </div>
-      |          <div class="chip" id="graph-id">—</div>
+      |          <div class="chip" id="graph-id">-</div>
       |        </header>
       |        <div class="controls">
       |          <button class="primary" id="start-btn">Auto Run</button>
@@ -506,7 +512,7 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |    .linkDirectionalParticleSpeed(link => link.__bridge ? 0.008 : 0.012)
       |    .linkDirectionalParticleColor(link => link.__bridge ? '#ffe69c' : '#ffd15c')
       |    .nodeLabel(n => {
-      |      const clr = n.color == null ? '—' : 'c' + n.color;
+      |      const clr = n.color == null ? '-' : 'c' + n.color;
       |      const cid = n.clusterId != null ? ' · k' + n.clusterId : '';
       |      let conq = '';
       |      if (currentMode === 'battle' && n.conquests != null) {
@@ -682,7 +688,7 @@ final class DemoHttpServer(simulation: GraphColoringSimulation, host: String = "
       |  if (state.mode === 'battle') {
       |    if (state.completed) {
       |      const victor = state.victor != null ? ('c' + state.victor) : 'the void';
-      |      status = `Conquest complete after ${state.round} rounds — ${victor} reigns.`;
+      |      status = `Conquest complete after ${state.round} rounds - ${victor} reigns.`;
       |    } else if (state.running) {
       |      status = `Battle in progress · round ${state.round}. Survive by having ≥2 same-color neighbors.`;
       |    } else {

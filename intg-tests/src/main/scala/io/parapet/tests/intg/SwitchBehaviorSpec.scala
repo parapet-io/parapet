@@ -13,16 +13,15 @@ abstract class SwitchBehaviorSpec[F[_]] extends AnyFunSuite with IntegrationSpec
 
   import dsl._
 
-
   test("switch a process  should ") {
     val eventStore = new EventStore[F, Event]
 
-    def saveEvent1: ProcessRef => PartialFunction[Event, DslF[F, Unit]] = ref => {
-      case Event1 => eval(eventStore.add(ref, Event1))
+    def saveEvent1: ProcessRef => PartialFunction[Event, DslF[F, Unit]] = ref => { case Event1 =>
+      eval(eventStore.add(ref, Event1))
     }
 
-    def saveEvent2: ProcessRef => PartialFunction[Event, DslF[F, Unit]] = ref => {
-      case Event2 => eval(eventStore.add(ref, Event2))
+    def saveEvent2: ProcessRef => PartialFunction[Event, DslF[F, Unit]] = ref => { case Event2 =>
+      eval(eventStore.add(ref, Event2))
     }
 
     val p1Ref = ProcessRef("p1")
@@ -31,7 +30,7 @@ abstract class SwitchBehaviorSpec[F[_]] extends AnyFunSuite with IntegrationSpec
     val p1 = new TestProcess[F](saveEvent1(p1Ref), eventStore, p1Ref)
     val p2 = new TestProcess[F](saveEvent2(p2Ref), eventStore, p2Ref)
 
-    val p = p1.or(p2)
+    val p  = p1.or(p2)
     val ch = new Channel[F]()
 
     val test = onStart {
@@ -44,45 +43,43 @@ abstract class SwitchBehaviorSpec[F[_]] extends AnyFunSuite with IntegrationSpec
 
   }
 
-
 }
 
 object SwitchBehaviorSpec {
 
-  class TestProcess[F[_]](initial: PartialFunction[Event, DslF[F, Unit]],
-                          es: EventStore[F, Event],
-                          override val ref: ProcessRef
-                         ) extends Process[F] {
+  class TestProcess[F[_]](
+      initial: PartialFunction[Event, DslF[F, Unit]],
+      es: EventStore[F, Event],
+      override val ref: ProcessRef
+  ) extends Process[F] {
     self =>
 
     import dsl._
 
     var state: State = _
 
-    def handleEvent1: PartialFunction[Event, DslF[F, Unit]] = {
-      case Event1 => eval(es.add(ref, Event1))
+    def handleEvent1: PartialFunction[Event, DslF[F, Unit]] = { case Event1 =>
+      eval(es.add(ref, Event1))
     }
 
-    def handleEvent2: PartialFunction[Event, DslF[F, Unit]] = {
-      case Event2 => eval(es.add(ref, Event2))
+    def handleEvent2: PartialFunction[Event, DslF[F, Unit]] = { case Event2 =>
+      eval(es.add(ref, Event2))
     }
 
-
-    def handleEvent3: PartialFunction[Event, DslF[F, Unit]] = {
-      case Event3 => eval(es.add(ref, Event3))
+    def handleEvent3: PartialFunction[Event, DslF[F, Unit]] = { case Event3 =>
+      eval(es.add(ref, Event3))
     }
 
     def switch(s: State): DslF[F, Unit] =
       s match {
-        case State1 => eval{state = State1} ++ switch(onSwitch.orElse(handleEvent1))
-        case State2 => eval{state = State2} ++ switch(onSwitch.orElse(handleEvent2))
-        case State3 => eval{state = State3} ++ switch(onSwitch.orElse(handleEvent3))
+        case State1 => eval { state = State1 } ++ switch(onSwitch.orElse(handleEvent1))
+        case State2 => eval { state = State2 } ++ switch(onSwitch.orElse(handleEvent2))
+        case State3 => eval { state = State3 } ++ switch(onSwitch.orElse(handleEvent3))
       }
 
-    def onSwitch: Receive = {
-      case Switch(s) => switch(s) ++ withSender(Ok ~> _)
+    def onSwitch: Receive = { case Switch(s) =>
+      switch(s) ++ withSender(Ok ~> _)
     }
-
 
     override def handle: Receive = onSwitch.orElse(initial)
   }

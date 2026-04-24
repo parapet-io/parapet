@@ -9,46 +9,44 @@ import io.parapet.syntax.logger.*
 import io.parapet.{Envelope, ProcessRef}
 import org.slf4j.LoggerFactory
 
-/** Marker trait for the singleton process that consumes [[io.parapet.core.Events.DeadLetter]]
-  * messages.
+/** Marker trait for the singleton process that consumes [[io.parapet.core.Events.DeadLetter]] messages.
   *
-  * Subclasses are pinned to [[io.parapet.ProcessRef.DeadLetterRef]] so the runtime can
-  * route undeliverable envelopes without registry lookups.
+  * Subclasses are pinned to [[io.parapet.ProcessRef.DeadLetterRef]] so the runtime can route undeliverable envelopes
+  * without registry lookups.
   *
-  * Override [[io.parapet.ParApp.deadLetter]] to substitute a custom implementation
-  * (metrics, alerting, persistence, etc.).
+  * Override [[io.parapet.ParApp.deadLetter]] to substitute a custom implementation (metrics, alerting, persistence,
+  * etc.).
   */
 trait DeadLetterProcess[F[_]] extends Process[F]:
-  override val name: String = DeadLetterRef.value
-  override final val ref: ProcessRef = DeadLetterRef
+  override val name: String          = DeadLetterRef.value
+  final override val ref: ProcessRef = DeadLetterRef
 
 /** Built-in [[DeadLetterProcess]] implementations. */
 object DeadLetterProcess:
-  /** Default dead-letter handler: logs each undeliverable envelope at `error`, with
-    * sender/receiver/event details surfaced as SLF4J MDC fields for structured log search.
+  /** Default dead-letter handler: logs each undeliverable envelope at `error`, with sender/receiver/event details
+    * surfaced as SLF4J MDC fields for structured log search.
     */
   final class DeadLetterLoggingProcess[F[_]] extends DeadLetterProcess[F]:
     import dsl.*
 
-    private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
+    private val logger        = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
     override val name: String = s"${DeadLetterRef.value}-logging"
 
-    override val handle: Receive = {
-      case DeadLetter(Envelope(sender, event, receiver), error) =>
-        val mdcFields: MDCFields = Map(
-          "processRef" -> ref,
-          "processName" -> name,
-          "sender" -> sender,
-          "receiver" -> receiver,
-          "event" -> event
-        )
+    override val handle: Receive = { case DeadLetter(Envelope(sender, event, receiver), error) =>
+      val mdcFields: MDCFields = Map(
+        "processRef"  -> ref,
+        "processName" -> name,
+        "sender"      -> sender,
+        "receiver"    -> receiver,
+        "event"       -> event
+      )
 
-        eval {
-          val canonicalEventName = Option(event).map(_.getClass).getOrElse("null")
-          logger.mdc(mdcFields) { _ =>
-            logger.error(s"event $canonicalEventName cannot be processed", error)
-          }
+      eval {
+        val canonicalEventName = Option(event).map(_.getClass).getOrElse("null")
+        logger.mdc(mdcFields) { _ =>
+          logger.error(s"event $canonicalEventName cannot be processed", error)
         }
+      }
     }
 
   /** Returns the default logging implementation. */

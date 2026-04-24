@@ -23,20 +23,20 @@ abstract class SchedulerSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
       "send event to deadletter" in {
         val eventStore = new EventStore[F, DeadLetter]
         val deadLetter = new DeadLetterProcess[F] {
-          def handle: Receive = {
-            case f: DeadLetter => eval(eventStore.add(ref, f))
+          def handle: Receive = { case f: DeadLetter =>
+            eval(eventStore.add(ref, f))
           }
         }
 
         val unknownProcess = new Process[F] {
-          def handle: Receive = {
-            case _ => unit
+          def handle: Receive = { case _ =>
+            unit
           }
         }
 
         val client = new Process[F] {
-          def handle: Receive = {
-            case Start => Request ~> unknownProcess
+          def handle: Receive = { case Start =>
+            Request ~> unknownProcess
           }
         }
 
@@ -56,30 +56,31 @@ abstract class SchedulerSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
     "process event queue is full" should {
       "send event to deadletter" ignore {
         val processQueueSize = 1
-        val eventStore = new EventStore[F, DeadLetter]
-        val deadLetter = new DeadLetterProcess[F] {
-          def handle: Receive = {
-            case f: DeadLetter => eval(eventStore.add(ref, f))
+        val eventStore       = new EventStore[F, DeadLetter]
+        val deadLetter       = new DeadLetterProcess[F] {
+          def handle: Receive = { case f: DeadLetter =>
+            eval(eventStore.add(ref, f))
           }
         }
 
         val slowServer = new Process[F] {
-          override def handle: Receive = {
-            case _: NamedRequest => eval(while (true) {})
+          override def handle: Receive = { case _: NamedRequest =>
+            eval(while (true) {})
           }
         }
 
         val client = new Process[F] {
-          override def handle: Receive = {
-            case Start => NamedRequest("1") ~> slowServer ++
+          override def handle: Receive = { case Start =>
+            NamedRequest("1") ~> slowServer ++
               delay(5.seconds) ++ NamedRequest("2") ~> slowServer ++ NamedRequest("3") ~> slowServer
           }
         }
 
         val config = ParConfig.default.withProcessBufferSize(processQueueSize)
 
-        unsafeRun(eventStore.await(1,
-          createApp(ct.pure(Seq(client, slowServer)), Some(ct.pure(deadLetter)), config).run))
+        unsafeRun(
+          eventStore.await(1, createApp(ct.pure(Seq(client, slowServer)), Some(ct.pure(deadLetter)), config).run)
+        )
 
         eventStore.size shouldBe 1
         eventStore.get(deadLetter.ref).headOption.value should matchPattern {

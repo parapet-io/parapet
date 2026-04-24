@@ -5,25 +5,26 @@ import scala.util.Random
 
 /** Engine driving the demo-coloring simulation.
   *
-  * Exposes a small command surface (`step`, `setRunning`, `configure`, `reset`,
-  * `burst`, `startBattle`, `stopBattle`) consumed by [[DemoHttpServer]]. All public
-  * methods are guarded by `synchronized`, so multiple HTTP threads and the
+  * Exposes a small command surface (`step`, `setRunning`, `configure`, `reset`, `burst`, `startBattle`, `stopBattle`)
+  * consumed by [[DemoHttpServer]]. All public methods are guarded by `synchronized`, so multiple HTTP threads and the
   * background ticker may operate on the engine concurrently.
   *
   * Two game modes are supported (see [[GameMode]]):
   *
-  *   - '''Coloring''' — neighbours negotiate a non-conflicting color via random
-  *     proposals and tie-breaking on lexicographic ids.
-  *   - '''Battle''' — colors are treated as alien races; each round attackers may
-  *     overwhelm a target with a strict majority (`leader_attackers > defenders`),
-  *     failed sieges wound the defender, and tiles lock after `MaxConquests`
+  *   - '''Coloring''' - neighbours negotiate a non-conflicting color via random proposals and tie-breaking on
+  *     lexicographic ids.
+  *   - '''Battle''' - colors are treated as alien races; each round attackers may overwhelm a target with a strict
+  *     majority (`leader_attackers > defenders`), failed sieges wound the defender, and tiles lock after `MaxConquests`
   *     wounds. Battles also terminate after `StalemateLimit` quiet rounds.
   *
-  * @param graphId     stable identifier of the seed graph; bumped when the user
-  *                    reconfigures.
-  * @param paletteSize number of available colors.
-  * @param nodeCount   initial node count.
-  * @param seed        RNG seed used to make graph generation deterministic.
+  * @param graphId
+  *   stable identifier of the seed graph; bumped when the user reconfigures.
+  * @param paletteSize
+  *   number of available colors.
+  * @param nodeCount
+  *   initial node count.
+  * @param seed
+  *   RNG seed used to make graph generation deterministic.
   */
 final class GraphColoringSimulation(
     graphId: String = "sample-12",
@@ -31,7 +32,7 @@ final class GraphColoringSimulation(
     nodeCount: Int = 12,
     seed: Int = 7
 ):
-  private final case class GraphTemplate(
+  final private case class GraphTemplate(
       graphId: String,
       nodeCount: Int,
       paletteSize: Int,
@@ -41,18 +42,18 @@ final class GraphColoringSimulation(
       cluster: Vector[ClusterNodeState]
   )
 
-  private var proposalRandom = new Random(seed)
-  private val nodesById = mutable.LinkedHashMap.empty[String, ColoringNodeState]
-  private var template = emptyTemplate
-  private var round = 0
-  private var tick = 0L
-  private var running = false
-  private var events = Vector.empty[DemoEvent]
-  private var cluster = Vector.empty[ClusterNodeState]
-  private var clusterCounter = 0
-  private var mode: GameMode = GameMode.Coloring
+  private var proposalRandom      = new Random(seed)
+  private val nodesById           = mutable.LinkedHashMap.empty[String, ColoringNodeState]
+  private var template            = emptyTemplate
+  private var round               = 0
+  private var tick                = 0L
+  private var running             = false
+  private var events              = Vector.empty[DemoEvent]
+  private var cluster             = Vector.empty[ClusterNodeState]
+  private var clusterCounter      = 0
+  private var mode: GameMode      = GameMode.Coloring
   private var victor: Option[Int] = None
-  private var stalemateStreak = 0
+  private var stalemateStreak     = 0
 
   configureGraph(nodeCount, paletteSize, graphId, initialization = true)
 
@@ -118,14 +119,13 @@ final class GraphColoringSimulation(
 
   /** Switch into [[GameMode.Battle]], conscripting every node into a race. */
   def startBattle(): DemoState = synchronized {
-    if mode == GameMode.Battle then
-      snapshot()
+    if mode == GameMode.Battle then snapshot()
     else
       mode = GameMode.Battle
       victor = None
       val rng = new Random(seed + tick.toInt + nodesById.size * 31)
       nodesById.keys.toVector.foreach { id =>
-        val node = nodesById(id)
+        val node             = nodesById(id)
         val conscriptedColor = node.color.getOrElse(rng.nextInt(template.paletteSize.max(1)))
         nodesById.update(
           id,
@@ -163,13 +163,11 @@ final class GraphColoringSimulation(
 
   /** Run a single battle round.
     *
-    * Each unlocked, colored node attacks one differently-colored, unlocked
-    * neighbour. Targets resolve attackers by majority color: if `leaderCount`
-    * (the largest attacker faction) strictly exceeds the target's same-color
-    * defenders, the target is conquered; otherwise the target takes a wound.
-    * Three wounds permanently lock a tile. The battle terminates when one color
-    * remains, when no attacks are possible, or after `StalemateLimit` quiet
-    * rounds (won by territory).
+    * Each unlocked, colored node attacks one differently-colored, unlocked neighbour. Targets resolve attackers by
+    * majority color: if `leaderCount` (the largest attacker faction) strictly exceeds the target's same-color
+    * defenders, the target is conquered; otherwise the target takes a wound. Three wounds permanently lock a tile. The
+    * battle terminates when one color remains, when no attacks are possible, or after `StalemateLimit` quiet rounds
+    * (won by territory).
     */
   def battleRound(): DemoState = synchronized {
     if mode != GameMode.Battle then return snapshot()
@@ -205,20 +203,20 @@ final class GraphColoringSimulation(
     val attacksByTarget: Map[String, Vector[String]] =
       attacks.groupBy(_._2).view.mapValues(_.keys.toVector).toMap
 
-    val nextColor = mutable.Map.empty[String, Int]
-    val woundedIds = mutable.Set.empty[String]
+    val nextColor      = mutable.Map.empty[String, Int]
+    val woundedIds     = mutable.Set.empty[String]
     var conquestEvents = 0
-    var woundEvents = 0
+    var woundEvents    = 0
 
     attacksByTarget.foreach { case (targetId, attackers) =>
       val target = nodesById(targetId)
       if !isLocked(target) then
         val attackerColors = attackers.flatMap(aid => nodesById.get(aid).flatMap(_.color))
         if attackerColors.nonEmpty then
-          val grouped = attackerColors.groupBy(identity).view.mapValues(_.size).toVector
+          val grouped     = attackerColors.groupBy(identity).view.mapValues(_.size).toVector
           val leaderCount = grouped.map(_._2).max
-          val topColors = grouped.filter(_._2 == leaderCount).map(_._1).sorted
-          val leader = topColors(rng.nextInt(topColors.size))
+          val topColors   = grouped.filter(_._2 == leaderCount).map(_._1).sorted
+          val leader      = topColors(rng.nextInt(topColors.size))
 
           val defenders = target.color match
             case Some(c) =>
@@ -229,22 +227,22 @@ final class GraphColoringSimulation(
             nextColor.put(targetId, leader)
             conquestEvents += 1
           else
-            // Siege failed — defender takes a wound. This guarantees forward progress
+            // Siege failed - defender takes a wound. This guarantees forward progress
             // so perpetual stalemates along a fortified border can't loop forever.
             woundedIds += targetId
             woundEvents += 1
     }
 
     val conqueredIds = nextColor.keySet
-    val changedIds = conqueredIds ++ woundedIds
+    val changedIds   = conqueredIds ++ woundedIds
     nodesById.keys.toVector.foreach { id =>
       val node = nodesById(id)
       nextColor.get(id) match
         case Some(winner) =>
           val newConquests = (node.conquests + 1).min(maxConquests)
-          val from = node.color.map(c => s"c$c").getOrElse("neutral")
-          val remaining = maxConquests - newConquests
-          val suffix = if remaining == 0 then " (locked)" else s" (${remaining} left)"
+          val from         = node.color.map(c => s"c$c").getOrElse("neutral")
+          val remaining    = maxConquests - newConquests
+          val suffix       = if remaining == 0 then " (locked)" else s" (${remaining} left)"
           pushEvent("conquer", Some(id), s"$from falls to c$winner$suffix")
           nodesById.update(
             id,
@@ -252,21 +250,18 @@ final class GraphColoringSimulation(
           )
         case None if woundedIds.contains(id) =>
           val newConquests = (node.conquests + 1).min(maxConquests)
-          val myColor = node.color.map(c => s"c$c").getOrElse("tile")
+          val myColor      = node.color.map(c => s"c$c").getOrElse("tile")
           if newConquests >= maxConquests then
             pushEvent("defend", Some(id), s"$myColor holds the siege and locks in place")
           nodesById.update(id, node.copy(conquests = newConquests, conflict = false))
         case _ =>
-          if node.conflict && !changedIds.contains(id) then
-            nodesById.update(id, node.copy(conflict = false))
+          if node.conflict && !changedIds.contains(id) then nodesById.update(id, node.copy(conflict = false))
     }
 
-    if conquestEvents == 0 && woundEvents == 0 then
-      stalemateStreak += 1
-    else
-      stalemateStreak = 0
+    if conquestEvents == 0 && woundEvents == 0 then stalemateStreak += 1
+    else stalemateStreak = 0
 
-    val finalColors = nodesById.values.flatMap(_.color).toSet
+    val finalColors     = nodesById.values.flatMap(_.color).toSet
     val attacksPossible = nodesById.values.exists { node =>
       !isLocked(node) && node.color.exists { myColor =>
         node.neighbors.exists { nid =>
@@ -281,20 +276,27 @@ final class GraphColoringSimulation(
         nodesById.values.count(_.color.contains(color))
       }
       val winnerLabel = victor.map(c => s"c$c").getOrElse("no one")
-      pushEvent("victory", None, s"$reason — $winnerLabel holds the most territory")
+      pushEvent("victory", None, s"$reason - $winnerLabel holds the most territory")
 
     if finalColors.size <= 1 then
       running = false
       victor = finalColors.headOption
       pushEvent("victory", None, s"c${victor.getOrElse(-1)} conquers the graph")
-    else if !attacksPossible then
-      endByTerritory("all borders locked")
+    else if !attacksPossible then endByTerritory("all borders locked")
     else if stalemateStreak >= GraphColoringSimulation.StalemateLimit then
       endByTerritory(s"stalemate after ${GraphColoringSimulation.StalemateLimit} quiet rounds")
     else if conquestEvents == 0 && woundEvents > 0 then
-      pushEvent("stalemate", None, s"round $round: $woundEvents siege${if woundEvents == 1 then "" else "s"} failed, defenders wounded")
+      pushEvent(
+        "stalemate",
+        None,
+        s"round $round: $woundEvents siege${if woundEvents == 1 then "" else "s"} failed, defenders wounded"
+      )
     else if conquestEvents == 0 then
-      pushEvent("stalemate", None, s"round $round ended quietly (${stalemateStreak}/${GraphColoringSimulation.StalemateLimit})")
+      pushEvent(
+        "stalemate",
+        None,
+        s"round $round ended quietly (${stalemateStreak}/${GraphColoringSimulation.StalemateLimit})"
+      )
 
     snapshot()
   }
@@ -308,9 +310,14 @@ final class GraphColoringSimulation(
 
   /** Regenerate the graph with a new node/palette size and reset state. */
   def configure(nodeCount: Int, paletteSize: Int): DemoState = synchronized {
-    val sanitizedNodes = sanitizeNodeCount(nodeCount)
+    val sanitizedNodes   = sanitizeNodeCount(nodeCount)
     val sanitizedPalette = sanitizePaletteSize(paletteSize)
-    configureGraph(sanitizedNodes, sanitizedPalette, s"generated-$sanitizedNodes-$sanitizedPalette", initialization = false)
+    configureGraph(
+      sanitizedNodes,
+      sanitizedPalette,
+      s"generated-$sanitizedNodes-$sanitizedPalette",
+      initialization = false
+    )
     snapshot()
   }
 
@@ -320,41 +327,38 @@ final class GraphColoringSimulation(
     snapshot()
   }
 
-  /** Add a fresh, internally-connected cluster of `size` nodes, attached to the
-    * existing graph by `bridges` random edges (the "small explosion" feature
-    * surfaced in the UI). Subject to [[GraphColoringSimulation.MaxNodes]].
+  /** Add a fresh, internally-connected cluster of `size` nodes, attached to the existing graph by `bridges` random
+    * edges (the "small explosion" feature surfaced in the UI). Subject to [[GraphColoringSimulation.MaxNodes]].
     */
   def burst(size: Int, bridges: Int = 1): DemoState = synchronized {
     val requested = size.max(2).min(60)
-    val room = (GraphColoringSimulation.MaxNodes - nodesById.size).max(0)
-    val amount = requested.min(room)
-    if amount <= 0 then
-      pushEvent("burst", None, "capacity reached, skipping burst")
+    val room      = (GraphColoringSimulation.MaxNodes - nodesById.size).max(0)
+    val amount    = requested.min(room)
+    if amount <= 0 then pushEvent("burst", None, "capacity reached, skipping burst")
     else
       clusterCounter = clusterCounter + 1
       val clusterId = clusterCounter
-      val random = new Random(seed + tick.toInt * 131 + amount * 29 + nodesById.size * 17 + clusterId * 997)
+      val random    = new Random(seed + tick.toInt * 131 + amount * 29 + nodesById.size * 17 + clusterId * 997)
 
-      val existingIds = nodesById.keys.toVector
-      val bridgeCount = bridges.max(1).min(existingIds.size.max(0)).min(amount)
+      val existingIds             = nodesById.keys.toVector
+      val bridgeCount             = bridges.max(1).min(existingIds.size.max(0)).min(amount)
       val anchors: Vector[String] =
         if existingIds.isEmpty then Vector.empty
         else
           val picks = mutable.LinkedHashSet.empty[String]
-          while picks.size < bridgeCount do
-            picks += existingIds(random.nextInt(existingIds.size))
+          while picks.size < bridgeCount do picks += existingIds(random.nextInt(existingIds.size))
           picks.toVector
 
       val anchorNode = anchors.headOption.flatMap(nodesById.get)
-      val centerX = anchorNode.map(_.x).getOrElse(template.canvasWidth.toDouble / 2.0)
-      val centerY = anchorNode.map(_.y).getOrElse(template.canvasHeight.toDouble / 2.0)
-      val spread = 40.0 + math.sqrt(amount.toDouble) * 18.0
+      val centerX    = anchorNode.map(_.x).getOrElse(template.canvasWidth.toDouble / 2.0)
+      val centerY    = anchorNode.map(_.y).getOrElse(template.canvasHeight.toDouble / 2.0)
+      val spread     = 40.0 + math.sqrt(amount.toDouble) * 18.0
 
       val nextIndex = maxNodeIndex() + 1
-      val newIds = (0 until amount).toVector.map(i => s"n${nextIndex + i}")
+      val newIds    = (0 until amount).toVector.map(i => s"n${nextIndex + i}")
 
       val positions = newIds.map { id =>
-        val angle = random.nextDouble() * 2.0 * math.Pi
+        val angle  = random.nextDouble() * 2.0 * math.Pi
         val radius = random.nextDouble() * spread + 25.0
         (id, centerX + math.cos(angle) * radius, centerY + math.sin(angle) * radius)
       }
@@ -374,10 +378,10 @@ final class GraphColoringSimulation(
       }
 
       // Add internal extra edges to give the cluster a bit of density (capped degree).
-      val degreeCap = math.min(math.max(3, template.paletteSize - 1), 6)
+      val degreeCap  = math.min(math.max(3, template.paletteSize - 1), 6)
       val extraEdges = math.max(amount / 2, amount / 3 + 1)
-      var attempts = 0
-      var added = 0
+      var attempts   = 0
+      var added      = 0
       while added < extraEdges && attempts < extraEdges * 6 do
         attempts += 1
         val a = newIds(random.nextInt(amount))
@@ -438,11 +442,9 @@ final class GraphColoringSimulation(
 
   /** Run a single distributed-coloring round.
     *
-    * Every still-uncolored node makes a fresh proposal; for each pair of
-    * conflicting neighbour proposals the higher id loses (deterministic
-    * tie-break) and stays uncolored, the other locks the color. The round
-    * also elects a control leader from the simulated cluster overlay, used
-    * solely for the UI event log.
+    * Every still-uncolored node makes a fresh proposal; for each pair of conflicting neighbour proposals the higher id
+    * loses (deterministic tie-break) and stays uncolored, the other locks the color. The round also elects a control
+    * leader from the simulated cluster overlay, used solely for the UI event log.
     */
   def stepRound(): DemoState = synchronized {
     if nodesById.values.forall(_.status == ColoringNodeStatus.Locked) then
@@ -509,7 +511,7 @@ final class GraphColoringSimulation(
   }
 
   private def configureGraph(nodeCount: Int, paletteSize: Int, graphId: String, initialization: Boolean): Unit =
-    val sanitizedNodes = sanitizeNodeCount(nodeCount)
+    val sanitizedNodes   = sanitizeNodeCount(nodeCount)
     val sanitizedPalette = sanitizePaletteSize(paletteSize)
     template = generateTemplate(sanitizedNodes, sanitizedPalette, graphId)
     resetState(
@@ -533,24 +535,24 @@ final class GraphColoringSimulation(
     pushEvent("control", None, reason)
 
   private def generateTemplate(nodeCount: Int, paletteSize: Int, graphId: String): GraphTemplate =
-    val graphRandom = new Random(seed + nodeCount * 97 + paletteSize * 53)
-    val cols = math.max(2, math.ceil(math.sqrt(nodeCount.toDouble)).toInt)
-    val rows = math.ceil(nodeCount.toDouble / cols.toDouble).toInt
-    val canvasWidth = math.max(900, cols * 130 + 180)
+    val graphRandom  = new Random(seed + nodeCount * 97 + paletteSize * 53)
+    val cols         = math.max(2, math.ceil(math.sqrt(nodeCount.toDouble)).toInt)
+    val rows         = math.ceil(nodeCount.toDouble / cols.toDouble).toInt
+    val canvasWidth  = math.max(900, cols * 130 + 180)
     val canvasHeight = math.max(680, rows * 120 + 180)
-    val xStep =
+    val xStep        =
       if cols <= 1 then 0.0 else (canvasWidth - 180).toDouble / (cols - 1)
     val yStep =
       if rows <= 1 then 0.0 else (canvasHeight - 180).toDouble / (rows - 1)
 
-    val buckets = shuffledBuckets(nodeCount, paletteSize, graphRandom)
+    val buckets   = shuffledBuckets(nodeCount, paletteSize, graphRandom)
     val positions = Vector.tabulate(nodeCount) { index =>
-      val col = index % cols
-      val row = index / cols
+      val col     = index % cols
+      val row     = index / cols
       val jitterX = boundedJitter(graphRandom, if nodeCount <= 24 then 28.0 else 14.0)
       val jitterY = boundedJitter(graphRandom, if nodeCount <= 24 then 22.0 else 12.0)
-      val x = 90.0 + col * xStep + jitterX
-      val y = 90.0 + row * yStep + jitterY
+      val x       = 90.0 + col * xStep + jitterX
+      val y       = 90.0 + row * yStep + jitterY
       (x, y)
     }
 
@@ -568,12 +570,12 @@ final class GraphColoringSimulation(
 
     (1 until nodeCount).foreach { index =>
       val candidates = (0 until index).filter(other => buckets(other) != buckets(index))
-      val parent = candidates.minByOption(other => distance(index, other)).getOrElse(index - 1)
+      val parent     = candidates.minByOption(other => distance(index, other)).getOrElse(index - 1)
       connect(index, parent)
     }
 
     val nearestWindow = math.max(3, math.min(8, paletteSize + 2))
-    val threshold = math.min(xStep.max(120.0), yStep.max(110.0)) * 1.7 + 45.0
+    val threshold     = math.min(xStep.max(120.0), yStep.max(110.0)) * 1.7 + 45.0
 
     (0 until nodeCount).foreach { index =>
       val nearest = (0 until nodeCount)
@@ -584,8 +586,7 @@ final class GraphColoringSimulation(
       nearest.foreach { other =>
         val shouldConnect =
           distance(index, other) <= threshold || graphRandom.nextDouble() < 0.16
-        if shouldConnect && adjacency(index).size < nearestWindow + 2 then
-          connect(index, other)
+        if shouldConnect && adjacency(index).size < nearestWindow + 2 then connect(index, other)
       }
     }
 
@@ -615,7 +616,7 @@ final class GraphColoringSimulation(
 
   private def chooseColor(node: ColoringNodeState): Int =
     val neighborColors = node.neighbors.flatMap(neighborId => nodesById.get(neighborId).flatMap(_.color)).toSet
-    val available = (0 until template.paletteSize).filterNot(neighborColors.contains)
+    val available      = (0 until template.paletteSize).filterNot(neighborColors.contains)
     if available.nonEmpty then available(proposalRandom.nextInt(available.size))
     else proposalRandom.nextInt(template.paletteSize)
 
@@ -624,8 +625,8 @@ final class GraphColoringSimulation(
 
   private def electControlLeader(): Unit =
     val onlineIds = cluster.filter(_.online).map(_.id)
-    val leaderId = if onlineIds.isEmpty then "" else onlineIds.min
-    val nextTerm = cluster.map(_.term).maxOption.getOrElse(0L) + 1L
+    val leaderId  = if onlineIds.isEmpty then "" else onlineIds.min
+    val nextTerm  = cluster.map(_.term).maxOption.getOrElse(0L) + 1L
     cluster = cluster.map { node =>
       if node.id == leaderId then node.copy(role = "leader", term = nextTerm)
       else node.copy(role = "follower", term = nextTerm)
@@ -643,9 +644,9 @@ final class GraphColoringSimulation(
 
   private def shuffledBuckets(nodeCount: Int, paletteSize: Int, random: Random): Vector[Int] =
     val values = Array.tabulate(nodeCount)(index => index % paletteSize)
-    var i = values.length - 1
+    var i      = values.length - 1
     while i > 0 do
-      val j = random.nextInt(i + 1)
+      val j   = random.nextInt(i + 1)
       val tmp = values(i)
       values(i) = values(j)
       values(j) = tmp
@@ -668,9 +669,12 @@ final class GraphColoringSimulation(
 object GraphColoringSimulation:
   /** Hard cap on the total number of nodes. */
   val MaxNodes: Int = 2000
+
   /** Sliding-window size for the per-tick event log. */
   val EventHistoryLimit: Int = 512
+
   /** Wounds (failed sieges + conquests) before a tile is permanently locked. */
   val MaxConquests: Int = 3
+
   /** Quiet rounds (no conquests, no wounds) tolerated before a battle ends. */
   val StalemateLimit: Int = 6

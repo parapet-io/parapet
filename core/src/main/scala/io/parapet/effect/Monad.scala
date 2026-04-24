@@ -1,7 +1,7 @@
 package io.parapet.effect
 
-/** Minimal monad type-class used internally by parapet to keep the runtime independent of
-  * any particular effect library.
+/** Minimal monad type-class used internally by parapet to keep the runtime independent of any particular effect
+  * library.
   *
   * Implementations need only define [[pure]] and `flatMap`; `map` derives by default.
   */

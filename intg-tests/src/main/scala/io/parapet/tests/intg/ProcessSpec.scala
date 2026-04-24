@@ -18,26 +18,25 @@ abstract class ProcessSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
   "A process p1 composed with process p2 using `or`" when {
     "p1 can't match event" should {
       "invoke p2" in {
-        val eventStore = new EventStore[F, Event]
+        val eventStore     = new EventStore[F, Event]
         val p1: Process[F] = new Process[F] {
-          override val handle: Receive = {
-            case Start => unit
+          override val handle: Receive = { case Start =>
+            unit
           }
         }
         val p2: Process[F] = new Process[F] {
-          override val handle: Receive = {
-            case r: Result => eval(eventStore.add(ref, r))
+          override val handle: Receive = { case r: Result =>
+            eval(eventStore.add(ref, r))
           }
         }
 
         val composed = p1.or(p2)
-        val init = onStart(Result(42) ~> composed)
+        val init     = onStart(Result(42) ~> composed)
 
         unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, composed))).run))
 
         eventStore.size shouldBe 1
-        eventStore.get(p2.ref).headOption.value should matchPattern {
-          case Result(42) =>
+        eventStore.get(p2.ref).headOption.value should matchPattern { case Result(42) =>
         }
 
       }
@@ -47,15 +46,15 @@ abstract class ProcessSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
   "A two processes p1 and p2 composed using `and`" when {
     "both defined for event X" should {
       "deliver event X" in {
-        val eventStore = new EventStore[F, Event]
+        val eventStore     = new EventStore[F, Event]
         val p1: Process[F] = new Process[F] {
-          override val handle: Receive = {
-            case r: Result => eval(eventStore.add(ref, r))
+          override val handle: Receive = { case r: Result =>
+            eval(eventStore.add(ref, r))
           }
         }
         val p2: Process[F] = new Process[F] {
-          override val handle: Receive = {
-            case r: Result => eval(eventStore.add(ref, r))
+          override val handle: Receive = { case r: Result =>
+            eval(eventStore.add(ref, r))
           }
         }
 
@@ -65,11 +64,9 @@ abstract class ProcessSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
         unsafeRun(eventStore.await(2, createApp(ct.pure(Seq(init, composed))).run))
         eventStore.size shouldBe 2
-        eventStore.get(p1.ref).headOption.value should matchPattern {
-          case Result(42) =>
+        eventStore.get(p1.ref).headOption.value should matchPattern { case Result(42) =>
         }
-        eventStore.get(p2.ref).headOption.value should matchPattern {
-          case Result(42) =>
+        eventStore.get(p2.ref).headOption.value should matchPattern { case Result(42) =>
         }
       }
     }
@@ -81,23 +78,23 @@ abstract class ProcessSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
         val eventStore = new EventStore[F, DeadLetter]
 
         val deadLetter: DeadLetterProcess[F] = new DeadLetterProcess[F] {
-          val handle: Receive = {
-            case f: DeadLetter => eval(eventStore.add(ref, f))
+          val handle: Receive = { case f: DeadLetter =>
+            eval(eventStore.add(ref, f))
           }
         }
         val p1: Process[F] = new Process[F] {
-          override val handle: Receive = {
-            case Start => unit
+          override val handle: Receive = { case Start =>
+            unit
           }
         }
         val p2: Process[F] = new Process[F] {
-          override val handle: Receive = {
-            case Start => unit
+          override val handle: Receive = { case Start =>
+            unit
           }
         }
 
         val composed = p1.and(p2)
-        val init = onStart(Result(42) ~> composed)
+        val init     = onStart(Result(42) ~> composed)
 
         unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(init, composed)), Some(ct.pure(deadLetter))).run))
 
@@ -120,8 +117,8 @@ object ProcessSpec {
 
     override val ref: ProcessRef = Multiplier.ref
 
-    override val handle: Receive = {
-      case Multiply(a, b) => withSender(sender => Result(a * b) ~> sender)
+    override val handle: Receive = { case Multiply(a, b) =>
+      withSender(sender => Result(a * b) ~> sender)
     }
   }
 
@@ -134,4 +131,3 @@ object ProcessSpec {
   case class Result(res: Int) extends Event
 
 }
-

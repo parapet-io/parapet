@@ -2,14 +2,13 @@ package io.parapet.protocol
 
 import java.nio.charset.StandardCharsets
 
-/** Type class describing how to serialize values of `A` to and from raw bytes for
-  * over-the-wire transport.
+/** Type class describing how to serialize values of `A` to and from raw bytes for over-the-wire transport.
   *
-  * Provided here as a thin abstraction so transport code can be polymorphic over the
-  * payload type. The companion ships defaults for `Array[Byte]` (passthrough with
-  * defensive clone) and `String` (UTF-8 round trip).
+  * Provided here as a thin abstraction so transport code can be polymorphic over the payload type. The companion ships
+  * defaults for `Array[Byte]` (passthrough with defensive clone) and `String` (UTF-8 round trip).
   *
-  * @tparam A the application-level value type.
+  * @tparam A
+  *   the application-level value type.
   */
 trait WireCodec[A]:
   /** Encodes `value` to a byte buffer suitable for transport. */
@@ -20,8 +19,7 @@ trait WireCodec[A]:
 
 /** Built-in [[WireCodec]] instances. */
 object WireCodec:
-  /** Identity codec for raw bytes. Defensive clones on both sides protect against
-    * downstream mutation.
+  /** Identity codec for raw bytes. Defensive clones on both sides protect against downstream mutation.
     */
   given byteArrayCodec: WireCodec[Array[Byte]] with
     def encode(value: Array[Byte]): Array[Byte] =

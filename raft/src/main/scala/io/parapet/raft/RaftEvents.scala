@@ -2,12 +2,10 @@ package io.parapet.raft
 
 import io.parapet.{Event, ProcessRef}
 
-/** Wire-level [[io.parapet.Event]] types exchanged between [[RaftNode]] instances and with
-  * external clients.
+/** Wire-level [[io.parapet.Event]] types exchanged between [[RaftNode]] instances and with external clients.
   *
-  * The event payloads mirror the Raft paper's RPCs ([[RequestVote]] / [[AppendEntries]])
-  * plus parapet-specific control events ([[ElectionTimeout]], [[ClientCommand]],
-  * [[StatusRequest]]).
+  * The event payloads mirror the Raft paper's RPCs ([[RequestVote]] / [[AppendEntries]]) plus parapet-specific control
+  * events ([[ElectionTimeout]], [[ClientCommand]], [[StatusRequest]]).
   */
 object RaftEvents:
   /** Marker for messages internal to a Raft consensus group. */
@@ -21,8 +19,8 @@ object RaftEvents:
 
   /** Candidate → peer: solicit a vote in `term`.
     *
-    * The recipient grants the vote only if (a) the candidate's log is at least as
-    * up-to-date as its own and (b) it has not yet voted in this term.
+    * The recipient grants the vote only if (a) the candidate's log is at least as up-to-date as its own and (b) it has
+    * not yet voted in this term.
     */
   final case class RequestVote(
       term: Long,
@@ -40,10 +38,12 @@ object RaftEvents:
 
   /** Leader → follower: replicate log entries (`entries` may be empty for heartbeat).
     *
-    * @param prevLogIndex index immediately before `entries`.
-    * @param prevLogTerm  term of the entry at `prevLogIndex` — used for the consistency
-    *                     check.
-    * @param leaderCommit leader's current commit index, lets followers advance their own.
+    * @param prevLogIndex
+    *   index immediately before `entries`.
+    * @param prevLogTerm
+    *   term of the entry at `prevLogIndex` - used for the consistency check.
+    * @param leaderCommit
+    *   leader's current commit index, lets followers advance their own.
     */
   final case class AppendEntries[Command](
       term: Long,
@@ -54,8 +54,8 @@ object RaftEvents:
       leaderCommit: Int
   ) extends RaftEvent
 
-  /** Follower → leader: response to [[AppendEntries]]. `matchIndex` is the highest log
-    * index known to be replicated on the follower.
+  /** Follower → leader: response to [[AppendEntries]]. `matchIndex` is the highest log index known to be replicated on
+    * the follower.
     */
   final case class AppendEntriesResponse(
       term: Long,
@@ -64,11 +64,11 @@ object RaftEvents:
       matchIndex: Int
   ) extends RaftEvent
 
-  /** Client → any node: submit `command` for commit. Non-leaders respond with a
-    * [[NotLeader]] event so the client can retry against the current leader.
+  /** Client → any node: submit `command` for commit. Non-leaders respond with a [[NotLeader]] event so the client can
+    * retry against the current leader.
     *
-    * @param replyTo optional ref to deliver the eventual [[CommandCommitted]] (or
-    *                [[NotLeader]]) reply to.
+    * @param replyTo
+    *   optional ref to deliver the eventual [[CommandCommitted]] (or [[NotLeader]]) reply to.
     */
   final case class ClientCommand[Command](
       command: Command,
@@ -87,8 +87,8 @@ object RaftEvents:
       leaderId: Option[NodeId]
   ) extends Event
 
-  /** Reply to [[ClientCommand]] when the receiver isn't the leader; carries the leader
-    * hint when known so the client can retry.
+  /** Reply to [[ClientCommand]] when the receiver isn't the leader; carries the leader hint when known so the client
+    * can retry.
     */
   final case class NotLeader(
       groupId: GroupId,
@@ -96,8 +96,8 @@ object RaftEvents:
       leaderId: Option[NodeId]
   ) extends Event
 
-  /** Reply to [[ClientCommand]] / observer notification: a command at `index` was
-    * committed and applied; `state` is the post-apply state machine snapshot.
+  /** Reply to [[ClientCommand]] / observer notification: a command at `index` was committed and applied; `state` is the
+    * post-apply state machine snapshot.
     */
   final case class CommandCommitted[State](
       groupId: GroupId,

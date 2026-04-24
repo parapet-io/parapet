@@ -9,52 +9,54 @@ import io.parapet.{Event, ProcessRef}
 import java.util.concurrent.atomic.AtomicInteger
 import scala.util.Try
 
-/** A request/response helper process for synchronous-style interaction inside the
-  * asynchronous parapet runtime.
+/** A request/response helper process for synchronous-style interaction inside the asynchronous parapet runtime.
   *
-  * A `Channel` is a small state machine: it accepts one [[Channel.Request]], forwards the
-  * embedded event to the target process, and completes the request's [[Deferred]] with
-  * the next event delivered back to it. While a request is in flight the channel rejects
-  * additional requests; this enforces a strict "one outstanding call" discipline.
+  * A `Channel` is a small state machine: it accepts one [[Channel.Request]], forwards the embedded event to the target
+  * process, and completes the request's [[Deferred]] with the next event delivered back to it. While a request is in
+  * flight the channel rejects additional requests; this enforces a strict "one outstanding call" discipline.
   *
-  * Callers typically construct a channel, register it under their own process, and use
-  * [[send]] to obtain a `Try[Event]` representing the eventual reply (or a transport
-  * failure).
+  * Callers typically construct a channel, register it under their own process, and use [[send]] to obtain a
+  * `Try[Event]` representing the eventual reply (or a transport failure).
   *
-  * @param ref optional fixed reference; defaults to a fresh UUID.
+  * @param ref
+  *   optional fixed reference; defaults to a fresh UUID.
   */
 class Channel[F[_]](override val ref: ProcessRef = ProcessRef.jdkUUIDRef)(using Effect[F]) extends Process[F]:
   import Channel.*
   import dsl.*
 
   private var callback: Deferred[F, Try[Event]] = _
-  private val debugCallNumber = new AtomicInteger()
-  private val debugMode = false
+  private val debugCallNumber                   = new AtomicInteger()
+  private val debugMode                         = false
 
-  private def waitForRequest: Receive = {
-    case req: Request[F] =>
-      eval {
-        callback = req.callback
-      } ++ req.event ~> req.receiver ++ switch(waitForResponse)
+  private def waitForRequest: Receive = { case req: Request[F] =>
+    eval {
+      callback = req.callback
+    } ++ req.event ~> req.receiver ++ switch(waitForResponse)
   }
 
   private def waitForResponse: Receive = {
     case Start => unit
-    case Stop =>
+    case Stop  =>
       flow {
         if callback != null then
-          suspend(callback.complete(scala.util.Failure(ChannelInterruptedException("channel has been closed"))).map(_ => ()))
+          suspend(
+            callback.complete(scala.util.Failure(ChannelInterruptedException("channel has been closed"))).map(_ => ())
+          )
         else unit
       }
     case req: Request[F] =>
       suspend(
-        req.callback.complete(scala.util.Failure(IllegalChannelStateException("the current request is not completed yet")))
+        req.callback
+          .complete(scala.util.Failure(IllegalChannelStateException("the current request is not completed yet")))
           .map(_ => ())
       )
     case Failure(_, error) =>
       suspend(callback.complete(scala.util.Failure(error)).map(_ => ())) ++ resetAndWaitForRequest
     case event =>
-      suspend(callback.complete(scala.util.Success(event)).map(_ => ())) ++ debug(s"resetAndWaitForRequest, event: $event") ++ resetAndWaitForRequest
+      suspend(callback.complete(scala.util.Success(event)).map(_ => ())) ++ debug(
+        s"resetAndWaitForRequest, event: $event"
+      ) ++ resetAndWaitForRequest
   }
 
   private def resetAndWaitForRequest: DslF[F, Unit] =
@@ -70,26 +72,27 @@ class Channel[F[_]](override val ref: ProcessRef = ProcessRef.jdkUUIDRef)(using 
   def send[A](event: Event, receiver: ProcessRef, callback: Try[Event] => DslF[F, A]): DslF[F, A] =
     for
       deferred <- suspend(Deferred[F, Try[Event]]())
-      _ <- Request(event, deferred, receiver) ~> ref
-      result <- suspend(deferred.get)
-      value <- callback(result)
+      _        <- Request(event, deferred, receiver) ~> ref
+      result   <- suspend(deferred.get)
+      value    <- callback(result)
     yield value
 
   /** Sends `event` to `receiver` and suspends until a response (or failure) arrives.
     *
-    * The implementation acquires the channel's per-process lock for the duration of the
-    * call so concurrent senders queue cleanly.
+    * The implementation acquires the channel's per-process lock for the duration of the call so concurrent senders
+    * queue cleanly.
     *
-    * @return `Success(reply)` on a normal response, `Failure(throwable)` on transport
-    *         error, channel closure, or remote handler failure.
+    * @return
+    *   `Success(reply)` on a normal response, `Failure(throwable)` on transport error, channel closure, or remote
+    *   handler failure.
     */
   def send(event: Event, receiver: ProcessRef): DslF[F, Try[Event]] =
     for
-      _ <- lock(ref)
+      _        <- lock(ref)
       deferred <- suspend(Deferred[F, Try[Event]]())
-      _ <- sendReq(Request(event, deferred, receiver))
-      _ <- unlock(ref)
-      value <- suspend(deferred.get)
+      _        <- sendReq(Request(event, deferred, receiver))
+      _        <- unlock(ref)
+      value    <- suspend(deferred.get)
     yield value
 
   private def sendReq(req: Request[F]): DslF[F, Unit] =
@@ -128,5 +131,5 @@ object Channel:
     new Channel(ref)
 
   /** Internal request envelope sent from [[Channel.send]] to the channel's mailbox. */
-  private final case class Request[F[_]](event: Event, callback: Deferred[F, Try[Event]], receiver: ProcessRef)
+  final private case class Request[F[_]](event: Event, callback: Deferred[F, Try[Event]], receiver: ProcessRef)
       extends Event

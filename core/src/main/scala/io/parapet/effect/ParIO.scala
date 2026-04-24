@@ -18,14 +18,13 @@ import scala.concurrent.duration.FiniteDuration
 
 /** Parapet's effect type.
   *
-  * `ParIO` programs are values describing computations; nothing runs until
-  * [[ParIO.unsafeRunSync]] is called (typically by [[io.parapet.ParIOApp]]).
+  * `ParIO` programs are values describing computations; nothing runs until [[ParIO.unsafeRunSync]] is called (typically
+  * by [[io.parapet.ParIOApp]]).
   *
-  * The implementation is a trampolined interpreter over an algebra of constructors
-  * ([[ParIO.Pure]], [[ParIO.Delay]], [[ParIO.Blocking]], [[ParIO.Suspend]],
-  * [[ParIO.FlatMap]], [[ParIO.HandleError]], [[ParIO.Sleep]]) avoiding stack growth even
-  * for deeply nested binds. Concurrency primitives (start/race/par) delegate to a cached
-  * thread pool of daemon worker threads.
+  * The implementation is a trampolined interpreter over an algebra of constructors ([[ParIO.Pure]], [[ParIO.Delay]],
+  * [[ParIO.Blocking]], [[ParIO.Suspend]], [[ParIO.FlatMap]], [[ParIO.HandleError]], [[ParIO.Sleep]]) avoiding stack
+  * growth even for deeply nested binds. Concurrency primitives (start/race/par) delegate to a cached thread pool of
+  * daemon worker threads.
   */
 sealed trait ParIO[+A]:
   /** Maps the result. */
@@ -40,36 +39,41 @@ sealed trait ParIO[+A]:
   final def handleErrorWith[B >: A](f: Throwable => ParIO[B]): ParIO[B] =
     ParIO.HandleError(this, f)
 
-  /** Synchronously runs the program on the calling thread, blocking until it completes
-    * (or rethrowing any uncaught error).
+  /** Synchronously runs the program on the calling thread, blocking until it completes (or rethrowing any uncaught
+    * error).
     */
   final def unsafeRunSync(): A =
     ParIO.unsafeRun(this)
 
-/** [[ParIO]] constructors, the trampolined interpreter, and the type-class instances
-  * required by the parapet runtime.
+/** [[ParIO]] constructors, the trampolined interpreter, and the type-class instances required by the parapet runtime.
   */
 object ParIO:
   /** Wraps an already-known value. */
   final case class Pure[A](value: A) extends ParIO[A]
+
   /** A pure but lazy computation. */
   final case class Delay[A](thunk: () => A) extends ParIO[A]
+
   /** A blocking computation that should run on the worker pool. */
   final case class Blocking[A](thunk: () => A) extends ParIO[A]
+
   /** Defers construction of a `ParIO`. */
   final case class Suspend[A](thunk: () => ParIO[A]) extends ParIO[A]
+
   /** Sequencing constructor used by [[ParIO.flatMap]]. */
   final case class FlatMap[A, B](source: ParIO[A], bind: A => ParIO[B]) extends ParIO[B]
+
   /** Error-recovery constructor used by [[ParIO.handleErrorWith]]. */
   final case class HandleError[A](source: ParIO[A], handler: Throwable => ParIO[A]) extends ParIO[A]
+
   /** Non-blocking-style sleep that uses `Thread.sleep` under the hood. */
   final case class Sleep(duration: FiniteDuration) extends ParIO[Unit]
 
-  private sealed trait Frame
-  private final case class BindFrame(run: Any => ParIO[Any]) extends Frame
-  private final case class RecoverFrame(run: Throwable => ParIO[Any]) extends Frame
+  sealed private trait Frame
+  final private case class BindFrame(run: Any => ParIO[Any])          extends Frame
+  final private case class RecoverFrame(run: Throwable => ParIO[Any]) extends Frame
 
-  private final val workerPool: ExecutorService =
+  final private val workerPool: ExecutorService =
     Executors.newCachedThreadPool(new ThreadFactory:
       private val index = new AtomicInteger(0)
 
@@ -77,8 +81,7 @@ object ParIO:
         val thread = new Thread(runnable)
         thread.setName(s"parapet-io-${index.incrementAndGet()}")
         thread.setDaemon(true)
-        thread
-    )
+        thread)
 
   /** Lifts a pure value. */
   def pure[A](value: A): ParIO[A] =
@@ -111,8 +114,7 @@ object ParIO:
   private def submit[A](fa: ParIO[A]): JFuture[A] =
     workerPool.submit(new Callable[A]:
       override def call(): A =
-        unsafeRun(fa)
-    )
+        unsafeRun(fa))
 
   private def unwrap[A](future: JFuture[A]): A =
     try future.get()
@@ -122,7 +124,7 @@ object ParIO:
 
   private def unsafeRun[A](io: ParIO[A]): A =
     var current: ParIO[Any] = io.asInstanceOf[ParIO[Any]]
-    var stack: List[Frame] = Nil
+    var stack: List[Frame]  = Nil
 
     while true do
       try
@@ -160,7 +162,7 @@ object ParIO:
             current = Pure(())
       catch
         case error: Throwable =>
-          var frames = stack
+          var frames  = stack
           var handled = false
           while !handled && frames.nonEmpty do
             frames match
@@ -171,14 +173,12 @@ object ParIO:
               case _ :: tail =>
                 frames = tail
 
-          if !handled then
-            throw error
+          if !handled then throw error
 
     throw new IllegalStateException("unreachable")
 
-  /** [[Effect]] type-class instance for [[ParIO]] — the bridge that lets the parapet
-    * runtime drive `ParIO` programs via the same generic interpreter used for other effect
-    * types.
+  /** [[Effect]] type-class instance for [[ParIO]] - the bridge that lets the parapet runtime drive `ParIO` programs via
+    * the same generic interpreter used for other effect types.
     */
   given effect: Effect[ParIO] with
     def pure[A](value: A): ParIO[A] =
@@ -213,12 +213,11 @@ object ParIO:
       ParIO.delay {
         val result = new CompletableFuture[A]()
         val runner = new AtomicReference[Thread]()
-        val task = workerPool.submit(new Callable[Unit]:
+        val task   = workerPool.submit(new Callable[Unit]:
           override def call(): Unit =
             runner.set(Thread.currentThread())
             try result.complete(unsafeRun(fa))
-            catch case error: Throwable => result.completeExceptionally(error)
-        )
+            catch case error: Throwable => result.completeExceptionally(error))
 
         new EffectFiber[ParIO, A]:
           def join: ParIO[A] =
@@ -245,12 +244,10 @@ object ParIO:
         val completion = new ExecutorCompletionService[RaceResult](workerPool)
         val leftFuture = completion.submit(new Callable[RaceResult]:
           override def call(): RaceResult =
-            RaceResult(0, unsafeRun(left))
-        )
+            RaceResult(0, unsafeRun(left)))
         val rightFuture = completion.submit(new Callable[RaceResult]:
           override def call(): RaceResult =
-            RaceResult(1, unsafeRun(right))
-        )
+            RaceResult(1, unsafeRun(right)))
 
         try
           val winner = completion.take().get()
@@ -284,8 +281,8 @@ object ParIO:
           case Right(value) => value
       }
 
-  /** [[io.parapet.core.Parallel]] instance for [[ParIO]] — backs the scheduler's
-    * `parallel.par` calls used to spin up worker fibers and fan out child shutdowns.
+  /** [[io.parapet.core.Parallel]] instance for [[ParIO]] - backs the scheduler's `parallel.par` calls used to spin up
+    * worker fibers and fan out child shutdowns.
     */
   given parallel: io.parapet.core.Parallel[ParIO] with
     def par(effects: Seq[ParIO[Unit]]): ParIO[Unit] =

@@ -59,15 +59,16 @@ class AsyncSpec extends AnyFunSuite with BasicParIOSpec:
 
   test("parallel") {
     val eventStore = new EventStore[ParIO, Event]
-    val process = core.Process.builder[ParIO](ref => {
-      case Events.Start =>
+    val process    = core.Process
+      .builder[ParIO](ref => { case Events.Start =>
         for
           fibers <- par(List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10).map(calc): _*)
-          res <- fibers.map(_.join).reduce((fa, fb) => fa.flatMap(a => fb.map(b => a + b)))
-          _ <- eval(res shouldBe 385)
-          _ <- eval(eventStore.add(ref, Events.Stop))
+          res    <- fibers.map(_.join).reduce((fa, fb) => fa.flatMap(a => fb.map(b => a + b)))
+          _      <- eval(res shouldBe 385)
+          _      <- eval(eventStore.add(ref, Events.Stop))
         yield ()
-    }).build
+      })
+      .build
 
     unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
   }
@@ -79,36 +80,46 @@ class BlockingChannelWithTimeout extends AnyFunSuite with BasicParIOSpec:
   test("blockingChannelTimeout") {
     val eventStore = new EventStore[ParIO, Event]
 
-    val server = Process.builder[ParIO](_ => {
-      case e: ByteEvent =>
+    val server = Process
+      .builder[ParIO](_ => { case e: ByteEvent =>
         eval(println(s"server received: $e")) ++
           delay(10.seconds) ++
           withSender(sender => ByteEvent("res".getBytes) ~> sender)
-    }).ref(ProcessRef("server")).build
+      })
+      .ref(ProcessRef("server"))
+      .build
 
-    val failover = Process.builder[ParIO](ref => {
-      case e: ByteEvent =>
+    val failover = Process
+      .builder[ParIO](ref => { case e: ByteEvent =>
         withSender(sender => eval(println(s"failover received: $e from $sender"))) ++
           eval(eventStore.add(ref, StringEvent("success")))
-    }).ref(ProcessRef("failover")).build
+      })
+      .ref(ProcessRef("failover"))
+      .build
 
     val clientRef = ProcessRef("client")
-    val ch = new Channel[ParIO](clientRef)
-    val client = Process.builder[ParIO](ref => {
-      case Start =>
+    val ch        = new Channel[ParIO](clientRef)
+    val client    = Process
+      .builder[ParIO](ref => { case Start =>
         register(ref, ch) ++
           blocking {
             race(
-              ch.send(ByteEvent("request".getBytes()), server.ref, {
-                case scala.util.Failure(ChannelInterruptedException(_, _)) =>
-                  eval(println("channel was interrupted")) ++ ByteEvent("help".getBytes()) ~> failover
-                case res =>
-                  eval(println(s"client received: $res"))
-              }),
+              ch.send(
+                ByteEvent("request".getBytes()),
+                server.ref,
+                {
+                  case scala.util.Failure(ChannelInterruptedException(_, _)) =>
+                    eval(println("channel was interrupted")) ++ ByteEvent("help".getBytes()) ~> failover
+                  case res =>
+                    eval(println(s"client received: $res"))
+                }
+              ),
               delay(3.seconds) ++ eval(println("server doesn't respond"))
             ) ++ ch.send(ByteEvent("request".getBytes()), failover.ref, _ => unit)
           }
-    }).ref(clientRef).build
+      })
+      .ref(clientRef)
+      .build
 
     unsafeRun(eventStore.await(2, createApp(ct.pure(Seq(client, server, failover))).run))
     eventStore.get(failover.ref) shouldBe Seq(StringEvent("success"), StringEvent("success"))

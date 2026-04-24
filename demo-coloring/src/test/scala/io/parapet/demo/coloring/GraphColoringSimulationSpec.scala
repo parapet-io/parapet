@@ -42,7 +42,7 @@ class GraphColoringSimulationSpec extends AnyFunSuite:
 
   test("burst appends a connected cluster tagged with a fresh clusterId") {
     val simulation = new GraphColoringSimulation(seed = 11)
-    val before = simulation.snapshot()
+    val before     = simulation.snapshot()
 
     val after = simulation.burst(size = 10, bridges = 2)
 
@@ -65,7 +65,7 @@ class GraphColoringSimulationSpec extends AnyFunSuite:
     simulation.configure(nodeCount = 20, paletteSize = 4)
     val after = simulation.burst(size = 8, bridges = 2)
 
-    val byId = after.nodes.map(node => node.id -> node).toMap
+    val byId        = after.nodes.map(node => node.id -> node).toMap
     val bridgeEdges = after.nodes.flatMap { node =>
       node.neighbors.collect {
         case other if node.id < other && byId.get(other).exists(_.clusterId != node.clusterId) =>
@@ -78,8 +78,8 @@ class GraphColoringSimulationSpec extends AnyFunSuite:
 
   test("burst followed by step rounds colors the new cluster") {
     val simulation = new GraphColoringSimulation(seed = 11)
-    var state = simulation.snapshot()
-    var guard = 0
+    var state      = simulation.snapshot()
+    var guard      = 0
     while !state.completed && guard < 20 do
       state = simulation.stepRound()
       guard += 1
@@ -150,7 +150,7 @@ class GraphColoringSimulationSpec extends AnyFunSuite:
     val afterRound = simulation.battleRound()
     state.nodes.foreach { victim =>
       val victimColor = victim.color.get
-      val defenders = victim.neighbors.count { nid =>
+      val defenders   = victim.neighbors.count { nid =>
         state.nodes.find(_.id == nid).flatMap(_.color).contains(victimColor)
       }
       val attackerColors = victim.neighbors.flatMap { nid =>
@@ -170,11 +170,11 @@ class GraphColoringSimulationSpec extends AnyFunSuite:
     simulation.startBattle()
 
     val before = simulation.snapshot()
-    val after = simulation.battleRound()
+    val after  = simulation.battleRound()
 
     val beforeWounds = before.nodes.map(n => n.id -> n.conquests).toMap
-    val afterWounds = after.nodes.map(n => n.id -> n.conquests).toMap
-    val rose = afterWounds.exists { case (id, w) => w > beforeWounds.getOrElse(id, 0) }
+    val afterWounds  = after.nodes.map(n => n.id -> n.conquests).toMap
+    val rose         = afterWounds.exists { case (id, w) => w > beforeWounds.getOrElse(id, 0) }
     rose shouldBe true
   }
 
@@ -202,7 +202,7 @@ class GraphColoringSimulationSpec extends AnyFunSuite:
 
       var state = simulation.snapshot()
       var guard = 0
-      val cap = 4 * state.nodeCount + GraphColoringSimulation.StalemateLimit + 20
+      val cap   = 4 * state.nodeCount + GraphColoringSimulation.StalemateLimit + 20
       while !state.completed && guard < cap do
         state = simulation.battleRound()
         guard += 1

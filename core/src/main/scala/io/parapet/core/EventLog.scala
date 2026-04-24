@@ -8,10 +8,11 @@ import java.util.concurrent.{ConcurrentHashMap, CopyOnWriteArrayList}
 /** In-memory record of every envelope delivered through the runtime. Activated when
   * [[Parapet.ParConfig.eventLogEnabled]] is `true`.
   *
-  * Maintains a graph of per-process event nodes connected by directed [[EventLog.Impl.Edge]]s
-  * suitable for visualization or replay.
+  * Maintains a graph of per-process event nodes connected by directed [[EventLog.Impl.Edge]]s suitable for
+  * visualization or replay.
   */
 trait EventLog {
+
   /** Records the envelope (sender, event, receiver). */
   def add(envelope: Envelope): Unit
 
@@ -29,8 +30,7 @@ object EventLog {
   /** Returns a fresh in-memory log. */
   def apply(): EventLog = new Impl
 
-  /** Default thread-safe in-memory implementation backed by `ConcurrentHashMap` and a
-    * `CopyOnWriteArrayList` of edges.
+  /** Default thread-safe in-memory implementation backed by `ConcurrentHashMap` and a `CopyOnWriteArrayList` of edges.
     */
   class Impl extends EventLog {
 
@@ -39,9 +39,8 @@ object EventLog {
     private val graph = new ConcurrentHashMap[ProcessRef, List[Node]]()
     private val edges = new CopyOnWriteArrayList[Edge]()
 
-    def add(envelope: Envelope): Unit = {
+    def add(envelope: Envelope): Unit =
       add(envelope.sender, envelope.event, envelope.receiver)
-    }
 
     def add(source: ProcessRef, e: Event, target: ProcessRef): Unit = {
       val sourceNode = EventNode(e, UUID.randomUUID().toString, in = false)
@@ -63,18 +62,19 @@ object EventLog {
 
     override def close(): Unit = graph.keySet().forEach(close)
 
-    private def close(ref: ProcessRef): Unit = {
+    private def close(ref: ProcessRef): Unit =
       graph.computeIfPresent(ref, (key, v) => v :+ PNode(key.toString + "-end", "", start = false))
-    }
   }
 
   /** Node and edge ADT used by the in-memory graph. */
   object Impl {
+
     /** Common parent for every recorded node. */
     sealed class Node(val id: String, val name: String)
 
     /** A single event observation; `in` distinguishes incoming vs outgoing. */
-    case class EventNode(event: Event, override val id: String, override val name: String = "", in: Boolean) extends Node(id, name)
+    case class EventNode(event: Event, override val id: String, override val name: String = "", in: Boolean)
+        extends Node(id, name)
 
     /** A process boundary marker (start/end). */
     case class PNode(override val id: String, override val name: String = "", start: Boolean) extends Node(id, name)

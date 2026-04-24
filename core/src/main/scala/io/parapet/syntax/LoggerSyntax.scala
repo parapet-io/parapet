@@ -11,16 +11,15 @@ import org.slf4j.MDC
   * }
   * }}}
   *
-  * Fields are pushed into SLF4J [[MDC]] before `log` runs and the MDC is cleared
-  * afterwards.
+  * Fields are pushed into SLF4J [[MDC]] before `log` runs and the MDC is cleared afterwards.
   */
 trait LoggerSyntax:
   /** Convenience alias for the MDC payload type. */
   type MDCFields = Map[String, Any]
 
   extension (logger: Logger)
-    /** Runs `log` with `fields` populated in the MDC. Each value is `null`-safely
-      * stringified. The MDC is cleared after `log` returns.
+    /** Runs `log` with `fields` populated in the MDC. Each value is `null`-safely stringified. The MDC is cleared after
+      * `log` returns.
       */
     def mdc(fields: MDCFields)(log: MDCFields => Unit): Unit =
       fields.foreach { case (key, value) =>

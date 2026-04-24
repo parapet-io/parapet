@@ -2,12 +2,13 @@ package io.parapet.raft
 
 /** Pure state-transition function executed by a [[RaftNode]] once an entry is committed.
   *
-  * Implementations MUST be deterministic and side-effect free — every replica applies
-  * the same sequence of commands to the same initial state and is expected to produce
-  * the same resulting state.
+  * Implementations MUST be deterministic and side-effect free - every replica applies the same sequence of commands to
+  * the same initial state and is expected to produce the same resulting state.
   *
-  * @tparam State   immutable application state.
-  * @tparam Command immutable command type contained in [[LogEntry]].
+  * @tparam State
+  *   immutable application state.
+  * @tparam Command
+  *   immutable command type contained in [[LogEntry]].
   */
 trait RaftStateMachine[State, Command]:
   /** Applies `command` to `state` and returns the next state. */

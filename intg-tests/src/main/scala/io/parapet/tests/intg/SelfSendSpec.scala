@@ -14,12 +14,12 @@ abstract class SelfSendSpec[F[_]] extends AnyFlatSpec with IntegrationSpec[F] {
 
   "Process" should "be able to send event to itself" in {
     val eventStore = new EventStore[F, Counter]
-    val count = 11000
+    val count      = 11000
 
     val process = new Process[F] {
       def handle: Receive = {
-        case Start => Counter(count) ~> ref
-        case c@Counter(i) =>
+        case Start          => Counter(count) ~> ref
+        case c @ Counter(i) =>
           if (i == 0) unit
           else eval(eventStore.add(ref, c)) ++ Counter(i - 1) ~> ref
       }

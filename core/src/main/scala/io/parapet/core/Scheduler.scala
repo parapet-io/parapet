@@ -16,27 +16,25 @@ import org.slf4j.LoggerFactory
 
 import scala.util.Try
 
-/** Routes [[Scheduler.Task]]s (envelope deliveries) to the right per-process mailbox and
-  * runs the resulting handler programs on a pool of worker fibers.
+/** Routes [[Scheduler.Task]]s (envelope deliveries) to the right per-process mailbox and runs the resulting handler
+  * programs on a pool of worker fibers.
   *
   * The scheduler enforces parapet's core concurrency invariants:
   *   - Per-process serialization: only one worker holds a process's lock at a time.
-  *   - Bounded mailboxes: when full, [[submit]] returns [[Scheduler.ProcessQueueIsFull]]
-  *     so callers can apply backpressure.
-  *   - Cooperative shutdown: stopping a process cascades to descendants via the
-  *     [[Context]] supervision graph.
+  *   - Bounded mailboxes: when full, [[submit]] returns [[Scheduler.ProcessQueueIsFull]] so callers can apply
+  *     backpressure.
+  *   - Cooperative shutdown: stopping a process cascades to descendants via the [[Context]] supervision graph.
   *
   * Implementations are expected to be thread-safe.
   */
 trait Scheduler[F[_]]:
-  /** Starts the worker pool. Returns once the pool has begun consuming the signal queue;
-    * shutdown is handled by [[Effect.guarantee]] inside the implementation when cancelled.
+  /** Starts the worker pool. Returns once the pool has begun consuming the signal queue; shutdown is handled by
+    * [[Effect.guarantee]] inside the implementation when cancelled.
     */
   def start: F[Unit]
 
-  /** Submits a task for routing to its addressed process. The returned
-    * [[Scheduler.SubmissionResult]] indicates whether delivery is guaranteed
-    * ([[Scheduler.Ok]]) or has been refused (queue full, unknown process, etc.).
+  /** Submits a task for routing to its addressed process. The returned [[Scheduler.SubmissionResult]] indicates whether
+    * delivery is guaranteed ([[Scheduler.Ok]]) or has been refused (queue full, unknown process, etc.).
     */
   def submit(task: Task[F]): F[SubmissionResult]
 
@@ -45,15 +43,15 @@ object Scheduler:
   /** Internal heartbeat event used to wake worker fibers without delivering a payload. */
   case object Inbox extends Event
 
-  /** A single notification placed on the scheduler's signal queue, instructing workers to
-    * pull from the addressed process's mailbox.
+  /** A single notification placed on the scheduler's signal queue, instructing workers to pull from the addressed
+    * process's mailbox.
     */
   final case class Signal(envelope: Envelope, execTrace: ExecutionTrace):
     override def toString: String =
       s"Signal($envelope, $execTrace)"
 
-  /** Algebra of work items the scheduler accepts. Currently only [[Deliver]] but the type
-    * is sealed to allow future expansion (e.g. timers, cron).
+  /** Algebra of work items the scheduler accepts. Currently only [[Deliver]] but the type is sealed to allow future
+    * expansion (e.g. timers, cron).
     */
   sealed trait Task[F[_]]
 
@@ -80,9 +78,8 @@ object Scheduler:
     val default: SchedulerConfig =
       SchedulerConfig(numberOfWorkers = Runtime.getRuntime.availableProcessors())
 
-  /** Thin wrapper around an SLF4J [[Logger]] that elides invocations when not in
-    * [[Parapet.ParConfig.devMode]] — keeps hot paths from constructing message strings
-    * unnecessarily.
+  /** Thin wrapper around an SLF4J [[Logger]] that elides invocations when not in [[Parapet.ParConfig.devMode]] - keeps
+    * hot paths from constructing message strings unnecessarily.
     */
   final case class LoggerWrapper[F[_]](logger: Logger, devMode: Boolean)(using effect: Effect[F]):
     def debug(message: => String): F[Unit] =
@@ -100,8 +97,8 @@ object Scheduler:
     def warn(message: => String): F[Unit] =
       if devMode then effect.delay(logger.warn(message)) else effect.pure(())
 
-  /** Internal "wake up and check the mailbox" event the scheduler enqueues after a release
-    * if there are still pending tasks.
+  /** Internal "wake up and check the mailbox" event the scheduler enqueues after a release if there are still pending
+    * tasks.
     */
   private[core] case object NotifyEvent extends Event
 
@@ -120,12 +117,11 @@ object Scheduler:
   /** Rejected: the receiver's mailbox is full. The sender should back off and retry. */
   case object ProcessQueueIsFull extends SubmissionResult
 
-  /** Default [[Scheduler]] implementation backed by a pool of [[SchedulerImpl.Worker]]
-    * fibers reading from a single shared signal queue.
+  /** Default [[Scheduler]] implementation backed by a pool of [[SchedulerImpl.Worker]] fibers reading from a single
+    * shared signal queue.
     *
-    * Tasks land in per-process mailboxes via [[submit]]. Workers race for the per-process
-    * lock and drain the mailbox sequentially, ensuring per-process serialization while
-    * still parallelizing across processes.
+    * Tasks land in per-process mailboxes via [[submit]]. Workers race for the per-process lock and drain the mailbox
+    * sequentially, ensuring per-process serialization while still parallelizing across processes.
     */
   final class SchedulerImpl[F[_]](
       config: SchedulerConfig,
@@ -153,18 +149,22 @@ object Scheduler:
     private def submit(processState: ProcessState[F], task: Deliver[F]): F[SubmissionResult] =
       processState.tryPut(task).flatMap {
         case true =>
-          logger.debug(s"Scheduler::submit(ps=${processState.process}, task=$task) - task added to the process queue") >>
-            processState.acquired.flatMap {
-              case true =>
-                logger.debug(
-                  s"Scheduler::submit(ps=${processState.process}, task=$task) - lock is already acquired. do not notify"
-                )
-              case false =>
-                signalQueue.enqueue(Signal(task.envelope, task.execTrace)) >>
+          logger.debug(
+            s"Scheduler::submit(ps=${processState.process}, task=$task) - task added to the process queue"
+          ) >>
+            processState.acquired
+              .flatMap {
+                case true =>
                   logger.debug(
-                    s"Scheduler::submit(ps=${processState.process}, task=$task) - added to notification queue. traceId:${task.execTrace.last}"
+                    s"Scheduler::submit(ps=${processState.process}, task=$task) - lock is already acquired. do not notify"
                   )
-            }.as(Ok)
+                case false =>
+                  signalQueue.enqueue(Signal(task.envelope, task.execTrace)) >>
+                    logger.debug(
+                      s"Scheduler::submit(ps=${processState.process}, task=$task) - added to notification queue. traceId:${task.execTrace.last}"
+                    )
+              }
+              .as(Ok)
         case false =>
           logger.warn(s"process ${processState.process} event queue is full").as(ProcessQueueIsFull)
       }
@@ -173,7 +173,10 @@ object Scheduler:
       val envelope = task.envelope
       SchedulerImpl.send(
         SystemRef,
-        Failure(envelope, UnknownProcessException(s"there is no such process with id=${envelope.receiver} registered in the system")),
+        Failure(
+          envelope,
+          UnknownProcessException(s"there is no such process with id=${envelope.receiver} registered in the system")
+        ),
         context.getProcessState(envelope.sender).get,
         interpreter,
         task.execTrace
@@ -190,24 +193,26 @@ object Scheduler:
                 event match
                   case Kill =>
                     logger.debug(s"Scheduler::submit(ps=$processState, task=$task) - interrupted") >>
-                      SchedulerImpl.stopProcess(
-                        sender = sender,
-                        context = context,
-                        receiver = receiver,
-                        interpreter = interpreter,
-                        execTrace = deliverTask.execTrace,
-                        logger = logger,
-                        onError = (_, error) =>
-                          SchedulerImpl.handleError(
-                            processState.process,
-                            envelope,
-                            context,
-                            interpreter,
-                            deliverTask.execTrace,
-                            error,
-                            logger
-                          )
-                      ).as(Ok)
+                      SchedulerImpl
+                        .stopProcess(
+                          sender = sender,
+                          context = context,
+                          receiver = receiver,
+                          interpreter = interpreter,
+                          execTrace = deliverTask.execTrace,
+                          logger = logger,
+                          onError = (_, error) =>
+                            SchedulerImpl.handleError(
+                              processState.process,
+                              envelope,
+                              context,
+                              interpreter,
+                              deliverTask.execTrace,
+                              error,
+                              logger
+                            )
+                        )
+                        .as(Ok)
                   case _ =>
                     submit(processState, deliverTask)
           )
@@ -227,14 +232,14 @@ object Scheduler:
         context: Context[F],
         interpreter: Interpreter[F]
     )(using effect: Effect[F], parallel: Parallel[F]): F[Scheduler[F]] =
-      Queue.unbounded[F, Signal](ChannelType.MPMC)
+      Queue
+        .unbounded[F, Signal](ChannelType.MPMC)
         .map(signalQueue => new SchedulerImpl[F](config, context, signalQueue, interpreter))
 
-    /** A worker fiber that pulls from `signalQueue`, races for per-process locks, and
-      * drains the winner's mailbox.
+    /** A worker fiber that pulls from `signalQueue`, races for per-process locks, and drains the winner's mailbox.
       *
-      * Multiple workers run in parallel; per-process exclusivity is provided by the
-      * cooperative lock in [[Context.ProcessState]].
+      * Multiple workers run in parallel; per-process exclusivity is provided by the cooperative lock in
+      * [[Context.ProcessState]].
       */
     final case class Worker[F[_]](
         name: String,
@@ -269,10 +274,11 @@ object Scheduler:
           processState.tryTakeTask.flatMap {
             case Some(task: Deliver[F]) =>
               if task.envelope.event.isInstanceOf[Scheduler.Inbox.type] then step
-              else deliver(processState, task) >> processState.isBlocking.flatMap {
-                case true  => waitForCompletion(task, processState)
-                case false => step
-              }
+              else
+                deliver(processState, task) >> processState.isBlocking.flatMap {
+                  case true  => waitForCompletion(task, processState)
+                  case false => step
+                }
             case Some(task) =>
               effect.raiseError(new UnsupportedOperationException(s"unsupported task type: $task"))
             case None =>
@@ -283,15 +289,20 @@ object Scheduler:
 
       private def deliver(processState: ProcessState[F], task: Deliver[F]): F[Unit] =
         val envelope = task.envelope
-        val process = processState.process
-        val event = envelope.event
-        val sender = envelope.sender
+        val process  = processState.process
+        val event    = envelope.event
+        val sender   = envelope.sender
 
         event match
           case Stop =>
             processState.stopped.flatMap {
               case true =>
-                sendToDeadLetter(DeadLetter(envelope, ProcessStoppedException(process.ref)), context, interpreter, task.execTrace)
+                sendToDeadLetter(
+                  DeadLetter(envelope, ProcessStoppedException(process.ref)),
+                  context,
+                  interpreter,
+                  task.execTrace
+                )
               case false =>
                 stopProcess(
                   sender,
@@ -317,8 +328,10 @@ object Scheduler:
                   effect.delay(Try(process.canHandle(event))).flatMap {
                     case scala.util.Success(true) =>
                       for
-                        flow <- effect.delay(process(event))
-                        effect0 <- effect.pure(flow.foldMap(interpreter.interpret(sender, processState, task.execTrace)))
+                        flow    <- effect.delay(process(event))
+                        effect0 <- effect.pure(
+                          flow.foldMap(interpreter.interpret(sender, processState, task.execTrace))
+                        )
                         _ <- runEffect(
                           effect0,
                           envelope,
@@ -328,7 +341,7 @@ object Scheduler:
                       yield ()
 
                     case scala.util.Success(false) =>
-                      val errorMessage = s"process $process handler is not defined for event: $event"
+                      val errorMessage           = s"process $process handler is not defined for event: $event"
                       val whenUndefined: F[Unit] = event match
                         case failure: Failure =>
                           sendToDeadLetter(DeadLetter(failure), context, interpreter, task.execTrace)
@@ -361,7 +374,7 @@ object Scheduler:
       private def waitForCompletion(deliver: Deliver[F], processState: ProcessState[F]): F[Unit] =
         for
           numberOfBlockingOps <- processState.blocking.size
-          _ <- logger.debug(
+          _                   <- logger.debug(
             s"worker[$name]::waits for completion of $numberOfBlockingOps blocking operations. process: ${processState.process.ref}"
           )
           _ <- effect.start(
@@ -370,7 +383,16 @@ object Scheduler:
                 processState.blocking.waitForCompletion,
                 deliver.envelope,
                 processState,
-                error => handleError(processState.process, deliver.envelope, context, interpreter, deliver.execTrace, error, logger)
+                error =>
+                  handleError(
+                    processState.process,
+                    deliver.envelope,
+                    context,
+                    interpreter,
+                    deliver.execTrace,
+                    error,
+                    logger
+                  )
               )
             ) {
               logger.debug(
@@ -423,7 +445,13 @@ object Scheduler:
         case event =>
           val errorMessage = s"process $process has failed to handle event: $event"
           logger.error(errorMessage, cause) >>
-            sendErrorToSender(envelope, context, interpreter, executionTrace, EventHandlingException(errorMessage, cause))
+            sendErrorToSender(
+              envelope,
+              context,
+              interpreter,
+              executionTrace,
+              EventHandlingException(errorMessage, cause)
+            )
 
     private def sendErrorToSender[F[_]](
         envelope: Envelope,
@@ -432,7 +460,13 @@ object Scheduler:
         executionTrace: ExecutionTrace,
         error: Throwable
     )(using effect: Effect[F]): F[Unit] =
-      send(SystemRef, Failure(envelope, error), context.getProcessState(envelope.sender).get, interpreter, executionTrace)
+      send(
+        SystemRef,
+        Failure(envelope, error),
+        context.getProcessState(envelope.sender).get,
+        interpreter,
+        executionTrace
+      )
 
     private def sendToDeadLetter[F[_]](
         deadLetter: DeadLetter,
@@ -472,7 +506,11 @@ object Scheduler:
     )(using effect: Effect[F], parallel: Parallel[F]): F[Boolean] =
       effect.suspend {
         val stopChildProcesses =
-          parallel.par(context.child(receiver).map(child => stopProcess(receiver, context, child, interpreter, execTrace, logger, onError).void))
+          parallel.par(
+            context
+              .child(receiver)
+              .map(child => stopProcess(receiver, context, child, interpreter, execTrace, logger, onError).void)
+          )
 
         context.getProcessState(receiver) match
           case Some(processState) =>

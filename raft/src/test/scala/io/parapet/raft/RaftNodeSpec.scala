@@ -12,10 +12,10 @@ class RaftNodeSpec extends AnyFunSuite:
     RaftStateMachine[Vector[String], String]((state, command) => state :+ command)
 
   test("follower grants vote to an up-to-date candidate") {
-    val candidateId = NodeId("n2")
+    val candidateId  = NodeId("n2")
     val candidateRef = ProcessRef("n2")
-    val observer = ProcessRef("observer")
-    val node = new RaftNode[Id, String, Vector[String]](
+    val observer     = ProcessRef("observer")
+    val node         = new RaftNode[Id, String, Vector[String]](
       RaftConfig(GroupId("g1"), NodeId("n1"), Map(candidateId -> candidateRef), observer = Some(observer)),
       machine,
       Vector.empty,
@@ -33,17 +33,17 @@ class RaftNodeSpec extends AnyFunSuite:
   }
 
   test("candidate becomes leader after majority votes") {
-    val peerId = NodeId("n2")
-    val peerRef = ProcessRef("n2")
+    val peerId   = NodeId("n2")
+    val peerRef  = ProcessRef("n2")
     val observer = ProcessRef("observer")
-    val node = new RaftNode[Id, String, Vector[String]](
+    val node     = new RaftNode[Id, String, Vector[String]](
       RaftConfig(GroupId("g1"), NodeId("n1"), Map(peerId -> peerRef), observer = Some(observer)),
       machine,
       Vector.empty,
       ref = ProcessRef("n1")
     )
 
-    val execution = new Execution()
+    val execution   = new Execution()
     val interpreter = new IdInterpreter(execution)
 
     node(ElectionTimeout(0)).foldMap(interpreter)
@@ -51,20 +51,22 @@ class RaftNodeSpec extends AnyFunSuite:
 
     node.snapshot.role shouldBe RaftRole.Leader
     node.snapshot.leaderId shouldBe Some(NodeId("n1"))
-    execution.trace.toList.exists(_.event == RoleChanged(GroupId("g1"), NodeId("n1"), RaftRole.Leader, 1, Some(NodeId("n1")))) shouldBe true
+    execution.trace.toList.exists(
+      _.event == RoleChanged(GroupId("g1"), NodeId("n1"), RaftRole.Leader, 1, Some(NodeId("n1")))
+    ) shouldBe true
   }
 
   test("leader commits a command immediately in a single-node group") {
-    val replyTo = ProcessRef("client")
+    val replyTo  = ProcessRef("client")
     val observer = ProcessRef("observer")
-    val node = new RaftNode[Id, String, Vector[String]](
+    val node     = new RaftNode[Id, String, Vector[String]](
       RaftConfig(GroupId("g1"), NodeId("n1"), Map.empty, observer = Some(observer)),
       machine,
       Vector.empty,
       ref = ProcessRef("n1")
     )
 
-    val execution = new Execution()
+    val execution   = new Execution()
     val interpreter = new IdInterpreter(execution)
 
     node(ElectionTimeout(0)).foldMap(interpreter)

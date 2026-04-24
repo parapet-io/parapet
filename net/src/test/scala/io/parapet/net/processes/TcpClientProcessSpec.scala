@@ -16,9 +16,9 @@ class TcpClientProcessSpec extends AnyFunSuite:
 
       def close: Unit = ()
 
-    val process = new TcpClientProcess[Id](client, ProcessRef("tcp-client"))
+    val process   = new TcpClientProcess[Id](client, ProcessRef("tcp-client"))
     val execution = new Execution()
-    val replyTo = ProcessRef("reply")
+    val replyTo   = ProcessRef("reply")
 
     process(Cmd.netClient.Send("ping".getBytes, Some(replyTo))).foldMap(new IdInterpreter(execution))
 

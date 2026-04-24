@@ -7,18 +7,21 @@ import io.parapet.{ProcessRef, core}
 
 import scala.concurrent.duration.*
 
-/** Adapter [[Process]] exposing a [[DatagramTransport]] as an event-driven publish/receive
-  * endpoint.
+/** Adapter [[Process]] exposing a [[DatagramTransport]] as an event-driven publish/receive endpoint.
   *
-  * Polls the transport in a forked receive loop and forwards inbound payloads to `sink`
-  * as [[UdpEvents.Message]] events. Accepts [[UdpEvents.Send]] for outbound publishes.
+  * Polls the transport in a forked receive loop and forwards inbound payloads to `sink` as [[UdpEvents.Message]]
+  * events. Accepts [[UdpEvents.Send]] for outbound publishes.
   *
-  * @param transport the underlying datagram transport.
-  * @param sink      process to route inbound messages to.
-  * @param pollLimit max datagrams drained per poll.
-  * @param pollDelay sleep between polls — keeps the loop from busy-spinning when idle.
-  * @param ref       optional process address; defaults to the well-known
-  *                  `"net-udp-broadcast"`.
+  * @param transport
+  *   the underlying datagram transport.
+  * @param sink
+  *   process to route inbound messages to.
+  * @param pollLimit
+  *   max datagrams drained per poll.
+  * @param pollDelay
+  *   sleep between polls - keeps the loop from busy-spinning when idle.
+  * @param ref
+  *   optional process address; defaults to the well-known `"net-udp-broadcast"`.
   */
 class UdpBroadcastProcess[F[_]](
     transport: DatagramTransport[F],
@@ -42,16 +45,15 @@ class UdpBroadcastProcess[F[_]](
     } ++ delay(pollDelay) ++ receiveLoop
   }
 
-  override def handle: Receive =
-    {
-      case Start =>
-        fork(receiveLoop).void
+  override def handle: Receive = {
+    case Start =>
+      fork(receiveLoop).void
 
-      case UdpEvents.Send(payload) =>
-        blocking {
-          suspend(transport.publish(payload))
-        }
+    case UdpEvents.Send(payload) =>
+      blocking {
+        suspend(transport.publish(payload))
+      }
 
-      case Stop =>
-        suspend(transport.close)
-    }
+    case Stop =>
+      suspend(transport.close)
+  }
