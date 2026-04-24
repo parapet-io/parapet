@@ -35,7 +35,7 @@ object EventSyntax:
   /** Sequential helper: sends `events` to `processRef` one after another. */
   def send[F[_]](events: Seq[Event], processRef: ProcessRef)(using dsl: FlowOps[F, [x] =>> Dsl[F, x]]): DslF[F, Unit] =
     events.toList match
-      case Nil => dsl.unit
+      case Nil          => dsl.unit
       case head :: tail =>
         tail.foldLeft(dsl.send(head, processRef)) { (acc, event) =>
           acc.flatMap(_ => dsl.send(event, processRef))

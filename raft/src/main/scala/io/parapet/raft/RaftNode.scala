@@ -7,22 +7,23 @@ import io.parapet.{Event, ProcessRef}
 
 /** Single Raft replica implemented as a parapet [[Process]].
   *
-  * Implements the canonical Raft consensus algorithm — leader election, log
-  * replication, follower log update, and quorum commit advancement — organised
-  * around section 6.2 of `dist-sys-notes.pdf`. Inbound RPCs are modelled as
-  * [[RaftEvents.RaftEvent]]s; replies are delivered through `config.peers`. Clients
-  * submit work via [[RaftEvents.ClientCommand]] and observe progress through
-  * `config.observer` (see [[RaftEvents.RoleChanged]] / [[RaftEvents.CommandCommitted]]).
+  * Implements the canonical Raft consensus algorithm - leader election, log replication, follower log update, and
+  * quorum commit advancement - organised around section 6.2 of `dist-sys-notes.pdf`. Inbound RPCs are modelled as
+  * [[RaftEvents.RaftEvent]]s; replies are delivered through `config.peers`. Clients submit work via
+  * [[RaftEvents.ClientCommand]] and observe progress through `config.observer` (see [[RaftEvents.RoleChanged]] /
+  * [[RaftEvents.CommandCommitted]]).
   *
-  * The node is intentionally single-threaded: parapet's per-process inbox serialises
-  * all events, so the mutable [[RaftNodeState]] held internally can be updated
-  * without locking.
+  * The node is intentionally single-threaded: parapet's per-process inbox serialises all events, so the mutable
+  * [[RaftNodeState]] held internally can be updated without locking.
   *
-  * @param config       node configuration (peers, timeouts, observer).
-  * @param stateMachine pure command applier invoked once per committed entry.
-  * @param initialState seed state passed to `stateMachine` for the first apply.
-  * @param ref          optional address; defaults to a freshly-generated UUID ref so
-  *                     multiple replicas can coexist in the same runtime.
+  * @param config
+  *   node configuration (peers, timeouts, observer).
+  * @param stateMachine
+  *   pure command applier invoked once per committed entry.
+  * @param initialState
+  *   seed state passed to `stateMachine` for the first apply.
+  * @param ref
+  *   optional address; defaults to a freshly-generated UUID ref so multiple replicas can coexist in the same runtime.
   */
 class RaftNode[F[_], Command, State](
     val config: RaftConfig,
@@ -41,42 +42,41 @@ class RaftNode[F[_], Command, State](
   def snapshot: RaftSnapshot[State] =
     node.snapshot(config)
 
-  override def handle: Receive =
-    {
-      case Start =>
-        scheduleElectionTimeout(node.currentTerm)
+  override def handle: Receive = {
+    case Start =>
+      scheduleElectionTimeout(node.currentTerm)
 
-      case ElectionTimeout(term) if term == node.currentTerm && node.currentRole != RaftRole.Leader =>
-        startLeaderElection
+    case ElectionTimeout(term) if term == node.currentTerm && node.currentRole != RaftRole.Leader =>
+      startLeaderElection
 
-      case HeartbeatTimeout(term) if term == node.currentTerm && node.currentRole == RaftRole.Leader =>
-        replicateLogToFollowers ++ scheduleHeartbeat(node.currentTerm)
+    case HeartbeatTimeout(term) if term == node.currentTerm && node.currentRole == RaftRole.Leader =>
+      replicateLogToFollowers ++ scheduleHeartbeat(node.currentTerm)
 
-      case RequestVote(term, candidateId, candidateLastIndex, candidateLastTerm) =>
-        receiveVoteRequest(term, candidateId, candidateLastIndex, candidateLastTerm)
+    case RequestVote(term, candidateId, candidateLastIndex, candidateLastTerm) =>
+      receiveVoteRequest(term, candidateId, candidateLastIndex, candidateLastTerm)
 
-      case RequestVoteResponse(term, voterId, granted) =>
-        receiveVoteResponse(term, voterId, granted)
+    case RequestVoteResponse(term, voterId, granted) =>
+      receiveVoteResponse(term, voterId, granted)
 
-      case AppendEntries(term, remoteLeaderId, prefixLen, prefixTerm, entries, leaderCommit) =>
-        receiveLogRequest(
-          term,
-          remoteLeaderId,
-          prefixLen,
-          prefixTerm,
-          entries.asInstanceOf[Vector[LogEntry[Command]]],
-          leaderCommit
-        )
+    case AppendEntries(term, remoteLeaderId, prefixLen, prefixTerm, entries, leaderCommit) =>
+      receiveLogRequest(
+        term,
+        remoteLeaderId,
+        prefixLen,
+        prefixTerm,
+        entries.asInstanceOf[Vector[LogEntry[Command]]],
+        leaderCommit
+      )
 
-      case AppendEntriesResponse(term, followerId, success, ack) =>
-        receiveLogResponse(term, followerId, success, ack)
+    case AppendEntriesResponse(term, followerId, success, ack) =>
+      receiveLogResponse(term, followerId, success, ack)
 
-      case ClientCommand(command, replyTo) =>
-        broadcastCommand(command.asInstanceOf[Command], replyTo)
+    case ClientCommand(command, replyTo) =>
+      broadcastCommand(command.asInstanceOf[Command], replyTo)
 
-      case StatusRequest(replyTo) =>
-        StatusResponse(snapshot) ~> replyTo
-    }
+    case StatusRequest(replyTo) =>
+      StatusResponse(snapshot) ~> replyTo
+  }
 
   // Slides 111-114: election and vote collection.
   private def startLeaderElection: Program =
@@ -88,9 +88,10 @@ class RaftNode[F[_], Command, State](
       node.votesReceived = Set(config.nodeId)
     } ++ emitRoleChanged ++ scheduleElectionTimeout(node.currentTerm) ++
       (if config.peers.isEmpty then becomeLeader
-       else sendToAllPeers {
-         RequestVote(node.currentTerm, config.nodeId, node.lastLogIndex, node.lastLogTerm)
-       })
+       else
+         sendToAllPeers {
+           RequestVote(node.currentTerm, config.nodeId, node.lastLogIndex, node.lastLogTerm)
+         })
 
   private def receiveVoteRequest(
       term: Long,
@@ -103,19 +104,16 @@ class RaftNode[F[_], Command, State](
         replyToPeer(candidateId, RequestVoteResponse(node.currentTerm, config.nodeId, granted = false))
       else
         val steppedDown =
-          if term > node.currentTerm || node.currentRole != RaftRole.Follower then
-            stepDown(term, None)
-          else
-            unit
+          if term > node.currentTerm || node.currentRole != RaftRole.Follower then stepDown(term, None)
+          else unit
 
         steppedDown ++ eval {
-          val canVote = node.votedFor.isEmpty || node.votedFor.contains(candidateId)
+          val canVote  = node.votedFor.isEmpty || node.votedFor.contains(candidateId)
           val upToDate = isCandidateUpToDate(candidateLastIndex, candidateLastTerm)
           if canVote && upToDate then
             node.votedFor = Some(candidateId)
             true
-          else
-            false
+          else false
         }.flatMap { granted =>
           replyToPeer(candidateId, RequestVoteResponse(node.currentTerm, config.nodeId, granted)) ++
             (if granted then scheduleElectionTimeout(node.currentTerm) else unit)
@@ -124,17 +122,14 @@ class RaftNode[F[_], Command, State](
 
   private def receiveVoteResponse(term: Long, voterId: NodeId, granted: Boolean): Program =
     flow {
-      if node.currentRole != RaftRole.Candidate then
-        unit
-      else if term > node.currentTerm then
-        stepDown(term, None)
+      if node.currentRole != RaftRole.Candidate then unit
+      else if term > node.currentTerm then stepDown(term, None)
       else if term == node.currentTerm && granted then
         eval {
           node.votesReceived = node.votesReceived + voterId
         } ++
           (if node.votesReceived.size >= config.quorumSize then becomeLeader else unit)
-      else
-        unit
+      else unit
     }
 
   // Slides 115-119: broadcast, replication, and follower/leader log handling.
@@ -151,10 +146,11 @@ class RaftNode[F[_], Command, State](
         replyToPeer(remoteLeaderId, AppendEntriesResponse(node.currentTerm, config.nodeId, success = false, 0))
       else
         val steppedDown =
-          if term > node.currentTerm || node.currentRole != RaftRole.Follower || node.currentLeader != Some(remoteLeaderId) then
-            stepDown(term, Some(remoteLeaderId))
-          else
-            unit
+          if term > node.currentTerm || node.currentRole != RaftRole.Follower || node.currentLeader != Some(
+              remoteLeaderId
+            )
+          then stepDown(term, Some(remoteLeaderId))
+          else unit
 
         steppedDown ++
           (if logMatches(prefixLen, prefixTerm) then
@@ -168,16 +164,13 @@ class RaftNode[F[_], Command, State](
                  AppendEntriesResponse(node.currentTerm, config.nodeId, success = true, prefixLen + suffix.length)
                ) ++
                scheduleElectionTimeout(node.currentTerm)
-           else
-             replyToPeer(remoteLeaderId, AppendEntriesResponse(node.currentTerm, config.nodeId, success = false, 0)))
+           else replyToPeer(remoteLeaderId, AppendEntriesResponse(node.currentTerm, config.nodeId, success = false, 0)))
     }
 
   private def receiveLogResponse(term: Long, followerId: NodeId, success: Boolean, ack: Int): Program =
     flow {
-      if node.currentRole != RaftRole.Leader then
-        unit
-      else if term > node.currentTerm then
-        stepDown(term, None)
+      if node.currentRole != RaftRole.Leader then unit
+      else if term > node.currentTerm then stepDown(term, None)
       else if success then
         eval {
           node.sentLength = node.sentLength.updated(followerId, ack)
@@ -206,8 +199,7 @@ class RaftNode[F[_], Command, State](
              eval {
                node.commitLength = node.lastLogIndex
              } ++ applyCommittedEntries
-           else
-             replicateLogToFollowers)
+           else replicateLogToFollowers)
     }
 
   private def becomeLeader: Program =
@@ -241,7 +233,7 @@ class RaftNode[F[_], Command, State](
     config.peers.get(nodeId) match
       case Some(target) =>
         val prefixLen = node.sentLength.getOrElse(nodeId, node.lastLogIndex)
-        val suffix = node.log.drop(prefixLen)
+        val suffix    = node.log.drop(prefixLen)
         AppendEntries(
           node.currentTerm,
           config.nodeId,
@@ -263,15 +255,13 @@ class RaftNode[F[_], Command, State](
     eval {
       val ready = (1 to node.lastLogIndex).filter(length => acks(length) >= config.quorumSize)
       ready.lastOption.foreach { length =>
-        if length > node.commitLength && node.termAt(length) == node.currentTerm then
-          node.commitLength = length
+        if length > node.commitLength && node.termAt(length) == node.currentTerm then node.commitLength = length
       }
     } ++ applyCommittedEntries
 
   private def applyCommittedEntries: Program =
     def loop: Program =
-      if node.lastApplied >= node.commitLength then
-        unit
+      if node.lastApplied >= node.commitLength then unit
       else
         eval {
           node.lastApplied = node.lastApplied + 1
@@ -289,15 +279,13 @@ class RaftNode[F[_], Command, State](
   private def appendLogEntries(prefixLen: Int, leaderCommitLength: Int, suffix: Vector[LogEntry[Command]]): Unit =
     if suffix.nonEmpty && node.log.length > prefixLen then
       val index = math.min(node.log.length, prefixLen + suffix.length) - 1
-      if node.log(index).term != suffix(index - prefixLen).term then
-        node.log = node.log.take(prefixLen)
+      if node.log(index).term != suffix(index - prefixLen).term then node.log = node.log.take(prefixLen)
 
     if prefixLen + suffix.length > node.log.length then
       val missing = suffix.drop(node.log.length - prefixLen)
       node.log = node.log ++ missing
 
-    if leaderCommitLength > node.commitLength then
-      node.commitLength = math.min(leaderCommitLength, node.lastLogIndex)
+    if leaderCommitLength > node.commitLength then node.commitLength = math.min(leaderCommitLength, node.lastLogIndex)
 
   private def isCandidateUpToDate(candidateLastIndex: Int, candidateLastTerm: Long): Boolean =
     candidateLastTerm > node.lastLogTerm ||

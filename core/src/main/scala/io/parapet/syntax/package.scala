@@ -2,8 +2,7 @@ package io.parapet
 
 /** Syntax extensions and convenience importable namespaces.
   *
-  * Use [[syntax.all]] to import every available extension method, or [[syntax.logger]] to
-  * cherry-pick the MDC helpers.
+  * Use [[syntax.all]] to import every available extension method, or [[syntax.logger]] to cherry-pick the MDC helpers.
   */
 package object syntax {
 

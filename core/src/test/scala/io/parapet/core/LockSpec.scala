@@ -10,8 +10,8 @@ class LockSpec extends AnyFunSuite:
   test("lock is released after success") {
     val program =
       for
-        lock <- Lock[ParIO]()
-        _ <- lock.withPermit(ParIO.unit)
+        lock     <- Lock[ParIO]()
+        _        <- lock.withPermit(ParIO.unit)
         acquired <- lock.tryAcquire
       yield acquired
 
@@ -21,8 +21,8 @@ class LockSpec extends AnyFunSuite:
   test("lock is released after failure") {
     val program =
       for
-        lock <- Lock[ParIO]()
-        _ <- lock.withPermit(ParIO.raiseError(new RuntimeException("error"))).handleErrorWith(_ => ParIO.unit)
+        lock     <- Lock[ParIO]()
+        _        <- lock.withPermit(ParIO.raiseError(new RuntimeException("error"))).handleErrorWith(_ => ParIO.unit)
         acquired <- lock.tryAcquire
       yield acquired
 

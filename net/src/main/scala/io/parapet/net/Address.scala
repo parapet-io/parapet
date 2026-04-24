@@ -2,9 +2,10 @@ package io.parapet.net
 
 /** Identifies the L4 transport protocol used by a [[NetworkAddress]]. */
 enum TransportProtocol derives CanEqual:
-  /** TCP — reliable, connection-oriented byte stream. */
+  /** TCP - reliable, connection-oriented byte stream. */
   case Tcp
-  /** UDP — datagram-oriented, unreliable, connectionless. */
+
+  /** UDP - datagram-oriented, unreliable, connectionless. */
   case Udp
 
   /** URI scheme prefix corresponding to this protocol. */
@@ -15,8 +16,7 @@ enum TransportProtocol derives CanEqual:
 
 /** A `protocol://host:port` triple identifying a network endpoint.
   *
-  * Used by the [[Cluster]] view to advertise reachable peers and by transport processes
-  * to bind/connect.
+  * Used by the [[Cluster]] view to advertise reachable peers and by transport processes to bind/connect.
   */
 final case class NetworkAddress(protocol: TransportProtocol, host: String, port: Int):
   /** Returns the canonical URI form, e.g. `tcp://localhost:5000`. */

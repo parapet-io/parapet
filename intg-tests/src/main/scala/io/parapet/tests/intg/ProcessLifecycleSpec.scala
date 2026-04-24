@@ -17,10 +17,10 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
 
   "Start event" should "be delivered before client events" in {
     val expectedEventsCount = 2
-    val eventStore = new EventStore[F, Event]
-    val process = new Process[F] {
+    val eventStore          = new EventStore[F, Event]
+    val process             = new Process[F] {
       def handle: Receive = {
-        case Start => eval(eventStore.add(ref, Start))
+        case Start     => eval(eventStore.add(ref, Start))
         case TestEvent => eval(eventStore.add(ref, TestEvent))
       }
     }
@@ -29,7 +29,6 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
 
     unsafeRun(eventStore.await(expectedEventsCount, createApp(ct.pure(Seq(init, process))).run))
 
-
     eventStore.size shouldBe expectedEventsCount
     eventStore.get(process.ref) shouldBe Seq(Start, TestEvent)
 
@@ -37,12 +36,12 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
 
   "Stop" should "be delivered last" in {
     val domainEventsCount = 1
-    val totalEventsCount = 2 // domainEventsCount + Stop
-    val eventStore = new EventStore[F, Event]
-    val process = new Process[F] {
+    val totalEventsCount  = 2 // domainEventsCount + Stop
+    val eventStore        = new EventStore[F, Event]
+    val process           = new Process[F] {
       def handle: Receive = {
         case TestEvent => eval(eventStore.add(ref, TestEvent))
-        case Stop => eval(eventStore.add(ref, Stop))
+        case Stop      => eval(eventStore.add(ref, Stop))
       }
     }
 
@@ -55,7 +54,7 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
 
   "System shutdown" should "stop child processes first" in {
     val eventStore = new EventStore[F, Event]
-    val trace = ProcessRef("trace")
+    val trace      = ProcessRef("trace")
 
     val lastProcessCreated = new AtomicBoolean()
 
@@ -63,39 +62,51 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
       override val ref: ProcessRef = ProcessRef("a")
 
       override def handle: Receive = {
-        case Start => register(ref, new Process[F] {
-          override val ref: ProcessRef = ProcessRef("b")
-
-          override def handle: Receive = {
-            case Start => register(ref, new Process[F] {
-              override val ref: ProcessRef = ProcessRef("c")
+        case Start =>
+          register(
+            ref,
+            new Process[F] {
+              override val ref: ProcessRef = ProcessRef("b")
 
               override def handle: Receive = {
-                case Start => register(ref, new Process[F] {
-                  override val ref: ProcessRef = ProcessRef("d")
+                case Start =>
+                  register(
+                    ref,
+                    new Process[F] {
+                      override val ref: ProcessRef = ProcessRef("c")
 
-                  override def handle: Receive = {
-                    case Start => eval(lastProcessCreated.set(true))
-                    case Stop => eval(eventStore.add(trace, Stopped(ref.toString))) // ++
-                    //reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
-                  }
-                })
+                      override def handle: Receive = {
+                        case Start =>
+                          register(
+                            ref,
+                            new Process[F] {
+                              override val ref: ProcessRef = ProcessRef("d")
+
+                              override def handle: Receive = {
+                                case Start => eval(lastProcessCreated.set(true))
+                                case Stop  => eval(eventStore.add(trace, Stopped(ref.toString))) // ++
+                                // reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
+                              }
+                            }
+                          )
+                        case Stop => eval(eventStore.add(trace, Stopped(ref.toString))) // ++
+                        // reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
+                      }
+                    }
+                  )
                 case Stop => eval(eventStore.add(trace, Stopped(ref.toString))) // ++
-                //reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
+                // reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
               }
-            })
-            case Stop => eval(eventStore.add(trace, Stopped(ref.toString))) // ++
-            //reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
-          }
-        })
+            }
+          )
         case Stop => eval(eventStore.add(trace, Stopped(ref.toString))) // ++
-        //reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
+        // reply(sender => eval(println(s"process: $selfRef received Stop from $sender")))
       }
     }
 
     val program = for {
       fiber <- ct.start(createApp(ct.pure(Seq(parent))).run)
-      _ <- ct.delay(while (!lastProcessCreated.get()) {}) >> fiber.cancel
+      _     <- ct.delay(while (!lastProcessCreated.get()) {}) >> fiber.cancel
 
     } yield ()
     unsafeRun(program)
@@ -107,14 +118,15 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
   "Send an event to the registered process within the same flow" should "deliver" in {
     val eventStore = new EventStore[F, Event]
 
-    val child = Process.builder[F](r => {
-      case TestEvent => eval(eventStore.add(r, TestEvent))
-    }).build
+    val child = Process
+      .builder[F](r => { case TestEvent =>
+        eval(eventStore.add(r, TestEvent))
+      })
+      .build
 
-    val process: Process[F] = Process[F](ref => {
-      case Start => register(ref, child) ++ TestEvent ~> child
-    }
-    )
+    val process: Process[F] = Process[F](ref => { case Start =>
+      register(ref, child) ++ TestEvent ~> child
+    })
     unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
 
     eventStore.size shouldBe 1
@@ -146,16 +158,16 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
 //  }
 
   "Stop" should "deliver Stop event and remove process" in {
-    val eventStore = new EventStore[F, Event]
+    val eventStore          = new EventStore[F, Event]
     val process: Process[F] = new Process[F] {
       override val ref: ProcessRef = ProcessRef("process")
 
-      override def handle: Receive = {
-        case e => eval(eventStore.add(ref, e))
+      override def handle: Receive = { case e =>
+        eval(eventStore.add(ref, e))
       }
     }
 
-    val init = onStart(Seq(DataEvent(1), DataEvent(2), Stop) ~> process.ref)
+    val init   = onStart(Seq(DataEvent(1), DataEvent(2), Stop) ~> process.ref)
     val config = ParConfig.default.enableTracing.withDevMode.withWorkerCount(1)
 
     unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(init, process)), config0 = config).run))

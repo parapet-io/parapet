@@ -8,29 +8,27 @@ import scala.concurrent.duration.FiniteDuration
 
 /** The parapet process DSL: an algebra of effectful operations a [[Process]] can perform.
   *
-  * Programs are built as values of [[Dsl.DslF]] using the operators on [[Dsl.FlowOps]] (sending
-  * events, forking fibers, racing concurrent computations, etc.) and later interpreted by
-  * the runtime via [[DslInterpreter]] into the user's effect type `F[_]`.
+  * Programs are built as values of [[Dsl.DslF]] using the operators on [[Dsl.FlowOps]] (sending events, forking fibers,
+  * racing concurrent computations, etc.) and later interpreted by the runtime via [[DslInterpreter]] into the user's
+  * effect type `F[_]`.
   *
-  * Encoding the DSL as a free monad over [[Dsl.FlowOp]] means programs are just data -
-  * inspectable, composable, and decoupled from any particular effect runtime. The same
-  * program runs on any effect type that provides an [[io.parapet.effect.Effect]] instance
-  * (parapet's own [[io.parapet.effect.ParIO]] is the bundled implementation).
+  * Encoding the DSL as a free monad over [[Dsl.FlowOp]] means programs are just data - inspectable, composable, and
+  * decoupled from any particular effect runtime. The same program runs on any effect type that provides an
+  * [[io.parapet.effect.Effect]] instance (parapet's own [[io.parapet.effect.ParIO]] is the bundled implementation).
   */
 object Dsl:
 
-  /** Alias for the underlying algebra. The `Dsl` parameter is normally what user code
-    * speaks in.
+  /** Alias for the underlying algebra. The `Dsl` parameter is normally what user code speaks in.
     */
   type Dsl[F[_], A] = FlowOp[F, A]
 
-  /** A program in the parapet DSL: a [[Free]] computation over [[FlowOp]] producing `A`.
-    * Most user-facing methods on [[Process]] use the alias `Process#Program = DslF[F, Unit]`.
+  /** A program in the parapet DSL: a [[Free]] computation over [[FlowOp]] producing `A`. Most user-facing methods on
+    * [[Process]] use the alias `Process#Program = DslF[F, Unit]`.
     */
   type DslF[F[_], A] = Free[[x] =>> Dsl[F, x], A]
 
-  /** Root of the algebra. Each `FlowOp` is an instruction the [[DslInterpreter]] knows how
-    * to run; user code does not normally pattern-match on these directly.
+  /** Root of the algebra. Each `FlowOp` is an instruction the [[DslInterpreter]] knows how to run; user code does not
+    * normally pattern-match on these directly.
     */
   sealed trait FlowOp[F[_], A]
 
@@ -42,9 +40,9 @@ object Dsl:
 
   /** Sends `event` to `receiver` (and any additional `receivers`).
     *
-    * The thunk is evaluated lazily so the runtime can elide construction when delivery is
-    * not possible (e.g. unknown receiver). When `sender` is empty the runtime supplies the
-    * current process's ref; explicit values are reserved for advanced re-sender scenarios.
+    * The thunk is evaluated lazily so the runtime can elide construction when delivery is not possible (e.g. unknown
+    * receiver). When `sender` is empty the runtime supplies the current process's ref; explicit values are reserved for
+    * advanced re-sender scenarios.
     */
   final case class Send[F[_]](
       event: () => Event,
@@ -53,8 +51,7 @@ object Dsl:
       receivers: Seq[ProcessRef]
   ) extends FlowOp[F, Unit]
 
-  /** Re-emits `event` to `receivers` while preserving the original sender of the event
-    * currently being handled.
+  /** Re-emits `event` to `receivers` while preserving the original sender of the event currently being handled.
     */
   final case class Forward[F[_]](event: () => Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
 
@@ -64,24 +61,20 @@ object Dsl:
   /** Suspends the current program for `duration` without blocking the underlying thread. */
   final case class Delay[F[_]](duration: FiniteDuration) extends FlowOp[F, Unit]
 
-  /** Provides the current sender's [[ProcessRef]] to the body. Useful for replying inside
-    * a handler.
+  /** Provides the current sender's [[ProcessRef]] to the body. Useful for replying inside a handler.
     */
   final case class WithSender[F[_], G[_], A](f: ProcessRef => Free[G, A]) extends FlowOp[F, A]
 
-  /** Forks `flow` as a [[Fiber]] that runs concurrently; the fiber handle is returned for
-    * later join/cancel.
+  /** Forks `flow` as a [[Fiber]] that runs concurrently; the fiber handle is returned for later join/cancel.
     */
   final case class Fork[F[_], G[_], A](flow: Free[G, A]) extends FlowOp[F, Fiber[F, A]]
 
-  /** Registers `child` as a sub-process of `parent`, integrating it into the supervision
-    * graph.
+  /** Registers `child` as a sub-process of `parent`, integrating it into the supervision graph.
     */
   final case class Register[F[_]](parent: ProcessRef, child: Process[F]) extends FlowOp[F, Unit]
 
   /** Races `first` against `second` and returns whichever wins, cancelling the loser. */
-  final case class Race[F[_], G[_], A, B](first: Free[G, A], second: Free[G, B])
-      extends FlowOp[F, Either[A, B]]
+  final case class Race[F[_], G[_], A, B](first: Free[G, A], second: Free[G, B]) extends FlowOp[F, Either[A, B]]
 
   /** Suspends a side-effecting computation in the underlying effect type `F`. */
   final case class Suspend[F[_], G[_], A](thunk: () => F[A]) extends FlowOp[F, A]
@@ -117,13 +110,14 @@ object Dsl:
 
   /** Smart constructors for the [[FlowOp]] algebra.
     *
-    * `FlowOps` is the user-facing surface of the DSL. It is normally summoned implicitly
-    * via the `dsl` accessor on [[Process]] (see [[Dsl.WithDsl]]).
+    * `FlowOps` is the user-facing surface of the DSL. It is normally summoned implicitly via the `dsl` accessor on
+    * [[Process]] (see [[Dsl.WithDsl]]).
     *
-    * @tparam F the underlying effect type.
-    * @tparam C the algebra coproduct in which `FlowOp` sits - usually just
-    *           `[x] =>> FlowOp[F, x]`, but generalized so users can mix the parapet DSL
-    *           with their own algebras.
+    * @tparam F
+    *   the underlying effect type.
+    * @tparam C
+    *   the algebra coproduct in which `FlowOp` sits - usually just `[x] =>> FlowOp[F, x]`, but generalized so users can
+    *   mix the parapet DSL with their own algebras.
     */
   class FlowOps[F[_], C[_]](using inject: Inject[[x] =>> FlowOp[F, x], C]):
 
@@ -172,9 +166,9 @@ object Dsl:
 
     /** Defers construction of a sub-program until interpretation.
       *
-      * The main use is writing recursive flows - without `flow`, recursion happens at
-      * program-construction time and overflows the stack before the runtime ever sees
-      * the program. With `flow`, each recursive step is built on demand.
+      * The main use is writing recursive flows - without `flow`, recursion happens at program-construction time and
+      * overflows the stack before the runtime ever sees the program. With `flow`, each recursive step is built on
+      * demand.
       *
       * Example - prints `n n-1 ... 1`:
       *
@@ -185,18 +179,18 @@ object Dsl:
       * }
       * }}}
       *
-      * Note: do not perform side effects directly inside `flow` - the body runs at
-      * interpretation time but only to build the next step of the program, so anything
-      * outside [[eval]] / [[suspend]] is still effectively construction-time code.
+      * Note: do not perform side effects directly inside `flow` - the body runs at interpretation time but only to
+      * build the next step of the program, so anything outside [[eval]] / [[suspend]] is still effectively
+      * construction-time code.
       */
     def flow[A](value: => Free[C, A]): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](SuspendF[F, C, A](() => value))
 
-    /** Lazily constructs and sends `event` to `receiver` (and any additional refs in
-      * `other`). The current process is recorded as the sender.
+    /** Lazily constructs and sends `event` to `receiver` (and any additional refs in `other`). The current process is
+      * recorded as the sender.
       *
-      * Events are emitted in the order given. Delivery order across receivers is not
-      * guaranteed (it depends on each receiver's mailbox depth and processing speed).
+      * Events are emitted in the order given. Delivery order across receivers is not guaranteed (it depends on each
+      * receiver's mailbox depth and processing speed).
       *
       * Example:
       *
@@ -204,8 +198,8 @@ object Dsl:
       * send(Ping, processA, processB, processC)
       * }}}
       *
-      * `Ping` is enqueued for `processA`, then `processB`, then `processC`. The symbolic
-      * `~>` form is preferred for the single-receiver case:
+      * `Ping` is enqueued for `processA`, then `processB`, then `processC`. The symbolic `~>` form is preferred for the
+      * single-receiver case:
       *
       * {{{
       * Ping ~> processA
@@ -223,8 +217,8 @@ object Dsl:
     def send(sender: ProcessRef, event: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Send[F](() => event, Some(sender), receiver, other))
 
-    /** Forwards `event` to `receiver` (and `other`) while preserving the sender of the
-      * event currently being handled - the typical building block of a proxy process.
+    /** Forwards `event` to `receiver` (and `other`) while preserving the sender of the event currently being handled -
+      * the typical building block of a proxy process.
       *
       * Example:
       *
@@ -247,8 +241,7 @@ object Dsl:
     def forward(event: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Forward[F](() => event, receiver +: other))
 
-    /** Runs the given `flows` in parallel and returns their [[Fiber]] handles for later
-      * `join` / `cancel`.
+    /** Runs the given `flows` in parallel and returns their [[Fiber]] handles for later `join` / `cancel`.
       *
       * Example:
       *
@@ -277,8 +270,8 @@ object Dsl:
       * delay(d, par(x ~> p ++ y ~> p)) <-> delay(d) ++ par(x ~> p ++ y ~> p)
       * }}}
       *
-      * Note: inside `par` only the first operation is delayed; wrap each parallel branch
-      * to delay every one of them individually:
+      * Note: inside `par` only the first operation is delayed; wrap each parallel branch to delay every one of them
+      * individually:
       *
       * {{{
       * par(delay(d, eval(print(1))), delay(d, eval(print(2))))
@@ -287,11 +280,10 @@ object Dsl:
     def delay(duration: FiniteDuration): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Delay[F](duration))
 
-    /** Runs `f` with the current sender's [[ProcessRef]] in scope. The most idiomatic way to
-      * inspect or reuse the originator of the event being handled.
+    /** Runs `f` with the current sender's [[ProcessRef]] in scope. The most idiomatic way to inspect or reuse the
+      * originator of the event being handled.
       *
-      * For the common "send one event back to the sender" case prefer the [[reply]] sugar
-      * below.
+      * For the common "send one event back to the sender" case prefer the [[reply]] sugar below.
       *
       * Example:
       *
@@ -310,8 +302,7 @@ object Dsl:
     def withSender[A](f: ProcessRef => Free[C, A]): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](WithSender[F, C, A](f))
 
-    /** Sends `event` back to the sender of the message currently being handled.
-      * Sugar for `withSender(event ~> _)`.
+    /** Sends `event` back to the sender of the message currently being handled. Sugar for `withSender(event ~> _)`.
       *
       * Example:
       *
@@ -321,15 +312,14 @@ object Dsl:
       * })
       * }}}
       *
-      * If the event being handled has no real sender (e.g. a lifecycle event delivered
-      * by [[io.parapet.core.processes.SystemProcess]]) the reply lands at the system /
-      * dead-letter ref - same semantics as a manual `withSender` reply.
+      * If the event being handled has no real sender (e.g. a lifecycle event delivered by
+      * [[io.parapet.core.processes.SystemProcess]]) the reply lands at the system / dead-letter ref - same semantics as
+      * a manual `withSender` reply.
       */
     def reply(event: => Event): Free[C, Unit] =
       withSender(sender => send(event, sender))
 
-    /** Sends each of `events` back to the sender, in order. Useful when a handler emits
-      * a small batch of replies.
+    /** Sends each of `events` back to the sender, in order. Useful when a handler emits a small batch of replies.
       *
       * Example:
       *
@@ -342,15 +332,15 @@ object Dsl:
     def reply(events: Seq[Event]): Free[C, Unit] =
       withSender { sender =>
         events.toList match
-          case Nil => unit
+          case Nil          => unit
           case head :: tail =>
             tail.foldLeft(send(head, sender)) { (acc, event) =>
               acc.flatMap(_ => send(event, sender))
             }
       }
 
-    /** Executes `flow` asynchronously as a [[Fiber]]. The fiber runs concurrently and the
-      * returned handle can be awaited via [[Fiber.join]] or cancelled.
+    /** Executes `flow` asynchronously as a [[Fiber]]. The fiber runs concurrently and the returned handle can be
+      * awaited via [[Fiber.join]] or cancelled.
       *
       * Example:
       *
@@ -377,8 +367,8 @@ object Dsl:
 
     /** Registers one or more child processes under `parent`.
       *
-      * Children are guaranteed to receive [[io.parapet.core.Events.Stop]] before their
-      * parent does - useful for releasing resources in the right order.
+      * Children are guaranteed to receive [[io.parapet.core.Events.Stop]] before their parent does - useful for
+      * releasing resources in the right order.
       *
       * Example:
       *
@@ -406,8 +396,7 @@ object Dsl:
           result.flatMap(_ => next)
         }
 
-    /** Runs `first` and `second` concurrently and returns whichever wins. The loser is
-      * cancelled.
+    /** Runs `first` and `second` concurrently and returns whichever wins. The loser is cancelled.
       *
       * Example:
       *
@@ -432,14 +421,14 @@ object Dsl:
       * suspend(ParIO.delay(println("hello world")))
       * }}}
       *
-      * Prefer [[eval]] for plain (non-`F`) side effects; reserve `suspend` for cases where
-      * you genuinely need to lift an existing `F[A]`.
+      * Prefer [[eval]] for plain (non-`F`) side effects; reserve `suspend` for cases where you genuinely need to lift
+      * an existing `F[A]`.
       */
     def suspend[A](thunk: => F[A]): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](Suspend[F, C, A](() => thunk))
 
-    /** Suspends a pure but lazy computation. The thunk is evaluated when the DSL program
-      * is interpreted, not when the program value is constructed.
+    /** Suspends a pure but lazy computation. The thunk is evaluated when the DSL program is interpreted, not when the
+      * program value is constructed.
       *
       * Example:
       *
@@ -452,8 +441,7 @@ object Dsl:
     def eval[A](thunk: => A): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](Eval[F, C, A](() => thunk))
 
-    /** Marks `thunk` as blocking; the runtime offloads it so it does not stall scheduler
-      * worker threads.
+    /** Marks `thunk` as blocking; the runtime offloads it so it does not stall scheduler worker threads.
       *
       * Example:
       *
@@ -463,18 +451,15 @@ object Dsl:
       *     case Start => blocking(eval(while true do {})) ++ eval(println("now"))
       * }}}
       *
-      * Output: `now`. The infinite loop runs on a separate worker, so the process is free
-      * to handle subsequent events.
+      * Output: `now`. The infinite loop runs on a separate worker, so the process is free to handle subsequent events.
       *
-      * Note: `blocking` differs from [[fork]] - a forked program is fire-and-forget and
-      * the parent process keeps consuming new events while it runs; with `blocking` the
-      * process is suspended until the body completes.
+      * Note: `blocking` differs from [[fork]] - a forked program is fire-and-forget and the parent process keeps
+      * consuming new events while it runs; with `blocking` the process is suspended until the body completes.
       */
     def blocking[A](thunk: => Free[C, A]): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Blocking[F, C, A](() => thunk))
 
-    /** Aborts the program with `error`. Subsequent steps are skipped unless the error is
-      * caught by [[handleError]].
+    /** Aborts the program with `error`. Subsequent steps are skipped unless the error is caught by [[handleError]].
       */
     def raiseError[A](error: Throwable): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](RaiseError[F, A](error))
@@ -495,8 +480,7 @@ object Dsl:
     def handleError[A, B >: A](thunk: => Free[C, A], handle: Throwable => Free[C, B]): Free[C, B] =
       Free.inject[[x] =>> FlowOp[F, x], C, B](HandleError[F, C, A, B](() => thunk, handle))
 
-    /** Runs `fa` and ensures `finalizer` runs afterwards, regardless of success or
-      * failure. Mirrors `try / finally`.
+    /** Runs `fa` and ensures `finalizer` runs afterwards, regardless of success or failure. Mirrors `try / finally`.
       *
       * Example:
       *
@@ -516,8 +500,7 @@ object Dsl:
     def halt(ref: ProcessRef): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Halt[F](ref))
 
-    /** Acquires the per-process lock for `ref`. Cooperative - only meaningful between
-      * programs that opt into it.
+    /** Acquires the per-process lock for `ref`. Cooperative - only meaningful between programs that opt into it.
       */
     def lock(ref: ProcessRef): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Lock[F](ref))
@@ -531,22 +514,19 @@ object Dsl:
         current.flatMap(value => acc.map(value :: _))
       }
 
-  /** Implicit-priority machinery for summoning a [[FlowOps]] instance for arbitrary
-    * algebra coproducts.
+  /** Implicit-priority machinery for summoning a [[FlowOps]] instance for arbitrary algebra coproducts.
     */
   object FlowOps:
     /** The most common shape: `FlowOps` over the parapet DSL alone. */
     type Aux[F[_]] = FlowOps[F, [x] =>> Dsl[F, x]]
 
-    /** Auto-derives a `FlowOps` instance whenever there is an [[Inject]] from the parapet
-      * algebra into a coproduct `G`.
+    /** Auto-derives a `FlowOps` instance whenever there is an [[Inject]] from the parapet algebra into a coproduct `G`.
       */
     given [F[_], G[_]](using Inject[[x] =>> FlowOp[F, x], G]): FlowOps[F, G] =
       new FlowOps[F, G]
 
-  /** Mixin granting access to the `dsl` member - a [[FlowOps]] instance over the parapet
-    * algebra. Mixed into [[Process]] so that handlers can write `dsl.send(...)`,
-    * `dsl.eval(...)`, etc.
+  /** Mixin granting access to the `dsl` member - a [[FlowOps]] instance over the parapet algebra. Mixed into
+    * [[Process]] so that handlers can write `dsl.send(...)`, `dsl.eval(...)`, etc.
     */
   trait WithDsl[F[_]]:
     protected val dsl: FlowOps[F, [x] =>> Dsl[F, x]] =

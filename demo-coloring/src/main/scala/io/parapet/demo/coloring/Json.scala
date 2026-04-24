@@ -2,71 +2,71 @@ package io.parapet.demo.coloring
 
 /** Hand-rolled JSON renderer for [[DemoState]] and friends.
   *
-  * The demo-coloring HTTP server intentionally avoids pulling in a JSON dependency
-  * (e.g. circe) — the small surface here keeps the module standalone. Output is
-  * compact (no whitespace) and produces only the field set the front-end consumes.
+  * The demo-coloring HTTP server intentionally avoids pulling in a JSON dependency (e.g. circe) - the small surface
+  * here keeps the module standalone. Output is compact (no whitespace) and produces only the field set the front-end
+  * consumes.
   */
 object Json:
   /** Render the full simulation state as a JSON object string. */
   def render(state: DemoState): String =
     obj(
-      "graphId" -> string(state.graphId),
-      "round" -> num(state.round),
-      "tick" -> num(state.tick),
-      "nodeCount" -> num(state.nodeCount),
-      "paletteSize" -> num(state.paletteSize),
-      "canvasWidth" -> num(state.canvasWidth),
+      "graphId"      -> string(state.graphId),
+      "round"        -> num(state.round),
+      "tick"         -> num(state.tick),
+      "nodeCount"    -> num(state.nodeCount),
+      "paletteSize"  -> num(state.paletteSize),
+      "canvasWidth"  -> num(state.canvasWidth),
       "canvasHeight" -> num(state.canvasHeight),
-      "running" -> bool(state.running),
-      "completed" -> bool(state.completed),
-      "nodes" -> arr(state.nodes.map(renderNode)),
-      "cluster" -> arr(state.cluster.map(renderClusterNode)),
-      "events" -> arr(state.events.map(renderEvent)),
-      "clusters" -> arr(state.clusters.map(renderClusterSummary)),
-      "mode" -> string(state.mode.toString.toLowerCase),
-      "races" -> arr(state.races.map(renderRace)),
-      "victor" -> optNum(state.victor)
+      "running"      -> bool(state.running),
+      "completed"    -> bool(state.completed),
+      "nodes"        -> arr(state.nodes.map(renderNode)),
+      "cluster"      -> arr(state.cluster.map(renderClusterNode)),
+      "events"       -> arr(state.events.map(renderEvent)),
+      "clusters"     -> arr(state.clusters.map(renderClusterSummary)),
+      "mode"         -> string(state.mode.toString.toLowerCase),
+      "races"        -> arr(state.races.map(renderRace)),
+      "victor"       -> optNum(state.victor)
     )
 
   private def renderNode(node: ColoringNodeState): String =
     obj(
-      "id" -> string(node.id),
-      "x" -> num(node.x),
-      "y" -> num(node.y),
-      "neighbors" -> arr(node.neighbors.map(string)),
-      "status" -> string(node.status.toString),
-      "color" -> optNum(node.color),
+      "id"            -> string(node.id),
+      "x"             -> num(node.x),
+      "y"             -> num(node.y),
+      "neighbors"     -> arr(node.neighbors.map(string)),
+      "status"        -> string(node.status.toString),
+      "color"         -> optNum(node.color),
       "proposedColor" -> optNum(node.proposedColor),
-      "conflict" -> bool(node.conflict),
-      "clusterId" -> num(node.clusterId),
-      "conquests" -> num(node.conquests)
+      "conflict"      -> bool(node.conflict),
+      "clusterId"     -> num(node.clusterId),
+      "conquests"     -> num(node.conquests)
     )
 
   private def renderClusterSummary(summary: ClusterSummary): String =
     obj(
-      "id" -> num(summary.id),
+      "id"   -> num(summary.id),
       "size" -> num(summary.size)
     )
 
   private def renderRace(stat: RaceStat): String =
     obj(
       "color" -> num(stat.color),
-      "size" -> num(stat.size)
+      "size"  -> num(stat.size)
     )
 
   private def renderClusterNode(node: ClusterNodeState): String =
     obj(
-      "id" -> string(node.id),
+      "id"      -> string(node.id),
       "address" -> string(node.address),
-      "online" -> bool(node.online),
-      "role" -> string(node.role),
-      "term" -> num(node.term)
+      "online"  -> bool(node.online),
+      "role"    -> string(node.role),
+      "term"    -> num(node.term)
     )
 
   private def renderEvent(event: DemoEvent): String =
     obj(
-      "tick" -> num(event.tick),
-      "kind" -> string(event.kind),
+      "tick"   -> num(event.tick),
+      "kind"   -> string(event.kind),
       "nodeId" -> optString(event.nodeId),
       "detail" -> string(event.detail)
     )

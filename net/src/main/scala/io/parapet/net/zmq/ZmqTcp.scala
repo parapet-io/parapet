@@ -9,9 +9,12 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** Connection settings for [[ZmqTcpClient]].
   *
-  * @param remote            target server address (must be TCP).
-  * @param receiveTimeoutMs  read timeout for `recv` calls; `null` reply maps to `None`.
-  * @param ioThreads         size of the underlying ZMQ I/O thread pool.
+  * @param remote
+  *   target server address (must be TCP).
+  * @param receiveTimeoutMs
+  *   read timeout for `recv` calls; `null` reply maps to `None`.
+  * @param ioThreads
+  *   size of the underlying ZMQ I/O thread pool.
   */
 final case class ZmqTcpClientConfig(
     remote: NetworkAddress,
@@ -22,9 +25,12 @@ final case class ZmqTcpClientConfig(
 
 /** Bind settings for [[ZmqTcpServer]].
   *
-  * @param bind              address to bind the ROUTER socket on (must be TCP).
-  * @param receiveTimeoutMs  poll timeout for [[ZmqTcpServer.receive]] calls.
-  * @param ioThreads         size of the underlying ZMQ I/O thread pool.
+  * @param bind
+  *   address to bind the ROUTER socket on (must be TCP).
+  * @param receiveTimeoutMs
+  *   poll timeout for [[ZmqTcpServer.receive]] calls.
+  * @param ioThreads
+  *   size of the underlying ZMQ I/O thread pool.
   */
 final case class ZmqTcpServerConfig(
     bind: NetworkAddress,
@@ -35,12 +41,12 @@ final case class ZmqTcpServerConfig(
 
 /** [[RequestResponseClient]] backed by a ZeroMQ REQ socket.
   *
-  * REQ enforces strict request/reply alternation; concurrent calls from multiple fibers
-  * are not safe — wrap with a [[io.parapet.core.Lock]] if needed.
+  * REQ enforces strict request/reply alternation; concurrent calls from multiple fibers are not safe - wrap with a
+  * [[io.parapet.core.Lock]] if needed.
   */
 final class ZmqTcpClient[F[_]](config: ZmqTcpClientConfig)(using effect: Effect[F]) extends RequestResponseClient[F]:
   private val context = new ZContext(config.ioThreads)
-  private val socket = context.createSocket(SocketType.REQ)
+  private val socket  = context.createSocket(SocketType.REQ)
 
   socket.setReceiveTimeOut(config.receiveTimeoutMs)
   socket.connect(config.remote.uri)
@@ -61,14 +67,14 @@ final class ZmqTcpClient[F[_]](config: ZmqTcpClientConfig)(using effect: Effect[
 
 /** [[RequestResponseServer]] backed by a ZeroMQ ROUTER socket.
   *
-  * ROUTER prefixes each inbound message with an opaque "identity" frame which the server
-  * uses to address replies. The server keeps a `clientId → identity` map (with
-  * Base64-encoded ids for portability) so callers can refer to clients via plain strings.
+  * ROUTER prefixes each inbound message with an opaque "identity" frame which the server uses to address replies. The
+  * server keeps a `clientId → identity` map (with Base64-encoded ids for portability) so callers can refer to clients
+  * via plain strings.
   */
 final class ZmqTcpServer[F[_]](config: ZmqTcpServerConfig)(using effect: Effect[F]) extends RequestResponseServer[F]:
   private val context = new ZContext(config.ioThreads)
-  private val socket = context.createSocket(SocketType.ROUTER)
-  private val routes = new ConcurrentHashMap[String, Array[Byte]]()
+  private val socket  = context.createSocket(SocketType.ROUTER)
+  private val routes  = new ConcurrentHashMap[String, Array[Byte]]()
 
   socket.setReceiveTimeOut(config.receiveTimeoutMs)
   socket.bind(config.bind.uri)
@@ -78,7 +84,7 @@ final class ZmqTcpServer[F[_]](config: ZmqTcpServerConfig)(using effect: Effect[
       val route = socket.recv(0)
       if route == null then None
       else
-        val next = socket.recv(0)
+        val next    = socket.recv(0)
         val payload =
           if next == null then Array.emptyByteArray
           else if next.isEmpty then Option(socket.recv(0)).getOrElse(Array.emptyByteArray)
@@ -94,8 +100,7 @@ final class ZmqTcpServer[F[_]](config: ZmqTcpServerConfig)(using effect: Effect[
       val route = Option(routes.get(clientId))
         .getOrElse(throw new IllegalArgumentException(s"unknown client route: $clientId"))
 
-      if !socket.sendMore(route) then
-        throw new IllegalStateException(s"failed to route reply to client $clientId")
+      if !socket.sendMore(route) then throw new IllegalStateException(s"failed to route reply to client $clientId")
       if !socket.sendMore(Array.emptyByteArray) then
         throw new IllegalStateException(s"failed to send ZMQ delimiter to client $clientId")
       if !socket.send(payload, 0) then

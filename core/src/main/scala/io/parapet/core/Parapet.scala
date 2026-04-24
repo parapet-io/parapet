@@ -5,8 +5,8 @@ import io.parapet.core.Scheduler.SchedulerConfig
 
 /** Top-level constants and tuning knobs for the parapet runtime.
   *
-  * Most users don't import this directly — the [[ParConfig]] case class is reached via
-  * [[io.parapet.ParApp.config]] when an application needs to override defaults.
+  * Most users don't import this directly - the [[ParConfig]] case class is reached via [[io.parapet.ParApp.config]]
+  * when an application needs to override defaults.
   */
 object Parapet extends StrictLogging:
   /** Library version string, surfaced in logs and diagnostics. */
@@ -14,15 +14,16 @@ object Parapet extends StrictLogging:
 
   /** Bundle of runtime configuration values supplied to [[io.parapet.ParApp]].
     *
-    * @param processBufferSize  default mailbox capacity for processes that don't override
-    *                           [[Process.bufferSize]]; `-1` means unbounded.
-    * @param schedulerConfig    [[Scheduler]] tuning (worker thread count, etc.).
-    * @param devMode            when `true` enables verbose runtime logging useful while
-    *                           developing.
-    * @param tracingEnabled     when `true` propagates [[ExecutionTrace]] ids through
-    *                           envelopes for cross-process causal tracing.
-    * @param eventLogEnabled    when `true` records every delivered envelope to an
-    *                           in-memory [[EventLog]]; primarily for replay/debugging.
+    * @param processBufferSize
+    *   default mailbox capacity for processes that don't override [[Process.bufferSize]]; `-1` means unbounded.
+    * @param schedulerConfig
+    *   [[Scheduler]] tuning (worker thread count, etc.).
+    * @param devMode
+    *   when `true` enables verbose runtime logging useful while developing.
+    * @param tracingEnabled
+    *   when `true` propagates [[ExecutionTrace]] ids through envelopes for cross-process causal tracing.
+    * @param eventLogEnabled
+    *   when `true` records every delivered envelope to an in-memory [[EventLog]]; primarily for replay/debugging.
     */
   final case class ParConfig(
       processBufferSize: Int,

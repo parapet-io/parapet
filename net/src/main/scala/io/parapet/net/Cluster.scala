@@ -2,8 +2,7 @@ package io.parapet.net
 
 import io.parapet.ProcessRef
 
-/** Logical group identifier; lets members opt into named subsets such as `"raft-leaders"`
-  * or `"frontends"`.
+/** Logical group identifier; lets members opt into named subsets such as `"raft-leaders"` or `"frontends"`.
   */
 final case class GroupId(value: String) extends AnyVal
 
@@ -12,10 +11,14 @@ final case class MemberId(value: String) extends AnyVal
 
 /** Metadata about one cluster member.
   *
-  * @param id        unique node identity.
-  * @param process   local [[ProcessRef]] proxy used to talk to this member.
-  * @param addresses set of addresses this member is reachable on (one per transport).
-  * @param groups    logical groups the member belongs to.
+  * @param id
+  *   unique node identity.
+  * @param process
+  *   local [[ProcessRef]] proxy used to talk to this member.
+  * @param addresses
+  *   set of addresses this member is reachable on (one per transport).
+  * @param groups
+  *   logical groups the member belongs to.
   */
 final case class ClusterMember(
     id: MemberId,
@@ -26,8 +29,8 @@ final case class ClusterMember(
 
 /** Snapshot of cluster membership.
   *
-  * Read-mostly view derived from gossip — see [[io.parapet.core.api.ClusterState]] for the
-  * wire-level form. Provides convenience lookups by id and by group.
+  * Read-mostly view derived from gossip - see [[io.parapet.core.api.ClusterState]] for the wire-level form. Provides
+  * convenience lookups by id and by group.
   */
 final case class ClusterView(members: Map[MemberId, ClusterMember]):
   /** All distinct groups represented in this view. */

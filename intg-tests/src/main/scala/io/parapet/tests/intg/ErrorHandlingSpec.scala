@@ -24,11 +24,12 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
 
         val client = new Process[F] {
           def handle: Receive = {
-            case Start => Request ~> faultyServer
-            case f: Failure => withSender{ sender =>
-              sender shouldBe ProcessRef.SystemRef
-              eval(clientEventStore.add(ref, f))
-            }
+            case Start      => Request ~> faultyServer
+            case f: Failure =>
+              withSender { sender =>
+                sender shouldBe ProcessRef.SystemRef
+                eval(clientEventStore.add(ref, f))
+              }
           }
         }
 
@@ -47,18 +48,18 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
       "send Failure event to dead letter" in {
         val eventStore = new EventStore[F, DeadLetter]
         val deadLetter = new DeadLetterProcess[F] {
-          def handle: Receive = {
-            case f: DeadLetter => eval(eventStore.add(ref, f))
+          def handle: Receive = { case f: DeadLetter =>
+            eval(eventStore.add(ref, f))
           }
         }
         val server = new Process[F] {
-          def handle: Receive = {
-            case Request => eval(throw new RuntimeException("server is down"))
+          def handle: Receive = { case Request =>
+            eval(throw new RuntimeException("server is down"))
           }
         }
         val client = new Process[F] {
-          def handle: Receive = {
-            case Start => Request ~> server
+          def handle: Receive = { case Start =>
+            Request ~> server
           }
         }
 
@@ -78,18 +79,18 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
       "send Failure event to dead letter" in {
         val eventStore = new EventStore[F, DeadLetter]
         val deadLetter = new DeadLetterProcess[F] {
-          def handle: Receive = {
-            case f: DeadLetter => eval(eventStore.add(ref, f))
+          def handle: Receive = { case f: DeadLetter =>
+            eval(eventStore.add(ref, f))
           }
         }
         val server = new Process[F] {
-          def handle: Receive = {
-            case Request => eval(throw new RuntimeException("server is down"))
+          def handle: Receive = { case Request =>
+            eval(throw new RuntimeException("server is down"))
           }
         }
         val client = new Process[F] {
           def handle: Receive = {
-            case Start => Request ~> server
+            case Start      => Request ~> server
             case _: Failure => eval(throw new RuntimeException("client failed to handle error"))
           }
         }
@@ -112,8 +113,8 @@ object ErrorHandlingSpec {
 
     import dsl._
 
-    def handle: Receive = {
-      case Request => eval(throw new RuntimeException("server is down"))
+    def handle: Receive = { case Request =>
+      eval(throw new RuntimeException("server is down"))
     }
   }
 

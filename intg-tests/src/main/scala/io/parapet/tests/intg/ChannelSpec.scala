@@ -25,23 +25,30 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
 
     val numOfRequests = 5
 
-    val server = Process.builder[F](_ => {
-      case Request(seq) => withSender(sender => Response(seq) ~> sender)
-    }).name("server").ref(ProcessRef("server")).build
+    val server = Process
+      .builder[F](_ => { case Request(seq) =>
+        withSender(sender => Response(seq) ~> sender)
+      })
+      .name("server")
+      .ref(ProcessRef("server"))
+      .build
 
     val client: Process[F] = new Process[F] {
       override val name = "client"
-      override val ref = ProcessRef("client")
-      var seq = 0
+      override val ref  = ProcessRef("client")
+      var seq           = 0
 
       val ch = new Channel[F]()
 
       def sendRequest(request: Request): DslF[F, Unit] =
-        ch.send(request, server.ref, {
-          case SFailure(err) => eval(throw err)
-          case Success(res) => eval(eventStore.add(ref, res))
-        })
-
+        ch.send(
+          request,
+          server.ref,
+          {
+            case SFailure(err) => eval(throw err)
+            case Success(res)  => eval(eventStore.add(ref, res))
+          }
+        )
 
       override def handle: Receive = {
         case Start =>
@@ -53,22 +60,26 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
       }
     }
 
-    unsafeRun(eventStore.await(numOfRequests,
-      createApp(ct.pure(Seq(client, server)), Option.empty, ParConfig(-1, SchedulerConfig(1))).run))
+    unsafeRun(
+      eventStore.await(
+        numOfRequests,
+        createApp(ct.pure(Seq(client, server)), Option.empty, ParConfig(-1, SchedulerConfig(1))).run
+      )
+    )
     eventStore.get(client.ref) shouldBe Seq(Response(0), Response(1), Response(2), Response(3), Response(4))
 
   }
 
   test("channel uses its ref when sending event to target") {
     val eventStore = new EventStore[F, Event]
-    val clientRef = ProcessRef("client")
-    val serverRef = ProcessRef("server")
+    val clientRef  = ProcessRef("client")
+    val serverRef  = ProcessRef("server")
 
     val ch = Channel[F]
 
     val server = new Process[F] {
-      override def handle: Receive = {
-        case req@Request(seq) => withSender { sender =>
+      override def handle: Receive = { case req @ Request(seq) =>
+        withSender { sender =>
           eval(eventStore.add(ch.ref, req)) ++
             Response(seq + 1) ~> sender
         }
@@ -78,8 +89,8 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
     val client = new Process[F] {
       override val ref: ProcessRef = clientRef
 
-      override def handle: Receive = {
-        case Start => flow {
+      override def handle: Receive = { case Start =>
+        flow {
           register(ref) ++ ch.send(Request(0), serverRef).flatMap {
             case Success(response) => eval(eventStore.add(ref, response))
             case SFailure(err)     => eval(throw err)
@@ -94,7 +105,6 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
   }
 
 }
-
 
 object ChannelSpec {
 

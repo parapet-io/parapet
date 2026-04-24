@@ -57,5 +57,7 @@ class RaftWireProtocolSpec extends AnyFunSuite:
         )
       ).toByteArray
 
-    RaftWireProtocol.decode[String](payload).left.toOption.getOrElse("") should include("unsupported raft protocol version 99")
+    RaftWireProtocol.decode[String](payload).left.toOption.getOrElse("") should include(
+      "unsupported raft protocol version 99"
+    )
   }

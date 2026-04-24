@@ -16,9 +16,8 @@ import scala.util.Try
 
 /** Protobuf-backed wire protocol used to ship [[RaftEvents]] across the network.
   *
-  * Encodes a [[RemoteMessage]] together with its [[GroupId]] into a versioned
-  * envelope and decodes the reverse — application command payloads are serialised
-  * via a user-supplied [[WireCodec]].
+  * Encodes a [[RemoteMessage]] together with its [[GroupId]] into a versioned envelope and decodes the reverse -
+  * application command payloads are serialised via a user-supplied [[WireCodec]].
   */
 object RaftWireProtocol:
   /** Protocol version stamped into every envelope. Bump on incompatible changes. */
@@ -100,12 +99,13 @@ object RaftWireProtocol:
 
     envelope.toByteArray
 
-  /** Deserialise an envelope produced by [[encode]]. Returns `Left` on protocol
-    * version mismatch, parse failure, missing message, or command-codec error.
+  /** Deserialise an envelope produced by [[encode]]. Returns `Left` on protocol version mismatch, parse failure,
+    * missing message, or command-codec error.
     */
   def decode[Command](bytes: Array[Byte])(using commandCodec: WireCodec[Command]): Either[String, Decoded[Command]] =
-    Try(ProtoRaftEnvelope.parseFrom(bytes)).toEither.left.map(error => s"invalid raft payload: ${error.getMessage}").flatMap {
-      envelope =>
+    Try(ProtoRaftEnvelope.parseFrom(bytes)).toEither.left
+      .map(error => s"invalid raft payload: ${error.getMessage}")
+      .flatMap { envelope =>
         if envelope.protocolVersion != CurrentProtocolVersion then
           Left(
             s"unsupported raft protocol version ${envelope.protocolVersion}, expected $CurrentProtocolVersion"
@@ -171,9 +171,11 @@ object RaftWireProtocol:
               )
             case ProtoRaftEnvelope.Message.Empty =>
               Left("raft envelope did not contain a message")
-    }
+      }
 
-  private def entryToProto[Command](entry: LogEntry[Command])(using commandCodec: WireCodec[Command]): ProtoRaftLogEntry =
+  private def entryToProto[Command](
+      entry: LogEntry[Command]
+  )(using commandCodec: WireCodec[Command]): ProtoRaftLogEntry =
     ProtoRaftLogEntry(
       index = entry.index,
       term = entry.term,

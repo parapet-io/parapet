@@ -17,7 +17,6 @@ import scala.annotation.tailrec
 import scala.concurrent.duration.{FiniteDuration, _}
 import scala.util.Random
 
-
 abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
 
   test("scheduler correctness under normal conditions") {
@@ -26,83 +25,83 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with Integrati
       StabilitySpec(
         name = "test-1",
         samples = 5,
-        config = SchedulerConfig(
-          numberOfWorkers = 5),
+        config = SchedulerConfig(numberOfWorkers = 5),
         wds = WorkDistributionStrategy.Random,
         numberOfEvents = 50,
         numberOfProcesses = 5,
         pta = instant,
         ratio = 0.5,
-        ptb = range(50.millis, 100.millis)),
+        ptb = range(50.millis, 100.millis)
+      ),
 
       StabilitySpec(
         name = "test-2",
         samples = 5,
-        config = SchedulerConfig(
-          numberOfWorkers = 10),
+        config = SchedulerConfig(numberOfWorkers = 10),
         wds = WorkDistributionStrategy.Random,
         numberOfEvents = 50,
         numberOfProcesses = 5,
         pta = instant,
         ratio = 0.75,
-        ptb = range(50.millis, 100.millis)),
+        ptb = range(50.millis, 100.millis)
+      ),
 
       StabilitySpec(
         name = "test-3",
         samples = 5,
-        config = SchedulerConfig(
-          numberOfWorkers = 1),
+        config = SchedulerConfig(numberOfWorkers = 1),
         wds = WorkDistributionStrategy.Random,
         numberOfEvents = 50,
         numberOfProcesses = 5,
         pta = instant,
         ratio = 0.5,
-        ptb = range(50.millis, 100.millis)),
+        ptb = range(50.millis, 100.millis)
+      ),
 
       // batch work distribution
       StabilitySpec(
         name = "test-4",
         samples = 5,
-        config = SchedulerConfig(
-          numberOfWorkers = 10),
+        config = SchedulerConfig(numberOfWorkers = 10),
         wds = WorkDistributionStrategy.Batch,
         numberOfEvents = 10,
         numberOfProcesses = 5,
         pta = instant,
         ratio = 0.5,
-        ptb = range(50.millis, 100.millis)),
+        ptb = range(50.millis, 100.millis)
+      ),
       StabilitySpec(
         name = "test-5",
         samples = 5,
-        config = SchedulerConfig(
-          numberOfWorkers = 1),
+        config = SchedulerConfig(numberOfWorkers = 1),
         wds = WorkDistributionStrategy.Batch,
         numberOfEvents = 10,
         numberOfProcesses = 5,
         pta = instant,
         ratio = 0.5,
-        ptb = range(50.millis, 100.millis)),
+        ptb = range(50.millis, 100.millis)
+      ),
       StabilitySpec(
         name = "test-6",
         samples = 5,
-        config = SchedulerConfig(
-          numberOfWorkers = 10),
+        config = SchedulerConfig(numberOfWorkers = 10),
         wds = WorkDistributionStrategy.Batch,
         numberOfEvents = 10,
         numberOfProcesses = 5,
         pta = instant,
         ratio = 0.75,
-        ptb = range(50.millis, 100.millis))
+        ptb = range(50.millis, 100.millis)
+      )
     )
 
     run(specs)
   }
 
   test("Random task gen") {
-    val numberOfEvents = 5
+    val numberOfEvents    = 5
     val numberOfProcesses = 5
-    val processes = (0 until numberOfProcesses).map(_ => dummyProcess[F]).toArray
-    val actualTasks = WorkDistributionStrategy.Random.createTasks[F](numberOfEvents, processes)
+    val processes         = (0 until numberOfProcesses).map(_ => dummyProcess[F]).toArray
+    val actualTasks       = WorkDistributionStrategy.Random.createTasks[F](numberOfEvents, processes)
 
     actualTasks.size shouldBe numberOfEvents
 
@@ -111,11 +110,11 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with Integrati
   }
 
   test("Batch task gen") {
-    val batchSize = 5
+    val batchSize         = 5
     val numberOfProcesses = 5
-    val totalTasks = batchSize * numberOfProcesses
-    val processes = (0 until numberOfProcesses).map(_ => dummyProcess[F]).toArray
-    val actualTasks = WorkDistributionStrategy.Batch.createTasks[F](batchSize, processes)
+    val totalTasks        = batchSize * numberOfProcesses
+    val processes         = (0 until numberOfProcesses).map(_ => dummyProcess[F]).toArray
+    val actualTasks       = WorkDistributionStrategy.Batch.createTasks[F](batchSize, processes)
 
     actualTasks.size shouldBe totalTasks
 
@@ -129,96 +128,92 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with Integrati
   }
 
   test("create processes #1") {
-    val n = 5
+    val n          = 5
     val eventStore = new EventStore[F, TestEvent]
-    val processes = createProcesses(n, TaskProcessingTime.instant, 0.5, TaskProcessingTime.instant, eventStore)
+    val processes  = createProcesses(n, TaskProcessingTime.instant, 0.5, TaskProcessingTime.instant, eventStore)
     processes.length shouldBe n
   }
 
   test("create processes #2") {
-    val n = 5
+    val n          = 5
     val eventStore = new EventStore[F, TestEvent]
-    val processes = createProcesses(n, TaskProcessingTime.instant, 0.25, TaskProcessingTime.instant, eventStore)
+    val processes  = createProcesses(n, TaskProcessingTime.instant, 0.25, TaskProcessingTime.instant, eventStore)
     processes.length shouldBe n
   }
 
   test("create processes #3") {
-    val n = 5
+    val n          = 5
     val eventStore = new EventStore[F, TestEvent]
-    val processes = createProcesses(n, TaskProcessingTime.instant, 0.75, TaskProcessingTime.instant, eventStore)
+    val processes  = createProcesses(n, TaskProcessingTime.instant, 0.75, TaskProcessingTime.instant, eventStore)
     processes.length shouldBe n
   }
 
   test("create processes #4") {
-    val n = 5
+    val n          = 5
     val eventStore = new EventStore[F, TestEvent]
-    val processes = createProcesses(n, TaskProcessingTime.instant, 0, TaskProcessingTime.instant, eventStore)
+    val processes  = createProcesses(n, TaskProcessingTime.instant, 0, TaskProcessingTime.instant, eventStore)
     processes.length shouldBe n
   }
 
   test("create processes #5") {
-    val n = 5
+    val n          = 5
     val eventStore = new EventStore[F, TestEvent]
-    val processes = createProcesses(n, TaskProcessingTime.instant, 1, TaskProcessingTime.instant, eventStore)
+    val processes  = createProcesses(n, TaskProcessingTime.instant, 1, TaskProcessingTime.instant, eventStore)
     processes.length shouldBe n
   }
 
-  def run(specs: Seq[StabilitySpec]): Unit = {
+  def run(specs: Seq[StabilitySpec]): Unit =
     specs.filter(_.enabled).foreach(run)
-  }
 
-  def run(spec: StabilitySpec): Unit = {
+  def run(spec: StabilitySpec): Unit =
 
     (1 to spec.samples).foreach { i =>
       val mdcFields: MDCFields = Map(
-        "name" -> spec.name,
-        "sample" -> i,
-        "number_of_workers" -> spec.config.numberOfWorkers,
-        "number_of_processes" -> spec.numberOfProcesses,
-        "number_of_events" -> spec.numberOfEvents,
-        "ratio" -> spec.ratio,
-        "first_group_processing_time_mode" -> spec.pta.name,
+        "name"                              -> spec.name,
+        "sample"                            -> i,
+        "number_of_workers"                 -> spec.config.numberOfWorkers,
+        "number_of_processes"               -> spec.numberOfProcesses,
+        "number_of_events"                  -> spec.numberOfEvents,
+        "ratio"                             -> spec.ratio,
+        "first_group_processing_time_mode"  -> spec.pta.name,
         "second_group_processing_time_mode" -> spec.ptb.name,
-        "work_distribution_strategy" -> spec.wds.name)
+        "work_distribution_strategy"        -> spec.wds.name
+      )
 
       val eventStore = new EventStore[F, TestEvent]
-      val processes = createProcesses(
-        spec.numberOfProcesses,
-        spec.pta, spec.ratio, spec.ptb, eventStore)
-      val tasks = spec.wds.createTasks(spec.numberOfEvents, processes)
+      val processes  = createProcesses(spec.numberOfProcesses, spec.pta, spec.ratio, spec.ptb, eventStore)
+      val tasks      = spec.wds.createTasks(spec.numberOfEvents, processes)
 
       require(tasks.size >= spec.numberOfEvents, "number of tasks must be gte number of events")
 
       val program = for {
-        context <- Context[F](Parapet.ParConfig(processBufferSize = -1,
-          schedulerConfig = spec.config), io.parapet.core.EventStore.stub, EventTransformers.empty)
+        context <- Context[F](
+          Parapet.ParConfig(processBufferSize = -1, schedulerConfig = spec.config),
+          io.parapet.core.EventStore.stub,
+          EventTransformers.empty
+        )
         scheduler <- Scheduler[F](spec.config, context, interpreter(context))
-        fiber <- ct.start(scheduler.start)
-        _ <- context.start(scheduler)
-        _ <- context.registerAll(ProcessRef.SystemRef, processes.toList)
-        _ <- submitAll(scheduler, tasks)
-        _ <- eventStore.await0(tasks.size, fiber)
+        fiber     <- ct.start(scheduler.start)
+        _         <- context.start(scheduler)
+        _         <- context.registerAll(ProcessRef.SystemRef, processes.toList)
+        _         <- submitAll(scheduler, tasks)
+        _         <- eventStore.await0(tasks.size, fiber)
 
       } yield ()
 
-      logger.mdc(mdcFields) { _ => {
+      logger.mdc(mdcFields) { _ =>
         logger.info("test is starting")
-      }
       }
       val start = System.nanoTime()
       unsafeRun(program)
-      val end = System.nanoTime()
+      val end         = System.nanoTime()
       val elapsedTime = TimeUnit.NANOSECONDS.toMillis(end - start)
-      logger.mdc(mdcFields) { _ => {
+      logger.mdc(mdcFields) { _ =>
         logger.info(s"test completed in $elapsedTime ms")
       }
-      }
-
 
       verifyEvents(tasks, eventStore)
     }
-
-  }
 
   test("events order assertion") {
     assertEventsOrder(Seq(TestEvent(1), TestEvent(2), TestEvent(3)))
@@ -234,53 +229,52 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with Integrati
 
 object SchedulerCorrectnessSpec {
 
-
   type TaskId = Int // todo add id to the Task
 
   def dummyProcess[F[_]]: Process[F] = new Process[F] {
 
     import dsl._
 
-    override val handle: Receive = {
-      case _ => unit
+    override val handle: Receive = { case _ =>
+      unit
     }
   }
 
   case class TestEvent(seqNumber: Int) extends Event
 
-
-  /**
-    * Creates a  process with processing `time`
+  /** Creates a process with processing `time`
     *
-    * @param eventStore in memory store for events [[EventStore]]
-    * @param time       event processing time
-    * @return [[Process]]
+    * @param eventStore
+    *   in memory store for events [[EventStore]]
+    * @param time
+    *   event processing time
+    * @return
+    *   [[Process]]
     */
-  def createProcess[F[_]](eventStore: EventStore[F, TestEvent],
-                          time: FiniteDuration = TaskProcessingTime.instant.time): Process[F] = {
+  def createProcess[F[_]](
+      eventStore: EventStore[F, TestEvent],
+      time: FiniteDuration = TaskProcessingTime.instant.time
+  ): Process[F] =
     new Process[F] {
 
       import dsl._
 
-      val handle: Receive = {
-        case e: TestEvent => delay(time) ++ eval(eventStore.add(ref, e))
+      val handle: Receive = { case e: TestEvent =>
+        delay(time) ++ eval(eventStore.add(ref, e))
       }
     }
-  }
 
   def submitAll[F[_]](scheduler: Scheduler[F], tasks: Seq[Task[F]])(using effect: Effect[F]): F[Unit] =
     tasks.map(t => scheduler.submit(t).void).foldLeft(effect.pure(()))(_ >> _)
 
   @tailrec
-  def assertEventsOrder(events: Seq[TestEvent]): Unit = {
+  def assertEventsOrder(events: Seq[TestEvent]): Unit =
     events match {
       case x :: y :: xs =>
-        require(x.seqNumber < y.seqNumber,
-          s"incorrect order of events: ${x.seqNumber} shouldBe < ${y.seqNumber}")
+        require(x.seqNumber < y.seqNumber, s"incorrect order of events: ${x.seqNumber} shouldBe < ${y.seqNumber}")
         assertEventsOrder(y +: xs)
       case _ =>
     }
-  }
 
   def verifyEvents[F[_]](submittedTasks: Seq[Deliver[F]], eventStore: EventStore[F, TestEvent]): Unit = {
     val groupedEventsByProcess = groupEventsByProcess(submittedTasks)
@@ -288,16 +282,13 @@ object SchedulerCorrectnessSpec {
     val actualEvents = eventStore.allEvents.map(_.seqNumber).toSet
     actualEvents.size shouldBe submittedTasks.size
 
-    groupedEventsByProcess.foreach {
-      case (pRef, expectedEvents) =>
-        eventStore.get(pRef) shouldBe expectedEvents
+    groupedEventsByProcess.foreach { case (pRef, expectedEvents) =>
+      eventStore.get(pRef) shouldBe expectedEvents
     }
   }
 
-
-  def groupEventsByProcess[F[_]](tasks: Seq[Deliver[F]]): Map[ProcessRef, Seq[Event]] = {
+  def groupEventsByProcess[F[_]](tasks: Seq[Deliver[F]]): Map[ProcessRef, Seq[Event]] =
     tasks.groupBy(t => t.envelope.receiver).view.mapValues(_.map(_.envelope.event)).toMap
-  }
 
   def toTestEvent(e: Event): TestEvent = e.asInstanceOf[TestEvent]
 
@@ -322,7 +313,7 @@ object SchedulerCorrectnessSpec {
 
       override def time: FiniteDuration = {
         val fromMillis = from.toMillis
-        val toMillis = to.toMillis
+        val toMillis   = to.toMillis
 
         (fromMillis + rnd.nextInt((toMillis - fromMillis).toInt + 1)).millis
       }
@@ -344,21 +335,30 @@ object SchedulerCorrectnessSpec {
 
   }
 
-  /**
-    * Creates processes with processing time based on the given `ratio`
+  /** Creates processes with processing time based on the given `ratio`
     *
-    * @param n          number of processes
-    * @param pta        event processing time for (ratio * n) processes
-    * @param ratio      percent of processes with processing time `pta` vs. `ptb`
-    * @param ptb        event processing time for (n - ratio * n) processes
-    * @param eventStore in memory store for events [[EventStore]]
-    * @return array of [[Process]]
+    * @param n
+    *   number of processes
+    * @param pta
+    *   event processing time for (ratio * n) processes
+    * @param ratio
+    *   percent of processes with processing time `pta` vs. `ptb`
+    * @param ptb
+    *   event processing time for (n - ratio * n) processes
+    * @param eventStore
+    *   in memory store for events [[EventStore]]
+    * @return
+    *   array of [[Process]]
     */
-  def createProcesses[F[_]](n: Int, pta: TaskProcessingTime,
-                            ratio: Double, ptb: TaskProcessingTime,
-                            eventStore: EventStore[F, TestEvent]): Array[Process[F]] = {
+  def createProcesses[F[_]](
+      n: Int,
+      pta: TaskProcessingTime,
+      ratio: Double,
+      ptb: TaskProcessingTime,
+      eventStore: EventStore[F, TestEvent]
+  ): Array[Process[F]] = {
     val processes = new Array[Process[F]](n)
-    val aN = (n * ratio).toInt
+    val aN        = (n * ratio).toInt
     (0 until aN).foreach { i =>
       processes(i) = createProcess(eventStore, pta.time)
     }
@@ -382,8 +382,12 @@ object SchedulerCorrectnessSpec {
 
       override def createTasks[F[_]](n: Int, processes: Array[Process[F]]): Seq[Deliver[F]] = {
         val rnd = scala.util.Random
-        (1 to n).map(i => Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(i),
-          processes(rnd.nextInt(processes.length)).ref), ExecutionTrace.Dummy))
+        (1 to n).map(i =>
+          Deliver[F](
+            Envelope(ProcessRef.SystemRef, TestEvent(i), processes(rnd.nextInt(processes.length)).ref),
+            ExecutionTrace.Dummy
+          )
+        )
       }
     }
 
@@ -392,12 +396,20 @@ object SchedulerCorrectnessSpec {
       override val name: String = "batch"
 
       override def createTasks[F[_]](n: Int, processes: Array[Process[F]]): Seq[Deliver[F]] = {
-        def create(i: Int, offset: Int, n: Int, tasks: Seq[Deliver[F]]): Seq[Deliver[F]] = {
+        def create(i: Int, offset: Int, n: Int, tasks: Seq[Deliver[F]]): Seq[Deliver[F]] =
           if (i < processes.length) {
-            create(i + 1, offset + n, n, tasks ++ (1 to n).map(j =>
-              Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(offset + j), processes(i).ref), ExecutionTrace.Dummy)))
+            create(
+              i + 1,
+              offset + n,
+              n,
+              tasks ++ (1 to n).map(j =>
+                Deliver[F](
+                  Envelope(ProcessRef.SystemRef, TestEvent(offset + j), processes(i).ref),
+                  ExecutionTrace.Dummy
+                )
+              )
+            )
           } else tasks
-        }
 
         create(0, 0, n, Seq.empty)
       }
@@ -407,19 +419,18 @@ object SchedulerCorrectnessSpec {
   }
 
   case class StabilitySpec(
-                            name: String,
-                            samples: Int = 1,
-                            config: SchedulerConfig,
-                            wds: WorkDistributionStrategy,
-                            numberOfEvents: Int,
-                            numberOfProcesses: Int,
-                            pta: TaskProcessingTime,
-                            ratio: Double,
-                            ptb: TaskProcessingTime,
-                            enabled: Boolean = true
-                          ) {
+      name: String,
+      samples: Int = 1,
+      config: SchedulerConfig,
+      wds: WorkDistributionStrategy,
+      numberOfEvents: Int,
+      numberOfProcesses: Int,
+      pta: TaskProcessingTime,
+      ratio: Double,
+      ptb: TaskProcessingTime,
+      enabled: Boolean = true
+  ) {
     def disable: StabilitySpec = this.copy(enabled = false)
   }
-
 
 }

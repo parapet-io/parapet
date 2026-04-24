@@ -6,34 +6,30 @@ import org.apache.avro.Schema
 
 import java.io.ByteArrayOutputStream
 
-/** Wire-level command algebra shared between the parapet `net` transports and the cluster
-  * coordination layer.
+/** Wire-level command algebra shared between the parapet `net` transports and the cluster coordination layer.
   *
-  * Every concrete `Cmd` is also an [[Event]] so it can flow through the parapet runtime
-  * unchanged. Avro is used as the on-the-wire codec — see [[Cmd.toByteArray]] /
-  * [[Cmd.apply]] for the round-trip.
+  * Every concrete `Cmd` is also an [[Event]] so it can flow through the parapet runtime unchanged. Avro is used as the
+  * on-the-wire codec - see [[Cmd.toByteArray]] / [[Cmd.apply]] for the round-trip.
   *
-  * The grouped sub-objects ([[Cmd.netClient]], [[Cmd.netServer]], [[Cmd.cluster]],
-  * [[Cmd.clusterNode]]) act as namespaces giving short, ergonomic names to the verbose
-  * fully qualified types.
+  * The grouped sub-objects ([[Cmd.netClient]], [[Cmd.netServer]], [[Cmd.cluster]], [[Cmd.clusterNode]]) act as
+  * namespaces giving short, ergonomic names to the verbose fully qualified types.
   */
 sealed trait Cmd extends Event:
   /** Serializes this command to a binary Avro buffer. The matching decoder is [[Cmd.apply]]. */
   def toByteArray: Array[Byte] =
     val outputStream = new ByteArrayOutputStream()
-    val avroOutput = AvroOutputStream.binary[Cmd].to(outputStream).build()
+    val avroOutput   = AvroOutputStream.binary[Cmd].to(outputStream).build()
     avroOutput.write(this)
     avroOutput.flush()
     avroOutput.close()
     outputStream.toByteArray
 
-/** Outbound payload for the network client; `reply`, when present, names the local
-  * process to deliver the eventual response to.
+/** Outbound payload for the network client; `reply`, when present, names the local process to deliver the eventual
+  * response to.
   */
 final case class NetClientSend(data: Array[Byte], reply: Option[ProcessRef] = None) extends Cmd
 
-/** Reply returned to the original sender of a [[NetClientSend]]; `data` is `None` on
-  * timeout or transport failure.
+/** Reply returned to the original sender of a [[NetClientSend]]; `data` is `None` on timeout or transport failure.
   */
 final case class NetClientRep(data: Option[Array[Byte]]) extends Cmd
 
@@ -48,14 +44,19 @@ sealed trait ClusterCode
 object ClusterCode:
   /** Operation succeeded. */
   case object Ok extends ClusterCode
+
   /** Requested resource (node id, etc.) does not exist in the cluster. */
   case object NotFound extends ClusterCode
+
   /** Generic operation failure. */
   case object Error extends ClusterCode
+
   /** Node successfully joined the cluster. */
   case object Joined extends ClusterCode
+
   /** Notification that the gossiped cluster state was updated. */
   case object StateUpdate extends ClusterCode
+
   /** Initial handshake accepted by the peer. */
   case object HandshakeOk extends ClusterCode
 
@@ -77,7 +78,7 @@ final case class ClusterNodeInfo(id: String, address: String, code: ClusterCode)
 /** Generic acknowledgement message used by various cluster RPCs. */
 final case class ClusterAck(msg: String, code: ClusterCode) extends Cmd
 
-/** A single entry in the cluster state — represents one peer node. */
+/** A single entry in the cluster state - represents one peer node. */
 final case class ClusterNodeEntry(id: String, protocol: String, address: String, groups: Set[String]) extends Cmd
 
 /** Snapshot of the entire cluster state at version `version`. */
@@ -92,31 +93,33 @@ case object ClusterGetState extends Cmd
 /** Diagnostic command asking the receiver to log its cluster state. */
 case object ClusterPrintState extends Cmd
 
-/** Generic node-to-node request envelope; the inner `data` is opaque to the cluster
-  * layer and decoded by application code.
+/** Generic node-to-node request envelope; the inner `data` is opaque to the cluster layer and decoded by application
+  * code.
   */
 final case class ClusterNodeReq(nodeId: String, data: Array[Byte]) extends Cmd
 
 /** Union of every command the network client process exchanges. */
 type NetClientApi = NetClientSend | NetClientRep
+
 /** Union of every command the network server process exchanges. */
 type NetServerApi = NetServerSend | NetServerMessage
+
 /** Union of every command in the cluster control protocol. */
 type ClusterApi =
   ClusterJoin | ClusterJoinResult | ClusterLeave | ClusterGetNodeInfo | ClusterNodeInfo | ClusterAck |
     ClusterNodeEntry | ClusterState | ClusterHandshake.type | ClusterGetState.type | ClusterPrintState.type
+
 /** Union of cluster node-to-node application requests. */
 type ClusterNodeApi = ClusterNodeReq
 
-/** Companion holding the Avro schema, the binary decoder, and the namespaced ergonomic
-  * aliases for each sub-protocol.
+/** Companion holding the Avro schema, the binary decoder, and the namespaced ergonomic aliases for each sub-protocol.
   */
 object Cmd:
   private[api] val schema: Schema = AvroSchema[Cmd]
 
   /** Aliases for the network-client sub-protocol. */
   object netClient:
-    type Api = NetClientApi
+    type Api  = NetClientApi
     type Send = NetClientSend
     val Send = NetClientSend
     type Rep = NetClientRep
@@ -124,7 +127,7 @@ object Cmd:
 
   /** Aliases for the network-server sub-protocol. */
   object netServer:
-    type Api = NetServerApi
+    type Api  = NetServerApi
     type Send = NetServerSend
     val Send = NetServerSend
     type Message = NetServerMessage
@@ -136,10 +139,10 @@ object Cmd:
 
     type Code = ClusterCode
     object Code:
-      val Ok: ClusterCode = ClusterCode.Ok
-      val NotFound: ClusterCode = ClusterCode.NotFound
-      val Error: ClusterCode = ClusterCode.Error
-      val Joined: ClusterCode = ClusterCode.Joined
+      val Ok: ClusterCode          = ClusterCode.Ok
+      val NotFound: ClusterCode    = ClusterCode.NotFound
+      val Error: ClusterCode       = ClusterCode.Error
+      val Joined: ClusterCode      = ClusterCode.Joined
       val StateUpdate: ClusterCode = ClusterCode.StateUpdate
       val HandshakeOk: ClusterCode = ClusterCode.HandshakeOk
 

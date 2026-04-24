@@ -16,7 +16,7 @@ class EventStore[F[_], A <: Event](using effect: Effect[F]) {
   type EventList = ListBuffer[A]
 
   private val eventMap = new ConcurrentHashMap[ProcessRef, EventList]()
-  private val sizeRef = new AtomicInteger()
+  private val sizeRef  = new AtomicInteger()
 
   def add(pRef: ProcessRef, event: A): Unit = {
     sizeRef.incrementAndGet()
@@ -41,7 +41,7 @@ class EventStore[F[_], A <: Event](using effect: Effect[F]) {
   ): F[Unit] =
     for
       fiber <- effect.start(op)
-      _ <- await0(expectedSize, fiber, delay, timeout)
+      _     <- await0(expectedSize, fiber, delay, timeout)
     yield ()
 
   def await0(
@@ -52,20 +52,24 @@ class EventStore[F[_], A <: Event](using effect: Effect[F]) {
   ): F[Unit] = {
     def cancelAndWait: F[Unit] =
       fiber.cancel >>
-        effect.race(
-          fiber.join.void.handleErrorWith(_ => effect.pure(())),
-          effect.sleep(5.seconds)
-        ).void
+        effect
+          .race(
+            fiber.join.void.handleErrorWith(_ => effect.pure(())),
+            effect.sleep(5.seconds)
+          )
+          .void
 
     def waitForEvents: F[Unit] =
       if size >= expectedSize then effect.pure(())
       else effect.sleep(delay) >> waitForEvents
 
     val waitWithTimeout =
-      effect.race(
-        waitForEvents,
-        effect.sleep(timeout) >> effect.raiseError[Unit](new TimeoutException(timeout.toString))
-      ).void
+      effect
+        .race(
+          waitForEvents,
+          effect.sleep(timeout) >> effect.raiseError[Unit](new TimeoutException(timeout.toString))
+        )
+        .void
 
     effect.guarantee(effect.race(waitWithTimeout, fiber.join).void)(cancelAndWait)
   }

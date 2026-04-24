@@ -2,11 +2,10 @@ package io.parapet.core
 
 import io.parapet.ProcessRef
 
-/** Exceptions raised by the parapet runtime when routing or process lifecycle invariants
-  * are violated.
+/** Exceptions raised by the parapet runtime when routing or process lifecycle invariants are violated.
   *
-  * These are surfaced through [[io.parapet.core.Events.Failure]] and (when unhandled) end
-  * up at the [[io.parapet.core.processes.DeadLetterProcess]].
+  * These are surfaced through [[io.parapet.core.Events.Failure]] and (when unhandled) end up at the
+  * [[io.parapet.core.processes.DeadLetterProcess]].
   */
 package object exceptions {
 
@@ -14,10 +13,10 @@ package object exceptions {
   case class UnknownProcessException(message: String) extends RuntimeException(message)
 
   object UnknownProcessException {
+
     /** Convenience constructor producing a standard message for `ref`. */
-    def apply(ref: ProcessRef): UnknownProcessException = {
+    def apply(ref: ProcessRef): UnknownProcessException =
       new UnknownProcessException(s"process: '$ref' doesn't exist")
-    }
   }
 
   /** Wraps a throwable raised inside a process's `handle` so it can be propagated as a
@@ -26,8 +25,7 @@ package object exceptions {
   case class EventHandlingException(message: String = "", cause: Throwable = null)
       extends RuntimeException(message, cause)
 
-  /** Raised when an envelope cannot be delivered for reasons other than an unknown
-    * receiver (e.g. transport failure).
+  /** Raised when an envelope cannot be delivered for reasons other than an unknown receiver (e.g. transport failure).
     */
   case class EventDeliveryException(message: String = "", cause: Throwable = null)
       extends RuntimeException(message, cause)
@@ -45,10 +43,10 @@ package object exceptions {
   case class ProcessStoppedException(message: String) extends RuntimeException(message)
 
   object ProcessStoppedException {
+
     /** Convenience constructor producing a standard message for `ref`. */
-    def apply(ref: ProcessRef): ProcessStoppedException = {
+    def apply(ref: ProcessRef): ProcessStoppedException =
       new ProcessStoppedException(s"process: '$ref' is already stopped")
-    }
   }
 
 }

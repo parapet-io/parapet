@@ -1,7 +1,6 @@
 package io.parapet.free
 
-/** Tagged-union over two algebras. Lets a single [[Free]] program mix operations from `F`
-  * and `G`.
+/** Tagged-union over two algebras. Lets a single [[Free]] program mix operations from `F` and `G`.
   */
 sealed trait Coproduct[F[_], G[_], A]
 
@@ -9,6 +8,7 @@ sealed trait Coproduct[F[_], G[_], A]
 object Coproduct:
   /** Wraps an `F` operation. */
   final case class Left[F[_], G[_], A](value: F[A]) extends Coproduct[F, G, A]
+
   /** Wraps a `G` operation. */
   final case class Right[F[_], G[_], A](value: G[A]) extends Coproduct[F, G, A]
 
@@ -17,8 +17,8 @@ type :+:[F[_], G[_]] = [A] =>> Coproduct[F, G, A]
 
 /** Witness that algebra `F` can be embedded into a (possibly larger) algebra `G`.
   *
-  * The standard [[Inject.given]] derivations cover the common cases: `F` injects into
-  * itself, into the left of a coproduct, and recursively into the right of a coproduct.
+  * The standard [[Inject.given]] derivations cover the common cases: `F` injects into itself, into the left of a
+  * coproduct, and recursively into the right of a coproduct.
   */
 trait Inject[F[_], G[_]]:
   /** Lifts `fa: F[A]` into the larger algebra `G[A]`. */
@@ -38,8 +38,7 @@ object Inject:
     def inject[A](fa: F[A]): Coproduct[F, G, A] =
       Coproduct.Left(fa)
 
-  /** Recursive case: if `F` injects into `G`, then it injects into `H :+: G` via the
-    * right slot.
+  /** Recursive case: if `F` injects into `G`, then it injects into `H :+: G` via the right slot.
     */
   given right[F[_], G[_], H[_]](using inject: Inject[F, G]): Inject[F, H :+: G] with
     def inject[A](fa: F[A]): Coproduct[H, G, A] =

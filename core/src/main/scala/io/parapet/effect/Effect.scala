@@ -16,12 +16,11 @@ trait EffectFiber[F[_], A]:
 /** Capability bundle the parapet runtime requires of any effect type `F`.
   *
   * Extends [[Monad]] with the additional primitives the [[io.parapet.core.Scheduler]] and
-  * [[io.parapet.core.DslInterpreter]] need: lazy evaluation ([[delay]]), thread offload
-  * ([[blocking]]), error handling, sleep, fork, and race.
+  * [[io.parapet.core.DslInterpreter]] need: lazy evaluation ([[delay]]), thread offload ([[blocking]]), error handling,
+  * sleep, fork, and race.
   *
-  * Concrete instances live alongside their effect type — for example
-  * [[io.parapet.effect.ParIO.effect]] and [[io.parapet.effect.ParIO.parallel]] for parapet's
-  * built-in [[ParIO]].
+  * Concrete instances live alongside their effect type - for example [[io.parapet.effect.ParIO.effect]] and
+  * [[io.parapet.effect.ParIO.parallel]] for parapet's built-in [[ParIO]].
   */
 trait Effect[F[_]] extends Monad[F]:
   /** Suspends a pure but lazy computation. */

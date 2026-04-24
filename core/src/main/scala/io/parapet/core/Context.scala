@@ -15,21 +15,22 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters.*
 
-/** The runtime state for a single parapet application: registry of running processes,
-  * supervision graph, event log, and a handle to the [[Scheduler]] that drives them.
+/** The runtime state for a single parapet application: registry of running processes, supervision graph, event log, and
+  * a handle to the [[Scheduler]] that drives them.
   *
-  * Every process registered through [[register]] / [[registerAll]] gets a [[ProcessState]]
-  * holding its mailbox, lifecycle flags, and synchronization primitives. The `Context` is
-  * thread-safe; [[Scheduler.Worker]]s and user code may interact with it concurrently.
+  * Every process registered through [[register]] / [[registerAll]] gets a [[ProcessState]] holding its mailbox,
+  * lifecycle flags, and synchronization primitives. The `Context` is thread-safe; [[Scheduler.Worker]]s and user code
+  * may interact with it concurrently.
   *
-  * Users normally do not construct a `Context` directly — [[io.parapet.ParApp.run]] does so
-  * during boot. Application code receives one indirectly through `Process.context`.
+  * Users normally do not construct a `Context` directly - [[io.parapet.ParApp.run]] does so during boot. Application
+  * code receives one indirectly through `Process.context`.
   *
-  * @param config            runtime configuration in effect for this context.
-  * @param eventStore        sink for envelopes when [[Parapet.ParConfig.eventLogEnabled]]
-  *                          is on.
-  * @param eventTransformers per-process pipeline of [[EventTransformer]]s registered before
-  *                          startup.
+  * @param config
+  *   runtime configuration in effect for this context.
+  * @param eventStore
+  *   sink for envelopes when [[Parapet.ParConfig.eventLogEnabled]] is on.
+  * @param eventTransformers
+  *   per-process pipeline of [[EventTransformer]]s registered before startup.
   */
 class Context[F[_]](
     config: Parapet.ParConfig,
@@ -45,14 +46,14 @@ class Context[F[_]](
   val tracingEnabled: Boolean = config.tracingEnabled
 
   private val processes = java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessState[F]]()
-  private val graph = java.util.concurrent.ConcurrentHashMap[ProcessRef, ListBuffer[ProcessRef]]()
-  private val parents = java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessRef]()
-  private val eventLog = EventLog()
+  private val graph     = java.util.concurrent.ConcurrentHashMap[ProcessRef, ListBuffer[ProcessRef]]()
+  private val parents   = java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessRef]()
+  private val eventLog  = EventLog()
 
   private var scheduler: Scheduler[F] = _
 
-  /** Binds this context to a [[Scheduler]], creates the built-in system processes, and
-    * sends the initial [[Events.Start]] event. Called once during application boot.
+  /** Binds this context to a [[Scheduler]], creates the built-in system processes, and sends the initial
+    * [[Events.Start]] event. Called once during application boot.
     */
   def start(scheduler0: Scheduler[F]): F[Unit] =
     effect.delay {
@@ -62,29 +63,33 @@ class Context[F[_]](
   private[core] def createSysProcesses: F[Unit] =
     for
       sysProcesses <- effect.delay(List(new SystemProcess[F], new Noop[F]))
-      states <- Monad.sequence(sysProcesses.map(ProcessState(_, config)))
-      _ <- effect.delay(states.foreach(state => processes.put(state.process.ref, state)))
+      states       <- Monad.sequence(sysProcesses.map(ProcessState(_, config)))
+      _            <- effect.delay(states.foreach(state => processes.put(state.process.ref, state)))
     yield ()
 
-  /** Submits a [[Scheduler.Task]] for execution. Equivalent to calling the scheduler
-    * directly but kept here so user code can route everything through the context.
+  /** Submits a [[Scheduler.Task]] for execution. Equivalent to calling the scheduler directly but kept here so user
+    * code can route everything through the context.
     */
   def schedule(task: Task[F]): F[SubmissionResult] =
     scheduler.submit(task)
 
-  /** Registers `child` under `parent` in the supervision graph. The child receives a fresh
-    * [[ProcessState]] (mailbox, locks) and is wired into the [[Context]] but does not
-    * automatically receive a [[Events.Start]] — see [[registerAndStart]] for that.
+  /** Registers `child` under `parent` in the supervision graph. The child receives a fresh [[ProcessState]] (mailbox,
+    * locks) and is wired into the [[Context]] but does not automatically receive a [[Events.Start]] - see
+    * [[registerAndStart]] for that.
     *
-    * @return the child's [[ProcessRef]], which equals `child.ref`.
-    * @throws io.parapet.core.exceptions.UnknownProcessException if `parent` is not registered.
+    * @return
+    *   the child's [[ProcessRef]], which equals `child.ref`.
+    * @throws io.parapet.core.exceptions.UnknownProcessException
+    *   if `parent` is not registered.
     */
   def register(parent: ProcessRef, child: Process[F]): F[ProcessRef] =
     effect.suspend {
       if !processes.containsKey(parent) then
         effect.raiseError(UnknownProcessException(s"process cannot be registered because parent $parent doesn't exist"))
       else if parents.containsKey(child.ref) then
-        effect.raiseError(new IllegalStateException(s"$child has been already registered. its parent=${parents.get(child.ref)}"))
+        effect.raiseError(
+          new IllegalStateException(s"$child has been already registered. its parent=${parents.get(child.ref)}")
+        )
       else
         child.init(self)
         ProcessState(child, config).flatMap { state =>
@@ -112,8 +117,7 @@ class Context[F[_]](
     val envelope = Envelope(ProcessRef.SystemRef, Start, processRef)
     scheduler.submit(Deliver(envelope, createTrace(envelope.id)))
 
-  /** Registers a batch of root processes (parented to [[ProcessRef.SystemRef]]) and starts
-    * each.
+  /** Registers a batch of root processes (parented to [[ProcessRef.SystemRef]]) and starts each.
     */
   def registerAll(processes0: List[Process[F]]): F[List[ProcessRef]] =
     registerAll(ProcessRef.SystemRef, processes0)
@@ -121,7 +125,7 @@ class Context[F[_]](
   /** Registers and starts each of `processes0` under `parent`. */
   def registerAll(parent: ProcessRef, processes0: List[Process[F]]): F[List[ProcessRef]] =
     for
-      refs <- Monad.sequence(processes0.map(register(parent, _)))
+      refs   <- Monad.sequence(processes0.map(register(parent, _)))
       result <- Monad.sequence(refs.map(ref => sendStartEvent(ref).as(ref)))
     yield result
 
@@ -137,16 +141,16 @@ class Context[F[_]](
   def getProcessState(ref: ProcessRef): Option[ProcessState[F]] =
     Option(processes.get(ref))
 
-  /** Marks the process as terminated, completing its termination signal. Returns `true`
-    * if this call was the one that flipped the flag (idempotent across concurrent callers).
+  /** Marks the process as terminated, completing its termination signal. Returns `true` if this call was the one that
+    * flipped the flag (idempotent across concurrent callers).
     */
   def interrupt(ref: ProcessRef): F[Boolean] =
     getProcessState(ref) match
       case Some(state) => state.terminate
       case None        => effect.pure(false)
 
-  /** Removes the process from the registry and detaches it from its parent in the
-    * supervision graph. Returns `true` if a process was actually removed.
+  /** Removes the process from the registry and detaches it from its parent in the supervision graph. Returns `true` if
+    * a process was actually removed.
     */
   def remove(ref: ProcessRef): F[Boolean] =
     effect.delay {
@@ -154,26 +158,23 @@ class Context[F[_]](
       processes.remove(ref) != null
     }
 
-  /** Allocates a fresh [[ExecutionTrace]] (or [[ExecutionTrace.Dummy]] when tracing is
-    * disabled).
+  /** Allocates a fresh [[ExecutionTrace]] (or [[ExecutionTrace.Dummy]] when tracing is disabled).
     */
   def createTrace: ExecutionTrace =
     createTrace(UUID.randomUUID().toString)
 
-  /** Returns an [[ExecutionTrace]] seeded with `id` (or [[ExecutionTrace.Dummy]] when
-    * tracing is disabled).
+  /** Returns an [[ExecutionTrace]] seeded with `id` (or [[ExecutionTrace.Dummy]] when tracing is disabled).
     */
   def createTrace(id: String): ExecutionTrace =
     if tracingEnabled then ExecutionTrace(id) else ExecutionTrace.Dummy
 
-  /** Appends `envelope` to the in-memory [[EventLog]] when event logging is enabled;
-    * otherwise no-op.
+  /** Appends `envelope` to the in-memory [[EventLog]] when event logging is enabled; otherwise no-op.
     */
   def addToEventLog(envelope: Envelope): F[Unit] =
     if config.eventLogEnabled then effect.delay(eventLog.add(envelope)) else effect.pure(())
 
-  /** Hook invoked at runtime shutdown to flush the event log. The current implementation
-    * is a placeholder; future versions may persist to disk.
+  /** Hook invoked at runtime shutdown to flush the event log. The current implementation is a placeholder; future
+    * versions may persist to disk.
     */
   def saveEventLog: F[Unit] =
     if config.eventLogEnabled then effect.delay(()) else effect.pure(())
@@ -188,22 +189,19 @@ object Context:
   )(using effect: Effect[F]): F[Context[F]] =
     effect.delay(new Context[F](config, eventStore, eventTransformers))
 
-  /** Pairs a long-running blocking operation with the [[Deferred]] that fires when it
-    * completes, used by [[AsyncOps]].
+  /** Pairs a long-running blocking operation with the [[Deferred]] that fires when it completes, used by [[AsyncOps]].
     */
   final case class BlockingOp[F[_]](blockingOperation: EffectFiber[F, Unit], done: Deferred[F, Unit])
 
   /** Bookkeeping for blocking operations spawned by a single process.
     *
-    * The scheduler tracks them so it can wait for completion before releasing the process
-    * lock — preserving the per-process "no concurrent handler" guarantee even in the
-    * presence of `dsl.blocking` blocks.
+    * The scheduler tracks them so it can wait for completion before releasing the process lock - preserving the
+    * per-process "no concurrent handler" guarantee even in the presence of `dsl.blocking` blocks.
     */
   final class AsyncOps[F[_]](using effect: Effect[F]):
     private val signals = new AtomicReference[List[BlockingOp[F]]](Nil)
 
-    /** Tracks one in-flight blocking operation. Called by the scheduler when entering a
-      * `dsl.blocking` region.
+    /** Tracks one in-flight blocking operation. Called by the scheduler when entering a `dsl.blocking` region.
       */
     def add(blockingOperation: EffectFiber[F, Unit], done: Deferred[F, Unit]): F[Unit] =
       effect.delay {
@@ -226,8 +224,7 @@ object Context:
     def size: F[Int] =
       effect.pure(signals.get().size)
 
-    /** Cancels every tracked operation and completes their deferreds. Used during process
-      * stop to unblock callers.
+    /** Cancels every tracked operation and completes their deferreds. Used during process stop to unblock callers.
       */
     def completeAll: F[Unit] =
       for
@@ -237,13 +234,15 @@ object Context:
 
   /** Per-process runtime state held by the [[Context]].
     *
-    * Wraps the mailbox `queue`, the user-defined [[Process]] instance, and the lifecycle
-    * flags ([[terminate]] / [[stop]] / [[suspend]]) consulted by the scheduler.
+    * Wraps the mailbox `queue`, the user-defined [[Process]] instance, and the lifecycle flags ([[terminate]] /
+    * [[stop]] / [[suspend]]) consulted by the scheduler.
     *
-    * @param queue              the task mailbox dedicated to this process.
-    * @param process            the user-defined behavior.
-    * @param terminationSignal  fires once when the process is fully torn down; awaited by
-    *                           supervision logic and external callers.
+    * @param queue
+    *   the task mailbox dedicated to this process.
+    * @param process
+    *   the user-defined behavior.
+    * @param terminationSignal
+    *   fires once when the process is fully torn down; awaited by supervision logic and external callers.
     */
   final class ProcessState[F[_]](
       queue: TaskQueue[F],
@@ -252,10 +251,10 @@ object Context:
   )(using effect: Effect[F]):
 
     private val terminatedRef = new AtomicBoolean(false)
-    private val stoppedRef = new AtomicBoolean(false)
-    private val suspendedRef = new AtomicBoolean(false)
-    private val blockingRef = new AsyncOps[F]
-    private val processLock = new ProcessState.ProcessLock[F]
+    private val stoppedRef    = new AtomicBoolean(false)
+    private val suspendedRef  = new AtomicBoolean(false)
+    private val blockingRef   = new AsyncOps[F]
+    private val processLock   = new ProcessState.ProcessLock[F]
 
     /** Bookkeeping for blocking operations spawned by this process. */
     def blocking: AsyncOps[F] =
@@ -269,8 +268,8 @@ object Context:
     def tryTakeTask: F[Option[Task[F]]] =
       queue.tryDequeue
 
-    /** Marks the process as terminated and fires [[terminationSignal]]. Idempotent —
-      * returns `true` only on the call that first flipped the flag.
+    /** Marks the process as terminated and fires [[terminationSignal]]. Idempotent - returns `true` only on the call
+      * that first flipped the flag.
       */
     def terminate: F[Boolean] =
       effect.delay(terminatedRef.compareAndSet(false, true)).flatMap {
@@ -298,8 +297,8 @@ object Context:
     def acquired: F[Boolean] =
       processLock.acquired
 
-    /** Tries to acquire the per-process lock; returns `true` on success. The scheduler
-      * uses this to enforce the per-process serialization guarantee.
+    /** Tries to acquire the per-process lock; returns `true` on success. The scheduler uses this to enforce the
+      * per-process serialization guarantee.
       */
     def acquire: F[Boolean] =
       processLock.acquire
@@ -332,16 +331,16 @@ object Context:
   object ProcessState:
     /** Cooperative lock guarding "exactly one worker handling at a time" for a process.
       *
-      * The `lockSentinel` flag distinguishes between a release that races with a fresh
-      * acquire (in which case we must re-notify) and a clean release. The scheduler relies
-      * on this signal to decide whether to re-enqueue a notification.
+      * The `lockSentinel` flag distinguishes between a release that races with a fresh acquire (in which case we must
+      * re-notify) and a clean release. The scheduler relies on this signal to decide whether to re-enqueue a
+      * notification.
       */
     final class ProcessLock[F[_]](using effect: Effect[F]):
-      private val lock = new AtomicBoolean()
+      private val lock         = new AtomicBoolean()
       private val lockSentinel = new AtomicBoolean()
 
-      /** Sets the sentinel and reads the lock state in a single step. The sentinel signals
-        * that someone consulted the lock between an acquire and a release.
+      /** Sets the sentinel and reads the lock state in a single step. The sentinel signals that someone consulted the
+        * lock between an acquire and a release.
         */
       def acquired: F[Boolean] =
         effect.delay {
@@ -353,9 +352,8 @@ object Context:
       def acquire: F[Boolean] =
         effect.delay(lock.compareAndSet(false, true))
 
-      /** Releases the lock and clears the sentinel. Returns `true` if no concurrent
-        * `acquired`-style poll observed the lock since it was acquired (i.e. it's safe
-        * to skip a re-notify).
+      /** Releases the lock and clears the sentinel. Returns `true` if no concurrent `acquired`-style poll observed the
+        * lock since it was acquired (i.e. it's safe to skip a re-notify).
         */
       def release: F[Boolean] =
         effect.delay {
@@ -363,8 +361,8 @@ object Context:
           !lockSentinel.compareAndSet(true, false)
         }
 
-    /** Builds a fresh [[ProcessState]], honoring the process's overridden mailbox size or
-      * falling back to the global default.
+    /** Builds a fresh [[ProcessState]], honoring the process's overridden mailbox size or falling back to the global
+      * default.
       */
     def apply[F[_]](process: Process[F], config: Parapet.ParConfig)(using effect: Effect[F]): F[ProcessState[F]] =
       val processBufferSize =

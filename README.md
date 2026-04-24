@@ -2,7 +2,7 @@
 
 A purely functional Scala 3 library for building distributed and event-driven systems.
 
-Parapet plays the role of an execution framework for distributed algorithms — it sits
+Parapet plays the role of an execution framework for distributed algorithms - it sits
 between a low-level effect runtime and high-level process logic. Distributed engineers
 focus on algorithms; the runtime handles mailboxes, scheduling, lifecycle, and
 back-pressure.
@@ -25,7 +25,7 @@ back-pressure.
 * [Defining a process](#defining-a-process)
 * [Running an application](#running-an-application)
 * [DSL cheatsheet](#dsl-cheatsheet)
-* [Channel — request/response](#channel--requestresponse)
+* [Channel - request/response](#channel--requestresponse)
 * [Error handling](#error-handling)
 * [Configuration](#configuration)
 * [Contributing](#contributing)
@@ -33,12 +33,12 @@ back-pressure.
 
 ## Key features
 
-* Purely functional — Tagless-Final and Free-monad encoded DSL; programs are values.
-* Single-mailbox actor model — sequential delivery, no shared mutable state.
-* Modular runtime — `Effect[F]` / `Parallel[F]` type-classes let you swap effect types;
+* Purely functional - Tagless-Final and Free-monad encoded DSL; programs are values.
+* Single-mailbox actor model - sequential delivery, no shared mutable state.
+* Modular runtime - `Effect[F]` / `Parallel[F]` type-classes let you swap effect types;
   `ParIO` is shipped out of the box.
-* Composable processes — combine handlers with `and` / `or`, swap state with `switch`.
-* Lightweight scheduler — bounded mailboxes, configurable worker pool, optional
+* Composable processes - combine handlers with `and` / `or`, swap state with `switch`.
+* Lightweight scheduler - bounded mailboxes, configurable worker pool, optional
   `EventLog` overflow.
 
 ## Getting started
@@ -93,7 +93,7 @@ class Greeter[F[_]](printer: ProcessRef) extends Process[F]:
 
 Notes:
 
-* `Start` and `Stop` are lifecycle events delivered by the runtime — `Start` once on
+* `Start` and `Stop` are lifecycle events delivered by the runtime - `Start` once on
   registration, `Stop` (or `Kill`) on shutdown.
 * `ProcessRef` is the address of a process; prefer it over passing `Process` instances
   around so that wiring stays late-binding.
@@ -128,9 +128,10 @@ instances.
 
 | Combinator                 | Description                                              |
 | -------------------------- | -------------------------------------------------------- |
-| `unit`                     | The empty program — useful as a fold seed.               |
+| `unit`                     | The empty program - useful as a fold seed.               |
 | `event ~> ref`             | Send `event` to a process.                               |
 | `forward(event, ref)`      | Send while preserving the original sender.               |
+| `reply(event)`             | Send `event` back to the sender of the current message.  |
 | `withSender(s => program)` | Run a program parameterised by the current sender ref.   |
 | `flow { ... }`             | Suspend program construction (use for recursion).        |
 | `eval { sideEffect }`      | Suspend a side-effecting computation in `F`.             |
@@ -143,9 +144,9 @@ instances.
 | `register(parent, child)`  | Register a child process; child receives `Stop` first.   |
 | `switch(receive)`          | Replace the current process behaviour.                   |
 
-Combine programs with `++` (sequential composition) — e.g. `eval(println("a")) ++ eval(println("b"))`.
+Combine programs with `++` (sequential composition) - e.g. `eval(println("a")) ++ eval(println("b"))`.
 
-## Channel — request/response
+## Channel - request/response
 
 `Channel` turns the asynchronous mailbox model into a strict one-call-at-a-time
 request/reply dialog. Send through it, get a `Try[Event]` back.
@@ -160,7 +161,7 @@ final case class Request(data: String) extends Event
 final case class Response(data: String) extends Event
 
 def server[F[_]]: Process[F] = Process[F](_ => {
-  case Request(data) => withSender(sender => Response(s"echo: $data") ~> sender)
+  case Request(data) => reply(Response(s"echo: $data"))
 })
 
 class Client[F[_]: Effect](backend: ProcessRef) extends Process[F]:
@@ -201,10 +202,10 @@ val client = Process.builder[F](_ => {
 
 Common failure causes:
 
-* `EventHandlingException` — receiver's handler threw.
-* `EventDeliveryException` — receiver's mailbox is full.
-* `EventMatchException` — receiver's handler is not defined for the event.
-* `UnknownProcessException` — receiver isn't registered.
+* `EventHandlingException` - receiver's handler threw.
+* `EventDeliveryException` - receiver's mailbox is full.
+* `EventMatchException` - receiver's handler is not defined for the event.
+* `UnknownProcessException` - receiver isn't registered.
 
 Override `ParApp#deadLetter` to install a custom `DeadLetterProcess` (e.g. one that
 persists or alerts on dropped events).
@@ -224,11 +225,11 @@ object MyApp extends ParIOApp:
 
 `SchedulerConfig` knobs:
 
-* `numberOfWorkers` — worker thread count (defaults to available processors).
-* `queueSize` — bound on the shared task queue.
-* `processQueueSize` — per-process mailbox bound; `-1` means unbounded.
+* `numberOfWorkers` - worker thread count (defaults to available processors).
+* `queueSize` - bound on the shared task queue.
+* `processQueueSize` - per-process mailbox bound; `-1` means unbounded.
 
-When a mailbox overflows, events are routed to `EventLog` (a no-op stub by default —
+When a mailbox overflows, events are routed to `EventLog` (a no-op stub by default -
 override `eventLog` to persist).
 
 ## Contributing

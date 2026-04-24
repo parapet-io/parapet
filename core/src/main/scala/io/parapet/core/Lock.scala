@@ -6,9 +6,9 @@ import java.util.concurrent.Semaphore
 
 /** A binary mutex over the effect type `F`.
   *
-  * Backed by a single-permit `java.util.concurrent.Semaphore`. The acquiring fiber may
-  * block on the underlying thread when no permit is available — implementations dispatch
-  * the wait through [[Effect.blocking]] so it does not stall a scheduler worker.
+  * Backed by a single-permit `java.util.concurrent.Semaphore`. The acquiring fiber may block on the underlying thread
+  * when no permit is available - implementations dispatch the wait through [[Effect.blocking]] so it does not stall a
+  * scheduler worker.
   */
 trait Lock[F[_]]:
   /** Suspends until the permit is acquired. */
@@ -23,8 +23,7 @@ trait Lock[F[_]]:
   /** Returns `true` while the lock is held. */
   def isAcquired: F[Boolean]
 
-  /** Runs `body` while holding the lock and releases it afterwards regardless of success
-    * or failure.
+  /** Runs `body` while holding the lock and releases it afterwards regardless of success or failure.
     */
   def withPermit[A](body: => F[A])(using effect: Effect[F]): F[A] =
     effect.guarantee(acquire.flatMap(_ => body))(release)

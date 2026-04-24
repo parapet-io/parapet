@@ -12,26 +12,23 @@ abstract class ProcessBehaviourSpec[F[_]] extends AnyFunSuite with IntegrationSp
   import dsl._
 
   test("switch behaviour") {
-    val eventStore = new EventStore[F, Event]
+    val eventStore          = new EventStore[F, Event]
     val process: Process[F] = new Process[F] {
 
-      def uninitialized: Receive = {
-        case Init =>
-          eval(eventStore.add(ref, Init)) ++ switch(ready)
+      def uninitialized: Receive = { case Init =>
+        eval(eventStore.add(ref, Init)) ++ switch(ready)
       }
 
-      def ready: Receive = {
-        case Run => eval(eventStore.add(ref, Run))
+      def ready: Receive = { case Run =>
+        eval(eventStore.add(ref, Run))
       }
 
       override def handle: Receive = uninitialized
     }
 
-
     val init = onStart(Seq(Init, Run, Run) ~> process.ref)
 
     unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(init, process))).run))
-
 
     eventStore.get(process.ref) shouldBe Seq(Init, Run, Run)
   }
