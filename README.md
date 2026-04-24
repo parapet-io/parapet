@@ -290,6 +290,19 @@ object MyApp extends ParIOApp:
 When a mailbox overflows, events are routed to `EventLog` (a no-op stub by default -
 override `eventLog` to persist).
 
+## How it differs
+
+* **vs actor frameworks (Akka, etc.)** - similar process/mailbox model, but handlers are
+  programs (values) in a typed DSL. They are composable, inspectable, and
+  re-interpretable rather than directly executed behaviours.
+
+* **vs effect systems (Cats Effect, ZIO)** - builds on an effect runtime and adds a
+  structured model of distributed processes: mailboxes, message passing, supervision.
+
+* **Same program, multiple interpreters.** A handler runs unchanged in production and
+  under a deterministic test interpreter - no test-mode fork of your code, no separate
+  simulation framework.
+
 ## Contributing
 
 The project is in active development. Issues, ideas, and pull requests are welcome.
