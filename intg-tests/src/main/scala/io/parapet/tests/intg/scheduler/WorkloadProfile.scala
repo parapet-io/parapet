@@ -15,27 +15,27 @@ object WorkloadProfile {
     override val name: String = s"uniform[${time.name}]"
   }
 
-  /** Two-group split: the first `floor(totalReceivers * fastFraction)` receivers use [[fast]]; the rest use [[slow]].
+  /** Two-group split: the first `floor(totalReceivers * fraction)` receivers use [[first]]; the rest use [[second]].
     *
-    * @param fastFraction
-    *   fraction of receivers in the fast group; must be in `[0, 1]`.
-    * @param fast
+    * @param fraction
+    *   fraction of receivers in the first group; must be in `[0, 1]`.
+    * @param first
     *   processing time for receivers in the first group.
-    * @param slow
+    * @param second
     *   processing time for receivers in the second group.
     */
   final case class TwoGroup(
-      fastFraction: Double,
-      fast: TaskProcessingTime,
-      slow: TaskProcessingTime
+      fraction: Double,
+      first: TaskProcessingTime,
+      second: TaskProcessingTime
   ) extends WorkloadProfile {
     require(
-      fastFraction >= 0.0 && fastFraction <= 1.0,
-      s"fastFraction must be in [0, 1], got $fastFraction"
+      fraction >= 0.0 && fraction <= 1.0,
+      s"fraction must be in [0, 1], got $fraction"
     )
 
     override val name: String =
-      f"two-group[fastFraction=$fastFraction%.2f, fast=${fast.name}, slow=${slow.name}]"
+      f"two-group[fraction=$fraction%.2f, first=${first.name}, second=${second.name}]"
   }
 
   /** Convenience: every receiver uses [[TaskProcessingTime.instant]]. */
@@ -44,9 +44,9 @@ object WorkloadProfile {
   /** Returns the [[TaskProcessingTime]] for receiver `receiverIdx` of `totalReceivers` under `workload`. */
   def timeFor(workload: WorkloadProfile, receiverIdx: Int, totalReceivers: Int): TaskProcessingTime =
     workload match {
-      case Uniform(t)                         => t
-      case TwoGroup(fastFraction, fast, slow) =>
-        val splitIdx = (totalReceivers * fastFraction).toInt
-        if (receiverIdx < splitIdx) fast else slow
+      case Uniform(t)                        => t
+      case TwoGroup(fraction, first, second) =>
+        val splitIdx = (totalReceivers * fraction).toInt
+        if (receiverIdx < splitIdx) first else second
     }
 }

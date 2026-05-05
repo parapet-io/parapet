@@ -73,9 +73,9 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with Scheduler
       val n          = 5
       val eventStore = new EventStore[F, TestEvent]
       val workload   = WorkloadProfile.TwoGroup(
-        fastFraction = f,
-        fast = TaskProcessingTime.instant,
-        slow = TaskProcessingTime.instant
+        fraction = f,
+        first = TaskProcessingTime.instant,
+        second = TaskProcessingTime.instant
       )
       val processes = TestProcesses.createAll(n, workload, eventStore)
       processes.length shouldBe n
@@ -172,8 +172,8 @@ object SchedulerCorrectnessSpec {
     val fastTime = instant
     val slowTime = range(50.millis, 100.millis)
 
-    val balancedSplit   = WorkloadProfile.TwoGroup(fastFraction = 0.5, fast = fastTime, slow = slowTime)
-    val asymmetricSplit = WorkloadProfile.TwoGroup(fastFraction = 0.75, fast = fastTime, slow = slowTime)
+    val balancedSplit   = WorkloadProfile.TwoGroup(fraction = 0.5, first = fastTime, second = slowTime)
+    val asymmetricSplit = WorkloadProfile.TwoGroup(fraction = 0.75, first = fastTime, second = slowTime)
 
     val workerVariants                          = Seq(1, 5, 10)
     val workersDistribution: Seq[StabilitySpec] = workerVariants.flatMap { w =>
@@ -239,9 +239,9 @@ object SchedulerCorrectnessSpec {
         numberOfEvents = 50,
         numberOfProcesses = 10,
         workload = WorkloadProfile.TwoGroup(
-          fastFraction = 0.5,
-          fast = instant,
-          slow = range(5.millis, 20.millis)
+          fraction = 0.5,
+          first = instant,
+          second = range(5.millis, 20.millis)
         ),
         numberOfSubmitters = 3
       )
@@ -316,9 +316,9 @@ object SchedulerCorrectnessSpec {
         numberOfEvents = 50,
         numberOfProcesses = 8,
         workload = WorkloadProfile.TwoGroup(
-          fastFraction = 0.5,
-          fast = instant,
-          slow = range(2.millis, 8.millis)
+          fraction = 0.5,
+          first = instant,
+          second = range(2.millis, 8.millis)
         ),
         numberOfSubmitters = 2
       ),

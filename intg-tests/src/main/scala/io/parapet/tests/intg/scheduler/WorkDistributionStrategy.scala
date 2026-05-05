@@ -54,25 +54,23 @@ object WorkDistributionStrategy {
     ): Seq[Deliver[F]] = {
       val submitters = math.max(1, numberOfSubmitters)
 
-      @tailrec
-      def create(i: Int, offset: Int, size: Int, tasks: Seq[Deliver[F]]): Seq[Deliver[F]] =
-        if (i < processes.length) {
-          create(
-            i + 1,
-            offset + size,
-            size,
-            tasks ++ (1 to size).map { j =>
-              val seqNumber   = offset + j
-              val submitterId = (seqNumber - 1) % submitters
-              Deliver[F](
-                Envelope(ProcessRef.SystemRef, TestEvent(submitterId, seqNumber), processes(i).ref),
-                ExecutionTrace.Dummy
-              )
-            }
-          )
-        } else tasks
+      processes.toSeq.zipWithIndex.flatMap { case (process, processIndex) =>
+        val offset = processIndex * n
 
-      create(0, 0, n, Seq.empty)
+        (1 to n).map { j =>
+          val seqNumber   = offset + j
+          val submitterId = (seqNumber - 1) % submitters // round-robin
+
+          Deliver[F](
+            Envelope(
+              ProcessRef.SystemRef,
+              TestEvent(submitterId, seqNumber),
+              process.ref
+            ),
+            ExecutionTrace.Dummy
+          )
+        }
+      }
     }
   }
 

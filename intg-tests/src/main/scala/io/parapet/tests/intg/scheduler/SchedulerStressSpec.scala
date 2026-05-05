@@ -85,9 +85,9 @@ object SchedulerStressSpec {
       case _ => range(5.millis, 30.millis)
     }
     val workload = WorkloadProfile.TwoGroup(
-      fastFraction = rnd.nextDouble(),
-      fast = TaskProcessingTime.instant,
-      slow = slow
+      fraction = rnd.nextDouble(),
+      first = TaskProcessingTime.instant,
+      second = slow
     )
 
     // Batch explodes task count as `events * processes`. Cap processes when batch is picked so we
