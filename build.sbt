@@ -90,6 +90,11 @@ lazy val demoColoring = project
     )
   )
 
+lazy val schedulerStress = taskKey[Unit](
+  "Run SchedulerStressSpec in an unbounded loop (ctrl-C to abort). " +
+    "Tune via SCHEDULER_STRESS_ITERATIONS (0 = infinite) and SCHEDULER_STRESS_SEED env vars."
+)
+
 lazy val intgTests = project
   .in(file("intg-tests"))
   .dependsOn(core, protocol, net, raft)
@@ -100,5 +105,10 @@ lazy val intgTests = project
     libraryDependencies ++= Seq(
       "org.scalatest" %% "scalatest" % scalaTestVersion,
       "ch.qos.logback" % "logback-classic" % "1.5.6" % Test
-    )
+    ),
+    schedulerStress := {
+      // Default to infinite loop for the dedicated task; users can override by pre-setting the env/prop.
+      sys.props.getOrElseUpdate("scheduler.stress.iterations", "0")
+      (Test / testOnly).toTask(" io.parapet.tests.intg.pario.SchedulerStressSpec").value
+    }
   )

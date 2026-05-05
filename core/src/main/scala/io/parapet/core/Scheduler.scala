@@ -69,14 +69,42 @@ object Scheduler:
   )(using effect: Effect[F], parallel: Parallel[F]): F[Scheduler[F]] =
     SchedulerImpl.apply(config, context, interpreter)
 
-  /** @param numberOfWorkers number of worker fibers to spin up; must be positive. */
-  final case class SchedulerConfig(numberOfWorkers: Int):
-    require(numberOfWorkers > 0)
+  /** @param numberOfWorkers
+    *   number of worker fibers to spin up; must be positive.
+    * @param numberOfSignalQueues
+    *   number of signal queues the scheduler uses. With `1` every worker blocks on a single MPMC queue and every
+    *   producer enqueues onto it. With `N > 1` the queue is sharded into `N` independent MPMC queues: producers
+    *   round-robin their submissions across them and workers prefer their own home queue with work stealing as a
+    *   fallback. The recommended ratio is `numberOfSignalQueues == numberOfWorkers` - it gives every worker its own
+    *   home queue (no consumer-side contention) and spreads producer pressure across `N` shards. Values greater than
+    *   `numberOfWorkers` are legal but suboptimal: extra queues have no home worker and are only drained via the
+    *   stealing pass. Values smaller than `numberOfWorkers` are also legal; multiple workers will share a home queue
+    *   and contend on its head.
+    * @param mailboxSlice
+    *   maximum number of events a single worker may drain from one process's mailbox before yielding back to the signal
+    *   queue. Bounds how long a process with a long backlog can monopolize its worker, which keeps the scheduler fair
+    *   when a slow / chatty process shares a worker pool with quick ones. Set to `Int.MaxValue` to drain entire
+    *   mailboxes without yielding.
+    */
+  final case class SchedulerConfig(
+      numberOfWorkers: Int,
+      numberOfSignalQueues: Int = 1,
+      mailboxSlice: Int = 256
+  ):
+    require(numberOfWorkers > 0, s"numberOfWorkers must be positive, got $numberOfWorkers")
+    require(numberOfSignalQueues > 0, s"numberOfSignalQueues must be positive, got $numberOfSignalQueues")
+    require(mailboxSlice > 0, s"mailboxSlice must be positive, got $mailboxSlice")
 
   object SchedulerConfig:
-    /** Defaults to one worker per available CPU. */
+    /** Defaults to one worker per available CPU and one signal queue per worker.
+      *
+      * The 1:1 worker-to-queue ratio gives every worker its own home queue (zero consumer-side contention) and lets
+      * producers round-robin across `N` shards so per-queue producer pressure is `producers / N`. The work-stealing
+      * fallback in [[SchedulerImpl.Worker.nextSignal]] keeps the topology correct under skew.
+      */
     val default: SchedulerConfig =
-      SchedulerConfig(numberOfWorkers = Runtime.getRuntime.availableProcessors())
+      val cores = Runtime.getRuntime.availableProcessors()
+      SchedulerConfig(numberOfWorkers = cores, numberOfSignalQueues = cores)
 
   /** Thin wrapper around an SLF4J [[Logger]] that elides invocations when not in [[Parapet.ParConfig.devMode]] - keeps
     * hot paths from constructing message strings unnecessarily.
@@ -117,21 +145,54 @@ object Scheduler:
   /** Rejected: the receiver's mailbox is full. The sender should back off and retry. */
   case object ProcessQueueIsFull extends SubmissionResult
 
-  /** Default [[Scheduler]] implementation backed by a pool of [[SchedulerImpl.Worker]] fibers reading from a single
-    * shared signal queue.
+  /** Default [[Scheduler]] implementation backed by a pool of [[SchedulerImpl.Worker]] fibers reading from one or more
+    * signal queues.
     *
-    * Tasks land in per-process mailboxes via [[submit]]. Workers race for the per-process lock and drain the mailbox
-    * sequentially, ensuring per-process serialization while still parallelizing across processes.
+    * Tasks land in per-process mailboxes via [[submit]]. The mailbox is the authoritative source of events; the signal
+    * queue is purely a wake-up mechanism. A worker that wins the race for a process's lock drains that mailbox
+    * sequentially, guaranteeing per-process serialization while still parallelizing across processes.
+    *
+    * ### Signal-queue topology
+    *
+    * When `SchedulerConfig.numberOfSignalQueues == 1` every worker blocks on a single shared queue and every producer
+    * enqueues onto it.
+    *
+    * When `numberOfSignalQueues > 1` the queue is sharded:
+    *   - Producers select a queue round-robin via [[submitCounter]] (one atomic increment per submit).
+    *   - Each worker is assigned a **home queue** via `workerIndex % numberOfSignalQueues`. It prefers its own queue
+    *     and falls back to a single-pass **work-stealing scan** across siblings before blocking on home.
+    *   - Correctness is preserved regardless of topology because the per-process lock still serializes execution. A
+    *     stolen signal that loses the acquire race simply falls through and the mailbox remains consistent.
     */
   final class SchedulerImpl[F[_]](
       config: SchedulerConfig,
       context: Context[F],
-      signalQueue: Queue[F, Signal],
+      signalQueues: Vector[Queue[F, Signal]],
       interpreter: Interpreter[F]
   )(using effect: Effect[F], parallel: Parallel[F])
       extends Scheduler[F]:
 
     private val logger = LoggerWrapper(Logger(LoggerFactory.getLogger(getClass.getCanonicalName)), context.devMode)
+
+    private val numberOfQueues: Int = signalQueues.length
+
+    /** Round-robin cursor for [[selectSubmitQueue]]. Long-typed so overflow is a non-concern.
+      */
+    private val submitCounter: java.util.concurrent.atomic.AtomicLong =
+      new java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** Chooses a signal queue for a newly submitted signal via round-robin across all queues.
+      *
+      * `Math.floorMod` is used (rather than `%`) so the index stays in `[0, numberOfQueues)` even after the counter
+      * eventually goes negative on overflow - it never will in any realistic deployment, but the code is correct
+      * without relying on that.
+      *
+      * Single-queue installations bypass the counter. Multi-queue installations pay exactly one atomic increment per
+      * submit regardless of the producer count.
+      */
+    private def selectSubmitQueue(): Queue[F, Signal] =
+      if numberOfQueues == 1 then signalQueues(0)
+      else signalQueues(Math.floorMod(submitCounter.getAndIncrement(), numberOfQueues))
 
     def start: F[Unit] =
       effect.guarantee(effect.delay(createWorkers).flatMap(workers => parallel.par(workers.map(_.run)))) {
@@ -159,7 +220,7 @@ object Scheduler:
                     s"Scheduler::submit(ps=${processState.process}, task=$task) - lock is already acquired. do not notify"
                   )
                 case false =>
-                  signalQueue.enqueue(Signal(task.envelope, task.execTrace)) >>
+                  effect.suspend(selectSubmitQueue().enqueue(Signal(task.envelope, task.execTrace))) >>
                     logger.debug(
                       s"Scheduler::submit(ps=${processState.process}, task=$task) - added to notification queue. traceId:${task.execTrace.last}"
                     )
@@ -220,39 +281,86 @@ object Scheduler:
           effect.raiseError(new RuntimeException(s"unsupported task: $unsupported"))
 
     private def createWorkers: List[SchedulerImpl.Worker[F]] =
-      (1 to config.numberOfWorkers)
-        .map(index => SchedulerImpl.Worker[F](s"worker-$index", context, signalQueue, interpreter))
+      (0 until config.numberOfWorkers)
+        .map(index =>
+          SchedulerImpl.Worker[F](
+            name = s"worker-${index + 1}",
+            homeQueueIdx = index % numberOfQueues,
+            mailboxSlice = config.mailboxSlice,
+            context = context,
+            signalQueues = signalQueues,
+            interpreter = interpreter
+          )
+        )
         .toList
 
   /** Helpers and the [[Worker]] type for [[SchedulerImpl]]. */
   object SchedulerImpl:
-    /** Builds an MPMC-backed [[SchedulerImpl]]. */
     def apply[F[_]](
         config: SchedulerConfig,
         context: Context[F],
         interpreter: Interpreter[F]
     )(using effect: Effect[F], parallel: Parallel[F]): F[Scheduler[F]] =
-      Queue
-        .unbounded[F, Signal](ChannelType.MPMC)
-        .map(signalQueue => new SchedulerImpl[F](config, context, signalQueue, interpreter))
+      io.parapet.effect.Monad
+        .sequence(List.fill(config.numberOfSignalQueues)(Queue.unbounded[F, Signal](ChannelType.MPMC)))
+        .map(queues => new SchedulerImpl[F](config, context, queues.toVector, interpreter))
 
-    /** A worker fiber that pulls from `signalQueue`, races for per-process locks, and drains the winner's mailbox.
+    /** A worker fiber that pulls signals from its home queue (or steals from siblings), races for per-process locks,
+      * and drains the acquired process mailbox.
       *
       * Multiple workers run in parallel; per-process exclusivity is provided by the cooperative lock in
-      * [[Context.ProcessState]].
+      * [[Context.ProcessState]], independent of which signal queue surfaced the event.
+      *
+      * @param homeQueueIdx
+      *   index of this worker's preferred signal queue within `signalQueues`.
+      * @param signalQueues
+      *   all signal queues registered with the scheduler. When size is 1 the worker collapses to a blocking `dequeue`
+      *   on the single queue (no work-stealing scan).
       */
     final case class Worker[F[_]](
         name: String,
+        homeQueueIdx: Int,
+        mailboxSlice: Int,
         context: Context[F],
-        signalQueue: Queue[F, Signal],
+        signalQueues: Vector[Queue[F, Signal]],
         interpreter: Interpreter[F]
     )(using effect: Effect[F], parallel: Parallel[F]):
       private val logger = LoggerWrapper(Logger(LoggerFactory.getLogger(s"parapet-scheduler-$name")), context.devMode)
+      private val numOfQueues = signalQueues.length
+      private val homeQueue   = signalQueues(homeQueueIdx)
+
+      /** Attempts to steal a signal from any sibling queue. Does a single pass over the siblings starting immediately
+        * after the home index, returning the first non-empty `tryDequeue` result.
+        */
+      private def trySteal: F[Option[Signal]] = {
+        def attempt(cursor: Int, remaining: Int): F[Option[Signal]] =
+          if remaining <= 0 then effect.pure(None)
+          else
+            signalQueues(cursor).tryDequeue.flatMap {
+              case some @ Some(_) => effect.pure(some)
+              case None           => attempt((cursor + 1) % numOfQueues, remaining - 1)
+            }
+
+        attempt((homeQueueIdx + 1) % numOfQueues, numOfQueues - 1)
+      }
+
+      /** Fetches the next signal to process: home -> steal -> block on home. */
+      private def nextSignal: F[Signal] =
+        if numOfQueues == 1 then homeQueue.dequeue
+        else
+          homeQueue.tryDequeue.flatMap {
+            case Some(signal) => effect.pure(signal)
+            case None         =>
+              trySteal.flatMap {
+                case Some(signal) => effect.pure(signal)
+                case None         => homeQueue.dequeue
+              }
+          }
 
       def run: F[Unit] =
         def step: F[Unit] =
-          logger.debug(s"worker[$name] waiting on signalQueue") >>
-            signalQueue.dequeue.flatMap { signal =>
+          logger.debug(s"worker[$name] waiting for a signal (home=$homeQueueIdx, queues=$numOfQueues)") >>
+            nextSignal.flatMap { signal =>
               logger.debug(s"worker[$name] received signal: $signal") >>
                 (context.getProcessState(signal.envelope.receiver) match
                   case Some(processState) =>
@@ -264,28 +372,62 @@ object Scheduler:
                         step
                     }
                   case None =>
-                    logger.error(s"worker[$name] no such process. signal: $signal") >> step)
+                    // Benign teardown race: a process can be removed (e.g. after Stop) while leftover signals for it
+                    // are still in the signal queue. The mailbox is the source of truth, signals are only wake-up
+                    // tokens, so a stale signal here means "wake-up for an already-drained-and-removed process" - no
+                    // event is lost. Logged at warn (not error) to avoid noise during normal lifecycle.
+                    logger.warn(s"worker[$name] no such process. signal: $signal") >> step)
             }
 
         step
 
+      /** Drains up to [[mailboxSlice]] events from `processState`'s mailbox before yielding back to the signal queue.
+        * The slice provides cooperative fairness: a process with a long backlog cannot monopolize its worker while
+        * sibling processes wait for service.
+        *
+        * `Inbox` heartbeats are scheduler-internal wake-ups, not user events, so they do not consume slice budget. A
+        * `blocking { ... }` handoff exits the slice early via [[waitForCompletion]] regardless of how many events have
+        * been processed; the completion fiber re-arms the notify pathway.
+        *
+        * Two distinct release/notify protocols are used:
+        *
+        *   - **Empty mailbox** ([[releaseWithOptNotify]]). The submit-side optimization in [[submit]] skips notify
+        *     whenever it observes the lock held, on the assumption that the running drainer will drain to empty before
+        *     releasing. The lock's sentinel mediates that handshake. Therefore, when the mailbox is genuinely empty,
+        *     the standard release-then-maybe-notify path is correct: it notifies iff a submitter raced with us
+        *     (sentinel set), and otherwise releases cleanly.
+        *   - **Slice exhausted with mailbox potentially non-empty** ([[releaseAndNotify]]). We are yielding mid-drain.
+        *     The submit-side optimization may have already skipped notifies (because we held the lock), and the
+        *     sentinel may have been cleared by an earlier slice boundary, so we cannot rely on `release`'s return value
+        *     to decide whether a wake-up is owed. We must unconditionally re-notify so that some worker resumes the
+        *     remaining mailbox. The cost is at most one wasted signal per slice when the mailbox happens to be empty at
+        *     the boundary - bounded by `1 / mailboxSlice`.
+        *
+        * Per-(submitter, receiver) FIFO is preserved across slice boundaries because the mailbox is the single source
+        * of order; whichever worker wins the next acquire continues draining from where the previous left off.
+        */
       private def run(processState: ProcessState[F]): F[Unit] =
-        def step: F[Unit] =
-          processState.tryTakeTask.flatMap {
-            case Some(task: Deliver[F]) =>
-              if task.envelope.event.isInstanceOf[Scheduler.Inbox.type] then step
-              else
-                deliver(processState, task) >> processState.isBlocking.flatMap {
-                  case true  => waitForCompletion(task, processState)
-                  case false => step
-                }
-            case Some(task) =>
-              effect.raiseError(new UnsupportedOperationException(s"unsupported task type: $task"))
-            case None =>
-              releaseWithOptNotify(processState)
-          }
+        def step(remaining: Int): F[Unit] =
+          if remaining <= 0 then
+            logger.debug(
+              s"worker[$name]::run(${processState.process}) slice exhausted; yielding back to signal queue"
+            ) >> releaseAndNotify(processState)
+          else
+            processState.tryTakeTask.flatMap {
+              case Some(task: Deliver[F]) =>
+                if task.envelope.event.isInstanceOf[Scheduler.Inbox.type] then step(remaining)
+                else
+                  deliver(processState, task) >> processState.isBlocking.flatMap {
+                    case true  => waitForCompletion(task, processState)
+                    case false => step(remaining - 1)
+                  }
+              case Some(task) =>
+                effect.raiseError(new UnsupportedOperationException(s"unsupported task type: $task"))
+              case None =>
+                releaseWithOptNotify(processState)
+            }
 
-        logger.debug(s"worker[$name]::run(${processState.process})") >> step
+        logger.debug(s"worker[$name]::run(${processState.process}) slice=$mailboxSlice") >> step(mailboxSlice)
 
       private def deliver(processState: ProcessState[F], task: Deliver[F]): F[Unit] =
         val envelope = task.envelope
@@ -402,6 +544,12 @@ object Scheduler:
           )
         yield ()
 
+      /** Worker-local notify signals are routed back to this worker's home queue. This keeps the wake-up local
+        * (cache-friendly) and avoids adding contention on another worker's queue.
+        */
+      private def enqueueNotify(ref: ProcessRef): F[Unit] =
+        homeQueue.enqueue(createNotifySignal(ref))
+
       private def releaseWithOptNotify(processState: ProcessState[F]): F[Unit] =
         processState.release.flatMap {
           case true =>
@@ -409,13 +557,13 @@ object Scheduler:
           case false =>
             logger.debug(
               s"process: ${processState.process.ref} has been released. process has some pending events. put notification event into the signal queue."
-            ) >> signalQueue.enqueue(createNotifySignal(processState.process.ref))
+            ) >> enqueueNotify(processState.process.ref)
         }
 
       private def releaseAndNotify(processState: ProcessState[F]): F[Unit] =
         logger.debug(
           s"process: ${processState.process.ref} has been released. put notification event into the signal queue"
-        ) >> processState.release.flatMap(_ => signalQueue.enqueue(createNotifySignal(processState.process.ref)))
+        ) >> processState.release.flatMap(_ => enqueueNotify(processState.process.ref))
 
       private def runEffect(
           effect0: F[Unit],

@@ -1,22 +1,23 @@
-package io.parapet.tests.intg
+package io.parapet.tests.intg.scheduler
 
 import io.parapet.core.Events.{DeadLetter, Start}
-import io.parapet.core.Parapet._
+import io.parapet.core.Parapet.*
 import io.parapet.core.Process
 import io.parapet.core.exceptions.{EventDeliveryException, UnknownProcessException}
 import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.tests.intg.SchedulerSpec._
+import io.parapet.tests.intg.IntegrationSpec
+import io.parapet.tests.intg.scheduler.SchedulerSpec.*
 import io.parapet.testutils.EventStore
 import io.parapet.{Envelope, Event}
-import org.scalatest.OptionValues._
-import org.scalatest.matchers.should.Matchers._
+import org.scalatest.OptionValues.*
+import org.scalatest.matchers.should.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
 
-import scala.concurrent.duration._
+import scala.concurrent.duration.*
 
 abstract class SchedulerSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
-  import dsl._
+  import dsl.*
 
   "Scheduler" when {
     "received task for unknown process" should {

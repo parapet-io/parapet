@@ -42,10 +42,15 @@ class ProcessSpec extends io.parapet.tests.intg.ProcessSpec[ParIO] with BasicPar
 
 class ReplySpec extends io.parapet.tests.intg.ReplySpec[ParIO] with BasicParIOSpec
 
-@Ignore
-class SchedulerCorrectnessSpec extends io.parapet.tests.intg.SchedulerCorrectnessSpec[ParIO] with BasicParIOSpec
+class SchedulerCorrectnessSpec
+    extends io.parapet.tests.intg.scheduler.SchedulerCorrectnessSpec[ParIO]
+    with BasicParIOSpec
 
-class SchedulerSpec extends io.parapet.tests.intg.SchedulerSpec[ParIO] with BasicParIOSpec
+// `sbt test` runs a short smoke stress (default `SCHEDULER_STRESS_ITERATIONS=5`). For long-running
+// stress use the dedicated `schedulerStress` sbt task which sets iterations to `0` (infinite).
+class SchedulerStressSpec extends io.parapet.tests.intg.scheduler.SchedulerStressSpec[ParIO] with BasicParIOSpec
+
+class SchedulerSpec extends io.parapet.tests.intg.scheduler.SchedulerSpec[ParIO] with BasicParIOSpec
 
 class SelfSendSpec extends io.parapet.tests.intg.SelfSendSpec[ParIO] with BasicParIOSpec
 
