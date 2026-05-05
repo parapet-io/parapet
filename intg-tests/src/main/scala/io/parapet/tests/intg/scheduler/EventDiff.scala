@@ -6,7 +6,7 @@ import io.parapet.tests.intg.scheduler.EventDiff
 import io.parapet.tests.intg.scheduler.TestEvent
 import io.parapet.testutils.EventStore
 
-/** Structured diff between the set of tasks submitted to the scheduler and the events the receivers actually observed
+/** Structured diff between the set of events submitted to the scheduler and the events the receivers actually observed
   * via [[EventStore]].
   */
 final case class EventDiff(
@@ -17,7 +17,7 @@ final case class EventDiff(
     perReceiver: Map[ProcessRef, EventDiff.Counts]
 ) {
 
-  /** True when every submitted event was delivered exactly once and in the expected per-(submitter, receiver) order.
+  /** True if there is no diff.
     */
   def isClean: Boolean =
     missing.isEmpty && duplicates.isEmpty && unexpected.isEmpty && orderingBreaks.isEmpty
@@ -52,8 +52,7 @@ object EventDiff {
       actual: Option[TestEvent]
   )
 
-  /** Computes the full diff by combining the individual checks (loss, duplicates, spurious deliveries, FIFO ordering,
-    * per-receiver counts).
+  /** Computes the full diff by combining the individual checks.
     */
   def compute[F[_]](
       tasks: Seq[Deliver[F]],
