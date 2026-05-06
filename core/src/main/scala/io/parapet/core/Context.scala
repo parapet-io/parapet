@@ -189,9 +189,12 @@ object Context:
   )(using effect: Effect[F]): F[Context[F]] =
     effect.delay(new Context[F](config, eventStore, eventTransformers))
 
-  /** Pairs a long-running blocking operation with the [[Deferred]] that fires when it completes, used by [[AsyncOps]].
+  /** Pairs a long-running blocking operation with the [[Deferred]] that records how it completed, used by [[AsyncOps]].
     */
-  final case class BlockingOp[F[_]](blockingOperation: EffectFiber[F, Unit], done: Deferred[F, Unit])
+  final case class BlockingOp[F[_]](
+      blockingOperation: EffectFiber[F, Unit],
+      done: Deferred[F, Either[Throwable, Unit]]
+  )
 
   /** Bookkeeping for blocking operations spawned by a single process.
     *
@@ -203,15 +206,21 @@ object Context:
 
     /** Tracks one in-flight blocking operation. Called by the scheduler when entering a `dsl.blocking` region.
       */
-    def add(blockingOperation: EffectFiber[F, Unit], done: Deferred[F, Unit]): F[Unit] =
+    def add(blockingOperation: EffectFiber[F, Unit], done: Deferred[F, Either[Throwable, Unit]]): F[Unit] =
       effect.delay {
         signals.updateAndGet(list => list :+ BlockingOp(blockingOperation, done))
         ()
       }
 
-    /** Suspends until every recorded blocking operation has signalled completion. */
+    /** Suspends until every recorded blocking operation has signalled completion, then re-raises the first failure if
+      * any blocking op failed.
+      */
     def waitForCompletion: F[Unit] =
-      Monad.sequenceDiscard(signals.get().map(_.done.get))
+      Monad.sequence(signals.get().map(_.done.get)).flatMap { outcomes =>
+        outcomes.collectFirst { case Left(error) => error } match
+          case Some(error) => effect.raiseError(error)
+          case None        => effect.pure(())
+      }
 
     /** Drops all bookkeeping; the scheduler clears after waiting. */
     def clear: F[Unit] =
@@ -229,7 +238,7 @@ object Context:
     def completeAll: F[Unit] =
       for
         _ <- Monad.sequenceDiscard(signals.get().map(_.blockingOperation.cancel))
-        _ <- Monad.sequenceDiscard(signals.get().map(_.done.complete(()).void))
+        _ <- Monad.sequenceDiscard(signals.get().map(_.done.complete(Right(())).void))
       yield ()
 
   /** Per-process runtime state held by the [[Context]].

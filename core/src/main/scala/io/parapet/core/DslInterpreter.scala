@@ -124,12 +124,14 @@ object DslInterpreter:
 
             case Blocking(body) =>
               for
-                done  <- Deferred[F, Unit]()
+                done  <- Deferred[F, Either[Throwable, Unit]]()
                 fiber <- effect.start(
                   body()
                     .asInstanceOf[DslF[F, Any]]
                     .foldMap(interpret(sender, processState, execTrace))
-                    .flatMap(_ => done.complete(()).void)
+                    .map(_ => Right(()))
+                    .handleErrorWith(error => effect.pure(Left(error)))
+                    .flatMap(outcome => done.complete(outcome).void)
                 )
                 _ <- processState.blocking.add(fiber, done)
               yield ().asInstanceOf[A]

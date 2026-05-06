@@ -30,7 +30,7 @@ class TcpServerProcess[F[_]](
   override val name: String = "tcp-server"
 
   private def receiveLoop: Program = flow {
-    blocking {
+    offload {
       suspend(server.receive).flatMap {
         case Some(frame) => Cmd.netServer.Message(frame.clientId, frame.payload) ~> sink
         case None        => unit
@@ -43,7 +43,7 @@ class TcpServerProcess[F[_]](
       fork(receiveLoop).void
 
     case Cmd.netServer.Send(clientId, data) =>
-      blocking {
+      offload {
         suspend(server.reply(clientId, data))
       }
 

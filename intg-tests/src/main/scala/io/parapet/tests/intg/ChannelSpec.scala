@@ -53,7 +53,7 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
       override def handle: Receive = {
         case Start =>
           register(ref, ch) ++
-            blocking {
+            offload {
               (0 until numOfRequests).map(i => sendRequest(Request(i))).reduce(_ ++ _)
             }
         case Stop => unit

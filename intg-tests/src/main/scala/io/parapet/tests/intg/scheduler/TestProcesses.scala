@@ -21,7 +21,7 @@ object TestProcesses {
     * @param time
     *   handler delay. [[TaskProcessingTime.instant]] means zero delay.
     * @param blockingHandler
-    *   when true, wraps the body in `blocking { ... }`.
+    *   when true, wraps the body in `offload { ... }`.
     */
   def create[F[_]](
       eventStore: EventStore[F, TestEvent],
@@ -32,7 +32,7 @@ object TestProcesses {
       import dsl._
       val handle: Receive = { case e: TestEvent =>
         val body = delay(time) ++ eval(eventStore.add(ref, e))
-        if (blockingHandler) blocking(body) else body
+        if (blockingHandler) offload(body) else body
       }
     }
 
@@ -45,7 +45,7 @@ object TestProcesses {
     * @param eventStore
     *   sink shared by all processes.
     * @param blockingRatio
-    *   fraction of processes using `blocking { ... }`.
+    *   fraction of processes using `offload { ... }`.
     */
   def createAll[F[_]](
       n: Int,
@@ -61,7 +61,7 @@ object TestProcesses {
     processes
   }
 
-  /** Picks the indexes in `[0, n)` that should use `blocking { ... }`, spread on a uniform stride.
+  /** Picks the indexes in `[0, n)` that should use `offload { ... }`, spread on a uniform stride.
     *
     * Algorithm:
     *   - `bN = round(n * blockingRatio)`, clamped to `[0, n]` - how many processes should block.

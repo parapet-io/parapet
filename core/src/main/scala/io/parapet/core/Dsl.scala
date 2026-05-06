@@ -85,7 +85,15 @@ object Dsl:
   /** Evaluates a pure but lazy `A`. */
   final case class Eval[F[_], G[_], A](thunk: () => A) extends FlowOp[F, A]
 
-  /** Marks `body` as blocking; the runtime offloads it so it does not stall worker threads. */
+  /** Legacy internal name for the user-facing [[FlowOps.offload]] operation.
+    *
+    * Semantics:
+    *   - `body` is started on a background effect fiber
+    *   - the current handler flow continues immediately
+    *   - the process does not accept its next mailbox event until all offloaded work completes
+    *
+    * The algebra node keeps the historic name for compatibility; new user code should prefer `offload(...)`.
+    */
   final case class Blocking[F[_], G[_], A](body: () => Free[G, A]) extends FlowOp[F, Unit]
 
   /** Aborts the program with `error`. */
@@ -441,23 +449,41 @@ object Dsl:
     def eval[A](thunk: => A): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](Eval[F, C, A](() => thunk))
 
-    /** Marks `thunk` as blocking; the runtime offloads it so it does not stall scheduler worker threads.
+    /** Starts `thunk` on a background effect fiber so it does not stall scheduler worker threads.
       *
       * Example:
       *
       * {{{
       * class BlockingProcess extends Process[F]:
       *   override def handle: Receive =
-      *     case Start => blocking(eval(while true do {})) ++ eval(println("now"))
+      *     case Start => offload(eval(while true do {})) ++ eval(println("now"))
       * }}}
       *
-      * Output: `now`. The infinite loop runs on a separate worker, so the process is free to handle subsequent events.
+      * Output: `now`. The infinite loop runs on a separate worker, so the current handler flow can continue
+      * immediately.
       *
-      * Note: `blocking` differs from [[fork]] - a forked program is fire-and-forget and the parent process keeps
-      * consuming new events while it runs; with `blocking` the process is suspended until the body completes.
+      * Important: `offload(thunk) ++ next` does **not** wait for `thunk` to finish before `next` runs. The barrier is
+      * at the process boundary, not at the current DSL step:
+      *
+      *   - later steps in the same handler flow may run immediately
+      *   - the process will not accept its next mailbox event until all offloaded work completes
+      *
+      * This differs from [[fork]] in one important way: a forked program is fully fire-and-forget, so the parent
+      * process keeps consuming new mailbox events while it runs. `offload` still gates the process before the next
+      * mailbox event.
       */
-    def blocking[A](thunk: => Free[C, A]): Free[C, Unit] =
+    def offload[A](thunk: => Free[C, A]): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Blocking[F, C, A](() => thunk))
+
+    /** Deprecated alias for [[offload]]. The old name suggested inline waiting semantics that are not actually
+      * provided.
+      */
+    @deprecated(
+      "Use offload(...) instead. blocking(...) starts work in the background and only gates the next mailbox event; it does not wait inline before the next ++ step.",
+      since = "2026-05"
+    )
+    def blocking[A](thunk: => Free[C, A]): Free[C, Unit] =
+      offload(thunk)
 
     /** Aborts the program with `error`. Subsequent steps are skipped unless the error is caught by [[handleError]].
       */
@@ -500,15 +526,6 @@ object Dsl:
     def halt(ref: ProcessRef): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Halt[F](ref))
 
-    /** Acquires the per-process lock for `ref`. Cooperative - only meaningful between programs that opt into it.
-      */
-    def lock(ref: ProcessRef): Free[C, Unit] =
-      Free.inject[[x] =>> FlowOp[F, x], C, Unit](Lock[F](ref))
-
-    /** Releases the per-process lock for `ref`. */
-    def unlock(ref: ProcessRef): Free[C, Unit] =
-      Free.inject[[x] =>> FlowOp[F, x], C, Unit](Unlock[F](ref))
-
     private def sequence[A](values: List[Free[C, A]]): Free[C, List[A]] =
       values.foldRight(pure(List.empty[A])) { (current, acc) =>
         current.flatMap(value => acc.map(value :: _))
@@ -524,6 +541,34 @@ object Dsl:
       */
     given [F[_], G[_]](using Inject[[x] =>> FlowOp[F, x], G]): FlowOps[F, G] =
       new FlowOps[F, G]
+
+  /** Runtime-only helpers that manipulate scheduler/process machinery rather than expressing normal application
+    * behavior.
+    *
+    * Unlike [[FlowOps]], this is not exposed through the default `dsl` member on [[Process]]. Callers must opt in
+    * explicitly, which keeps process-lock operations out of the normal user-facing DSL surface.
+    */
+  private[core] class RuntimeOps[F[_], C[_]](using inject: Inject[[x] =>> FlowOp[F, x], C]):
+
+    /** Acquires the runtime per-process delivery lock for `ref`.
+      *
+      * This is not a general-purpose application mutex. It is intended for runtime helpers that need to coordinate
+      * directly with the scheduler's process-serialization machinery.
+      */
+    def lockProcess(ref: ProcessRef): Free[C, Unit] =
+      Free.inject[[x] =>> FlowOp[F, x], C, Unit](Lock[F](ref))
+
+    /** Releases the runtime per-process delivery lock for `ref`, and re-notifies the scheduler to resume draining that
+      * process mailbox.
+      */
+    def unlockProcess(ref: ProcessRef): Free[C, Unit] =
+      Free.inject[[x] =>> FlowOp[F, x], C, Unit](Unlock[F](ref))
+
+  private[core] object RuntimeOps:
+    type Aux[F[_]] = RuntimeOps[F, [x] =>> Dsl[F, x]]
+
+    given [F[_], G[_]](using Inject[[x] =>> FlowOp[F, x], G]): RuntimeOps[F, G] =
+      new RuntimeOps[F, G]
 
   /** Mixin granting access to the `dsl` member - a [[FlowOps]] instance over the parapet algebra. Mixed into
     * [[Process]] so that handlers can write `dsl.send(...)`, `dsl.eval(...)`, etc.
