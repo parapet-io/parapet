@@ -18,9 +18,12 @@ import scala.util.Random
   *     default `sbt test` run only does a short smoke. The dedicated `schedulerStress` sbt task sets this to `0` for an
   *     unbounded loop (run forever until a failure or manual interruption).
   *   - `SCHEDULER_STRESS_SEED` / `-Dscheduler.stress.seed=N` - seed used to derive per-iteration seeds. Default:
-  *     `System.nanoTime()`. Setting this to a previously reported value reproduces the entire iteration sequence.
+  *     `System.nanoTime()`. Setting this to a previously reported value regenerates the same sequence of generated
+  *     stress scenarios.
   *
-  * When reproducing a failure, set the seed to the reported `baseSeed` and iterations to `failedIteration + 1`.
+  * When rerunning a failing scenario sequence, set the seed to the reported `baseSeed` and iterations to
+  * `failedIteration + 1`. This does not guarantee the same failure will happen again because runtime timing and thread
+  * scheduling remain nondeterministic.
   *
   * The stress loop lives in a dedicated `test` block so it is easy to filter with `-z "stress loop"`. This spec shares
   * [[SchedulerTestRunner]] with [[SchedulerCorrectnessSpec]] but does not inherit its `test(...)` blocks, so `sbt test`
@@ -53,8 +56,9 @@ abstract class SchedulerStressSpec[F[_]] extends AnyFunSuite with SchedulerTestR
         case t: Throwable =>
           logger.error(s"$prefix failed: ${t.getMessage}")
           fail(
-            s"scheduler stress FAILED. Reproduce with: " +
+            s"scheduler stress FAILED. Rerun the same generated scenario sequence with: " +
               s"SCHEDULER_STRESS_SEED=$baseSeed SCHEDULER_STRESS_ITERATIONS=${i + 1}. " +
+              s"This may not reproduce the exact same failure because scheduling remains nondeterministic. " +
               s"Iteration $i used iterSeed=$iterSeed, spec=$spec. Cause: ${t.getMessage}",
             t
           )

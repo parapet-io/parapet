@@ -18,8 +18,8 @@ import java.util.concurrent.TimeUnit
 /** Shared driver that runs a [[StabilitySpec]].
   *
   * When a sample fails the driver writes a standalone failure report to
-  * `target/scheduler-failures/<spec>-<sample>-<timestamp>.log` containing the spec, the seed, the diff between
-  * submitted and delivered events, and - if tracing is on - the trace-id from the scheduler debug log.
+  * `target/scheduler-failures/<spec>-<sample>-<timestamp>.log` containing the spec, the diff between submitted and
+  * delivered events, and - if tracing is on - the trace-id from the scheduler debug log.
   */
 trait SchedulerTestRunner[F[_]] extends IntegrationSpec[F] {
 
