@@ -448,7 +448,46 @@ object SchedulerCorrectnessSpec {
       )
     )
 
-    workersDistribution ++ asymmetricWorkload ++ concurrentSubmitters ++ blockingMix ++ scale ++ mailboxSlicing ++ multiQueue
+    val edgeCases = Seq(
+      StabilitySpec(
+        name = "hot-mailbox",
+        samples = 3,
+        config = SchedulerConfig(numberOfWorkers = 4),
+        wds = WorkDistributionStrategy.Random.seeded(11L),
+        numberOfEvents = 1000,
+        numberOfProcesses = 2,
+        workload = WorkloadProfile.instant,
+        numberOfSubmitters = 8
+      ),
+      StabilitySpec(
+        name = "single-worker-worst-case",
+        samples = 3,
+        config = SchedulerConfig(numberOfWorkers = 1, mailboxSlice = 1),
+        wds = WorkDistributionStrategy.Random.seeded(29L),
+        numberOfEvents = 300,
+        numberOfProcesses = 10,
+        workload = WorkloadProfile.instant,
+        numberOfSubmitters = 4,
+        blockingRatio = 0.4
+      ),
+      StabilitySpec(
+        name = "slow-tail-multiqueue",
+        samples = 2,
+        config = SchedulerConfig(numberOfWorkers = 8, numberOfSignalQueues = 8),
+        wds = WorkDistributionStrategy.Random.seeded(41L),
+        numberOfEvents = 1000,
+        numberOfProcesses = 50,
+        workload = WorkloadProfile.TwoGroup(
+          fraction = 0.9,
+          first = instant,
+          second = range(50.millis, 100.millis)
+        ),
+        numberOfSubmitters = 6,
+        blockingRatio = 0.2
+      )
+    )
+
+    workersDistribution ++ asymmetricWorkload ++ concurrentSubmitters ++ blockingMix ++ scale ++ mailboxSlicing ++ multiQueue ++ edgeCases
   }
 
   /** Verifies the invariants listed at the top of this file. On violation produces a compact summary; the full
