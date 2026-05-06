@@ -22,18 +22,25 @@ object TaskSubmitter {
       numberOfSubmitters: Int = 1
   )(using effect: Effect[F], parallel: Parallel[F]): F[Unit] = {
     def sequential(chunk: Seq[Task[F]]): F[Unit] =
-      chunk.map(t => scheduler.submit(t).void).foldLeft(effect.pure(()))(_ >> _)
+      chunk
+        .map(task => scheduler.submit(task).void)
+        .foldLeft(effect.pure(()))(_ >> _)
+
+    def submitterId(task: Task[F]): Int =
+      task match {
+        case deliver: Deliver[F] =>
+          TestEvent.cast(deliver.envelope.event).submitterId
+      }
 
     if (numberOfSubmitters <= 1) sequential(tasks)
     else {
       val chunks: Seq[Seq[Task[F]]] =
         tasks
-          .groupBy { case d: Deliver[F] =>
-            TestEvent.cast(d.envelope.event).submitterId
-          }
+          .groupBy(submitterId)
           .toSeq
-          .sortBy(_._1)
-          .map(_._2)
+          .sortBy { case (submitterId, _) => submitterId }
+          .map { case (_, submitterTasks) => submitterTasks }
+
       parallel.par(chunks.map(sequential))
     }
   }

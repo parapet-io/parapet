@@ -194,7 +194,7 @@ object Scheduler:
       if numberOfQueues == 1 then signalQueues(0)
       else signalQueues(Math.floorMod(submitCounter.getAndIncrement(), numberOfQueues))
 
-    def start: F[Unit] =
+    override def start: F[Unit] =
       effect.guarantee(effect.delay(createWorkers).flatMap(workers => parallel.par(workers.map(_.run)))) {
         SchedulerImpl.stopProcess(
           sender = ProcessRef.SystemRef,

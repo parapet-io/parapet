@@ -10,6 +10,7 @@ import io.parapet.testutils.EventStore
 import io.parapet.{Envelope, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
+import scala.util.Using
 
 import scala.concurrent.duration.*
 
@@ -139,7 +140,10 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with Scheduler
 
     val file = new java.io.File(path)
     file.exists() shouldBe true
-    val contents = scala.io.Source.fromFile(file).getLines().mkString("\n")
+    val contents =
+      Using.resource(scala.io.Source.fromFile(file)) { source =>
+        source.getLines().mkString("\n")
+      }
     contents should include("parapet scheduler failure report")
     contents should include("spec: self-check-report")
     contents should include("missing=1")

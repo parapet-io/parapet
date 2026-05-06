@@ -3,7 +3,6 @@ package io.parapet.tests.intg.scheduler
 import io.parapet.ProcessRef
 import io.parapet.core.Scheduler.*
 import io.parapet.core.{Context, EventTransformers, Parapet, Scheduler}
-import io.parapet.effect.Monad.*
 import io.parapet.syntax.logger.*
 import io.parapet.tests.intg.scheduler.*
 import io.parapet.tests.intg.scheduler.TaskSubmitter.submitAll
@@ -16,8 +15,7 @@ import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 
-/** Shared driver that boots a fresh [[Scheduler]] / [[Context]] pair, runs a [[StabilitySpec]] end-to-end, and calls
-  * [[SchedulerCorrectnessSpec.verifyEvents]] on the resulting event store.
+/** Shared driver that runs a [[StabilitySpec]].
   *
   * When a sample fails the driver writes a standalone failure report to
   * `target/scheduler-failures/<spec>-<sample>-<timestamp>.log` containing the spec, the seed, the diff between
