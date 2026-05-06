@@ -82,7 +82,7 @@ object SchedulerStressSpec {
     val submitters = 1 + rnd.nextInt(6)
     val blocking   = rnd.nextDouble() * 0.5
     val wds        =
-      if (rnd.nextBoolean()) WorkDistributionStrategy.Random else WorkDistributionStrategy.Batch
+      if (rnd.nextBoolean()) WorkDistributionStrategy.Random.seeded(rnd.nextLong()) else WorkDistributionStrategy.Batch
     val slow = rnd.nextInt(3) match {
       case 0 => TaskProcessingTime.instant
       case 1 => range(1.millis, 10.millis)

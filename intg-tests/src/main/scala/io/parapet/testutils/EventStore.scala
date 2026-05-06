@@ -32,11 +32,18 @@ class EventStore[F[_], A <: Event](using effect: Effect[F]) {
   def allEvents: Seq[A] =
     eventMap.values().asScala.flatten.toSeq
 
-  def groupBy[K](key: (ProcessRef, A) => K): Map[K, Seq[A]] =
+  def groupBy[K](groupKeyOf: (ProcessRef, A) => K): Map[K, Seq[A]] = {
+    final case class Entry(groupKey: K, event: A)
+
     eventMap.asScala.iterator
-      .flatMap { case (ref, buf) => buf.toSeq.iterator.map(e => key(ref, e) -> e) }
+      .flatMap { case (ref, buf) =>
+        buf.toSeq.iterator.map { event =>
+          Entry(groupKeyOf(ref, event), event)
+        }
+      }
       .toSeq
-      .groupMap(_._1)(_._2)
+      .groupMap(_.groupKey)(_.event)
+  }
 
   def count(pRef: ProcessRef): Int = get(pRef).size
 

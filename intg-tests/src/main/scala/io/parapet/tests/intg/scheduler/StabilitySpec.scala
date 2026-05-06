@@ -75,7 +75,7 @@ object StabilitySpec {
   val default: StabilitySpec = StabilitySpec(
     name = "default",
     config = SchedulerConfig(numberOfWorkers = 1),
-    wds = WorkDistributionStrategy.Random,
+    wds = WorkDistributionStrategy.RoundRobin,
     numberOfEvents = 0,
     numberOfProcesses = 0,
     workload = WorkloadProfile.instant

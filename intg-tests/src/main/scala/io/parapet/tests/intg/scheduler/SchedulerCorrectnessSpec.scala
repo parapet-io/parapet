@@ -24,17 +24,30 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with Scheduler
     run(correctnessMatrix)
   }
 
-  test("Random task gen") {
+  test("RoundRobin task gen") {
     val numberOfEvents    = 5
     val numberOfProcesses = 5
     val processes         = (0 until numberOfProcesses).map(_ => TestProcesses.dummy[F]).toArray
-    val actualTasks       = WorkDistributionStrategy.Random.createTasks[F](numberOfEvents, processes, 1)
+    val actualTasks       = WorkDistributionStrategy.RoundRobin.createTasks[F](numberOfEvents, processes, 1)
 
     actualTasks.size shouldBe numberOfEvents
 
     val actualEvents =
       groupEventsByProcess(actualTasks).values.flatten.map(e => TestEvent.cast(e).seqNumber).toList.sorted
     actualEvents shouldBe (1 to numberOfEvents)
+  }
+
+  test("Random task gen is repeatable for a fixed seed") {
+    val numberOfEvents    = 20
+    val numberOfProcesses = 5
+    val processes         = (0 until numberOfProcesses).map(_ => TestProcesses.dummy[F]).toArray
+    val strategy          = WorkDistributionStrategy.Random.seeded(42L)
+
+    val left  = strategy.createTasks[F](numberOfEvents, processes, 1)
+    val right = strategy.createTasks[F](numberOfEvents, processes, 1)
+
+    left.map(_.envelope.receiver) shouldBe right.map(_.envelope.receiver)
+    left.map(t => TestEvent.cast(t.envelope.event)) shouldBe right.map(t => TestEvent.cast(t.envelope.event))
   }
 
   test("Batch task gen") {
@@ -59,7 +72,8 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with Scheduler
     val numberOfProcesses  = 3
     val numberOfSubmitters = 4
     val processes          = (0 until numberOfProcesses).map(_ => TestProcesses.dummy[F]).toArray
-    val tasks = WorkDistributionStrategy.Random.createTasks[F](numberOfEvents, processes, numberOfSubmitters)
+    val tasks              =
+      WorkDistributionStrategy.Random.seeded(99L).createTasks[F](numberOfEvents, processes, numberOfSubmitters)
 
     tasks.size shouldBe numberOfEvents
     val events = tasks.map(t => TestEvent.cast(t.envelope.event))
@@ -183,10 +197,19 @@ object SchedulerCorrectnessSpec {
     val workersDistribution: Seq[StabilitySpec] = workerVariants.flatMap { w =>
       Seq(
         StabilitySpec(
+          name = s"workers-$w-round-robin",
+          samples = 5,
+          config = SchedulerConfig(numberOfWorkers = w),
+          wds = WorkDistributionStrategy.RoundRobin,
+          numberOfEvents = 50,
+          numberOfProcesses = 5,
+          workload = balancedSplit
+        ),
+        StabilitySpec(
           name = s"workers-$w-random",
           samples = 5,
           config = SchedulerConfig(numberOfWorkers = w),
-          wds = WorkDistributionStrategy.Random,
+          wds = WorkDistributionStrategy.Random(),
           numberOfEvents = 50,
           numberOfProcesses = 5,
           workload = balancedSplit
@@ -205,10 +228,19 @@ object SchedulerCorrectnessSpec {
 
     val asymmetricWorkload: Seq[StabilitySpec] = Seq(
       StabilitySpec(
+        name = "asymmetric-split-round-robin",
+        samples = 5,
+        config = SchedulerConfig(numberOfWorkers = 5),
+        wds = WorkDistributionStrategy.RoundRobin,
+        numberOfEvents = 50,
+        numberOfProcesses = 5,
+        workload = asymmetricSplit
+      ),
+      StabilitySpec(
         name = "asymmetric-split-random",
         samples = 5,
         config = SchedulerConfig(numberOfWorkers = 5),
-        wds = WorkDistributionStrategy.Random,
+        wds = WorkDistributionStrategy.Random(),
         numberOfEvents = 50,
         numberOfProcesses = 5,
         workload = asymmetricSplit
@@ -226,10 +258,20 @@ object SchedulerCorrectnessSpec {
 
     val concurrentSubmitters = Seq(
       StabilitySpec(
+        name = "concurrent-submitters-round-robin",
+        samples = 3,
+        config = SchedulerConfig(numberOfWorkers = 8),
+        wds = WorkDistributionStrategy.RoundRobin,
+        numberOfEvents = 500,
+        numberOfProcesses = 10,
+        workload = WorkloadProfile.instant,
+        numberOfSubmitters = 4
+      ),
+      StabilitySpec(
         name = "concurrent-submitters-random",
         samples = 3,
         config = SchedulerConfig(numberOfWorkers = 8),
-        wds = WorkDistributionStrategy.Random,
+        wds = WorkDistributionStrategy.Random(),
         numberOfEvents = 500,
         numberOfProcesses = 10,
         workload = WorkloadProfile.instant,
@@ -256,7 +298,7 @@ object SchedulerCorrectnessSpec {
         name = "blocking-mix",
         samples = 3,
         config = SchedulerConfig(numberOfWorkers = 5),
-        wds = WorkDistributionStrategy.Random,
+        wds = WorkDistributionStrategy.Random(),
         numberOfEvents = 200,
         numberOfProcesses = 10,
         workload = WorkloadProfile.instant,
@@ -266,7 +308,7 @@ object SchedulerCorrectnessSpec {
         name = "blocking-plus-concurrent",
         samples = 3,
         config = SchedulerConfig(numberOfWorkers = 8),
-        wds = WorkDistributionStrategy.Random,
+        wds = WorkDistributionStrategy.Random(),
         numberOfEvents = 300,
         numberOfProcesses = 10,
         workload = WorkloadProfile.instant,
@@ -280,7 +322,7 @@ object SchedulerCorrectnessSpec {
         name = "scale-fan-out",
         samples = 2,
         config = SchedulerConfig(numberOfWorkers = 8),
-        wds = WorkDistributionStrategy.Random,
+        wds = WorkDistributionStrategy.Random(),
         numberOfEvents = 2000,
         numberOfProcesses = 500,
         workload = WorkloadProfile.instant
@@ -289,7 +331,7 @@ object SchedulerCorrectnessSpec {
         name = "scale-concurrent",
         samples = 1,
         config = SchedulerConfig(numberOfWorkers = 8),
-        wds = WorkDistributionStrategy.Random,
+        wds = WorkDistributionStrategy.Random(),
         numberOfEvents = 2000,
         numberOfProcesses = 200,
         workload = WorkloadProfile.instant,
@@ -306,7 +348,7 @@ object SchedulerCorrectnessSpec {
         name = "slicing-1-event",
         samples = 3,
         config = SchedulerConfig(numberOfWorkers = 4, mailboxSlice = 1),
-        wds = WorkDistributionStrategy.Random,
+        wds = WorkDistributionStrategy.Random(),
         numberOfEvents = 200,
         numberOfProcesses = 5,
         workload = WorkloadProfile.instant,
@@ -330,7 +372,7 @@ object SchedulerCorrectnessSpec {
         name = "slicing-with-multiqueue",
         samples = 2,
         config = SchedulerConfig(numberOfWorkers = 8, numberOfSignalQueues = 4, mailboxSlice = 16),
-        wds = WorkDistributionStrategy.Random,
+        wds = WorkDistributionStrategy.Random(),
         numberOfEvents = 500,
         numberOfProcesses = 10,
         workload = WorkloadProfile.instant,
@@ -340,7 +382,7 @@ object SchedulerCorrectnessSpec {
         name = "slicing-with-blocking",
         samples = 2,
         config = SchedulerConfig(numberOfWorkers = 5, mailboxSlice = 4),
-        wds = WorkDistributionStrategy.Random,
+        wds = WorkDistributionStrategy.Random(),
         numberOfEvents = 200,
         numberOfProcesses = 10,
         workload = WorkloadProfile.instant,
@@ -357,7 +399,7 @@ object SchedulerCorrectnessSpec {
         name = "multiqueue-workers-8-q-4",
         samples = 3,
         config = SchedulerConfig(numberOfWorkers = 8, numberOfSignalQueues = 4),
-        wds = WorkDistributionStrategy.Random,
+        wds = WorkDistributionStrategy.Random(),
         numberOfEvents = 500,
         numberOfProcesses = 10,
         workload = WorkloadProfile.instant,
@@ -367,7 +409,7 @@ object SchedulerCorrectnessSpec {
         name = "multiqueue-workers-8-q-8",
         samples = 3,
         config = SchedulerConfig(numberOfWorkers = 8, numberOfSignalQueues = 8),
-        wds = WorkDistributionStrategy.Random,
+        wds = WorkDistributionStrategy.Random(),
         numberOfEvents = 500,
         numberOfProcesses = 10,
         workload = WorkloadProfile.instant,
@@ -377,7 +419,7 @@ object SchedulerCorrectnessSpec {
         name = "multiqueue-blocking-mix-q-8",
         samples = 2,
         config = SchedulerConfig(numberOfWorkers = 8, numberOfSignalQueues = 8),
-        wds = WorkDistributionStrategy.Random,
+        wds = WorkDistributionStrategy.Random(),
         numberOfEvents = 200,
         numberOfProcesses = 10,
         workload = WorkloadProfile.instant,
@@ -388,7 +430,7 @@ object SchedulerCorrectnessSpec {
         name = "multiqueue-more-queues-than-workers",
         samples = 2,
         config = SchedulerConfig(numberOfWorkers = 4, numberOfSignalQueues = 8),
-        wds = WorkDistributionStrategy.Random,
+        wds = WorkDistributionStrategy.Random(),
         numberOfEvents = 300,
         numberOfProcesses = 10,
         workload = WorkloadProfile.instant,
@@ -398,7 +440,7 @@ object SchedulerCorrectnessSpec {
         name = "multiqueue-scale-q-8",
         samples = 1,
         config = SchedulerConfig(numberOfWorkers = 8, numberOfSignalQueues = 8),
-        wds = WorkDistributionStrategy.Random,
+        wds = WorkDistributionStrategy.Random(),
         numberOfEvents = 2000,
         numberOfProcesses = 200,
         workload = WorkloadProfile.instant,
