@@ -417,7 +417,7 @@ object Scheduler:
               case Some(task: Deliver[F]) =>
                 if task.envelope.event.isInstanceOf[Scheduler.Inbox.type] then step(remaining)
                 else
-                  deliver(processState, task) >> processState.isBlocking.flatMap {
+                  deliver(processState, task) >> processState.hasOffloads.flatMap {
                     case true  => waitForCompletion(task, processState)
                     case false => step(remaining - 1)
                   }
@@ -515,14 +515,14 @@ object Scheduler:
 
       private def waitForCompletion(deliver: Deliver[F], processState: ProcessState[F]): F[Unit] =
         for
-          numberOfBlockingOps <- processState.blocking.size
-          _                   <- logger.debug(
-            s"worker[$name]::waits for completion of $numberOfBlockingOps blocking operations. process: ${processState.process.ref}"
+          offloadCount <- processState.offloads.size
+          _            <- logger.debug(
+            s"worker[$name]::waits for completion of $offloadCount offloaded operations. process: ${processState.process.ref}"
           )
           _ <- effect.start(
             effect.guarantee(
               runEffect(
-                processState.blocking.waitForCompletion,
+                processState.offloads.waitForCompletion,
                 deliver.envelope,
                 processState,
                 error =>
@@ -538,8 +538,8 @@ object Scheduler:
               )
             ) {
               logger.debug(
-                s"worker[$name]:: $numberOfBlockingOps blocking operations completed. process: ${processState.process.ref}"
-              ) >> processState.blocking.clear >> releaseAndNotify(processState)
+                s"worker[$name]:: $offloadCount offloaded operations completed. process: ${processState.process.ref}"
+              ) >> processState.offloads.clear >> releaseAndNotify(processState)
             }
           )
         yield ()
@@ -665,7 +665,7 @@ object Scheduler:
             processState.stop().flatMap {
               case true =>
                 stopChildProcesses >>
-                  processState.blocking.completeAll >>
+                  processState.offloads.cancelAll >>
                   deliverStopEvent(sender, processState, interpreter, execTrace)
                     .handleErrorWith(error => onError(receiver, error)) >>
                   logger.debug(s"process: '$receiver' has been stopped") >>

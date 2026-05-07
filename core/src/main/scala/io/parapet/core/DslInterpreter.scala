@@ -133,7 +133,7 @@ object DslInterpreter:
                     .handleErrorWith(error => effect.pure(Left(error)))
                     .flatMap(outcome => done.complete(outcome).void)
                 )
-                _ <- processState.blocking.add(fiber, done)
+                _ <- processState.offloads.add(fiber, done)
               yield ().asInstanceOf[A]
 
             case Register(parent, process: Process[F] @unchecked) =>
