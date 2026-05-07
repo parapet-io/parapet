@@ -58,19 +58,19 @@ object DslInterpreter:
         def apply[A](fa: FlowOp[F, A]): F[A] =
           fa match
             case Dsl.Pure(value) =>
-              effect.pure(value).asInstanceOf[F[A]]
+              effect.pure(value)
 
             case UnitFlow() =>
-              effect.pure(()).asInstanceOf[F[A]]
+              effect.pure(())
 
             case Send(event, senderOverride, receiver, receivers) =>
               val source = senderOverride.getOrElse(processState.process.ref)
               val first  = send(source, event, receiver, execTrace)
               if receivers.nonEmpty then
-                (first >> receivers.foldLeft(effect.pure(())) { (acc, next) =>
+                first >> receivers.foldLeft(effect.pure(())) { (acc, next) =>
                   acc >> send(source, event, next, execTrace)
-                }).asInstanceOf[F[A]]
-              else first.asInstanceOf[F[A]]
+                }
+              else first
 
             case WithSender(runWithSender) =>
               runWithSender
@@ -83,13 +83,11 @@ object DslInterpreter:
                 .foldLeft(effect.pure(())) { (acc, receiver) =>
                   acc >> send(sender, event, receiver, execTrace)
                 }
-                .asInstanceOf[F[A]]
 
             case Par(flow) =>
               flow
                 .asInstanceOf[DslF[F, Unit]]
                 .foldMap(interpret(sender, processState, execTrace))
-                .asInstanceOf[F[A]]
 
             case Fork(flow) =>
               effect
@@ -101,13 +99,13 @@ object DslInterpreter:
                 .map(fiber => Fiber.RuntimeFiber(fiber).asInstanceOf[A])
 
             case delay: Delay[F] =>
-              effect.sleep(delay.duration).asInstanceOf[F[A]]
+              effect.sleep(delay.duration)
 
             case Eval(thunk) =>
-              effect.delay(thunk().asInstanceOf[A])
+              effect.delay(thunk())
 
             case Suspend(thunk) =>
-              effect.suspend(thunk().asInstanceOf[F[A]])
+              effect.suspend(thunk())
 
             case SuspendF(thunk) =>
               effect
@@ -137,7 +135,7 @@ object DslInterpreter:
               yield ().asInstanceOf[A]
 
             case Register(parent, process: Process[F] @unchecked) =>
-              context.registerAndStart(parent, process).void.asInstanceOf[F[A]]
+              context.registerAndStart(parent, process).void
 
             case RaiseError(error) =>
               effect.raiseError(error)
@@ -149,7 +147,7 @@ object DslInterpreter:
               }
 
             case Halt(ref) =>
-              context.remove(ref).void.asInstanceOf[F[A]]
+              context.remove(ref).void
 
             case Guarantee(body, finalizer) =>
               effect
@@ -157,18 +155,17 @@ object DslInterpreter:
                   finalizer().asInstanceOf[DslF[F, Unit]].foldMap(interpret(sender, processState, execTrace))
                 }
                 .void
-                .asInstanceOf[F[A]]
 
             case Dsl.Lock(ref) =>
-              context.getProcessState(ref).get.acquire.void.asInstanceOf[F[A]]
+              context.getProcessState(ref).get.acquire.void
 
             case Dsl.Unlock(ref) =>
-              (context.getProcessState(ref).get.release >>
+              context.getProcessState(ref).get.release >>
                 context
                   .schedule(
                     Scheduler.Deliver(Envelope(ProcessRef.SystemRef, Scheduler.Inbox, ref), execTrace)
                   )
-                  .void).asInstanceOf[F[A]]
+                  .void
 
     private def send(
         sender: ProcessRef,
