@@ -120,7 +120,7 @@ object DslInterpreter:
               val second0 = second.asInstanceOf[DslF[F, Any]].foldMap(interpret(sender, processState, execTrace))
               effect.race(first0, second0).asInstanceOf[F[A]]
 
-            case Blocking(body) =>
+            case Offload(body) =>
               for
                 done  <- Deferred[F, Either[Throwable, Unit]]()
                 fiber <- effect.start(

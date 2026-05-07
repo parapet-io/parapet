@@ -85,16 +85,14 @@ object Dsl:
   /** Evaluates a pure but lazy `A`. */
   final case class Eval[F[_], G[_], A](thunk: () => A) extends FlowOp[F, A]
 
-  /** Legacy internal name for the user-facing [[FlowOps.offload]] operation.
+  /** Starts `body` on a background effect fiber while keeping the current handler flow running.
     *
     * Semantics:
     *   - `body` is started on a background effect fiber
     *   - the current handler flow continues immediately
     *   - the process does not accept its next mailbox event until all offloaded work completes
-    *
-    * The algebra node keeps the historic name for compatibility; new user code should prefer `offload(...)`.
     */
-  final case class Blocking[F[_], G[_], A](body: () => Free[G, A]) extends FlowOp[F, Unit]
+  final case class Offload[F[_], G[_], A](body: () => Free[G, A]) extends FlowOp[F, Unit]
 
   /** Aborts the program with `error`. */
   final case class RaiseError[F[_], A](error: Throwable) extends FlowOp[F, A]
@@ -473,7 +471,7 @@ object Dsl:
       * mailbox event.
       */
     def offload[A](thunk: => Free[C, A]): Free[C, Unit] =
-      Free.inject[[x] =>> FlowOp[F, x], C, Unit](Blocking[F, C, A](() => thunk))
+      Free.inject[[x] =>> FlowOp[F, x], C, Unit](Offload[F, C, A](() => thunk))
 
     /** Deprecated alias for [[offload]]. The old name suggested inline waiting semantics that are not actually
       * provided.
