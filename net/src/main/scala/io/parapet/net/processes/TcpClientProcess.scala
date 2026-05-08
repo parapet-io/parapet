@@ -28,7 +28,7 @@ class TcpClientProcess[F[_]](
 
   override def handle: Receive = {
     case Cmd.netClient.Send(data, replyTo) =>
-      blocking {
+      offload {
         suspend(client.request(data)).flatMap {
           case Some(response) =>
             replyTo match

@@ -74,7 +74,7 @@ object TestUtils:
         case Eval(thunk) =>
           thunk().asInstanceOf[A]
 
-        case Blocking(body) =>
+        case Offload(body) =>
           body().asInstanceOf[DslF[Id, Any]].foldMap(this)
           ().asInstanceOf[A]
 

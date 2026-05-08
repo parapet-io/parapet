@@ -36,7 +36,7 @@ class UdpBroadcastProcess[F[_]](
   override val name: String = "udp-broadcast"
 
   private def receiveLoop: Program = flow {
-    blocking {
+    offload {
       suspend(transport.receiveBatch(pollLimit)).flatMap { payloads =>
         payloads.foldLeft(unit) { (acc, payload) =>
           acc ++ UdpEvents.Message(payload) ~> sink
@@ -50,7 +50,7 @@ class UdpBroadcastProcess[F[_]](
       fork(receiveLoop).void
 
     case UdpEvents.Send(payload) =>
-      blocking {
+      offload {
         suspend(transport.publish(payload))
       }
 

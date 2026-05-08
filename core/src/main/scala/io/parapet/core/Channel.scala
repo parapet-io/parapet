@@ -25,6 +25,9 @@ class Channel[F[_]](override val ref: ProcessRef = ProcessRef.jdkUUIDRef)(using 
   import Channel.*
   import dsl.*
 
+  private val runtimeDsl = summon[Dsl.RuntimeOps.Aux[F]]
+  import runtimeDsl.*
+
   private var callback: Deferred[F, Try[Event]] = _
   private val debugCallNumber                   = new AtomicInteger()
   private val debugMode                         = false
@@ -79,7 +82,7 @@ class Channel[F[_]](override val ref: ProcessRef = ProcessRef.jdkUUIDRef)(using 
 
   /** Sends `event` to `receiver` and suspends until a response (or failure) arrives.
     *
-    * The implementation acquires the channel's per-process lock for the duration of the call so concurrent senders
+    * The implementation acquires the channel's runtime delivery lock for the duration of the call so concurrent senders
     * queue cleanly.
     *
     * @return
@@ -88,10 +91,10 @@ class Channel[F[_]](override val ref: ProcessRef = ProcessRef.jdkUUIDRef)(using 
     */
   def send(event: Event, receiver: ProcessRef): DslF[F, Try[Event]] =
     for
-      _        <- lock(ref)
+      _        <- lockProcess(ref)
       deferred <- suspend(Deferred[F, Try[Event]]())
       _        <- sendReq(Request(event, deferred, receiver))
-      _        <- unlock(ref)
+      _        <- unlockProcess(ref)
       value    <- suspend(deferred.get)
     yield value
 

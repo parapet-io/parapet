@@ -189,29 +189,37 @@ object Context:
   )(using effect: Effect[F]): F[Context[F]] =
     effect.delay(new Context[F](config, eventStore, eventTransformers))
 
-  /** Pairs a long-running blocking operation with the [[Deferred]] that fires when it completes, used by [[AsyncOps]].
+  /** Pairs an offloaded operation with the [[Deferred]] that records how it completed.
     */
-  final case class BlockingOp[F[_]](blockingOperation: EffectFiber[F, Unit], done: Deferred[F, Unit])
+  final private case class OffloadHandle[F[_]](
+      fiber: EffectFiber[F, Unit],
+      completion: Deferred[F, Either[Throwable, Unit]]
+  )
 
-  /** Bookkeeping for blocking operations spawned by a single process.
+  /** Bookkeeping for offloaded operations spawned by a single process.
     *
-    * The scheduler tracks them so it can wait for completion before releasing the process lock - preserving the
-    * per-process "no concurrent handler" guarantee even in the presence of `dsl.blocking` blocks.
+    * The scheduler tracks them so it can wait for completion before releasing the process lock.
     */
-  final class AsyncOps[F[_]](using effect: Effect[F]):
-    private val signals = new AtomicReference[List[BlockingOp[F]]](Nil)
+  final class OffloadTracker[F[_]](using effect: Effect[F]):
+    private val signals = new AtomicReference[List[OffloadHandle[F]]](Nil)
 
-    /** Tracks one in-flight blocking operation. Called by the scheduler when entering a `dsl.blocking` region.
+    /** Add offloaded operation to tracking.
       */
-    def add(blockingOperation: EffectFiber[F, Unit], done: Deferred[F, Unit]): F[Unit] =
+    def add(fiber: EffectFiber[F, Unit], completion: Deferred[F, Either[Throwable, Unit]]): F[Unit] =
       effect.delay {
-        signals.updateAndGet(list => list :+ BlockingOp(blockingOperation, done))
+        signals.updateAndGet(list => list :+ OffloadHandle(fiber, completion))
         ()
       }
 
-    /** Suspends until every recorded blocking operation has signalled completion. */
+    /** Suspends until every recorded offloaded operation has signalled completion, then re-raises the first failure if
+      * any offload op failed.
+      */
     def waitForCompletion: F[Unit] =
-      Monad.sequenceDiscard(signals.get().map(_.done.get))
+      Monad.sequence(signals.get().map(_.completion.get)).flatMap { outcomes =>
+        outcomes.collectFirst { case Left(error) => error } match
+          case Some(error) => effect.raiseError(error)
+          case None        => effect.pure(())
+      }
 
     /** Drops all bookkeeping; the scheduler clears after waiting. */
     def clear: F[Unit] =
@@ -220,16 +228,16 @@ object Context:
         ()
       }
 
-    /** Number of currently-tracked blocking operations. */
+    /** Number of currently-tracked offloaded operations. */
     def size: F[Int] =
       effect.pure(signals.get().size)
 
-    /** Cancels every tracked operation and completes their deferreds. Used during process stop to unblock callers.
+    /** Cancels every tracked offload operation.
       */
-    def completeAll: F[Unit] =
+    def cancelAll: F[Unit] =
       for
-        _ <- Monad.sequenceDiscard(signals.get().map(_.blockingOperation.cancel))
-        _ <- Monad.sequenceDiscard(signals.get().map(_.done.complete(()).void))
+        _ <- Monad.sequenceDiscard(signals.get().map(_.fiber.cancel))
+        _ <- Monad.sequenceDiscard(signals.get().map(_.completion.complete(Right(())).void))
       yield ()
 
   /** Per-process runtime state held by the [[Context]].
@@ -250,15 +258,15 @@ object Context:
       val terminationSignal: Deferred[F, Unit]
   )(using effect: Effect[F]):
 
-    private val terminatedRef = new AtomicBoolean(false)
-    private val stoppedRef    = new AtomicBoolean(false)
-    private val suspendedRef  = new AtomicBoolean(false)
-    private val blockingRef   = new AsyncOps[F]
-    private val processLock   = new ProcessState.ProcessLock[F]
+    private val terminatedRef  = new AtomicBoolean(false)
+    private val stoppedRef     = new AtomicBoolean(false)
+    private val suspendedRef   = new AtomicBoolean(false)
+    private val offloadTracker = new OffloadTracker[F]
+    private val processLock    = new ProcessState.ProcessLock[F]
 
-    /** Bookkeeping for blocking operations spawned by this process. */
-    def blocking: AsyncOps[F] =
-      blockingRef
+    /** Bookkeeping for offloaded operations spawned by this process. */
+    def offloads: OffloadTracker[F] =
+      offloadTracker
 
     /** Non-blocking enqueue; returns `false` when the mailbox is full. */
     def tryPut(task: Task[F]): F[Boolean] =
@@ -289,9 +297,9 @@ object Context:
     def stopped: F[Boolean] =
       effect.pure(stoppedRef.get())
 
-    /** True if the process has any in-flight blocking operations. */
-    def isBlocking: F[Boolean] =
-      blocking.size.map(_ > 0)
+    /** True if the process has any in-flight offloaded operations. */
+    def hasOffloads: F[Boolean] =
+      offloads.size.map(_ > 0)
 
     /** True if a worker currently holds the per-process lock. */
     def acquired: F[Boolean] =
