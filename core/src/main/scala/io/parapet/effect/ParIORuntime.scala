@@ -311,17 +311,20 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
 
       def cancel: ParIO[Unit] =
         ParIO.blocking {
+          val cancellation = new CancellationException("fiber cancelled")
+          task.cancel(true)
+
           if started.get() then
             Option(runner.get()).foreach(_.interrupt())
-            task.cancel(true)
             try result.get(5, TimeUnit.SECONDS)
             catch
               case _: CancellationException => ()
               case _: ExecutionException    => ()
-              case _: TimeoutException      => ()
-              case _: InterruptedException  => Thread.currentThread().interrupt()
-          else if result.completeExceptionally(new CancellationException("fiber cancelled")) then
-            task.cancel(true)
+              case _: TimeoutException      => result.completeExceptionally(cancellation)
+              case _: InterruptedException  =>
+                result.completeExceptionally(cancellation)
+                Thread.currentThread().interrupt()
+          else result.completeExceptionally(cancellation)
           ()
         }
 
