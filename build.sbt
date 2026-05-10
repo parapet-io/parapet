@@ -13,6 +13,7 @@ ThisBuild / scalacOptions ++= Seq(
 val scalaTestVersion = "3.2.19"
 val jeromqVersion = "0.6.0"
 val aeronVersion = "1.50.3"
+val catsEffectVersion = "3.5.7"
 
 lazy val baseSettings = Seq(
   Test / parallelExecution := false
@@ -20,19 +21,28 @@ lazy val baseSettings = Seq(
 
 lazy val global = project
   .in(file("."))
-  .aggregate(core, protocol, net, raft, demoColoring, intgTests)
+  .aggregate(
+    parapetCore,
+    parapetTestkit,
+    parapetCatsEffect,
+    parapetPario,
+    parapetProtocol,
+    parapetNet,
+    parapetRaft,
+    parapetExamples,
+    parapetBenchmarks
+  )
   .settings(
     publish / skip := true
   )
 
-lazy val core = project
-  .in(file("core"))
+lazy val parapetCore = project
+  .in(file("parapet-core"))
   .settings(
     baseSettings,
     name := "parapet-core",
     scalacOptions ++= Seq("-Xmax-inlines", "256"),
     libraryDependencies ++= Seq(
-      "com.sksamuel.avro4s" %% "avro4s-core" % "5.0.13",
       "com.typesafe.scala-logging" %% "scala-logging" % "3.9.5",
       "com.lihaoyi" %% "sourcecode" % "0.4.2",
       "ch.qos.logback" % "logback-classic" % "1.5.6" % Test,
@@ -40,20 +50,73 @@ lazy val core = project
     )
   )
 
-lazy val protocol = project
-  .in(file("protocol"))
+lazy val schedulerStress = taskKey[Unit](
+  "Run SchedulerStressSpec in an unbounded loop (ctrl-C to abort). " +
+    "Tune via SCHEDULER_STRESS_ITERATIONS (0 = infinite) and SCHEDULER_STRESS_SEED env vars."
+)
+
+lazy val parapetTestkit = project
+  .in(file("parapet-testkit"))
+  .dependsOn(parapetCore)
+  .settings(
+    baseSettings,
+    name := "parapet-testkit",
+    publish / skip := true,
+    libraryDependencies ++= Seq(
+      "org.scalatest" %% "scalatest" % scalaTestVersion,
+      "ch.qos.logback" % "logback-classic" % "1.5.6" % Test
+    )
+  )
+
+lazy val parapetCatsEffect = project
+  .in(file("parapet-cats-effect"))
+  .dependsOn(parapetCore, parapetTestkit % "test->compile")
+  .settings(
+    baseSettings,
+    name := "parapet-cats-effect",
+    libraryDependencies ++= Seq(
+      "org.typelevel" %% "cats-effect" % catsEffectVersion,
+      "ch.qos.logback" % "logback-classic" % "1.5.6" % Test,
+      "org.scalatest" %% "scalatest" % scalaTestVersion % Test
+    )
+  )
+
+lazy val parapetPario = project
+  .in(file("parapet-pario"))
+  .dependsOn(parapetCore, parapetTestkit % "test->compile")
+  .settings(
+    baseSettings,
+    name := "parapet-pario",
+    scalacOptions ++= Seq("-Xmax-inlines", "256"),
+    libraryDependencies ++= Seq(
+      "ch.qos.logback" % "logback-classic" % "1.5.6" % Test,
+      "org.scalatest" %% "scalatest" % scalaTestVersion % Test
+    ),
+    schedulerStress := {
+      sys.props.getOrElseUpdate("scheduler.stress.iterations", "0")
+      (Test / testOnly).toTask(" io.parapet.tests.intg.pario.SchedulerStressSpec").value
+    }
+  )
+
+lazy val parapetProtocol = project
+  .in(file("parapet-protocol"))
+  .dependsOn(parapetCore)
   .settings(
     baseSettings,
     name := "parapet-protocol",
+    scalacOptions ++= Seq("-Xmax-inlines", "256"),
     Compile / PB.targets := Seq(
       scalapb.gen(grpc = false, flatPackage = true, scala3Sources = true) -> (Compile / sourceManaged).value / "scalapb"
     ),
-    libraryDependencies += "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion % "protobuf"
+    libraryDependencies ++= Seq(
+      "com.sksamuel.avro4s" %% "avro4s-core" % "5.0.13",
+      "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion % "protobuf"
+    )
   )
 
-lazy val net = project
-  .in(file("net"))
-  .dependsOn(core % "compile->compile;test->test")
+lazy val parapetNet = project
+  .in(file("parapet-net"))
+  .dependsOn(parapetCore % "compile->compile;test->test", parapetProtocol)
   .settings(
     baseSettings,
     name := "parapet-net",
@@ -65,9 +128,9 @@ lazy val net = project
     )
   )
 
-lazy val raft = project
-  .in(file("raft"))
-  .dependsOn(core % "compile->compile;test->test", protocol)
+lazy val parapetRaft = project
+  .in(file("parapet-raft"))
+  .dependsOn(parapetCore % "compile->compile;test->test", parapetProtocol)
   .settings(
     baseSettings,
     name := "parapet-raft",
@@ -77,12 +140,12 @@ lazy val raft = project
     )
   )
 
-lazy val demoColoring = project
-  .in(file("demo-coloring"))
-  .dependsOn(core, protocol, net, raft)
+lazy val parapetExamples = project
+  .in(file("parapet-examples"))
+  .dependsOn(parapetCore, parapetCatsEffect, parapetPario, parapetProtocol, parapetNet, parapetRaft)
   .settings(
     baseSettings,
-    name := "parapet-demo-coloring",
+    name := "parapet-examples",
     publish / skip := true,
     libraryDependencies ++= Seq(
       "ch.qos.logback" % "logback-classic" % "1.5.6",
@@ -90,25 +153,16 @@ lazy val demoColoring = project
     )
   )
 
-lazy val schedulerStress = taskKey[Unit](
-  "Run SchedulerStressSpec in an unbounded loop (ctrl-C to abort). " +
-    "Tune via SCHEDULER_STRESS_ITERATIONS (0 = infinite) and SCHEDULER_STRESS_SEED env vars."
-)
-
-lazy val intgTests = project
-  .in(file("intg-tests"))
-  .dependsOn(core, protocol, net, raft)
+lazy val parapetBenchmarks = project
+  .in(file("parapet-benchmarks"))
+  .enablePlugins(JmhPlugin)
+  .dependsOn(parapetCore, parapetPario, parapetTestkit)
   .settings(
     baseSettings,
-    name := "parapet-intg-tests",
+    name := "parapet-benchmarks",
     publish / skip := true,
     libraryDependencies ++= Seq(
-      "org.scalatest" %% "scalatest" % scalaTestVersion,
+      "com.lihaoyi" %% "ujson" % "3.3.1",
       "ch.qos.logback" % "logback-classic" % "1.5.6" % Test
-    ),
-    schedulerStress := {
-      // Default to infinite loop for the dedicated task; users can override by pre-setting the env/prop.
-      sys.props.getOrElseUpdate("scheduler.stress.iterations", "0")
-      (Test / testOnly).toTask(" io.parapet.tests.intg.pario.SchedulerStressSpec").value
-    }
+    )
   )

@@ -53,27 +53,31 @@ Typical use cases:
 * **Pure actor semantics without an actor system.** Each process owns one mailbox, sees
   messages sequentially, and never shares mutable state. No `Props`, no `ActorRef`
   casting - just a `ProcessRef` and the `~>` operator.
-* **Effect-system agnostic.** Handlers are generic over `F[_]`. Pick `ParIO` for
-  drop-in use, or plug in your own effect type by providing `Effect[F]` and
-  `Parallel[F]` instances.
+* **Effect-system agnostic.** Handlers are generic over `F[_]`. Parapet core defines
+  the framework and required capabilities, but it does not provide or require a
+  production effect runtime. Use a backend integration such as `parapet-cats-effect`,
+  or provide your own `Effect[F]`, `Parallel[F]`, and scheduler runtime instances.
 * **Composable handlers.** Combine partial behaviours with `and` / `or`, swap them
   at runtime with `switch`, compose supervised children with `register`.
-* **Batteries for distribution.** Pluggable transports (`net`), protobuf `WireCodec`
-  (`protocol`), a Raft module, and an integration test-kit.
-* **Predictable runtime.** Bounded per-process mailboxes, a configurable scheduler,
-  first-class failure events delivered to senders, overridable dead-letter and event-log
-  hooks.
+* **Batteries for distribution.** Pluggable transports (`parapet-net`), protobuf `WireCodec`
+  (`parapet-protocol`), a Raft module, and an integration test-kit.
+* **Predictable scheduling model.** Bounded per-process mailboxes, a configurable
+  scheduler, first-class failure events delivered to senders, overridable dead-letter
+  and event-log hooks.
 
 ## Modules
 
-| Module          | Purpose                                                                 |
-| --------------- | ----------------------------------------------------------------------- |
-| `core`          | Process model, DSL, scheduler, `ParIO` effect type, `ParApp`/`ParIOApp` |
-| `protocol`      | `WireCodec` type-class and protobuf message definitions                 |
-| `net`           | TCP / UDP transports and adapter processes                              |
-| `raft`          | Raft consensus (election, replication, commit) as a `Process`           |
-| `demo-coloring` | Distributed graph-coloring demo with a 3D web UI                        |
-| `intg-tests`    | Cross-module integration test suite                                     |
+| Module                  | Purpose                                                                    |
+| ----------------------- | -------------------------------------------------------------------------- |
+| `parapet-core`          | Process model, DSL, scheduler, and effect-polymorphic capability contracts |
+| `parapet-testkit`       | Shared conformance specs for backend/runtime implementations               |
+| `parapet-cats-effect`   | Recommended production backend for Cats Effect `IO`                        |
+| `parapet-pario`         | Small reference runtime for examples, tests, and learning                  |
+| `parapet-protocol`      | `WireCodec`, protobuf message definitions, and wire command vocabulary     |
+| `parapet-net`           | TCP / UDP transports and adapter processes                                 |
+| `parapet-raft`          | Raft consensus built on top of Parapet                                     |
+| `parapet-examples`      | User-facing examples and demos                                             |
+| `parapet-benchmarks`    | JMH benchmarks and scheduler/runtime stress experiments                    |
 
 ## Contents
 
@@ -89,18 +93,21 @@ Typical use cases:
 
 ## Getting started
 
-`parapet-core` is the only dependency you need to define and run processes.
+`parapet-core` is the only dependency you need to define processes. To run an application, add a backend runtime such as
+`parapet-cats-effect`.
 
 ```scala
 libraryDependencies += "io.parapet" %% "parapet-core" % version
+libraryDependencies += "io.parapet" %% "parapet-cats-effect" % version
 ```
 
 Optional modules:
 
 ```scala
-libraryDependencies += "io.parapet" %% "parapet-protocol" % version
-libraryDependencies += "io.parapet" %% "parapet-net"      % version
-libraryDependencies += "io.parapet" %% "parapet-raft"     % version
+libraryDependencies += "io.parapet" %% "parapet-pario"      % version
+libraryDependencies += "io.parapet" %% "parapet-protocol"   % version
+libraryDependencies += "io.parapet" %% "parapet-net"        % version
+libraryDependencies += "io.parapet" %% "parapet-raft"       % version
 ```
 
 ## Defining a process
@@ -146,27 +153,26 @@ Notes:
 
 ## Running an application
 
-Specialize your application against `ParIO`, parapet's bundled effect type, by
-extending [`ParIOApp`](core/src/main/scala/io/parapet/ParIOApp.scala):
+Specialize your application against a backend at the application boundary. For production Scala FP code, the recommended
+backend is Cats Effect:
 
 ```scala
-import io.parapet.ParIOApp
+import cats.effect.IO
+import io.parapet.cats.CatsEffectParApp
 import io.parapet.core.Process
-import io.parapet.effect.ParIO
 
-object HelloApp extends ParIOApp:
-  def processes(args: Array[String]): ParIO[Seq[Process[ParIO]]] =
-    ParIO.delay {
-      val printer = new Printer[ParIO]
-      val greeter = new Greeter[ParIO](printer.ref)
+object HelloApp extends CatsEffectParApp:
+  def processes(args: Array[String]): IO[Seq[Process[IO]]] =
+    IO.delay {
+      val printer = new Printer[IO]
+      val greeter = new Greeter[IO](printer.ref)
       Seq(printer, greeter)
     }
 ```
 
 Run it like any other JVM `@main` and you'll see `hello world` on stdout. Because
 `Printer` and `Greeter` are generic in `F`, the same code can target a different effect
-runtime by providing your own `ParApp[F]` subclass with `Effect[F]` / `Parallel[F]`
-instances.
+runtime by providing your own `ParApp[F]` subclass with the required core capability instances.
 
 ## DSL cheatsheet
 
@@ -275,7 +281,7 @@ Override `config` on your `ParApp` to tune the scheduler:
 ```scala
 import io.parapet.core.Parapet.ParConfig
 
-object MyApp extends ParIOApp:
+object MyApp extends CatsEffectParApp:
   override val config: ParConfig = ParConfig.default
     .withSchedulerConfig(_.copy(numberOfWorkers = 8, queueSize = 1 << 16))
   ...
