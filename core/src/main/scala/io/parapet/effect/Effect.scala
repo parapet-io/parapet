@@ -26,7 +26,10 @@ trait Effect[F[_]] extends Monad[F]:
   /** Suspends a pure but lazy computation. */
   def delay[A](thunk: => A): F[A]
 
-  /** Suspends a blocking computation, dispatched off the scheduler's worker threads. */
+  /** Runs `thunk` on the runtime's blocking pool.
+    *
+    * Implementations may synchronously wait for the result unless they support true async suspension.
+    */
   def blocking[A](thunk: => A): F[A]
 
   /** Suspends construction of an `F`-effect; lets users stitch effectful values lazily. */
@@ -35,11 +38,19 @@ trait Effect[F[_]] extends Monad[F]:
   /** Aborts the effect with `error`. */
   def raiseError[A](error: Throwable): F[A]
 
-  /** Non-blocking sleep for `duration`. */
+  /** Suspends for `duration`.
+    *
+    * Implementations may block a runtime thread unless they support true async suspension.
+    */
   def sleep(duration: FiniteDuration): F[Unit]
 
   /** Forks `fa` as a [[EffectFiber]] running concurrently. */
   def start[A](fa: F[A]): F[EffectFiber[F, A]]
+
+  /** Forks `fa` onto the runtime's blocking pool. Intended for operations like parapet's `offload`, where the
+    * computation may block a thread and should not contend with ordinary async work.
+    */
+  def startBlocking[A](fa: F[A]): F[EffectFiber[F, A]]
 
   /** Races `left` against `right`; the loser is cancelled. */
   def race[A, B](left: F[A], right: F[B]): F[Either[A, B]]

@@ -260,7 +260,9 @@ object Dsl:
     def par[A](flows: Free[C, A]*): Free[C, List[Fiber[F, A]]] =
       sequence(flows.toList.map(fork))
 
-    /** Non-blocking sleep - suspends every operation that follows for `duration`.
+    /** Suspends every operation that follows for `duration`.
+      *
+      * Runtime implementations may block a runtime thread unless they support true async suspension.
       *
       * For sequential flows the following are equivalent:
       *

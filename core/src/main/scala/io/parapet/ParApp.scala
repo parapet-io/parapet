@@ -12,7 +12,8 @@ import io.parapet.core.{
   EventTransformers,
   Parallel,
   Process,
-  Scheduler
+  Scheduler,
+  SchedulerRuntime
 }
 import io.parapet.effect.Effect
 import io.parapet.syntax.FlowSyntax
@@ -44,8 +45,15 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
     */
   protected def parallelInstance: Parallel[F]
 
-  protected given Effect[F]   = effectInstance
-  protected given Parallel[F] = parallelInstance
+  protected given Effect[F]                  = effectInstance
+  protected given Parallel[F]                = parallelInstance
+  private[parapet] given SchedulerRuntime[F] = schedulerRuntimeInstance
+
+  /** Internal capability for running scheduler worker loops.
+    *
+    * Effect-specific runtimes provide this with a private scheduler-owned execution resource.
+    */
+  private[parapet] def schedulerRuntimeInstance: SchedulerRuntime[F]
 
   /** Convenience alias for a process's program type - a `Dsl` computation in `F` producing `Unit`. Lets subclasses
     * write `Program` instead of the verbose `DslF[F, Unit]`.

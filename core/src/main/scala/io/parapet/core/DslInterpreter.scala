@@ -123,7 +123,7 @@ object DslInterpreter:
             case Offload(body) =>
               for
                 done  <- Deferred[F, Either[Throwable, Unit]]()
-                fiber <- effect.start(
+                fiber <- effect.startBlocking(
                   body()
                     .asInstanceOf[DslF[F, Any]]
                     .foldMap(interpret(sender, processState, execTrace))

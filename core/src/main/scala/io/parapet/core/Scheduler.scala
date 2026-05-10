@@ -66,7 +66,7 @@ object Scheduler:
       config: SchedulerConfig,
       context: Context[F],
       interpreter: Interpreter[F]
-  )(using effect: Effect[F], parallel: Parallel[F]): F[Scheduler[F]] =
+  )(using effect: Effect[F], parallel: Parallel[F], schedulerRuntime: SchedulerRuntime[F]): F[Scheduler[F]] =
     SchedulerImpl.apply(config, context, interpreter)
 
   /** @param numberOfWorkers
@@ -169,7 +169,7 @@ object Scheduler:
       context: Context[F],
       signalQueues: Vector[Queue[F, Signal]],
       interpreter: Interpreter[F]
-  )(using effect: Effect[F], parallel: Parallel[F])
+  )(using effect: Effect[F], parallel: Parallel[F], schedulerRuntime: SchedulerRuntime[F])
       extends Scheduler[F]:
 
     private val logger = LoggerWrapper(Logger(LoggerFactory.getLogger(getClass.getCanonicalName)), context.devMode)
@@ -195,7 +195,10 @@ object Scheduler:
       else signalQueues(Math.floorMod(submitCounter.getAndIncrement(), numberOfQueues))
 
     override def start: F[Unit] =
-      effect.guarantee(effect.delay(createWorkers).flatMap(workers => parallel.par(workers.map(_.run)))) {
+      val runWorkers =
+        effect.delay(createWorkers).flatMap(workers => schedulerRuntime.runSchedulerWorkers(workers.map(_.run)))
+
+      effect.guarantee(runWorkers) {
         SchedulerImpl.stopProcess(
           sender = ProcessRef.SystemRef,
           context = context,
@@ -300,7 +303,7 @@ object Scheduler:
         config: SchedulerConfig,
         context: Context[F],
         interpreter: Interpreter[F]
-    )(using effect: Effect[F], parallel: Parallel[F]): F[Scheduler[F]] =
+    )(using effect: Effect[F], parallel: Parallel[F], schedulerRuntime: SchedulerRuntime[F]): F[Scheduler[F]] =
       io.parapet.effect.Monad
         .sequence(List.fill(config.numberOfSignalQueues)(Queue.unbounded[F, Signal](ChannelType.MPMC)))
         .map(queues => new SchedulerImpl[F](config, context, queues.toVector, interpreter))
