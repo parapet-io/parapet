@@ -82,20 +82,11 @@ final class CatsEffectParapetRuntime private (
           case Outcome.Canceled()       => IO.raiseError(new CancellationException("fiber cancelled"))
         }
 
-      // Cats Effect's `fiber.cancel` semantically waits until the fiber is fully terminated, so
-      // when the cancelled IO contains an uninterruptible region (e.g. `IO.delay { while(true){} }`
-      // produced by `eval` inside `offload`), the cancel never returns and the call site hangs.
-      // We mirror the ParIO runtime's "best-effort" cancellation: trigger cancellation in a
-      // detached fiber and wait at most 5 seconds for it to land before giving up. The cancel
-      // signal still propagates; we just don't wedge the caller on a fiber that refuses to die.
       def cancel: IO[Unit] =
-        fiber.cancel.start.flatMap(canceller =>
-          canceller.joinWithUnit.timeoutTo(CatsEffectParapetRuntime.CancelTimeout, IO.unit)
-        )
+        fiber.cancel
 
 object CatsEffectParapetRuntime:
-  private val DefaultParallelism                  = math.max(2, Runtime.getRuntime.availableProcessors())
-  private[cats] val CancelTimeout: FiniteDuration = 5.seconds
+  private val DefaultParallelism = math.max(2, Runtime.getRuntime.availableProcessors())
 
   def apply(
       schedulerThreads: Int = DefaultParallelism,

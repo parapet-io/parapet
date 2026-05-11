@@ -29,7 +29,7 @@ abstract class BlockingSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
 
     val slowProcess = Process
       .builder[F](_ => { case Start =>
-        TestEvent ~> fastRef ++ offload(eval(while (true) {})) ++ TestEvent ~> fastRef
+        TestEvent ~> fastRef ++ offload(delay(1.hour)) ++ TestEvent ~> fastRef
       })
       .ref(slowRef)
       .name("slow")
