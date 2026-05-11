@@ -9,6 +9,3 @@ required from an effect backend:
 - `EffectFiber[F, A]`
 - `Parallel[F]`
 - `SchedulerRuntime[F]`
-
-It intentionally does not provide or own a production effect runtime. Use `parapet-cats-effect`, `parapet-pario`, or a
-custom backend to run applications.
