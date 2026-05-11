@@ -27,10 +27,7 @@ lazy val global = project
     parapetCatsEffect,
     parapetPario,
     parapetProtocol,
-    parapetNet,
-    parapetRaft,
-    parapetExamples,
-    parapetBenchmarks
+    parapetNet
   )
   .settings(
     publish / skip := true
@@ -61,7 +58,6 @@ lazy val parapetTestkit = project
   .settings(
     baseSettings,
     name := "parapet-testkit",
-    publish / skip := true,
     libraryDependencies ++= Seq(
       "org.scalatest" %% "scalatest" % scalaTestVersion,
       "ch.qos.logback" % "logback-classic" % "1.5.6" % Test
@@ -125,44 +121,5 @@ lazy val parapetNet = project
       "io.aeron" % "aeron-all" % aeronVersion,
       "ch.qos.logback" % "logback-classic" % "1.5.6" % Test,
       "org.scalatest" %% "scalatest" % scalaTestVersion % Test
-    )
-  )
-
-lazy val parapetRaft = project
-  .in(file("parapet-raft"))
-  .dependsOn(parapetCore % "compile->compile;test->test", parapetProtocol)
-  .settings(
-    baseSettings,
-    name := "parapet-raft",
-    libraryDependencies ++= Seq(
-      "ch.qos.logback" % "logback-classic" % "1.5.6" % Test,
-      "org.scalatest" %% "scalatest" % scalaTestVersion % Test
-    )
-  )
-
-lazy val parapetExamples = project
-  .in(file("parapet-examples"))
-  .dependsOn(parapetCore, parapetCatsEffect, parapetPario, parapetProtocol, parapetNet, parapetRaft)
-  .settings(
-    baseSettings,
-    name := "parapet-examples",
-    publish / skip := true,
-    libraryDependencies ++= Seq(
-      "ch.qos.logback" % "logback-classic" % "1.5.6",
-      "org.scalatest" %% "scalatest" % scalaTestVersion % Test
-    )
-  )
-
-lazy val parapetBenchmarks = project
-  .in(file("parapet-benchmarks"))
-  .enablePlugins(JmhPlugin)
-  .dependsOn(parapetCore, parapetPario, parapetTestkit)
-  .settings(
-    baseSettings,
-    name := "parapet-benchmarks",
-    publish / skip := true,
-    libraryDependencies ++= Seq(
-      "com.lihaoyi" %% "ujson" % "3.3.1",
-      "ch.qos.logback" % "logback-classic" % "1.5.6" % Test
     )
   )
