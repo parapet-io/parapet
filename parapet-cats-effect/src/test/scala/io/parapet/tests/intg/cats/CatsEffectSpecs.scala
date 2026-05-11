@@ -25,9 +25,9 @@ trait BasicCatsEffectSpec extends IntegrationSpec[IO] with CatsEffectParApp:
   override def processes(args: Array[String]): IO[Seq[core.Process[IO]]] =
     IO.pure(Seq.empty)
 
-//class BlockingSpec extends io.parapet.tests.intg.BlockingSpec[IO] with BasicCatsEffectSpec
+class BlockingSpec extends io.parapet.tests.intg.BlockingSpec[IO] with BasicCatsEffectSpec
 
-//class ChannelSpec extends io.parapet.tests.intg.ChannelSpec[IO] with BasicCatsEffectSpec
+class ChannelSpec extends io.parapet.tests.intg.ChannelSpec[IO] with BasicCatsEffectSpec
 
 class DslSpec extends io.parapet.tests.intg.DslSpec[IO] with BasicCatsEffectSpec
 
