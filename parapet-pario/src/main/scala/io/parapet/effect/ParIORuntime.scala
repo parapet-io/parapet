@@ -89,7 +89,8 @@ private[parapet] object Pools:
 
   /** Backed by a `ThreadPoolExecutor` with a `SynchronousQueue` and `allowCoreThreadTimeOut(true)`: submissions never
     * queue, threads spawn on demand up to `maxSize`, and idle threads (including core threads) terminate after
-    * `keepAlive`. This shape is appropriate for any pool whose tasks may themselves block (sleeps, joins, nested races).
+    * `keepAlive`. This shape is appropriate for any pool whose tasks may themselves block (sleeps, joins, nested
+    * races).
     */
   def elastic(cfg: ElasticPoolConfig): ThreadPoolExecutor =
     val executor = new ThreadPoolExecutor(
