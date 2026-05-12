@@ -74,7 +74,7 @@ trait SchedulerTestRunner[F[_]] extends IntegrationSpec[F] {
         _         <- eventStore.await0(tasks.size, fiber)
       } yield ()
 
-      logger.mdc(mdcFields)(_ => logger.info("test is starting"))
+      logger.mdc(mdcFields)(_ => logger.info(s"test is starting: ${spec.name} sample=$i"))
       val start = System.nanoTime()
       try unsafeRun(program)
       catch {
@@ -88,7 +88,7 @@ trait SchedulerTestRunner[F[_]] extends IntegrationSpec[F] {
       }
       val end         = System.nanoTime()
       val elapsedTime = TimeUnit.NANOSECONDS.toMillis(end - start)
-      logger.mdc(mdcFields)(_ => logger.info(s"test completed in $elapsedTime ms"))
+      logger.mdc(mdcFields)(_ => logger.info(s"test completed: ${spec.name} sample=$i in $elapsedTime ms"))
 
       try SchedulerCorrectnessSpec.verifyEvents(spec, tasks, eventStore)
       catch {
