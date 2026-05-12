@@ -89,10 +89,24 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
 
   private val runtimeContextLocal = new ThreadLocal[RuntimeContext]()
 
-  private val schedulerPool = Executors.newFixedThreadPool(
-    config.scheduler.size,
-    namedThreadFactory(config.scheduler.threadNamePrefix)
-  )
+  // Scheduler workers are long-running fibers (one per `SchedulerConfig.numberOfWorkers`). When user code asks for more
+  // workers than `config.scheduler.size`, a fixed pool queues the extras and they never run, so the signal queues they
+  // own get drained only by work-stealing siblings — which can stall a single signal past test deadlines under heavy
+  // contention. Use an elastic pool so every requested worker actually executes. Core size still tracks
+  // `config.scheduler.size` so pre-warmed threads exist for the common case; additional threads spawn on demand and
+  // shrink back after `keepAlive`.
+  private val schedulerPool =
+    val executor = new ThreadPoolExecutor(
+      config.scheduler.size,
+      Int.MaxValue,
+      60.seconds.toNanos,
+      TimeUnit.NANOSECONDS,
+      new SynchronousQueue[Runnable](),
+      namedThreadFactory(config.scheduler.threadNamePrefix),
+      new ThreadPoolExecutor.AbortPolicy()
+    )
+    executor.allowCoreThreadTimeOut(true)
+    executor
 
   private val parallelPool = Executors.newFixedThreadPool(
     config.parallel.size,

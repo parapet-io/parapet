@@ -299,6 +299,13 @@ object Scheduler:
 
   /** Helpers and the [[Worker]] type for [[SchedulerImpl]]. */
   object SchedulerImpl:
+    /** How often an idle worker re-scans non-home / orphan signal queues when its home queue stays empty. Bounds the
+      * pickup latency of an orphan-queue signal at the cost of one timed `poll` per worker per interval.
+      */
+    private val OrphanScanInterval: scala.concurrent.duration.FiniteDuration =
+      import scala.concurrent.duration.*
+      50.millis
+
     def apply[F[_]](
         config: SchedulerConfig,
         context: Context[F],
@@ -347,18 +354,31 @@ object Scheduler:
         attempt((homeQueueIdx + 1) % numOfQueues, numOfQueues - 1)
       }
 
-      /** Fetches the next signal to process: home -> steal -> block on home. */
+      /** Fetches the next signal to process: home -> steal -> bounded wait on home, then retry.
+        *
+        * With `numberOfSignalQueues > numberOfWorkers` some queues have no home worker and are drained only via the
+        * stealing scan. If every worker is blocked on its (empty) home queue, a signal in an orphan queue starves
+        * indefinitely. To bound that latency we poll the home queue with a short timeout and rerun the scan + steal
+        * loop on each timeout, so an orphan-queue signal is picked up within `OrphanScanInterval` regardless of where
+        * the producer enqueued it.
+        */
       private def nextSignal: F[Signal] =
         if numOfQueues == 1 then homeQueue.dequeue
         else
-          homeQueue.tryDequeue.flatMap {
-            case Some(signal) => effect.pure(signal)
-            case None         =>
-              trySteal.flatMap {
-                case Some(signal) => effect.pure(signal)
-                case None         => homeQueue.dequeue
-              }
-          }
+          def loop: F[Signal] =
+            homeQueue.tryDequeue.flatMap {
+              case Some(signal) => effect.pure(signal)
+              case None         =>
+                trySteal.flatMap {
+                  case Some(signal) => effect.pure(signal)
+                  case None         =>
+                    homeQueue.tryDequeue(SchedulerImpl.OrphanScanInterval).flatMap {
+                      case Some(signal) => effect.pure(signal)
+                      case None         => loop
+                    }
+                }
+            }
+          loop
 
       def run: F[Unit] =
         def step: F[Unit] =
