@@ -6,7 +6,6 @@ build
 classes
 project/project
 project/target
-project/build.properties
 site/node_modules
 .bsp
 .coursier
