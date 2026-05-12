@@ -23,58 +23,8 @@ jobs:
       - name: Set up sbt
         uses: sbt/setup-sbt@v1
 
-      - name: Run core tests
-        run: sbt 'parapetCore/test' 'parapetNet/test'
-
-      - name: Run Cats Effect tests
-        run: sbt 'parapetCatsEffect/test'
-
-      - name: Run ParIO tests with hang diagnostics
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          mkdir -p target/thread-dumps
-
-          dump_java_threads() {
-            local reason="$1"
-            local ts
-            ts="$(date -u +%Y%m%d-%H%M%S)"
-
-            echo "Dumping Java threads: ${reason}"
-            jcmd -l > "target/thread-dumps/jcmd-${ts}.txt" || true
-
-            while read -r pid _; do
-              if [[ -n "${pid:-}" ]]; then
-                echo "Dumping threads for Java pid ${pid}"
-                jcmd "${pid}" Thread.print > "target/thread-dumps/thread-dump-${pid}-${ts}.txt" || true
-              fi
-            done < <(jcmd -l | awk '{print $1 " " $0}')
-          }
-
-          sbt 'parapetPario/test' &
-          sbt_pid=$!
-
-          (
-            sleep 300
-            if kill -0 "${sbt_pid}" 2>/dev/null; then
-              dump_java_threads "pario tests exceeded 5 minutes"
-              kill -TERM "${sbt_pid}" 2>/dev/null || true
-              sleep 10
-              kill -KILL "${sbt_pid}" 2>/dev/null || true
-            fi
-          ) &
-          watchdog_pid=$!
-
-          set +e
-          wait "${sbt_pid}"
-          status=$?
-          set -e
-
-          kill "${watchdog_pid}" 2>/dev/null || true
-          wait "${watchdog_pid}" 2>/dev/null || true
-
-          exit "${status}"
+      - name: Run tests
+        run: sbt test
 
       - name: Dump scheduler failure logs
         if: failure()
@@ -88,12 +38,4 @@ jobs:
         with:
           name: scheduler-failure-logs
           path: target/scheduler-failures/**/*.log
-          if-no-files-found: ignore
-
-      - name: Upload thread dumps
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: thread-dumps
-          path: target/thread-dumps/**/*.txt
           if-no-files-found: ignore

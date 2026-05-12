@@ -148,7 +148,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     case _                         => ()
 
   /** [[Effect]] instance backed by this runtime */
-  given effect: _root_.io.parapet.effect.Effect[ParIO] with
+  given effect: Effect[ParIO] with
     def pure[A](value: A): ParIO[A] =
       ParIO.pure(value)
 
@@ -177,10 +177,10 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     def sleep(duration: FiniteDuration): ParIO[Unit] =
       ParIO.sleep(duration)
 
-    def start[A](fa: ParIO[A]): ParIO[_root_.io.parapet.effect.EffectFiber[ParIO, A]] =
+    def start[A](fa: ParIO[A]): ParIO[EffectFiber[ParIO, A]] =
       ParIO.delay(startFiberOn(asyncPool, RuntimeContext.Async, fa))
 
-    def startBlocking[A](fa: ParIO[A]): ParIO[_root_.io.parapet.effect.EffectFiber[ParIO, A]] =
+    def startBlocking[A](fa: ParIO[A]): ParIO[EffectFiber[ParIO, A]] =
       ParIO.delay(startFiberOn(blockingPool, RuntimeContext.Blocking, fa))
 
     def race[A, B](left: ParIO[A], right: ParIO[B]): ParIO[Either[A, B]] =
@@ -296,7 +296,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
       pool: ExecutorService,
       runtimeContext: RuntimeContext,
       fa: ParIO[A]
-  ): _root_.io.parapet.effect.EffectFiber[ParIO, A] =
+  ): EffectFiber[ParIO, A] =
     val result  = new CompletableFuture[A]()
     val started = new AtomicBoolean(false)
     val runner  = new AtomicReference[Thread]()
@@ -311,7 +311,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
           finally runner.compareAndSet(current, null)
         })
 
-    new _root_.io.parapet.effect.EffectFiber[ParIO, A]:
+    new EffectFiber[ParIO, A]:
       def join: ParIO[A] =
         ParIO.blocking(await(result))
 
