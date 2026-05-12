@@ -139,6 +139,13 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
 
   private val runtimeContextLocal = new ThreadLocal[RuntimeContext]()
 
+  // Pool selection rule of thumb.
+  //   - `Pools.elastic` for work that may itself block (sleep, join, nested race, blocking I/O): threads grow on
+  //     demand via a `SynchronousQueue`, so a submission never queues behind a parked task. Trade-off: thread count
+  //     is unbounded under sustained burst.
+  //   - `Pools.fixed` for short, CPU-bound, non-blocking work: hard cap on parallelism, excess submissions queue in
+  //     an unbounded mailbox. Do not put blocking work here or queued tasks can starve.
+  //   - `Pools.scheduled` is for timer wake-ups only.
   private val schedulerPool = Pools.elastic(config.scheduler)
   private val parallelPool  = Pools.fixed(config.parallel)
   private val asyncPool     = Pools.fixed(config.async)
