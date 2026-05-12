@@ -117,6 +117,21 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     executor.allowCoreThreadTimeOut(true)
     executor
 
+  // Race branches may themselves block on sleep, joins, or nested races. Running them on the fixed async pool can
+  // starve queued branches such as timeouts, so races use an elastic executor.
+  private val racePool =
+    val executor = new ThreadPoolExecutor(
+      0,
+      Int.MaxValue,
+      60.seconds.toNanos,
+      TimeUnit.NANOSECONDS,
+      new SynchronousQueue[Runnable](),
+      namedThreadFactory(s"${config.async.threadNamePrefix}-race"),
+      new ThreadPoolExecutor.AbortPolicy()
+    )
+    executor.allowCoreThreadTimeOut(true)
+    executor
+
   private val timer: ScheduledExecutorService =
     Executors.newScheduledThreadPool(config.timer.threads, namedThreadFactory(config.timer.threadNamePrefix))
 
@@ -133,7 +148,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     case _                         => ()
 
   /** [[Effect]] instance backed by this runtime */
-  given effect: Effect[ParIO] with
+  given effect: _root_.io.parapet.effect.Effect[ParIO] with
     def pure[A](value: A): ParIO[A] =
       ParIO.pure(value)
 
@@ -162,10 +177,10 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     def sleep(duration: FiniteDuration): ParIO[Unit] =
       ParIO.sleep(duration)
 
-    def start[A](fa: ParIO[A]): ParIO[EffectFiber[ParIO, A]] =
+    def start[A](fa: ParIO[A]): ParIO[_root_.io.parapet.effect.EffectFiber[ParIO, A]] =
       ParIO.delay(startFiberOn(asyncPool, RuntimeContext.Async, fa))
 
-    def startBlocking[A](fa: ParIO[A]): ParIO[EffectFiber[ParIO, A]] =
+    def startBlocking[A](fa: ParIO[A]): ParIO[_root_.io.parapet.effect.EffectFiber[ParIO, A]] =
       ParIO.delay(startFiberOn(blockingPool, RuntimeContext.Blocking, fa))
 
     def race[A, B](left: ParIO[A], right: ParIO[B]): ParIO[Either[A, B]] =
@@ -211,6 +226,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
   /** Stops the runtime's executors. */
   def shutdown(): Unit =
     timer.shutdownNow()
+    racePool.shutdownNow()
     blockingPool.shutdownNow()
     asyncPool.shutdownNow()
     parallelPool.shutdownNow()
@@ -280,7 +296,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
       pool: ExecutorService,
       runtimeContext: RuntimeContext,
       fa: ParIO[A]
-  ): EffectFiber[ParIO, A] =
+  ): _root_.io.parapet.effect.EffectFiber[ParIO, A] =
     val result  = new CompletableFuture[A]()
     val started = new AtomicBoolean(false)
     val runner  = new AtomicReference[Thread]()
@@ -295,7 +311,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
           finally runner.compareAndSet(current, null)
         })
 
-    new EffectFiber[ParIO, A]:
+    new _root_.io.parapet.effect.EffectFiber[ParIO, A]:
       def join: ParIO[A] =
         ParIO.blocking(await(result))
 
@@ -321,7 +337,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
   private def racePrograms[A, B](left: ParIO[A], right: ParIO[B]): Either[A, B] =
     final case class RaceResult(tag: Int, value: Any)
 
-    val completion = new ExecutorCompletionService[RaceResult](asyncPool)
+    val completion = new ExecutorCompletionService[RaceResult](racePool)
     val leftFuture = completion.submit(new Callable[RaceResult]:
       override def call(): RaceResult =
         withRuntimeContext(RuntimeContext.Async)(RaceResult(0, unsafeRunLoop(left))))

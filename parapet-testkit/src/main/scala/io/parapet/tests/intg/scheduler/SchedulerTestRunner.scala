@@ -23,8 +23,28 @@ import java.util.concurrent.TimeUnit
   */
 trait SchedulerTestRunner[F[_]] extends IntegrationSpec[F] {
 
+  private def schedulerSpecFilter: Option[String] =
+    sys.props
+      .get("scheduler.spec.filter")
+      .orElse(sys.env.get("SCHEDULER_SPEC_FILTER"))
+      .map(_.trim)
+      .filter(_.nonEmpty)
+
+  private def forceDiagnostics: Boolean =
+    sys.props
+      .get("scheduler.spec.diagnostics")
+      .orElse(sys.env.get("SCHEDULER_SPEC_DIAGNOSTICS"))
+      .exists(_.trim.equalsIgnoreCase("true"))
+
   def run(specs: Seq[StabilitySpec]): Unit =
-    specs.filter(_.enabled).foreach(run)
+    val filtered = schedulerSpecFilter match
+      case Some(filter) => specs.filter(spec => spec.name.contains(filter))
+      case None         => specs
+
+    filtered
+      .filter(_.enabled)
+      .map(spec => if forceDiagnostics then spec.withDiagnostics else spec)
+      .foreach(run)
 
   /** Executes `spec` for `spec.samples` iterations.
     */

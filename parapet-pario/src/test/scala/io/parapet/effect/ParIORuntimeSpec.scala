@@ -231,6 +231,46 @@ class ParIORuntimeSpec extends AnyFunSuite:
       runtime.shutdown()
   }
 
+  test("nested race timeout is not starved by occupied async workers") {
+    val runtime  = testRuntime(asyncSize = 4)
+    val release  = new CountDownLatch(1)
+    val executor = Executors.newSingleThreadExecutor()
+
+    try
+      val neverCompletes = runtime.unsafeRun(
+        runtime.effect.start(
+          ParIO.blocking {
+            release.await()
+            ()
+          }
+        )
+      )
+
+      val timeout =
+        runtime.effect
+          .race(
+            ParIO.sleep(10.seconds).map(_ => "slow"),
+            ParIO.sleep(100.millis).map(_ => "timeout")
+          )
+          .map(_.fold(identity, identity))
+
+      val program =
+        runtime.effect.race(
+          timeout,
+          neverCompletes.join.map(_ => "joined")
+        )
+
+      val result = executor.submit(new Callable[Either[String, String]]:
+        override def call(): Either[String, String] =
+          runtime.unsafeRun(program))
+
+      result.get(1, TimeUnit.SECONDS) shouldBe Left("timeout")
+    finally
+      release.countDown()
+      executor.shutdownNow()
+      runtime.shutdown()
+  }
+
   test("parallel.par fails fast when one effect raises") {
     val runtime = testRuntime()
     val boom    = new RuntimeException("boom")
