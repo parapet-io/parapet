@@ -75,11 +75,10 @@ object Scheduler:
     *   number of signal queues the scheduler uses. With `1` every worker blocks on a single MPMC queue and every
     *   producer enqueues onto it. With `N > 1` the queue is sharded into `N` independent MPMC queues: producers
     *   round-robin their submissions across them and workers prefer their own home queue with work stealing as a
-    *   fallback. The recommended ratio is `numberOfSignalQueues == numberOfWorkers` - it gives every worker its own
-    *   home queue (no consumer-side contention) and spreads producer pressure across `N` shards. Values greater than
-    *   `numberOfWorkers` are legal but suboptimal: extra queues have no home worker and are only drained via the
-    *   stealing pass. Values smaller than `numberOfWorkers` are also legal; multiple workers will share a home queue
-    *   and contend on its head.
+    *   fallback. The effective queue count is `min(numberOfSignalQueues, numberOfWorkers)`. The recommended ratio is
+    *   `numberOfSignalQueues == numberOfWorkers` - it gives every worker its own home queue (no consumer-side
+    *   contention) and spreads producer pressure across `N` shards. Values smaller than `numberOfWorkers` are also
+    *   legal; multiple workers will share a home queue and contend on its head.
     * @param mailboxSlice
     *   maximum number of events a single worker may drain from one process's mailbox before yielding back to the signal
     *   queue. Bounds how long a process with a long backlog can monopolize its worker, which keeps the scheduler fair
@@ -159,7 +158,7 @@ object Scheduler:
     *
     * When `numberOfSignalQueues > 1` the queue is sharded:
     *   - Producers select a queue round-robin via [[submitCounter]] (one atomic increment per submit).
-    *   - Each worker is assigned a **home queue** via `workerIndex % numberOfSignalQueues`. It prefers its own queue
+    *   - Each worker is assigned a **home queue** via `workerIndex % effectiveQueueCount`. It prefers its own queue
     *     and falls back to a single-pass **work-stealing scan** across siblings before blocking on home.
     *   - Correctness is preserved regardless of topology because the per-process lock still serializes execution. A
     *     stolen signal that loses the acquire race simply falls through and the mailbox remains consistent.
@@ -181,7 +180,7 @@ object Scheduler:
     private val submitCounter: java.util.concurrent.atomic.AtomicLong =
       new java.util.concurrent.atomic.AtomicLong(0L)
 
-    /** Chooses a signal queue for a newly submitted signal via round-robin across all queues.
+    /** Chooses a signal queue for a newly submitted signal via round-robin.
       *
       * `Math.floorMod` is used (rather than `%`) so the index stays in `[0, numberOfQueues)` even after the counter
       * eventually goes negative on overflow - it never will in any realistic deployment, but the code is correct
@@ -304,8 +303,11 @@ object Scheduler:
         context: Context[F],
         interpreter: Interpreter[F]
     )(using effect: Effect[F], parallel: Parallel[F], schedulerRuntime: SchedulerRuntime[F]): F[Scheduler[F]] =
+      val effectiveNumberOfSignalQueues =
+        math.min(config.numberOfSignalQueues, config.numberOfWorkers)
+
       io.parapet.effect.Monad
-        .sequence(List.fill(config.numberOfSignalQueues)(Queue.unbounded[F, Signal](ChannelType.MPMC)))
+        .sequence(List.fill(effectiveNumberOfSignalQueues)(Queue.unbounded[F, Signal](ChannelType.MPMC)))
         .map(queues => new SchedulerImpl[F](config, context, queues.toVector, interpreter))
 
     /** A worker fiber that pulls signals from its home queue (or steals from siblings), races for per-process locks,
