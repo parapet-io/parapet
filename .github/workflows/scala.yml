@@ -25,3 +25,17 @@ jobs:
 
       - name: Run tests
         run: sbt test
+
+      - name: Dump scheduler failure logs
+        if: failure()
+        run: |
+          ls -R target/scheduler-failures || true
+          cat target/scheduler-failures/*.log || true
+
+      - name: Upload scheduler failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scheduler-failure-logs
+          path: target/scheduler-failures/**/*.log
+          if-no-files-found: ignore
