@@ -436,10 +436,6 @@ object SchedulerCorrectnessSpec {
         workload = WorkloadProfile.instant,
         numberOfSubmitters = 4
       ),
-      // samples=5 because this is the highest-contention scenario in the matrix (8 workers × 8 queues × 6 submitters ×
-      // 200 processes × 2000 events) and the one that surfaced a missed-wakeup race in the scheduler notify path
-      // before the always-notify fix in `SchedulerImpl.submit`. Running it five times per CI build acts as a regression
-      // guard.
       StabilitySpec(
         name = "multiqueue-scale-q-8",
         samples = 5,
