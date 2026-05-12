@@ -11,14 +11,25 @@ class ParIORuntimeSpec extends AnyFunSuite:
   private def testRuntime(asyncSize: Int = 2): ParIORuntime =
     new ParIORuntime(
       ParIORuntimeConfig(
-        scheduler = FixedThreadPoolConfig(2, "test-scheduler"),
-        parallel = FixedThreadPoolConfig(2, "test-parallel"),
-        async = FixedThreadPoolConfig(asyncSize, "test-async"),
-        blocking = BlockingThreadPoolConfig(
+        scheduler = ElasticPoolConfig(
+          coreSize = 2,
+          maxSize = Int.MaxValue,
+          keepAlive = 30.seconds,
+          threadNamePrefix = "test-scheduler"
+        ),
+        parallel = FixedPoolConfig(2, "test-parallel"),
+        async = FixedPoolConfig(asyncSize, "test-async"),
+        blocking = ElasticPoolConfig(
           coreSize = 0,
           maxSize = 4,
           keepAlive = 30.seconds,
           threadNamePrefix = "test-blocking"
+        ),
+        race = ElasticPoolConfig(
+          coreSize = 0,
+          maxSize = 8,
+          keepAlive = 30.seconds,
+          threadNamePrefix = "test-race"
         ),
         timer = TimerThreadPoolConfig(1, "test-timer")
       )

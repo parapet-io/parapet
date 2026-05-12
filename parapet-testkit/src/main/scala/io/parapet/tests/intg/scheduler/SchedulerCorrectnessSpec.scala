@@ -427,8 +427,18 @@ object SchedulerCorrectnessSpec {
         numberOfSubmitters = 3
       ),
       StabilitySpec(
+        name = "multiqueue-more-queues-than-workers",
+        samples = 2,
+        config = SchedulerConfig(numberOfWorkers = 4, numberOfSignalQueues = 8),
+        wds = WorkDistributionStrategy.Random(),
+        numberOfEvents = 300,
+        numberOfProcesses = 10,
+        workload = WorkloadProfile.instant,
+        numberOfSubmitters = 4
+      ),
+      StabilitySpec(
         name = "multiqueue-scale-q-8",
-        samples = 1,
+        samples = 5,
         config = SchedulerConfig(numberOfWorkers = 8, numberOfSignalQueues = 8),
         wds = WorkDistributionStrategy.Random(),
         numberOfEvents = 2000,

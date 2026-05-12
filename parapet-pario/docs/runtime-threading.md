@@ -43,10 +43,13 @@ The important remaining limitation is this:
 
 Config lives in:
 
-- `FixedThreadPoolConfig`
-- `BlockingThreadPoolConfig`
+- `FixedPoolConfig`
+- `ElasticPoolConfig`
 - `TimerThreadPoolConfig`
 - `ParIORuntimeConfig`
+
+Construction is centralised in `Pools.fixed` / `Pools.elastic` / `Pools.scheduled` so the "elastic" vs. "fixed"
+semantics live in one place.
 
 Source:
 

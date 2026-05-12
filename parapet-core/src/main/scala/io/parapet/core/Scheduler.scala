@@ -14,6 +14,8 @@ import io.parapet.effect.Monad.*
 import io.parapet.{Envelope, Event, ProcessRef}
 import org.slf4j.LoggerFactory
 
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
+
 import scala.util.Try
 
 /** Routes [[Scheduler.Task]]s (envelope deliveries) to the right per-process mailbox and runs the resulting handler
@@ -158,8 +160,8 @@ object Scheduler:
     *
     * When `numberOfSignalQueues > 1` the queue is sharded:
     *   - Producers select a queue round-robin via [[submitCounter]] (one atomic increment per submit).
-    *   - Each worker is assigned a **home queue** via `workerIndex % effectiveQueueCount`. It prefers its own queue
-    *     and falls back to a single-pass **work-stealing scan** across siblings before blocking on home.
+    *   - Each worker is assigned a **home queue** via `workerIndex % signalQueueCount`. It prefers its own queue and
+    *     falls back to a single-pass **work-stealing scan** across siblings before blocking on home.
     *   - Correctness is preserved regardless of topology because the per-process lock still serializes execution. A
     *     stolen signal that loses the acquire race simply falls through and the mailbox remains consistent.
     */
@@ -298,16 +300,23 @@ object Scheduler:
 
   /** Helpers and the [[Worker]] type for [[SchedulerImpl]]. */
   object SchedulerImpl:
+
+    /** How long an idle worker waits on its home queue before waking up to re-check for work.
+      */
+    private val IdleWakeupInterval: FiniteDuration = 50.millis
+
     def apply[F[_]](
         config: SchedulerConfig,
         context: Context[F],
         interpreter: Interpreter[F]
     )(using effect: Effect[F], parallel: Parallel[F], schedulerRuntime: SchedulerRuntime[F]): F[Scheduler[F]] =
-      val effectiveNumberOfSignalQueues =
-        math.min(config.numberOfSignalQueues, config.numberOfWorkers)
+      // Cap the queue count at the worker count so every queue has a home worker by index. Configurations with
+      // `numberOfSignalQueues > numberOfWorkers` are silently truncated; producers will still round-robin across
+      // the surviving queues.
+      val signalQueueCount = math.min(config.numberOfSignalQueues, config.numberOfWorkers)
 
       io.parapet.effect.Monad
-        .sequence(List.fill(effectiveNumberOfSignalQueues)(Queue.unbounded[F, Signal](ChannelType.MPMC)))
+        .sequence(List.fill(signalQueueCount)(Queue.unbounded[F, Signal](ChannelType.MPMC)))
         .map(queues => new SchedulerImpl[F](config, context, queues.toVector, interpreter))
 
     /** A worker fiber that pulls signals from its home queue (or steals from siblings), races for per-process locks,
@@ -349,18 +358,24 @@ object Scheduler:
         attempt((homeQueueIdx + 1) % numOfQueues, numOfQueues - 1)
       }
 
-      /** Fetches the next signal to process: home -> steal -> block on home. */
+      /** Fetches the next signal to process: home -> steal -> bounded wait on home, then retry. */
       private def nextSignal: F[Signal] =
         if numOfQueues == 1 then homeQueue.dequeue
         else
-          homeQueue.tryDequeue.flatMap {
-            case Some(signal) => effect.pure(signal)
-            case None         =>
-              trySteal.flatMap {
-                case Some(signal) => effect.pure(signal)
-                case None         => homeQueue.dequeue
-              }
-          }
+          def loop: F[Signal] =
+            homeQueue.tryDequeue.flatMap {
+              case Some(signal) => effect.pure(signal)
+              case None         =>
+                trySteal.flatMap {
+                  case Some(signal) => effect.pure(signal)
+                  case None         =>
+                    homeQueue.tryDequeue(SchedulerImpl.IdleWakeupInterval).flatMap {
+                      case Some(signal) => effect.pure(signal)
+                      case None         => loop
+                    }
+                }
+            }
+          loop
 
       def run: F[Unit] =
         def step: F[Unit] =

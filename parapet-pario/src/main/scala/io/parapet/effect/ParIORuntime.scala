@@ -22,12 +22,15 @@ import java.util.concurrent.{
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger, AtomicReference}
 import scala.concurrent.duration.*
 
-final case class FixedThreadPoolConfig(size: Int, threadNamePrefix: String):
+/** Bounded pool configuration.
+  */
+final case class FixedPoolConfig(size: Int, threadNamePrefix: String):
   require(size > 0, s"pool size must be positive, got $size")
   require(threadNamePrefix.nonEmpty, "threadNamePrefix must be non-empty")
 
-/** Elastic executor configuration used for thread-blocking work. */
-final case class BlockingThreadPoolConfig(
+/** Elastic pool configuration.
+  */
+final case class ElasticPoolConfig(
     coreSize: Int,
     maxSize: Int,
     keepAlive: FiniteDuration,
@@ -44,36 +47,83 @@ final case class TimerThreadPoolConfig(threads: Int, threadNamePrefix: String):
   require(threadNamePrefix.nonEmpty, "threadNamePrefix must be non-empty")
 
 final case class ParIORuntimeConfig(
-    scheduler: FixedThreadPoolConfig,
-    parallel: FixedThreadPoolConfig,
-    async: FixedThreadPoolConfig,
-    blocking: BlockingThreadPoolConfig,
+    scheduler: ElasticPoolConfig,
+    parallel: FixedPoolConfig,
+    async: FixedPoolConfig,
+    blocking: ElasticPoolConfig,
+    race: ElasticPoolConfig,
     timer: TimerThreadPoolConfig
 )
 
 object ParIORuntimeConfig:
   private val DefaultParallelism = math.max(2, Runtime.getRuntime.availableProcessors())
 
-  /** Default runtime:
-    *   - fixed scheduler pool sized to available processors
-    *   - fixed parallel pool sized to available processors
-    *   - fixed async pool sized to available processors
-    *   - elastic blocking pool with zero core threads and an effectively unbounded maximum
-    *   - one daemon timer thread
-    */
+  /** Default runtime config. */
   val default: ParIORuntimeConfig =
     ParIORuntimeConfig(
-      scheduler = FixedThreadPoolConfig(DefaultParallelism, "parapet-scheduler"),
-      parallel = FixedThreadPoolConfig(DefaultParallelism, "parapet-parallel"),
-      async = FixedThreadPoolConfig(DefaultParallelism, "parapet-async"),
-      blocking = BlockingThreadPoolConfig(
+      scheduler = ElasticPoolConfig(
+        coreSize = DefaultParallelism,
+        maxSize = Int.MaxValue,
+        keepAlive = 60.seconds,
+        threadNamePrefix = "parapet-scheduler"
+      ),
+      parallel = FixedPoolConfig(DefaultParallelism, "parapet-parallel"),
+      async = FixedPoolConfig(DefaultParallelism, "parapet-async"),
+      blocking = ElasticPoolConfig(
         coreSize = 0,
         maxSize = Int.MaxValue,
         keepAlive = 60.seconds,
         threadNamePrefix = "parapet-blocking"
       ),
+      race = ElasticPoolConfig(
+        coreSize = 0,
+        maxSize = Int.MaxValue,
+        keepAlive = 60.seconds,
+        threadNamePrefix = "parapet-async-race"
+      ),
       timer = TimerThreadPoolConfig(1, "parapet-timer")
     )
+
+/** Helpers that construct the executors described by [[ParIORuntimeConfig]]. */
+private[parapet] object Pools:
+
+  /** Backed by a `ThreadPoolExecutor` with a `SynchronousQueue` and `allowCoreThreadTimeOut(true)`: submissions never
+    * queue, threads spawn on demand up to `maxSize`, and idle threads (including core threads) terminate after
+    * `keepAlive`. This shape is appropriate for any pool whose tasks may themselves block (sleeps, joins, nested
+    * races).
+    */
+  def elastic(cfg: ElasticPoolConfig): ThreadPoolExecutor =
+    val executor = new ThreadPoolExecutor(
+      cfg.coreSize,
+      cfg.maxSize,
+      cfg.keepAlive.toNanos,
+      TimeUnit.NANOSECONDS,
+      new SynchronousQueue[Runnable](),
+      namedThreadFactory(cfg.threadNamePrefix),
+      new ThreadPoolExecutor.AbortPolicy()
+    )
+    executor.allowCoreThreadTimeOut(true)
+    executor.prestartAllCoreThreads()
+    executor
+
+  /** Fixed-size executor backed by `Executors.newFixedThreadPool`.
+    */
+  def fixed(cfg: FixedPoolConfig): ExecutorService =
+    Executors.newFixedThreadPool(cfg.size, namedThreadFactory(cfg.threadNamePrefix))
+
+  /** Scheduled executor used for timer wake-ups. */
+  def scheduled(cfg: TimerThreadPoolConfig): ScheduledExecutorService =
+    Executors.newScheduledThreadPool(cfg.threads, namedThreadFactory(cfg.threadNamePrefix))
+
+  private def namedThreadFactory(prefix: String): ThreadFactory =
+    new ThreadFactory:
+      private val index = new AtomicInteger(0)
+
+      override def newThread(runnable: Runnable): Thread =
+        val thread = new Thread(runnable)
+        thread.setName(s"$prefix-${index.incrementAndGet()}")
+        thread.setDaemon(true)
+        thread
 
 /** Runtime/interpreter for [[ParIO]].
   */
@@ -89,48 +139,19 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
 
   private val runtimeContextLocal = new ThreadLocal[RuntimeContext]()
 
-  private val schedulerPool = Executors.newFixedThreadPool(
-    config.scheduler.size,
-    namedThreadFactory(config.scheduler.threadNamePrefix)
-  )
-
-  private val parallelPool = Executors.newFixedThreadPool(
-    config.parallel.size,
-    namedThreadFactory(config.parallel.threadNamePrefix)
-  )
-
-  private val asyncPool = Executors.newFixedThreadPool(
-    config.async.size,
-    namedThreadFactory(config.async.threadNamePrefix)
-  )
-
-  private val blockingPool =
-    val executor = new ThreadPoolExecutor(
-      config.blocking.coreSize,
-      config.blocking.maxSize,
-      config.blocking.keepAlive.toNanos,
-      TimeUnit.NANOSECONDS,
-      new SynchronousQueue[Runnable](),
-      namedThreadFactory(config.blocking.threadNamePrefix),
-      new ThreadPoolExecutor.AbortPolicy()
-    )
-    executor.allowCoreThreadTimeOut(true)
-    executor
-
-  private val timer: ScheduledExecutorService =
-    Executors.newScheduledThreadPool(config.timer.threads, namedThreadFactory(config.timer.threadNamePrefix))
-
-  schedulerPool match
-    case fixed: ThreadPoolExecutor => fixed.prestartAllCoreThreads()
-    case _                         => ()
-
-  parallelPool match
-    case fixed: ThreadPoolExecutor => fixed.prestartAllCoreThreads()
-    case _                         => ()
-
-  asyncPool match
-    case fixed: ThreadPoolExecutor => fixed.prestartAllCoreThreads()
-    case _                         => ()
+  // Pool selection rule of thumb.
+  //   - `Pools.elastic` for work that may itself block (sleep, join, nested race, blocking I/O): threads grow on
+  //     demand via a `SynchronousQueue`, so a submission never queues behind a parked task. Trade-off: thread count
+  //     is unbounded under sustained burst.
+  //   - `Pools.fixed` for short, CPU-bound, non-blocking work: hard cap on parallelism, excess submissions queue in
+  //     an unbounded mailbox. Do not put blocking work here or queued tasks can starve.
+  //   - `Pools.scheduled` is for timer wake-ups only.
+  private val schedulerPool = Pools.elastic(config.scheduler)
+  private val parallelPool  = Pools.fixed(config.parallel)
+  private val asyncPool     = Pools.fixed(config.async)
+  private val blockingPool  = Pools.elastic(config.blocking)
+  private val racePool      = Pools.elastic(config.race)
+  private val timer         = Pools.scheduled(config.timer)
 
   /** [[Effect]] instance backed by this runtime */
   given effect: Effect[ParIO] with
@@ -211,6 +232,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
   /** Stops the runtime's executors. */
   def shutdown(): Unit =
     timer.shutdownNow()
+    racePool.shutdownNow()
     blockingPool.shutdownNow()
     asyncPool.shutdownNow()
     parallelPool.shutdownNow()
@@ -321,7 +343,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
   private def racePrograms[A, B](left: ParIO[A], right: ParIO[B]): Either[A, B] =
     final case class RaceResult(tag: Int, value: Any)
 
-    val completion = new ExecutorCompletionService[RaceResult](asyncPool)
+    val completion = new ExecutorCompletionService[RaceResult](racePool)
     val leftFuture = completion.submit(new Callable[RaceResult]:
       override def call(): RaceResult =
         withRuntimeContext(RuntimeContext.Async)(RaceResult(0, unsafeRunLoop(left))))
@@ -424,16 +446,6 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
       case error: InterruptedException =>
         Thread.currentThread().interrupt()
         throw error
-
-  private def namedThreadFactory(prefix: String): ThreadFactory =
-    new ThreadFactory:
-      private val index = new AtomicInteger(0)
-
-      override def newThread(runnable: Runnable): Thread =
-        val thread = new Thread(runnable)
-        thread.setName(s"$prefix-${index.incrementAndGet()}")
-        thread.setDaemon(true)
-        thread
 
 object ParIORuntime:
   lazy val default: ParIORuntime =

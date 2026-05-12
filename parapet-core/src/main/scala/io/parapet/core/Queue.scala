@@ -2,7 +2,8 @@ package io.parapet.core
 
 import io.parapet.effect.{Effect, Monad}
 
-import java.util.concurrent.{ArrayBlockingQueue, BlockingQueue, LinkedBlockingQueue}
+import java.util.concurrent.{ArrayBlockingQueue, BlockingQueue, LinkedBlockingQueue, TimeUnit}
+import scala.concurrent.duration.FiniteDuration
 
 /** Asynchronous FIFO queue over the effect type `F`.
   *
@@ -41,6 +42,11 @@ object Queue:
     /** Non-blocking attempt to take an element; returns `None` when empty. */
     def tryDequeue: F[Option[A]]
 
+    /** Blocking attempt to take an element with an upper bound on the wait. Returns `None` if `timeout` elapses with no
+      * element available.
+      */
+    def tryDequeue(timeout: FiniteDuration): F[Option[A]]
+
     /** Dequeues one element and pipes it through `f`. */
     def dequeueThrough[B](f: A => F[B])(using monad: Monad[F]): F[B] =
       dequeue.flatMap(f)
@@ -63,6 +69,9 @@ object Queue:
 
     def tryDequeue: F[Option[A]] =
       effect.delay(Option(queue.poll()))
+
+    def tryDequeue(timeout: FiniteDuration): F[Option[A]] =
+      effect.blocking(Option(queue.poll(timeout.toNanos, TimeUnit.NANOSECONDS)))
 
   /** Bounded [[Queue]] backed by [[java.util.concurrent.ArrayBlockingQueue]]. */
   def bounded[F[_], A](capacity: Int, channelType: ChannelType = ChannelType.MPMC)(using

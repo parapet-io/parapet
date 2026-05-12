@@ -22,8 +22,4 @@ trait ParIOApp extends ParApp[ParIO]:
     runtime.schedulerRuntime
 
   def unsafeRun(program: ParIO[Unit]): Unit =
-    require(
-      runtime.config.scheduler.size >= config.schedulerConfig.numberOfWorkers,
-      s"ParIO scheduler pool size (${runtime.config.scheduler.size}) must be >= scheduler workers (${config.schedulerConfig.numberOfWorkers})"
-    )
     runtime.unsafeRun(program)

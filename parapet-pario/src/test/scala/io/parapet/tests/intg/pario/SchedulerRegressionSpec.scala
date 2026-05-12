@@ -4,9 +4,9 @@ import io.parapet.ProcessRef
 import io.parapet.core.{Context, DslInterpreter, EventTransformers, Parallel, Parapet, Scheduler, SchedulerRuntime}
 import io.parapet.core.Scheduler.SchedulerConfig
 import io.parapet.effect.{
-  BlockingThreadPoolConfig,
   Effect,
-  FixedThreadPoolConfig,
+  ElasticPoolConfig,
+  FixedPoolConfig,
   ParIO,
   ParIORuntime,
   ParIORuntimeConfig,
@@ -31,16 +31,27 @@ class SchedulerRegressionSpec extends AnyFunSuite:
     new ParIORuntime(
       ParIORuntimeConfig(
         // Match the scheduler worker count so the reproducer exercises the starvation edge deterministically.
-        scheduler = FixedThreadPoolConfig(2, "reg-scheduler"),
+        scheduler = ElasticPoolConfig(
+          coreSize = 2,
+          maxSize = Int.MaxValue,
+          keepAlive = 30.seconds,
+          threadNamePrefix = "reg-scheduler"
+        ),
         // Keep the public parallel pool equally small to prove scheduler workers do not occupy it.
-        parallel = FixedThreadPoolConfig(2, "reg-parallel"),
+        parallel = FixedPoolConfig(2, "reg-parallel"),
         // Keep async larger so the regression isolates submitter starvation on the parallel pool.
-        async = FixedThreadPoolConfig(6, "reg-async"),
-        blocking = BlockingThreadPoolConfig(
+        async = FixedPoolConfig(6, "reg-async"),
+        blocking = ElasticPoolConfig(
           coreSize = 0,
           maxSize = 32,
           keepAlive = 30.seconds,
           threadNamePrefix = "reg-blocking"
+        ),
+        race = ElasticPoolConfig(
+          coreSize = 0,
+          maxSize = 16,
+          keepAlive = 30.seconds,
+          threadNamePrefix = "reg-race"
         ),
         timer = TimerThreadPoolConfig(1, "reg-timer")
       )
