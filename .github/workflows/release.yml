@@ -61,4 +61,11 @@ jobs:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
-        run: sbt publishSigned sonaRelease
+        run: |
+          set -euo pipefail
+          version="$(sbt --batch 'print ThisBuild / version' | awk '/ThisBuild \/ version/{getline; gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print; exit}')"
+          if [[ "$version" == *-SNAPSHOT ]]; then
+            sbt publishSigned
+          else
+            sbt publishSigned sonaRelease
+          fi
