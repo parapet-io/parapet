@@ -3,12 +3,36 @@ name := "parapet"
 ThisBuild / organization := "io.parapet"
 ThisBuild / organizationName := "parapet"
 ThisBuild / organizationHomepage := Some(url("https://parapet.io/"))
+ThisBuild / homepage := Some(url("https://github.com/parapet-io/parapet"))
 ThisBuild / scalaVersion := "3.3.4"
 ThisBuild / scalacOptions ++= Seq(
   "-deprecation",
   "-feature",
   "-unchecked"
 )
+ThisBuild / licenses := List("Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0"))
+ThisBuild / developers := List(
+  Developer(
+    id = "dmgcodevil",
+    name = "dmgcodevil",
+    email = "dmgcodevil@gmail.com",
+    url = url("https://github.com/dmgcodevil")
+  )
+)
+ThisBuild / scmInfo := Some(
+  ScmInfo(
+    browseUrl = url("https://github.com/parapet-io/parapet"),
+    connection = "scm:git:https://github.com/parapet-io/parapet.git",
+    devConnection = Some("scm:git:git@github.com:parapet-io/parapet.git")
+  )
+)
+ThisBuild / versionScheme := Some("early-semver")
+Global / useGpgPinentry := false
+ThisBuild / publishTo := {
+  val centralSnapshots = "https://central.sonatype.com/repository/maven-snapshots/"
+  if (isSnapshot.value) Some("central-snapshots" at centralSnapshots)
+  else localStaging.value
+}
 
 val scalaTestVersion = "3.2.19"
 val jeromqVersion = "0.6.0"
@@ -58,6 +82,7 @@ lazy val parapetTestkit = project
   .settings(
     baseSettings,
     name := "parapet-testkit",
+    publish / skip := true,
     libraryDependencies ++= Seq(
       "org.scalatest" %% "scalatest" % scalaTestVersion,
       "ch.qos.logback" % "logback-classic" % "1.5.6" % Test

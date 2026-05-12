@@ -23,8 +23,14 @@ jobs:
       - name: Set up sbt
         uses: sbt/setup-sbt@v1
 
-      - name: Run tests
-        run: sbt test
+      - name: Run core tests
+        run: sbt 'parapetCore/test' 'parapetNet/test'
+
+      - name: Run Cats Effect tests
+        run: sbt 'parapetCatsEffect/test'
+
+      - name: Run ParIO tests
+        run: sbt 'parapetPario/test'
 
       - name: Dump scheduler failure logs
         if: failure()
