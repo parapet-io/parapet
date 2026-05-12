@@ -39,6 +39,23 @@ final case class BlockingThreadPoolConfig(
   require(keepAlive.toNanos >= 0L, s"keepAlive must be non-negative, got $keepAlive")
   require(threadNamePrefix.nonEmpty, "threadNamePrefix must be non-empty")
 
+/** Elastic executor configuration used for race branches. Race callables can themselves block on sleeps, joins, or
+  * nested races, so running them on a fixed pool risks queueing a branch (e.g. a timeout) behind an already-running
+  * branch and starving the race. Same shape as [[BlockingThreadPoolConfig]]: zero core threads + unbounded max +
+  * `SynchronousQueue` ⟹ submissions never queue.
+  */
+final case class RacePoolConfig(
+    coreSize: Int,
+    maxSize: Int,
+    keepAlive: FiniteDuration,
+    threadNamePrefix: String
+):
+  require(coreSize >= 0, s"coreSize must be non-negative, got $coreSize")
+  require(maxSize > 0, s"maxSize must be positive, got $maxSize")
+  require(maxSize >= coreSize, s"maxSize ($maxSize) must be >= coreSize ($coreSize)")
+  require(keepAlive.toNanos >= 0L, s"keepAlive must be non-negative, got $keepAlive")
+  require(threadNamePrefix.nonEmpty, "threadNamePrefix must be non-empty")
+
 final case class TimerThreadPoolConfig(threads: Int, threadNamePrefix: String):
   require(threads > 0, s"threads must be positive, got $threads")
   require(threadNamePrefix.nonEmpty, "threadNamePrefix must be non-empty")
@@ -48,6 +65,7 @@ final case class ParIORuntimeConfig(
     parallel: FixedThreadPoolConfig,
     async: FixedThreadPoolConfig,
     blocking: BlockingThreadPoolConfig,
+    race: RacePoolConfig,
     timer: TimerThreadPoolConfig
 )
 
@@ -59,6 +77,7 @@ object ParIORuntimeConfig:
     *   - fixed parallel pool sized to available processors
     *   - fixed async pool sized to available processors
     *   - elastic blocking pool with zero core threads and an effectively unbounded maximum
+    *   - elastic race pool with zero core threads and an effectively unbounded maximum
     *   - one daemon timer thread
     */
   val default: ParIORuntimeConfig =
@@ -71,6 +90,12 @@ object ParIORuntimeConfig:
         maxSize = Int.MaxValue,
         keepAlive = 60.seconds,
         threadNamePrefix = "parapet-blocking"
+      ),
+      race = RacePoolConfig(
+        coreSize = 0,
+        maxSize = Int.MaxValue,
+        keepAlive = 60.seconds,
+        threadNamePrefix = "parapet-async-race"
       ),
       timer = TimerThreadPoolConfig(1, "parapet-timer")
     )

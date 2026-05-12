@@ -43,8 +43,7 @@ object Queue:
     def tryDequeue: F[Option[A]]
 
     /** Blocking attempt to take an element with an upper bound on the wait. Returns `None` if `timeout` elapses with no
-      * element available. Used by the scheduler's work-stealing nextSignal loop to periodically re-scan orphan queues
-      * (queues with no home worker) instead of blocking indefinitely on the home queue.
+      * element available.
       */
     def tryDequeue(timeout: FiniteDuration): F[Option[A]]
 
