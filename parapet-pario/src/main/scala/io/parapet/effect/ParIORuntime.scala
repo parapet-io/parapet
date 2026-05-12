@@ -11,7 +11,6 @@ import java.util.concurrent.{
   ExecutorService,
   Executors,
   Future,
-  LinkedBlockingQueue,
   ScheduledExecutorService,
   ScheduledFuture,
   SynchronousQueue,
@@ -23,10 +22,7 @@ import java.util.concurrent.{
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger, AtomicReference}
 import scala.concurrent.duration.*
 
-/** Bounded executor sized to a fixed thread count.
-  *
-  * Submissions in excess of `size` queue in an unbounded `LinkedBlockingQueue` until a thread frees up. Threads are
-  * pre-started so the first submissions don't pay creation cost.
+/** Bounded pool configuration.
   */
 final case class FixedPoolConfig(size: Int, threadNamePrefix: String):
   require(size > 0, s"pool size must be positive, got $size")
@@ -62,15 +58,7 @@ final case class ParIORuntimeConfig(
 object ParIORuntimeConfig:
   private val DefaultParallelism = math.max(2, Runtime.getRuntime.availableProcessors())
 
-  /** Default runtime:
-    *   - elastic scheduler pool with core sized to available processors so every worker can actually start (the user
-    *     may request more workers than available processors), threads time out after 60 s when idle
-    *   - fixed parallel pool sized to available processors
-    *   - fixed async pool sized to available processors
-    *   - elastic blocking pool with zero core threads and an effectively unbounded maximum
-    *   - elastic race pool with zero core threads and an effectively unbounded maximum
-    *   - one daemon timer thread
-    */
+  /** Default runtime config. */
   val default: ParIORuntimeConfig =
     ParIORuntimeConfig(
       scheduler = ElasticPoolConfig(
@@ -96,17 +84,12 @@ object ParIORuntimeConfig:
       timer = TimerThreadPoolConfig(1, "parapet-timer")
     )
 
-/** Internal helpers that construct the executors described by [[ParIORuntimeConfig]].
-  *
-  * Centralising the construction here means the "elastic" vs. "fixed" semantics are described once and every pool in
-  * the runtime is built the same way. Callers do not need to know about `SynchronousQueue`, `allowCoreThreadTimeOut`,
-  * or `prestartAllCoreThreads`.
-  */
+/** Helpers that construct the executors described by [[ParIORuntimeConfig]]. */
 private[parapet] object Pools:
 
   /** Backed by a `ThreadPoolExecutor` with a `SynchronousQueue` and `allowCoreThreadTimeOut(true)`: submissions never
     * queue, threads spawn on demand up to `maxSize`, and idle threads (including core threads) terminate after
-    * `keepAlive`. This shape is appropriate for any pool whose tasks may themselves block (sleeps, joins, nested races)
+    * `keepAlive`. This shape is appropriate for any pool whose tasks may themselves block (sleeps, joins, nested races).
     */
   def elastic(cfg: ElasticPoolConfig): ThreadPoolExecutor =
     val executor = new ThreadPoolExecutor(
@@ -122,20 +105,10 @@ private[parapet] object Pools:
     executor.prestartAllCoreThreads()
     executor
 
-  /** Fixed-size executor: equivalent to `Executors.newFixedThreadPool(cfg.size, factory)`. Submissions in excess of
-    * `cfg.size` queue in an unbounded `LinkedBlockingQueue`. All core threads are pre-started.
+  /** Fixed-size executor backed by `Executors.newFixedThreadPool`.
     */
-  def fixed(cfg: FixedPoolConfig): ThreadPoolExecutor =
-    val executor = new ThreadPoolExecutor(
-      cfg.size,
-      cfg.size,
-      0L,
-      TimeUnit.MILLISECONDS,
-      new LinkedBlockingQueue[Runnable](),
-      namedThreadFactory(cfg.threadNamePrefix)
-    )
-    executor.prestartAllCoreThreads()
-    executor
+  def fixed(cfg: FixedPoolConfig): ExecutorService =
+    Executors.newFixedThreadPool(cfg.size, namedThreadFactory(cfg.threadNamePrefix))
 
   /** Scheduled executor used for timer wake-ups. */
   def scheduled(cfg: TimerThreadPoolConfig): ScheduledExecutorService =
