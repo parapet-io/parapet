@@ -13,7 +13,7 @@ typed DSL, executed by the runtime against any compatible effect type.
 final case class Ping(n: Int) extends Event
 final case class Pong(n: Int) extends Event
 
-class Echo[F[_]](peer: ProcessRef) extends Process[F]:
+class Echo[F[_]](peer: ProcessRef[Ping]) extends Process[F, Ping | Pong]:
   import dsl.*
   override def handle: Receive =
     case Start              => Ping(0) ~> peer              // kick things off
@@ -52,7 +52,7 @@ Typical use cases:
   small set of operations.
 * **Pure actor semantics without an actor system.** Each process owns one mailbox, sees
   messages sequentially, and never shares mutable state. No `Props`, no `ActorRef`
-  casting - just a `ProcessRef` and the `~>` operator.
+  casting - just process refs and the `~>` operator.
 * **Effect-system agnostic.** Handlers are generic over `F[_]`. Parapet core defines
   the framework and required capabilities, but it does not provide or require a
   production effect runtime. Use a backend integration such as `parapet-cats-effect`,
@@ -60,7 +60,7 @@ Typical use cases:
 * **Composable handlers.** Combine partial behaviours with `and` / `or`, swap them
   at runtime with `switch`, compose supervised children with `register`.
 * **Batteries for distribution.** Pluggable transports (`parapet-net`), protobuf `WireCodec`
-  (`parapet-protocol`), a Raft module, and an integration test-kit.
+  (`parapet-protocol`), and an integration test-kit.
 * **Predictable scheduling model.** Bounded per-process mailboxes, a configurable
   scheduler, first-class failure events delivered to senders, overridable dead-letter
   and event-log hooks.
@@ -75,14 +75,12 @@ Typical use cases:
 | `parapet-pario`         | Small reference runtime for examples, tests, and learning                  |
 | `parapet-protocol`      | `WireCodec`, protobuf message definitions, and wire command vocabulary     |
 | `parapet-net`           | TCP / UDP transports and adapter processes                                 |
-| `parapet-raft`          | Raft consensus built on top of Parapet                                     |
-| `parapet-examples`      | User-facing examples and demos                                             |
-| `parapet-benchmarks`    | JMH benchmarks and scheduler/runtime stress experiments                    |
 
 ## Contents
 
 * [Getting started](#getting-started)
 * [Defining a process](#defining-a-process)
+* [Typed process refs](#typed-process-refs)
 * [Running an application](#running-an-application)
 * [DSL cheatsheet](#dsl-cheatsheet)
 * [Channel - request/response](#channel--requestresponse)
@@ -107,7 +105,6 @@ Optional modules:
 libraryDependencies += "io.parapet" %% "parapet-pario"      % version
 libraryDependencies += "io.parapet" %% "parapet-protocol"   % version
 libraryDependencies += "io.parapet" %% "parapet-net"        % version
-libraryDependencies += "io.parapet" %% "parapet-raft"       % version
 ```
 
 ## Defining a process
@@ -120,7 +117,7 @@ application boundary. A process declares its API as events and reacts to them in
 import io.parapet.{Event, ProcessRef}
 import io.parapet.core.Process
 
-class Printer[F[_]] extends Process[F]:
+class Printer[F[_]] extends Process[F, Printer.Print]:
   import Printer.*
   import dsl.*
 
@@ -138,7 +135,7 @@ import io.parapet.ProcessRef
 import io.parapet.core.Process
 import io.parapet.core.Events.Start
 
-class Greeter[F[_]](printer: ProcessRef) extends Process[F]:
+class Greeter[F[_]](printer: ProcessRef[Printer.Print]) extends Process[F, Event]:
   import dsl.*
   override def handle: Receive =
     case Start => Printer.Print("hello world") ~> printer
@@ -151,6 +148,25 @@ Notes:
 * `ProcessRef` is the address of a process; prefer it over passing `Process` instances
   around so that wiring stays late-binding.
 
+## Typed process refs
+
+Declare a process protocol with `Process[F, MyEvent]`, then pass around `ProcessRef[MyEvent]` to keep wiring explicit.
+
+```scala
+final case class Save(key: String, value: String) extends Event
+
+class Store[F[_]] extends Process[F, Save]:
+  import dsl.*
+  override def handle: Receive =
+    case Save(key, value) => eval(println(s"saved $key=$value"))
+    case Stop             => eval(println("closing store"))
+
+class Writer[F[_]](store: ProcessRef[Save]) extends Process[F, Event]:
+  import dsl.*
+  override def handle: Receive =
+    case Start => Save("hello", "world") ~> store
+```
+
 ## Running an application
 
 Specialize your application against a backend at the application boundary. For production Scala FP code, the recommended
@@ -162,7 +178,7 @@ import io.parapet.cats.CatsEffectParApp
 import io.parapet.core.Process
 
 object HelloApp extends CatsEffectParApp:
-  def processes(args: Array[String]): IO[Seq[Process[IO]]] =
+  def processes(args: Array[String]): IO[Seq[Process[IO, ?]]] =
     IO.delay {
       val printer = new Printer[IO]
       val greeter = new Greeter[IO](printer.ref)
@@ -224,11 +240,11 @@ import io.parapet.effect.Effect
 final case class Request(data: String) extends Event
 final case class Response(data: String) extends Event
 
-def server[F[_]]: Process[F] = Process[F](_ => {
+def server[F[_]]: Process[F, Request] = Process.typed[F, Request](_ => {
   case Request(data) => reply(Response(s"echo: $data"))
 })
 
-class Client[F[_]: Effect](backend: ProcessRef) extends Process[F]:
+class Client[F[_]: Effect](backend: ProcessRef[Request]) extends Process[F, Event]:
   import dsl.*
   private lazy val ch = Channel[F]()
 
@@ -253,7 +269,7 @@ import io.parapet.core.Events.{Failure, Start}
 import io.parapet.core.exceptions.EventHandlingException
 import io.parapet.core.Process
 
-val faulty = Process.builder[F](_ => {
+val faulty = Process.typedBuilder[F, Request](_ => {
   case Request(_) => eval(throw new RuntimeException("server is down"))
 }).ref(ProcessRef("server")).build
 
@@ -283,7 +299,7 @@ import io.parapet.core.Parapet.ParConfig
 
 object MyApp extends CatsEffectParApp:
   override val config: ParConfig = ParConfig.default
-    .withSchedulerConfig(_.copy(numberOfWorkers = 8, queueSize = 1 << 16))
+    .withSchedulerConfig(_.copy(numberOfWorkers = 8, queueSize = 64 * 1024))
   ...
 ```
 
