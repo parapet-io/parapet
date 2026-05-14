@@ -16,11 +16,11 @@ abstract class SwitchBehaviorSpec[F[_]] extends AnyFunSuite with IntegrationSpec
   test("switch a process  should ") {
     val eventStore = new EventStore[F, Event]
 
-    def saveEvent1: ProcessRef => PartialFunction[Event, DslF[F, Unit]] = ref => { case Event1 =>
+    def saveEvent1: ProcessRef[Event] => PartialFunction[Event, DslF[F, Unit]] = ref => { case Event1 =>
       eval(eventStore.add(ref, Event1))
     }
 
-    def saveEvent2: ProcessRef => PartialFunction[Event, DslF[F, Unit]] = ref => { case Event2 =>
+    def saveEvent2: ProcessRef[Event] => PartialFunction[Event, DslF[F, Unit]] = ref => { case Event2 =>
       eval(eventStore.add(ref, Event2))
     }
 
@@ -50,8 +50,8 @@ object SwitchBehaviorSpec {
   class TestProcess[F[_]](
       initial: PartialFunction[Event, DslF[F, Unit]],
       es: EventStore[F, Event],
-      override val ref: ProcessRef
-  ) extends Process[F] {
+      override val ref: ProcessRef[Event]
+  ) extends Process[F, Event] {
     self =>
 
     import dsl._

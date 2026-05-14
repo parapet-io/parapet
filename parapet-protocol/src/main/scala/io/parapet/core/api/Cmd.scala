@@ -27,7 +27,7 @@ sealed trait Cmd extends Event:
 /** Outbound payload for the network client; `reply`, when present, names the local process to deliver the eventual
   * response to.
   */
-final case class NetClientSend(data: Array[Byte], reply: Option[ProcessRef] = None) extends Cmd
+final case class NetClientSend(data: Array[Byte], reply: Option[ProcessRef[NetClientRep]] = None) extends Cmd
 
 /** Reply returned to the original sender of a [[NetClientSend]]; `data` is `None` on timeout or transport failure.
   */

@@ -567,7 +567,7 @@ object Scheduler:
       /** Worker-local notify signals are routed back to this worker's home queue. This keeps the wake-up local
         * (cache-friendly) and avoids adding contention on another worker's queue.
         */
-      private def enqueueNotify(ref: ProcessRef): F[Unit] =
+      private def enqueueNotify(ref: ProcessRef[?]): F[Unit] =
         homeQueue.enqueue(createNotifySignal(ref))
 
       private def releaseWithOptNotify(processState: ProcessState[F]): F[Unit] =
@@ -593,12 +593,12 @@ object Scheduler:
       ): F[Unit] =
         logger.debug(s"worker[$name]::runEffect. envelope: $envelope") >> effect0.handleErrorWith(errorHandler)
 
-      private def createNotifySignal(ref: ProcessRef): Signal =
+      private def createNotifySignal(ref: ProcessRef[?]): Signal =
         val envelope = Envelope(ProcessRef.SchedulerRef, NotifyEvent, ref)
         Signal(envelope, context.createTrace(envelope.id))
 
     private def handleError[F[_]](
-        process: Process[F],
+        process: Process[F, ?],
         envelope: Envelope,
         context: Context[F],
         interpreter: Interpreter[F],
@@ -645,16 +645,18 @@ object Scheduler:
       send(SystemRef, deadLetter, context.getProcessState(DeadLetterRef).get, interpreter, executionTrace)
 
     private def send[F[_]](
-        sender: ProcessRef,
+        sender: ProcessRef[?],
         event: Event,
         receiver: ProcessState[F],
         interpreter: Interpreter[F],
         execTrace: ExecutionTrace
     )(using effect: Effect[F], flowOps: FlowOps[F, [x] =>> Dsl[F, x]]): F[Unit] =
-      flowOps.send(sender, event, receiver.process.ref).foldMap(interpreter.interpret(sender, receiver, execTrace))
+      flowOps
+        .send(sender, event, receiver.process.ref.asInstanceOf[ProcessRef[Event]])
+        .foldMap(interpreter.interpret(sender, receiver, execTrace))
 
     private def deliverStopEvent[F[_]](
-        sender: ProcessRef,
+        sender: ProcessRef[?],
         processState: ProcessState[F],
         interpreter: Interpreter[F],
         executionTrace: ExecutionTrace
@@ -664,13 +666,13 @@ object Scheduler:
       else effect.pure(())
 
     private def stopProcess[F[_]](
-        sender: ProcessRef,
+        sender: ProcessRef[?],
         context: Context[F],
-        receiver: ProcessRef,
+        receiver: ProcessRef[?],
         interpreter: Interpreter[F],
         execTrace: ExecutionTrace,
         logger: LoggerWrapper[F],
-        onError: (ProcessRef, Throwable) => F[Unit]
+        onError: (ProcessRef[?], Throwable) => F[Unit]
     )(using effect: Effect[F], parallel: Parallel[F]): F[Boolean] =
       effect.suspend {
         val stopChildProcesses =

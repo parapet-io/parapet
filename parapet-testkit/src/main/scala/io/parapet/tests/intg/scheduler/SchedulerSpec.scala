@@ -29,13 +29,13 @@ abstract class SchedulerSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
           }
         }
 
-        val unknownProcess = new Process[F] {
+        val unknownProcess = new Process[F, Event] {
           def handle: Receive = { case _ =>
             unit
           }
         }
 
-        val client = new Process[F] {
+        val client = new Process[F, Event] {
           def handle: Receive = { case Start =>
             Request ~> unknownProcess
           }
@@ -64,13 +64,13 @@ abstract class SchedulerSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
           }
         }
 
-        val slowServer = new Process[F] {
+        val slowServer = new Process[F, Event] {
           override def handle: Receive = { case _: NamedRequest =>
             eval(while (true) {})
           }
         }
 
-        val client = new Process[F] {
+        val client = new Process[F, Event] {
           override def handle: Receive = { case Start =>
             NamedRequest("1") ~> slowServer ++
               delay(5.seconds) ++ NamedRequest("2") ~> slowServer ++ NamedRequest("3") ~> slowServer

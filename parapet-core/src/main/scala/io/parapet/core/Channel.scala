@@ -21,7 +21,8 @@ import scala.util.Try
   * @param ref
   *   optional fixed reference; defaults to a fresh UUID.
   */
-class Channel[F[_]](override val ref: ProcessRef = ProcessRef.jdkUUIDRef)(using Effect[F]) extends Process[F]:
+class Channel[F[_]](override val ref: ProcessRef[Event] = ProcessRef.jdkUUIDRef[Event])(using Effect[F])
+    extends Process[F, Event]:
   import Channel.*
   import dsl.*
 
@@ -35,7 +36,7 @@ class Channel[F[_]](override val ref: ProcessRef = ProcessRef.jdkUUIDRef)(using 
   private def waitForRequest: Receive = { case req: Request[F] =>
     eval {
       callback = req.callback
-    } ++ req.event ~> req.receiver ++ switch(waitForResponse)
+    } ++ req.event ~> req.receiver.asInstanceOf[ProcessRef[Event]] ++ switch(waitForResponse)
   }
 
   private def waitForResponse: Receive = {
@@ -72,7 +73,11 @@ class Channel[F[_]](override val ref: ProcessRef = ProcessRef.jdkUUIDRef)(using 
 
   /** @deprecated use the version without a callback. */
   @deprecated("use the version without a callback")
-  def send[A](event: Event, receiver: ProcessRef, callback: Try[Event] => DslF[F, A]): DslF[F, A] =
+  def send[A, E <: Event](
+      event: E,
+      receiver: ProcessRef[? >: E],
+      callback: Try[Event] => DslF[F, A]
+  ): DslF[F, A] =
     for
       deferred <- suspend(Deferred[F, Try[Event]]())
       _        <- Request(event, deferred, receiver) ~> ref
@@ -89,7 +94,7 @@ class Channel[F[_]](override val ref: ProcessRef = ProcessRef.jdkUUIDRef)(using 
     *   `Success(reply)` on a normal response, `Failure(throwable)` on transport error, channel closure, or remote
     *   handler failure.
     */
-  def send(event: Event, receiver: ProcessRef): DslF[F, Try[Event]] =
+  def send[E <: Event](event: E, receiver: ProcessRef[? >: E]): DslF[F, Try[Event]] =
     for
       _        <- lockProcess(ref)
       deferred <- suspend(Deferred[F, Try[Event]]())
@@ -102,7 +107,8 @@ class Channel[F[_]](override val ref: ProcessRef = ProcessRef.jdkUUIDRef)(using 
     eval {
       require(req.callback != null)
       callback = req.callback
-    } ++ debug("waitForResponse") ++ switch(waitForResponse) ++ dsl.send(ref, req.event, req.receiver)
+    } ++ debug("waitForResponse") ++ switch(waitForResponse) ++
+      dsl.send(ref, req.event, req.receiver.asInstanceOf[ProcessRef[Event]])
 
   private def debug(message: => String): DslF[F, Unit] =
     if debugMode then
@@ -130,9 +136,9 @@ object Channel:
     new Channel()
 
   /** Builds a [[Channel]] pinned to `ref`. */
-  def apply[F[_]](ref: ProcessRef)(using Effect[F]): Channel[F] =
+  def apply[F[_]](ref: ProcessRef[Event])(using Effect[F]): Channel[F] =
     new Channel(ref)
 
   /** Internal request envelope sent from [[Channel.send]] to the channel's mailbox. */
-  final private case class Request[F[_]](event: Event, callback: Deferred[F, Try[Event]], receiver: ProcessRef)
+  final private case class Request[F[_]](event: Event, callback: Deferred[F, Try[Event]], receiver: ProcessRef[?])
       extends Event

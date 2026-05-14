@@ -25,11 +25,11 @@ import scala.concurrent.duration.*
   */
 class UdpBroadcastProcess[F[_]](
     transport: DatagramTransport[F],
-    sink: ProcessRef,
+    sink: ProcessRef[UdpEvents.Message],
     pollLimit: Int = 16,
     pollDelay: FiniteDuration = 10.millis,
-    override val ref: ProcessRef = ProcessRef("net-udp-broadcast")
-) extends Process[F]:
+    override val ref: ProcessRef[UdpEvents.Send] = ProcessRef[UdpEvents.Send]("net-udp-broadcast")
+) extends Process[F, UdpEvents.Send]:
 
   import dsl._
 

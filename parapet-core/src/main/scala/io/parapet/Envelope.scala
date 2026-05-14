@@ -12,7 +12,7 @@ package io.parapet
   * @param receiver
   *   the addressed process; the scheduler routes this envelope to the mailbox identified by this ref.
   */
-final case class Envelope(sender: ProcessRef, event: Event, receiver: ProcessRef):
+final case class Envelope(sender: ProcessRef[?], event: Event, receiver: ProcessRef[?]):
   self =>
 
   /** Reserved for future tracing/debugging support; currently always `0`. */

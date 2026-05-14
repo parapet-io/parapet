@@ -18,7 +18,7 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
   "Start event" should "be delivered before client events" in {
     val expectedEventsCount = 2
     val eventStore          = new EventStore[F, Event]
-    val process             = new Process[F] {
+    val process             = new Process[F, Event] {
       def handle: Receive = {
         case Start     => eval(eventStore.add(ref, Start))
         case TestEvent => eval(eventStore.add(ref, TestEvent))
@@ -38,7 +38,7 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
     val domainEventsCount = 1
     val totalEventsCount  = 2 // domainEventsCount + Stop
     val eventStore        = new EventStore[F, Event]
-    val process           = new Process[F] {
+    val process           = new Process[F, Event] {
       def handle: Receive = {
         case TestEvent => eval(eventStore.add(ref, TestEvent))
         case Stop      => eval(eventStore.add(ref, Stop))
@@ -58,29 +58,29 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
 
     val lastProcessCreated = new AtomicBoolean()
 
-    val parent = new Process[F] {
-      override val ref: ProcessRef = ProcessRef("a")
+    val parent = new Process[F, Event] {
+      override val ref: ProcessRef[Event] = ProcessRef("a")
 
       override def handle: Receive = {
         case Start =>
           register(
             ref,
-            new Process[F] {
-              override val ref: ProcessRef = ProcessRef("b")
+            new Process[F, Event] {
+              override val ref: ProcessRef[Event] = ProcessRef("b")
 
               override def handle: Receive = {
                 case Start =>
                   register(
                     ref,
-                    new Process[F] {
-                      override val ref: ProcessRef = ProcessRef("c")
+                    new Process[F, Event] {
+                      override val ref: ProcessRef[Event] = ProcessRef("c")
 
                       override def handle: Receive = {
                         case Start =>
                           register(
                             ref,
-                            new Process[F] {
-                              override val ref: ProcessRef = ProcessRef("d")
+                            new Process[F, Event] {
+                              override val ref: ProcessRef[Event] = ProcessRef("d")
 
                               override def handle: Receive = {
                                 case Start => eval(lastProcessCreated.set(true))
@@ -124,7 +124,7 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
       })
       .build
 
-    val process: Process[F] = Process[F](ref => { case Start =>
+    val process: Process[F, Event] = Process[F](ref => { case Start =>
       register(ref, child) ++ TestEvent ~> child
     })
     unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
@@ -137,7 +137,7 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
   // todo freezing
 //  "Kill process" should "immediately terminates process and delivers Stop event" in {
 //    val eventStore = new EventStore[F, Event]
-//    val longRunningProcess: Process[F] = new Process[F] {
+//    val longRunningProcess: Process[F, Event] = new Process[F, Event] {
 //      override val ref: ProcessRef = ProcessRef("longRunningProcess")
 //
 //      override def handle: Receive = {
@@ -158,9 +158,9 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
 //  }
 
   "Stop" should "deliver Stop event and remove process" in {
-    val eventStore          = new EventStore[F, Event]
-    val process: Process[F] = new Process[F] {
-      override val ref: ProcessRef = ProcessRef("process")
+    val eventStore                 = new EventStore[F, Event]
+    val process: Process[F, Event] = new Process[F, Event] {
+      override val ref: ProcessRef[Event] = ProcessRef("process")
 
       override def handle: Receive = { case e =>
         eval(eventStore.add(ref, e))
@@ -194,7 +194,7 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
   //      }
   //    }
   //
-  //    val process: Process[F] = new Process[F] {
+  //    val process: Process[F, Event] = new Process[F, Event] {
   //      override val ref: ProcessRef = ProcessRef("process")
   //
   //      override def handle: Receive = {
@@ -216,7 +216,7 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
   //      }
   //    }
   //
-  //    val process: Process[F] = new Process[F] {
+  //    val process: Process[F, Event] = new Process[F, Event] {
   //      override def handle: Receive = {
   //        case _ => unit
   //      }

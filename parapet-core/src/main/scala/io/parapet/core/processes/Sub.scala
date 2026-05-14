@@ -14,7 +14,7 @@ import io.parapet.{Event, ProcessRef}
   * @param subs
   *   subscribers to forward events to.
   */
-class Sub[F[_]](subs: Seq[Subscription]) extends Process[F] {
+class Sub[F[_]](subs: Seq[Subscription]) extends Process[F, Event] {
 
   import dsl._
 
@@ -44,7 +44,7 @@ object Sub {
     *   partial function selecting which events qualify; defaults to "match all".
     */
   case class Subscription(
-      ref: ProcessRef,
+      ref: ProcessRef[Event],
       filter: PartialFunction[Event, Unit] = { case _ =>
         ()
       }

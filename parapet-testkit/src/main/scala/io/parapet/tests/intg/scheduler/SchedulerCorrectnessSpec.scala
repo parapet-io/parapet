@@ -7,7 +7,7 @@ import io.parapet.tests.intg.scheduler.TaskProcessingTime.*
 import io.parapet.tests.intg.scheduler.TaskSubmitter.assertEventsOrder
 import io.parapet.tests.intg.scheduler.{EventDiff, SchedulerCorrectnessSpec, SchedulerStressSpec}
 import io.parapet.testutils.EventStore
-import io.parapet.{Envelope, ProcessRef}
+import io.parapet.{Envelope, Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 import scala.util.Using
@@ -178,7 +178,7 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with Scheduler
     */
   def correctnessMatrix: Seq[StabilitySpec] = SchedulerCorrectnessSpec.correctnessMatrix
 
-  private def groupEventsByProcess(tasks: Seq[Deliver[F]]): Map[ProcessRef, Seq[io.parapet.Event]] =
+  private def groupEventsByProcess(tasks: Seq[Deliver[F]]): Map[ProcessRef[?], Seq[io.parapet.Event]] =
     tasks.groupBy(t => t.envelope.receiver).view.mapValues(_.map(_.envelope.event)).toMap
 }
 

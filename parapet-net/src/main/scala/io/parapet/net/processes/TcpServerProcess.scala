@@ -21,9 +21,9 @@ import io.parapet.{ProcessRef, core}
   */
 class TcpServerProcess[F[_]](
     server: RequestResponseServer[F],
-    sink: ProcessRef,
-    override val ref: ProcessRef = ProcessRef("net-tcp-server")
-) extends Process[F]:
+    sink: ProcessRef[Cmd.netServer.Message],
+    override val ref: ProcessRef[Cmd.netServer.Send] = ProcessRef[Cmd.netServer.Send]("net-tcp-server")
+) extends Process[F, Cmd.netServer.Send]:
 
   import dsl._
 

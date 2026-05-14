@@ -8,4 +8,4 @@ package io.parapet.core.processes
   * @param state
   *   initial state; the subclass owns its mutation discipline.
   */
-abstract class ProcessWithState[F[_], S](state: S) extends io.parapet.core.Process[F]
+abstract class ProcessWithState[F[_], S](state: S) extends io.parapet.core.Process[F, io.parapet.Event]

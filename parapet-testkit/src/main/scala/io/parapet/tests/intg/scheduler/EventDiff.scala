@@ -14,7 +14,7 @@ final case class EventDiff(
     duplicates: Seq[(TestEvent, Int)],
     unexpected: Seq[TestEvent],
     orderingBreaks: Seq[EventDiff.OrderingBreak],
-    perReceiver: Map[ProcessRef, EventDiff.Counts]
+    perReceiver: Map[ProcessRef[?], EventDiff.Counts]
 ) {
 
   /** True if there is no diff.
@@ -45,7 +45,7 @@ object EventDiff {
     *   that never arrived.
     */
   final case class OrderingBreak(
-      receiver: ProcessRef,
+      receiver: ProcessRef[?],
       submitterId: Int,
       index: Int,
       expected: Option[TestEvent],
@@ -99,14 +99,14 @@ object EventDiff {
       tasks: Seq[Deliver[F]],
       eventStore: EventStore[F, TestEvent]
   ): Seq[OrderingBreak] = {
-    val submittedByPair: Map[(ProcessRef, Int), Seq[TestEvent]] =
+    val submittedByPair: Map[(ProcessRef[?], Int), Seq[TestEvent]] =
       tasks
         .groupBy(t => (t.envelope.receiver, TestEvent.cast(t.envelope.event).submitterId))
         .view
         .mapValues(_.map(t => TestEvent.cast(t.envelope.event)))
         .toMap
 
-    val observedByPair: Map[(ProcessRef, Int), Seq[TestEvent]] =
+    val observedByPair: Map[(ProcessRef[?], Int), Seq[TestEvent]] =
       eventStore.groupBy((r, e) => (r, e.submitterId))
 
     (submittedByPair.keySet | observedByPair.keySet).toSeq
@@ -124,8 +124,8 @@ object EventDiff {
   private def computePerReceiverCounts[F[_]](
       tasks: Seq[Deliver[F]],
       eventStore: EventStore[F, TestEvent]
-  ): Map[ProcessRef, Counts] = {
-    val submittedCountByReceiver: Map[ProcessRef, Int] =
+  ): Map[ProcessRef[?], Counts] = {
+    val submittedCountByReceiver: Map[ProcessRef[?], Int] =
       tasks.groupBy(_.envelope.receiver).view.mapValues(_.size).toMap
     submittedCountByReceiver.iterator.map { case (ref, expected) =>
       ref -> Counts(expected, eventStore.count(ref))

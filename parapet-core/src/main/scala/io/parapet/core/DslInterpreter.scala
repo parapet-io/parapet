@@ -21,16 +21,16 @@ object DslInterpreter:
     */
   trait Interpreter[F[_]]:
     /** Interprets ops in the context of `target`, allocating a fresh trace. */
-    def interpret(sender: ProcessRef, target: ProcessRef): ([x] =>> FlowOp[F, x]) ~> F
+    def interpret(sender: ProcessRef[?], target: ProcessRef[?]): ([x] =>> FlowOp[F, x]) ~> F
 
     /** Interprets ops in the context of `target` reusing `execTrace` for causal id. */
-    def interpret(sender: ProcessRef, target: ProcessRef, execTrace: ExecutionTrace): ([x] =>> FlowOp[F, x]) ~> F
+    def interpret(sender: ProcessRef[?], target: ProcessRef[?], execTrace: ExecutionTrace): ([x] =>> FlowOp[F, x]) ~> F
 
     /** Interprets ops directly against a known [[ProcessState]] - the form used by the scheduler hot path so it can
       * avoid an extra registry lookup.
       */
     def interpret(
-        sender: ProcessRef,
+        sender: ProcessRef[?],
         processState: ProcessState[F],
         execTrace: ExecutionTrace
     ): ([x] =>> FlowOp[F, x]) ~> F
@@ -43,14 +43,15 @@ object DslInterpreter:
     * [[EventTransformer]] before enqueueing.
     */
   final class Impl[F[_]](context: Context[F])(using effect: Effect[F]) extends Interpreter[F]:
-    def interpret(sender: ProcessRef, target: ProcessRef): ([x] =>> FlowOp[F, x]) ~> F =
+    def interpret(sender: ProcessRef[?], target: ProcessRef[?]): ([x] =>> FlowOp[F, x]) ~> F =
       interpret(sender, target, context.createTrace)
 
-    def interpret(sender: ProcessRef, target: ProcessRef, execTrace: ExecutionTrace): ([x] =>> FlowOp[F, x]) ~> F =
+    def interpret(sender: ProcessRef[?], target: ProcessRef[?], execTrace: ExecutionTrace): ([x] =>> FlowOp[F, x]) ~>
+      F =
       interpret(sender, context.getProcessState(target).get, execTrace)
 
     def interpret(
-        sender: ProcessRef,
+        sender: ProcessRef[?],
         processState: ProcessState[F],
         execTrace: ExecutionTrace
     ): ([x] =>> FlowOp[F, x]) ~> F =
@@ -74,8 +75,8 @@ object DslInterpreter:
 
             case WithSender(runWithSender) =>
               runWithSender
-                .asInstanceOf[ProcessRef => DslF[F, A]]
-                .apply(sender)
+                .asInstanceOf[ProcessRef[Event] => DslF[F, A]]
+                .apply(sender.asInstanceOf[ProcessRef[Event]])
                 .foldMap(interpret(sender, processState, execTrace))
 
             case Forward(event, receivers) =>
@@ -134,7 +135,7 @@ object DslInterpreter:
                 _ <- processState.offloads.add(fiber, done)
               yield ().asInstanceOf[A]
 
-            case Register(parent, process: Process[F] @unchecked) =>
+            case Register(parent, process: Process[F, ?] @unchecked) =>
               context.registerAndStart(parent, process).void
 
             case RaiseError(error) =>
@@ -168,9 +169,9 @@ object DslInterpreter:
                   .void
 
     private def send(
-        sender: ProcessRef,
+        sender: ProcessRef[?],
         eventThunk: () => Event,
-        receiver: ProcessRef,
+        receiver: ProcessRef[?],
         execTrace: ExecutionTrace
     ): F[Unit] =
       effect.suspend {

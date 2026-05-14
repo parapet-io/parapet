@@ -45,9 +45,9 @@ class Context[F[_]](
   /** Convenience accessor for [[Parapet.ParConfig.tracingEnabled]]. */
   val tracingEnabled: Boolean = config.tracingEnabled
 
-  private val processes = java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessState[F]]()
-  private val graph     = java.util.concurrent.ConcurrentHashMap[ProcessRef, ListBuffer[ProcessRef]]()
-  private val parents   = java.util.concurrent.ConcurrentHashMap[ProcessRef, ProcessRef]()
+  private val processes = java.util.concurrent.ConcurrentHashMap[ProcessRef[?], ProcessState[F]]()
+  private val graph     = java.util.concurrent.ConcurrentHashMap[ProcessRef[?], ListBuffer[ProcessRef[?]]]()
+  private val parents   = java.util.concurrent.ConcurrentHashMap[ProcessRef[?], ProcessRef[?]]()
   private val eventLog  = EventLog()
 
   private var scheduler: Scheduler[F] = _
@@ -82,7 +82,7 @@ class Context[F[_]](
     * @throws io.parapet.core.exceptions.UnknownProcessException
     *   if `parent` is not registered.
     */
-  def register(parent: ProcessRef, child: Process[F]): F[ProcessRef] =
+  def register(parent: ProcessRef[?], child: Process[F, ?]): F[ProcessRef[?]] =
     effect.suspend {
       if !processes.containsKey(parent) then
         effect.raiseError(UnknownProcessException(s"process cannot be registered because parent $parent doesn't exist"))
@@ -106,45 +106,45 @@ class Context[F[_]](
     }
 
   /** Direct children of `parent` in the supervision graph. */
-  def child(parent: ProcessRef): Vector[ProcessRef] =
+  def child(parent: ProcessRef[?]): Vector[ProcessRef[?]] =
     graph.getOrDefault(parent, ListBuffer.empty).toVector
 
   /** Combination of [[register]] and dispatch of the initial [[Events.Start]] event. */
-  def registerAndStart(parent: ProcessRef, process: Process[F]): F[SubmissionResult] =
+  def registerAndStart(parent: ProcessRef[?], process: Process[F, ?]): F[SubmissionResult] =
     register(parent, process) >> sendStartEvent(process.ref)
 
-  private def sendStartEvent(processRef: ProcessRef): F[SubmissionResult] =
+  private def sendStartEvent(processRef: ProcessRef[?]): F[SubmissionResult] =
     val envelope = Envelope(ProcessRef.SystemRef, Start, processRef)
     scheduler.submit(Deliver(envelope, createTrace(envelope.id)))
 
   /** Registers a batch of root processes (parented to [[ProcessRef.SystemRef]]) and starts each.
     */
-  def registerAll(processes0: List[Process[F]]): F[List[ProcessRef]] =
+  def registerAll(processes0: List[Process[F, ?]]): F[List[ProcessRef[?]]] =
     registerAll(ProcessRef.SystemRef, processes0)
 
   /** Registers and starts each of `processes0` under `parent`. */
-  def registerAll(parent: ProcessRef, processes0: List[Process[F]]): F[List[ProcessRef]] =
+  def registerAll(parent: ProcessRef[?], processes0: List[Process[F, ?]]): F[List[ProcessRef[?]]] =
     for
       refs   <- Monad.sequence(processes0.map(register(parent, _)))
       result <- Monad.sequence(refs.map(ref => sendStartEvent(ref).as(ref)))
     yield result
 
   /** Snapshot of every [[Process]] currently registered (system + user). */
-  def getProcesses: List[Process[F]] =
+  def getProcesses: List[Process[F, ?]] =
     processes.values().asScala.map(_.process).toList
 
   /** Looks up a process by ref. */
-  def getProcess(ref: ProcessRef): Option[Process[F]] =
+  def getProcess(ref: ProcessRef[?]): Option[Process[F, ?]] =
     getProcessState(ref).map(_.process)
 
   /** Looks up the runtime state (mailbox + lifecycle flags) of a process. */
-  def getProcessState(ref: ProcessRef): Option[ProcessState[F]] =
+  def getProcessState(ref: ProcessRef[?]): Option[ProcessState[F]] =
     Option(processes.get(ref))
 
   /** Marks the process as terminated, completing its termination signal. Returns `true` if this call was the one that
     * flipped the flag (idempotent across concurrent callers).
     */
-  def interrupt(ref: ProcessRef): F[Boolean] =
+  def interrupt(ref: ProcessRef[?]): F[Boolean] =
     getProcessState(ref) match
       case Some(state) => state.terminate
       case None        => effect.pure(false)
@@ -152,7 +152,7 @@ class Context[F[_]](
   /** Removes the process from the registry and detaches it from its parent in the supervision graph. Returns `true` if
     * a process was actually removed.
     */
-  def remove(ref: ProcessRef): F[Boolean] =
+  def remove(ref: ProcessRef[?]): F[Boolean] =
     effect.delay {
       graph.computeIfPresent(parents.get(ref), (_, values) => values -= ref)
       processes.remove(ref) != null
@@ -254,7 +254,7 @@ object Context:
     */
   final class ProcessState[F[_]](
       queue: TaskQueue[F],
-      val process: Process[F],
+      val process: Process[F, ?],
       val terminationSignal: Deferred[F, Unit]
   )(using effect: Effect[F]):
 
@@ -372,7 +372,7 @@ object Context:
     /** Builds a fresh [[ProcessState]], honoring the process's overridden mailbox size or falling back to the global
       * default.
       */
-    def apply[F[_]](process: Process[F], config: Parapet.ParConfig)(using effect: Effect[F]): F[ProcessState[F]] =
+    def apply[F[_]](process: Process[F, ?], config: Parapet.ParConfig)(using effect: Effect[F]): F[ProcessState[F]] =
       val processBufferSize =
         if process.bufferSize != -1 then process.bufferSize else config.processBufferSize
 
