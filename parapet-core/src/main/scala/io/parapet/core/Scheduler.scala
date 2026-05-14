@@ -567,7 +567,7 @@ object Scheduler:
       /** Worker-local notify signals are routed back to this worker's home queue. This keeps the wake-up local
         * (cache-friendly) and avoids adding contention on another worker's queue.
         */
-      private def enqueueNotify(ref: ProcessRef[?]): F[Unit] =
+      private def enqueueNotify(ref: ProcessRef.Unknown): F[Unit] =
         homeQueue.enqueue(createNotifySignal(ref))
 
       private def releaseWithOptNotify(processState: ProcessState[F]): F[Unit] =
@@ -593,7 +593,7 @@ object Scheduler:
       ): F[Unit] =
         logger.debug(s"worker[$name]::runEffect. envelope: $envelope") >> effect0.handleErrorWith(errorHandler)
 
-      private def createNotifySignal(ref: ProcessRef[?]): Signal =
+      private def createNotifySignal(ref: ProcessRef.Unknown): Signal =
         val envelope = Envelope(ProcessRef.SchedulerRef, NotifyEvent, ref)
         Signal(envelope, context.createTrace(envelope.id))
 
@@ -645,7 +645,7 @@ object Scheduler:
       send(SystemRef, deadLetter, context.getProcessState(DeadLetterRef).get, interpreter, executionTrace)
 
     private def send[F[_]](
-        sender: ProcessRef[?],
+        sender: ProcessRef.Unknown,
         event: Event,
         receiver: ProcessState[F],
         interpreter: Interpreter[F],
@@ -656,7 +656,7 @@ object Scheduler:
         .foldMap(interpreter.interpret(sender, receiver, execTrace))
 
     private def deliverStopEvent[F[_]](
-        sender: ProcessRef[?],
+        sender: ProcessRef.Unknown,
         processState: ProcessState[F],
         interpreter: Interpreter[F],
         executionTrace: ExecutionTrace
@@ -666,13 +666,13 @@ object Scheduler:
       else effect.pure(())
 
     private def stopProcess[F[_]](
-        sender: ProcessRef[?],
+        sender: ProcessRef.Unknown,
         context: Context[F],
-        receiver: ProcessRef[?],
+        receiver: ProcessRef.Unknown,
         interpreter: Interpreter[F],
         execTrace: ExecutionTrace,
         logger: LoggerWrapper[F],
-        onError: (ProcessRef[?], Throwable) => F[Unit]
+        onError: (ProcessRef.Unknown, Throwable) => F[Unit]
     )(using effect: Effect[F], parallel: Parallel[F]): F[Boolean] =
       effect.suspend {
         val stopChildProcesses =

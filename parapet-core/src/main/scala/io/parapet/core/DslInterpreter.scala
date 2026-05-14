@@ -21,16 +21,20 @@ object DslInterpreter:
     */
   trait Interpreter[F[_]]:
     /** Interprets ops in the context of `target`, allocating a fresh trace. */
-    def interpret(sender: ProcessRef[?], target: ProcessRef[?]): ([x] =>> FlowOp[F, x]) ~> F
+    def interpret(sender: ProcessRef.Unknown, target: ProcessRef.Unknown): ([x] =>> FlowOp[F, x]) ~> F
 
     /** Interprets ops in the context of `target` reusing `execTrace` for causal id. */
-    def interpret(sender: ProcessRef[?], target: ProcessRef[?], execTrace: ExecutionTrace): ([x] =>> FlowOp[F, x]) ~> F
+    def interpret(
+        sender: ProcessRef.Unknown,
+        target: ProcessRef.Unknown,
+        execTrace: ExecutionTrace
+    ): ([x] =>> FlowOp[F, x]) ~> F
 
     /** Interprets ops directly against a known [[ProcessState]] - the form used by the scheduler hot path so it can
       * avoid an extra registry lookup.
       */
     def interpret(
-        sender: ProcessRef[?],
+        sender: ProcessRef.Unknown,
         processState: ProcessState[F],
         execTrace: ExecutionTrace
     ): ([x] =>> FlowOp[F, x]) ~> F
@@ -43,15 +47,18 @@ object DslInterpreter:
     * [[EventTransformer]] before enqueueing.
     */
   final class Impl[F[_]](context: Context[F])(using effect: Effect[F]) extends Interpreter[F]:
-    def interpret(sender: ProcessRef[?], target: ProcessRef[?]): ([x] =>> FlowOp[F, x]) ~> F =
+    def interpret(sender: ProcessRef.Unknown, target: ProcessRef.Unknown): ([x] =>> FlowOp[F, x]) ~> F =
       interpret(sender, target, context.createTrace)
 
-    def interpret(sender: ProcessRef[?], target: ProcessRef[?], execTrace: ExecutionTrace): ([x] =>> FlowOp[F, x]) ~>
-      F =
+    def interpret(
+        sender: ProcessRef.Unknown,
+        target: ProcessRef.Unknown,
+        execTrace: ExecutionTrace
+    ): ([x] =>> FlowOp[F, x]) ~> F =
       interpret(sender, context.getProcessState(target).get, execTrace)
 
     def interpret(
-        sender: ProcessRef[?],
+        sender: ProcessRef.Unknown,
         processState: ProcessState[F],
         execTrace: ExecutionTrace
     ): ([x] =>> FlowOp[F, x]) ~> F =
@@ -169,9 +176,9 @@ object DslInterpreter:
                   .void
 
     private def send(
-        sender: ProcessRef[?],
+        sender: ProcessRef.Unknown,
         eventThunk: () => Event,
-        receiver: ProcessRef[?],
+        receiver: ProcessRef.Unknown,
         execTrace: ExecutionTrace
     ): F[Unit] =
       effect.suspend {

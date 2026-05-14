@@ -15,7 +15,7 @@ package object exceptions {
   object UnknownProcessException {
 
     /** Convenience constructor producing a standard message for `ref`. */
-    def apply(ref: ProcessRef[?]): UnknownProcessException =
+    def apply(ref: ProcessRef.Unknown): UnknownProcessException =
       new UnknownProcessException(s"process: '$ref' doesn't exist")
   }
 
@@ -45,7 +45,7 @@ package object exceptions {
   object ProcessStoppedException {
 
     /** Convenience constructor producing a standard message for `ref`. */
-    def apply(ref: ProcessRef[?]): ProcessStoppedException =
+    def apply(ref: ProcessRef.Unknown): ProcessStoppedException =
       new ProcessStoppedException(s"process: '$ref' is already stopped")
   }
 

@@ -109,7 +109,7 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
   /** Registers a per-process [[EventTransformer]] that intercepts events on their way to `ref`. Multiple transformers
     * compose in registration order.
     */
-  def eventTransformer(ref: ProcessRef[?], transformer: EventTransformer): Unit =
+  def eventTransformer(ref: ProcessRef.Unknown, transformer: EventTransformer): Unit =
     eventTransformers.add(ref, transformer)
 
   /** Boots the runtime end-to-end: builds the [[Context]] and [[Scheduler]], registers the user processes plus the

@@ -140,5 +140,5 @@ object Channel:
     new Channel(ref)
 
   /** Internal request envelope sent from [[Channel.send]] to the channel's mailbox. */
-  final private case class Request[F[_]](event: Event, callback: Deferred[F, Try[Event]], receiver: ProcessRef[?])
+  final private case class Request[F[_]](event: Event, callback: Deferred[F, Try[Event]], receiver: ProcessRef.Unknown)
       extends Event

@@ -22,6 +22,14 @@ final case class ProcessRef[-I <: Event](private[parapet] val value: String):
 
 /** Factory and well-known [[ProcessRef]] constants reserved by the parapet runtime. */
 object ProcessRef:
+
+  /** A ref whose accepted event protocol is intentionally unknown.
+    *
+    * Use `Unknown` when code only needs to carry, compare, log, or route a process address. It is not meant for
+    * user-level sends; APIs that send events should require a typed `ProcessRef[In]` instead.
+    */
+  type Unknown = ProcessRef[?]
+
   /** Prefix used by all built-in references to keep the runtime namespace distinct from application-defined refs.
     */
   val ParapetPrefix = "parapet"
