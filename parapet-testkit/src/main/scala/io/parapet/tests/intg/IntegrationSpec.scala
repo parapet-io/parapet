@@ -8,11 +8,11 @@ import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.effect.{Effect, EffectFiber}
 import io.parapet.effect.Monad.*
 import io.parapet.syntax.FlowSyntax
-import io.parapet.{ParApp, ProcessRef}
+import io.parapet.{Event, ParApp, ProcessRef}
 
 trait IntegrationSpec[F[_]] extends WithDsl[F] with FlowSyntax[F] with ParApp[F] {
 
-  final val TestSystemRef = ProcessRef(s"${ProcessRef.ParapetPrefix}-test-system")
+  final val TestSystemRef: ProcessRef[Event] = ProcessRef(s"${ProcessRef.ParapetPrefix}-test-system")
 
   protected object ct {
     def pure[A](value: A): F[A] =
@@ -43,12 +43,12 @@ trait IntegrationSpec[F[_]] extends WithDsl[F] with FlowSyntax[F] with ParApp[F]
   }
 
   def createApp(
-      processes0: F[Seq[Process[F]]],
+      processes0: F[Seq[Process[F, ?]]],
       deadLetter0: Option[F[DeadLetterProcess[F]]] = None,
       config0: ParConfig = ParConfig.default
   ): ParApp[F]
 
-  def onStart(program: DslF[F, Unit]): Process[F] =
+  def onStart(program: DslF[F, Unit]): Process[F, Event] =
     Process
       .builder[F](_ => { case Start =>
         program

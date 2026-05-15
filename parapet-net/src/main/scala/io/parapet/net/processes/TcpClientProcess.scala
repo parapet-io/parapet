@@ -19,8 +19,8 @@ import io.parapet.{ProcessRef, core}
   */
 class TcpClientProcess[F[_]](
     client: RequestResponseClient[F],
-    override val ref: ProcessRef = ProcessRef("net-tcp-client")
-) extends Process[F]:
+    override val ref: ProcessRef[Cmd.netClient.Send] = ProcessRef[Cmd.netClient.Send]("net-tcp-client")
+) extends Process[F, Cmd.netClient.Send]:
 
   import dsl._
 

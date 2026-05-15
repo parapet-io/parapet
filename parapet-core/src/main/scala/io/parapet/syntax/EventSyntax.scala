@@ -12,28 +12,30 @@ import io.parapet.{Event, ProcessRef}
   * }}}
   */
 trait EventSyntax[F[_]]:
-  extension (event: Event)
+  extension [E <: Event](event: E)
     /** Sends `event` to `process`. */
-    def ~>(process: ProcessRef): DslF[F, Unit] =
+    def ~>(process: ProcessRef[? >: E]): DslF[F, Unit] =
       EventSyntax.send(List(event), process)
 
     /** Sends `event` to `process.ref`. */
-    def ~>(process: Process[F]): DslF[F, Unit] =
+    def ~>(process: Process[F, ? >: E <: Event]): DslF[F, Unit] =
       EventSyntax.send(List(event), process.ref)
 
-  extension (events: Seq[Event])
+  extension [E <: Event](events: Seq[E])
     /** Sends each of `events`, in order, to `process`. */
-    def ~>(process: ProcessRef): DslF[F, Unit] =
+    def ~>(process: ProcessRef[? >: E]): DslF[F, Unit] =
       EventSyntax.send(events, process)
 
     /** Sends each of `events`, in order, to `process.ref`. */
-    def ~>(process: Process[F]): DslF[F, Unit] =
+    def ~>(process: Process[F, ? >: E]): DslF[F, Unit] =
       EventSyntax.send(events, process.ref)
 
 /** Implementation backing [[EventSyntax]]. */
 object EventSyntax:
   /** Sequential helper: sends `events` to `processRef` one after another. */
-  def send[F[_]](events: Seq[Event], processRef: ProcessRef)(using dsl: FlowOps[F, [x] =>> Dsl[F, x]]): DslF[F, Unit] =
+  def send[F[_], E <: Event](events: Seq[E], processRef: ProcessRef[? >: E])(using
+      dsl: FlowOps[F, [x] =>> Dsl[F, x]]
+  ): DslF[F, Unit] =
     events.toList match
       case Nil          => dsl.unit
       case head :: tail =>

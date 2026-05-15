@@ -22,11 +22,11 @@ import scala.util.Try
   * @param timeout
   *   maximum time to wait for a satisfying event before responding with `Result(None)`.
   */
-class Cond[F[_]](predicate: Event => Boolean, timeout: FiniteDuration)(using Effect[F]) extends Process[F]:
+class Cond[F[_]](predicate: Event => Boolean, timeout: FiniteDuration)(using Effect[F]) extends Process[F, Event]:
   import dsl.*
 
-  private val done                = new AtomicBoolean()
-  private var replyTo: ProcessRef = _
+  private val done                       = new AtomicBoolean()
+  private var replyTo: ProcessRef[Event] = _
 
   override def handle: Receive = {
     case Start =>

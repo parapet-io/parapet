@@ -33,7 +33,7 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
       .ref(ProcessRef("server"))
       .build
 
-    val client: Process[F] = new Process[F] {
+    val client: Process[F, Event] = new Process[F, Event] {
       override val name = "client"
       override val ref  = ProcessRef("client")
       var seq           = 0
@@ -77,8 +77,8 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
 
     val ch = Channel[F]
 
-    val server = new Process[F] {
-      override val ref: ProcessRef = serverRef
+    val server = new Process[F, Event] {
+      override val ref: ProcessRef[Event] = serverRef
 
       override def handle: Receive = { case req @ Request(seq) =>
         withSender { sender =>
@@ -88,8 +88,8 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
       }
     }
 
-    val client = new Process[F] {
-      override val ref: ProcessRef = clientRef
+    val client = new Process[F, Event] {
+      override val ref: ProcessRef[Event] = clientRef
 
       override def handle: Receive = { case Start =>
         flow {

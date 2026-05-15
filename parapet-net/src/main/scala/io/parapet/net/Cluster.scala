@@ -22,7 +22,7 @@ final case class MemberId(value: String) extends AnyVal
   */
 final case class ClusterMember(
     id: MemberId,
-    process: ProcessRef,
+    process: ProcessRef[io.parapet.Event],
     addresses: Map[TransportProtocol, NetworkAddress],
     groups: Set[GroupId] = Set.empty
 )

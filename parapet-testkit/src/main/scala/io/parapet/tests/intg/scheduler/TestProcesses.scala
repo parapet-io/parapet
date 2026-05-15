@@ -1,5 +1,6 @@
 package io.parapet.tests.intg.scheduler
 
+import io.parapet.Event
 import io.parapet.core.Process
 import io.parapet.testutils.EventStore
 
@@ -9,7 +10,7 @@ import scala.concurrent.duration.FiniteDuration
   */
 object TestProcesses {
 
-  def dummy[F[_]]: Process[F] = new Process[F] {
+  def dummy[F[_]]: Process[F, Event] = new Process[F, Event] {
     import dsl._
     override val handle: Receive = { case _ => unit }
   }
@@ -27,8 +28,8 @@ object TestProcesses {
       eventStore: EventStore[F, TestEvent],
       time: FiniteDuration = TaskProcessingTime.instant.time,
       blockingHandler: Boolean
-  ): Process[F] =
-    new Process[F] {
+  ): Process[F, Event] =
+    new Process[F, Event] {
       import dsl._
       val handle: Receive = { case e: TestEvent =>
         val body = delay(time) ++ eval(eventStore.add(ref, e))
@@ -52,8 +53,8 @@ object TestProcesses {
       workload: WorkloadProfile,
       eventStore: EventStore[F, TestEvent],
       blockingRatio: Double = 0.0
-  ): Array[Process[F]] = {
-    val processes = new Array[Process[F]](n)
+  ): Array[Process[F, Event]] = {
+    val processes = new Array[Process[F, Event]](n)
     val blocking  = blockingIndexes(n, blockingRatio)
     (0 until n).foreach { i =>
       processes(i) = create(eventStore, WorkloadProfile.timeFor(workload, i, n).time, blocking.contains(i))

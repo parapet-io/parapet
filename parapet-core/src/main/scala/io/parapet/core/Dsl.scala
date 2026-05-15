@@ -46,14 +46,14 @@ object Dsl:
     */
   final case class Send[F[_]](
       event: () => Event,
-      sender: Option[ProcessRef],
-      receiver: ProcessRef,
-      receivers: Seq[ProcessRef]
+      sender: Option[ProcessRef.Unknown],
+      receiver: ProcessRef.Unknown,
+      receivers: Seq[ProcessRef.Unknown]
   ) extends FlowOp[F, Unit]
 
   /** Re-emits `event` to `receivers` while preserving the original sender of the event currently being handled.
     */
-  final case class Forward[F[_]](event: () => Event, receivers: Seq[ProcessRef]) extends FlowOp[F, Unit]
+  final case class Forward[F[_]](event: () => Event, receivers: Seq[ProcessRef.Unknown]) extends FlowOp[F, Unit]
 
   /** Runs `flow` concurrently and waits for it to finish. */
   final case class Par[F[_], G[_]](flow: Free[G, Unit]) extends FlowOp[F, Unit]
@@ -63,7 +63,7 @@ object Dsl:
 
   /** Provides the current sender's [[ProcessRef]] to the body. Useful for replying inside a handler.
     */
-  final case class WithSender[F[_], G[_], A](f: ProcessRef => Free[G, A]) extends FlowOp[F, A]
+  final case class WithSender[F[_], G[_], A](f: ProcessRef[Event] => Free[G, A]) extends FlowOp[F, A]
 
   /** Forks `flow` as a [[Fiber]] that runs concurrently; the fiber handle is returned for later join/cancel.
     */
@@ -71,7 +71,7 @@ object Dsl:
 
   /** Registers `child` as a sub-process of `parent`, integrating it into the supervision graph.
     */
-  final case class Register[F[_]](parent: ProcessRef, child: Process[F]) extends FlowOp[F, Unit]
+  final case class Register[F[_]](parent: ProcessRef.Unknown, child: Process[F, ?]) extends FlowOp[F, Unit]
 
   /** Races `first` against `second` and returns whichever wins, cancelling the loser. */
   final case class Race[F[_], G[_], A, B](first: Free[G, A], second: Free[G, B]) extends FlowOp[F, Either[A, B]]
@@ -102,17 +102,17 @@ object Dsl:
       extends FlowOp[F, B]
 
   /** Stops the process identified by `ref`, cascading to its descendants. */
-  final case class Halt[F[_]](ref: ProcessRef) extends FlowOp[F, Unit]
+  final case class Halt[F[_]](ref: ProcessRef.Unknown) extends FlowOp[F, Unit]
 
   /** Runs `fa` and guarantees `finalizer` runs afterwards regardless of success or failure. */
   final case class Guarantee[F[_], G[_], A](fa: () => Free[G, A], finalizer: () => Free[G, Unit])
       extends FlowOp[F, Unit]
 
   /** Acquires the per-process lock for `ref` (cooperative mutual exclusion). */
-  final case class Lock[F[_]](ref: ProcessRef) extends FlowOp[F, Unit]
+  final case class Lock[F[_]](ref: ProcessRef.Unknown) extends FlowOp[F, Unit]
 
   /** Releases a previously acquired [[Lock]]. */
-  final case class Unlock[F[_]](ref: ProcessRef) extends FlowOp[F, Unit]
+  final case class Unlock[F[_]](ref: ProcessRef.Unknown) extends FlowOp[F, Unit]
 
   /** Smart constructors for the [[FlowOp]] algebra.
     *
@@ -212,7 +212,11 @@ object Dsl:
       * Seq(e1, e2, e3) ~> processA  // batch in order
       * }}}
       */
-    def send(event: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
+    def send[E <: Event](
+        event: => E,
+        receiver: ProcessRef[? >: E],
+        other: ProcessRef[? >: E]*
+    ): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Send[F](() => event, None, receiver, other))
 
     /** Sends `event` impersonating `sender`. Reserved for runtime-internal re-routing.
@@ -220,7 +224,12 @@ object Dsl:
       * Misuse breaks sender attribution and is rejected by [[io.parapet.core.processes.SystemProcess]].
       */
     @developerApi
-    def send(sender: ProcessRef, event: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
+    def send[E <: Event](
+        sender: ProcessRef.Unknown,
+        event: => E,
+        receiver: ProcessRef[? >: E],
+        other: ProcessRef[? >: E]*
+    ): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Send[F](() => event, Some(sender), receiver, other))
 
     /** Forwards `event` to `receiver` (and `other`) while preserving the sender of the event currently being handled -
@@ -244,7 +253,11 @@ object Dsl:
       *
       * Console output: `client-proxy-ping`
       */
-    def forward(event: => Event, receiver: ProcessRef, other: ProcessRef*): Free[C, Unit] =
+    def forward[E <: Event](
+        event: => E,
+        receiver: ProcessRef[? >: E],
+        other: ProcessRef[? >: E]*
+    ): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Forward[F](() => event, receiver +: other))
 
     /** Runs the given `flows` in parallel and returns their [[Fiber]] handles for later `join` / `cancel`.
@@ -307,7 +320,7 @@ object Dsl:
       *
       * Console output: `client says hello`
       */
-    def withSender[A](f: ProcessRef => Free[C, A]): Free[C, A] =
+    def withSender[A](f: ProcessRef[Event] => Free[C, A]): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](WithSender[F, C, A](f))
 
     /** Sends `event` back to the sender of the message currently being handled. Sugar for `withSender(event ~> _)`.
@@ -397,7 +410,7 @@ object Dsl:
       * stop server
       * }}}
       */
-    def register(parent: ProcessRef, child: Process[F]*): Free[C, Unit] =
+    def register(parent: ProcessRef.Unknown, child: Process[F, ?]*): Free[C, Unit] =
       child
         .map(process => Free.inject[[x] =>> FlowOp[F, x], C, Unit](Register(parent, process)))
         .foldLeft(unit) { (result, next) =>
@@ -523,7 +536,7 @@ object Dsl:
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Guarantee[F, C, A](() => fa, () => finalizer))
 
     /** Stops the process identified by `ref` and any descendants. */
-    def halt(ref: ProcessRef): Free[C, Unit] =
+    def halt(ref: ProcessRef.Unknown): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Halt[F](ref))
 
     private def sequence[A](values: List[Free[C, A]]): Free[C, List[A]] =
@@ -555,13 +568,13 @@ object Dsl:
       * This is not a general-purpose application mutex. It is intended for runtime helpers that need to coordinate
       * directly with the scheduler's process-serialization machinery.
       */
-    def lockProcess(ref: ProcessRef): Free[C, Unit] =
+    def lockProcess(ref: ProcessRef.Unknown): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Lock[F](ref))
 
     /** Releases the runtime per-process delivery lock for `ref`, and re-notifies the scheduler to resume draining that
       * process mailbox.
       */
-    def unlockProcess(ref: ProcessRef): Free[C, Unit] =
+    def unlockProcess(ref: ProcessRef.Unknown): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Unlock[F](ref))
 
   private[core] object RuntimeOps:

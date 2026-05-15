@@ -22,7 +22,7 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
 
         val faultyServer = createFaultyServer[F]
 
-        val client = new Process[F] {
+        val client = new Process[F, Event] {
           def handle: Receive = {
             case Start      => Request ~> faultyServer
             case f: Failure =>
@@ -52,12 +52,12 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
             eval(eventStore.add(ref, f))
           }
         }
-        val server = new Process[F] {
+        val server = new Process[F, Event] {
           def handle: Receive = { case Request =>
             eval(throw new RuntimeException("server is down"))
           }
         }
-        val client = new Process[F] {
+        val client = new Process[F, Event] {
           def handle: Receive = { case Start =>
             Request ~> server
           }
@@ -83,12 +83,12 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
             eval(eventStore.add(ref, f))
           }
         }
-        val server = new Process[F] {
+        val server = new Process[F, Event] {
           def handle: Receive = { case Request =>
             eval(throw new RuntimeException("server is down"))
           }
         }
-        val client = new Process[F] {
+        val client = new Process[F, Event] {
           def handle: Receive = {
             case Start      => Request ~> server
             case _: Failure => eval(throw new RuntimeException("client failed to handle error"))
@@ -109,7 +109,7 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
 
 object ErrorHandlingSpec {
 
-  def createFaultyServer[F[_]]: Process[F] = new Process[F] {
+  def createFaultyServer[F[_]]: Process[F, Event] = new Process[F, Event] {
 
     import dsl._
 

@@ -83,7 +83,7 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
     * @param args
     *   command-line arguments passed to [[main]] / [[run]].
     */
-  def processes(args: Array[String]): F[Seq[Process[F]]]
+  def processes(args: Array[String]): F[Seq[Process[F, ?]]]
 
   /** Returns the [[DeadLetterProcess]] used for events that could not be delivered. By default a logging implementation
     * is installed; override to plug in custom behavior (metrics, alerting, persistence).
@@ -109,7 +109,7 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
   /** Registers a per-process [[EventTransformer]] that intercepts events on their way to `ref`. Multiple transformers
     * compose in registration order.
     */
-  def eventTransformer(ref: ProcessRef, transformer: EventTransformer): Unit =
+  def eventTransformer(ref: ProcessRef.Unknown, transformer: EventTransformer): Unit =
     eventTransformers.add(ref, transformer)
 
   /** Boots the runtime end-to-end: builds the [[Context]] and [[Scheduler]], registers the user processes plus the

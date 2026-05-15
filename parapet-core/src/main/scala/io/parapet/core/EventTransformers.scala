@@ -12,10 +12,10 @@ import scala.collection.mutable
   * @param transformers
   *   map from receiver ref to its transformer.
   */
-class EventTransformers(transformers: Map[ProcessRef, EventTransformer]) {
+class EventTransformers(transformers: Map[ProcessRef.Unknown, EventTransformer]) {
 
   /** Returns the transformer registered for `ref`, if any. */
-  def get(ref: ProcessRef): Option[EventTransformer] =
+  def get(ref: ProcessRef.Unknown): Option[EventTransformer] =
     transformers.get(ref)
 }
 
@@ -28,10 +28,10 @@ object EventTransformers {
     * [[io.parapet.ParApp.eventTransformer]] before the runtime starts.
     */
   class Builder {
-    private val map = mutable.Map.empty[ProcessRef, EventTransformer]
+    private val map = mutable.Map.empty[ProcessRef.Unknown, EventTransformer]
 
     /** Registers `t` for `ref`. Replaces any previous transformer for the same ref. */
-    def add(ref: ProcessRef, t: EventTransformer): Builder = {
+    def add(ref: ProcessRef.Unknown, t: EventTransformer): Builder = {
       map += ref -> t
       this
     }

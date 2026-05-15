@@ -103,7 +103,7 @@ object TestUtils:
             throw original
       }
 
-  final case class Message(event: Event, target: ProcessRef)
+  final case class Message(event: Event, target: ProcessRef.Unknown)
 
   final class Execution(val trace: ListBuffer[Message] = ListBuffer.empty):
     override def toString: String =
@@ -112,7 +112,7 @@ object TestUtils:
   final class IdInterpreter(
       execution: Execution = new Execution(),
       mapper: Event => Event = identity,
-      senderRef: ProcessRef = ProcessRef.UndefinedRef
+      senderRef: ProcessRef.Unknown = ProcessRef.UndefinedRef
   ) extends FunctionK[[x] =>> FlowOp[Id, x], Id]:
 
     def apply[A](fa: FlowOp[Id, A]): A =
@@ -142,7 +142,7 @@ object TestUtils:
           ().asInstanceOf[A]
 
         case WithSender(run) =>
-          run.asInstanceOf[ProcessRef => DslF[Id, A]](senderRef).foldMap(this)
+          run.asInstanceOf[ProcessRef.Unknown => DslF[Id, A]](senderRef).foldMap(this)
 
         case Fork(flow) =>
           new Fiber.IdFiber(flow.asInstanceOf[DslF[Id, A]].foldMap(this)).asInstanceOf[A]

@@ -15,24 +15,24 @@ import scala.jdk.CollectionConverters.*
 class EventStore[F[_], A <: Event](using effect: Effect[F]) {
   type EventList = ListBuffer[A]
 
-  private val eventMap = new ConcurrentHashMap[ProcessRef, EventList]()
+  private val eventMap = new ConcurrentHashMap[ProcessRef[?], EventList]()
   private val sizeRef  = new AtomicInteger()
 
-  def receivers: Set[ProcessRef] = eventMap.keySet().asScala.toSet
+  def receivers: Set[ProcessRef[?]] = eventMap.keySet().asScala.toSet
 
-  def add(pRef: ProcessRef, event: A): Unit = {
+  def add(pRef: ProcessRef[?], event: A): Unit = {
     sizeRef.incrementAndGet()
     eventMap.computeIfAbsent(pRef, _ => ListBuffer.empty)
-    eventMap.computeIfPresent(pRef, (_: ProcessRef, events: EventList) => events += event)
+    eventMap.computeIfPresent(pRef, (_: ProcessRef[?], events: EventList) => events += event)
   }
 
-  def get(pRef: ProcessRef): Seq[A] =
+  def get(pRef: ProcessRef[?]): Seq[A] =
     eventMap.getOrDefault(pRef, ListBuffer.empty).toSeq
 
   def allEvents: Seq[A] =
     eventMap.values().asScala.flatten.toSeq
 
-  def groupBy[K](groupKeyOf: (ProcessRef, A) => K): Map[K, Seq[A]] = {
+  def groupBy[K](groupKeyOf: (ProcessRef[?], A) => K): Map[K, Seq[A]] = {
     final case class Entry(groupKey: K, event: A)
 
     eventMap.asScala.iterator
@@ -45,7 +45,7 @@ class EventStore[F[_], A <: Event](using effect: Effect[F]) {
       .groupMap(_.groupKey)(_.event)
   }
 
-  def count(pRef: ProcessRef): Int = get(pRef).size
+  def count(pRef: ProcessRef[?]): Int = get(pRef).size
 
   def size: Int =
     sizeRef.get()
