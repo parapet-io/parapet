@@ -22,7 +22,8 @@ import scala.util.Try
   * @param timeout
   *   maximum time to wait for a satisfying event before responding with `Result(None)`.
   */
-class Cond[F[_]](predicate: Event => Boolean, timeout: FiniteDuration)(using Effect[F]) extends Process[F, Event]:
+class Cond[F[_]](predicate: Event => Boolean, timeout: FiniteDuration)(using Effect[F])
+    extends Process[F, Event, Event]:
   import dsl.*
 
   private val done                       = new AtomicBoolean()

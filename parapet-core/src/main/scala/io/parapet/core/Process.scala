@@ -27,8 +27,13 @@ import java.util.concurrent.atomic.AtomicReference
   *
   * @tparam F
   *   the effect type used by the surrounding runtime.
+  * @tparam In
+  *   the domain events this process accepts.
+  * @tparam Out
+  *   the events this process may emit with [[reply]]. This is a local reply contract; the underlying sender ref is
+  *   still runtime envelope data.
   */
-trait Process[F[_], In <: Event] extends WithDsl[F] with FlowSyntax[F]:
+trait Process[F[_], In <: Event, Out <: Event] extends WithDsl[F] with FlowSyntax[F]:
   self =>
 
   /** Convenience alias for the program type produced by [[handle]] cases. */
@@ -106,15 +111,27 @@ trait Process[F[_], In <: Event] extends WithDsl[F] with FlowSyntax[F]:
       currentHandler = Some(newHandler)
     }
 
+  /** Sends `event` back to the sender of the message currently being handled.
+    *
+    * The type parameter is checked against this process's declared `Out` protocol. For example,
+    * `Process[F, Request, Response]` can reply with `Response`, but not with an unrelated event.
+    */
+  final protected def reply[E <: Out](event: => E): Program =
+    dsl.reply(event)
+
+  /** Sends each event back to the current sender, preserving order. */
+  final protected def reply[E <: Out](events: Seq[E]): Program =
+    dsl.reply(events)
+
   /** Alias for [[and]]. */
-  def ++[In2 <: In](that: Process[F, In2]): Process[F, In2] =
+  def ++[In2 <: In, Out2 <: Event](that: Process[F, In2, Out2]): Process[F, In2, Out | Out2] =
     and(that)
 
   /** Composes two processes so that an event is dispatched to *both* if both can handle it. Programs run sequentially
     * via `++`. The resulting process inherits this process's [[ref]] and [[name]].
     */
-  def and[In2 <: In](that: Process[F, In2]): Process[F, In2] =
-    new Process[F, In2]:
+  def and[In2 <: In, Out2 <: Event](that: Process[F, In2, Out2]): Process[F, In2, Out | Out2] =
+    new Process[F, In2, Out | Out2]:
       override val ref: ProcessRef[In2] = self.ref
       override val name: String         = self.name
 
@@ -129,8 +146,8 @@ trait Process[F[_], In <: Event] extends WithDsl[F] with FlowSyntax[F]:
   /** Composes two processes so that an event is dispatched to the first that can handle it. The resulting process
     * inherits this process's [[ref]] and [[name]].
     */
-  def or[In2 <: In](that: Process[F, In2]): Process[F, In2] =
-    new Process[F, In2]:
+  def or[In2 <: In, Out2 <: Event](that: Process[F, In2, Out2]): Process[F, In2, Out | Out2] =
+    new Process[F, In2, Out | Out2]:
       override val ref: ProcessRef[In2] = self.ref
       override val name: String         = self.name
 
@@ -148,8 +165,8 @@ trait Process[F[_], In <: Event] extends WithDsl[F] with FlowSyntax[F]:
 /** Constructors and ad-hoc builders for [[Process]]. */
 object Process:
   /** A no-op process that silently consumes any event. Useful as a placeholder or sink. */
-  def unit[F[_]]: Process[F, Event] =
-    new Process[F, Event]:
+  def unit[F[_]]: Process[F, Event, Nothing] =
+    new Process[F, Event, Nothing]:
       override def handle: Receive = { case _ => dsl.unit }
 
   /** Builds a process inline from a function that, given the process's ref, returns a receive partial function. The
@@ -157,25 +174,37 @@ object Process:
     */
   def apply[F[_]](
       receive: ProcessRef[Event] => PartialFunction[Event, DslF[F, Unit]]
-  ): Process[F, Event] =
+  ): Process[F, Event, Event] =
     builder(receive).build
 
   /** Builds a typed process inline from a function that accepts the process's typed ref. */
   def typed[F[_], In <: Event](
       receive: ProcessRef[In] => PartialFunction[In | SystemEvent, DslF[F, Unit]]
-  ): Process[F, In] =
+  ): Process[F, In, Event] =
     typedBuilder(receive).build
+
+  /** Builds a typed request/reply process inline from a function that accepts the process's typed ref. */
+  def replying[F[_], In <: Event, Out <: Event](
+      receive: ProcessRef[In] => PartialFunction[In | SystemEvent, DslF[F, Unit]]
+  ): Process[F, In, Out] =
+    replyingBuilder(receive).build
 
   /** Returns a [[Builder]] for fluent inline process construction. */
   def builder[F[_]](
       receive: ProcessRef[Event] => PartialFunction[Event, DslF[F, Unit]]
-  ): Builder[F, Event] =
+  ): Builder[F, Event, Event] =
     Builder(receive)
 
   /** Returns a typed [[Builder]] for fluent inline process construction. */
   def typedBuilder[F[_], In <: Event](
       receive: ProcessRef[In] => PartialFunction[In | SystemEvent, DslF[F, Unit]]
-  ): Builder[F, In] =
+  ): Builder[F, In, Event] =
+    Builder(receive)
+
+  /** Returns a typed request/reply [[Builder]] for fluent inline process construction. */
+  def replyingBuilder[F[_], In <: Event, Out <: Event](
+      receive: ProcessRef[In] => PartialFunction[In | SystemEvent, DslF[F, Unit]]
+  ): Builder[F, In, Out] =
     Builder(receive)
 
   /** Fluent constructor for inline processes. Configure the name, ref, and buffer size, then call [[build]] to
@@ -190,28 +219,28 @@ object Process:
     * @param processBufferSize
     *   mailbox capacity, or `-1` to use the global default.
     */
-  final case class Builder[F[_], In <: Event](
+  final case class Builder[F[_], In <: Event, Out <: Event](
       receive: ProcessRef[In] => PartialFunction[In | SystemEvent, DslF[F, Unit]],
       private val processName: String = "undefined",
       private val processRef: ProcessRef[In] = ProcessRef.jdkUUIDRef[In],
       private val processBufferSize: Int = -1
   ):
     /** Sets the process's display name. */
-    def name(value: String): Builder[F, In] =
+    def name(value: String): Builder[F, In, Out] =
       copy(processName = value)
 
     /** Pins the process to a specific [[ProcessRef]]. */
-    def ref(value: ProcessRef[In]): Builder[F, In] =
+    def ref(value: ProcessRef[In]): Builder[F, In, Out] =
       copy(processRef = value)
 
     /** Sets the mailbox capacity. Must be positive or `-1` (use default). */
-    def bufferSize(value: Int): Builder[F, In] =
+    def bufferSize(value: Int): Builder[F, In, Out] =
       require(value > 0 || value == -1)
       copy(processBufferSize = value)
 
     /** Materializes the configured [[Process]]. */
-    def build: Process[F, In] =
-      new Process[F, In]:
+    def build: Process[F, In, Out] =
+      new Process[F, In, Out]:
         override val name: String        = processName
         override val ref: ProcessRef[In] = processRef
         override val bufferSize: Int     = processBufferSize

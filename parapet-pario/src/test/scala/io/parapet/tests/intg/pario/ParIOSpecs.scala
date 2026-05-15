@@ -85,19 +85,19 @@ class BlockingChannelWithTimeout extends AnyFunSuite with BasicParIOSpec:
   test("blockingChannelTimeout") {
     val eventStore = new EventStore[ParIO, Event]
 
-    val server = Process
-      .builder[ParIO](_ => { case e: ByteEvent =>
+    val server = new Process[ParIO, Event, ByteEvent] {
+      override val ref = ProcessRef("server")
+
+      override def handle: Receive = { case e: ByteEvent =>
         eval(println(s"server received: $e")) ++
           delay(10.seconds) ++
-          withSender(sender => ByteEvent("res".getBytes) ~> sender)
-      })
-      .ref(ProcessRef("server"))
-      .build
+          reply(ByteEvent("res".getBytes))
+      }
+    }
 
     val failover = Process
       .builder[ParIO](ref => { case e: ByteEvent =>
-        withSender(sender => eval(println(s"failover received: $e from $sender"))) ++
-          eval(eventStore.add(ref, StringEvent("success")))
+        eval(println(s"failover received: $e")) ++ eval(eventStore.add(ref, StringEvent("success")))
       })
       .ref(ProcessRef("failover"))
       .build

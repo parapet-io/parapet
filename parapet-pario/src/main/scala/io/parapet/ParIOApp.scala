@@ -9,7 +9,7 @@ import io.parapet.core.SchedulerRuntime
   *
   * {{{
   * object Main extends ParIOApp:
-  *   def processes(args: Array[String]): ParIO[Seq[Process[ParIO]]] =
+  *   def processes(args: Array[String]): ParIO[Seq[Process[ParIO, ?, ?]]] =
   *     ParIO.pure(Seq(new MyProcess))
   * }}}
   */

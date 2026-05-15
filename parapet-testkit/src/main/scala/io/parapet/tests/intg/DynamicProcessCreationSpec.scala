@@ -36,7 +36,7 @@ abstract class DynamicProcessCreationSpec[F[_]] extends AnyFunSuite with Integra
 object DynamicProcessCreationSpec {
 
   class Worker[F[_]](id: Int, db: ProcessRef[Event], tasksCount: Int, eventStore: EventStore[F, Event])
-      extends Process[F, Event] {
+      extends Process[F, Event, Event] {
 
     import dsl._
 
@@ -51,17 +51,17 @@ object DynamicProcessCreationSpec {
     }
   }
 
-  class Database[F[_]] extends Process[F, Event] {
+  class Database[F[_]] extends Process[F, Event, Event] {
 
     import dsl._
 
     override def handle: Receive = { case Persist(id) =>
-      withSender(sender => Ack(id) ~> sender)
+      reply(Ack(id))
     }
   }
 
   class Server[F[_]](workersCount: Int, db: ProcessRef[Event], tasksCount: Int, eventStore: EventStore[F, Event])
-      extends Process[F, Event] {
+      extends Process[F, Event, Event] {
 
     import dsl._
 

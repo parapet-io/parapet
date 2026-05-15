@@ -142,7 +142,7 @@ object DslInterpreter:
                 _ <- processState.offloads.add(fiber, done)
               yield ().asInstanceOf[A]
 
-            case Register(parent, process: Process[F, ?] @unchecked) =>
+            case Register(parent, process: Process[F, ?, ?] @unchecked) =>
               context.registerAndStart(parent, process).void
 
             case RaiseError(error) =>

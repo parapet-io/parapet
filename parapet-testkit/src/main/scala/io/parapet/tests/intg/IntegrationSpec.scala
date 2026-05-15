@@ -43,12 +43,12 @@ trait IntegrationSpec[F[_]] extends WithDsl[F] with FlowSyntax[F] with ParApp[F]
   }
 
   def createApp(
-      processes0: F[Seq[Process[F, ?]]],
+      processes0: F[Seq[Process[F, ?, ?]]],
       deadLetter0: Option[F[DeadLetterProcess[F]]] = None,
       config0: ParConfig = ParConfig.default
   ): ParApp[F]
 
-  def onStart(program: DslF[F, Unit]): Process[F, Event] =
+  def onStart(program: DslF[F, Unit]): Process[F, Event, Event] =
     Process
       .builder[F](_ => { case Start =>
         program

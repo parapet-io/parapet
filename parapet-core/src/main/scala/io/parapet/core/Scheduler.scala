@@ -598,7 +598,7 @@ object Scheduler:
         Signal(envelope, context.createTrace(envelope.id))
 
     private def handleError[F[_]](
-        process: Process[F, ?],
+        process: Process[F, ?, ?],
         envelope: Envelope,
         context: Context[F],
         interpreter: Interpreter[F],

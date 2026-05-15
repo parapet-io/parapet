@@ -22,14 +22,11 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
 
         val faultyServer = createFaultyServer[F]
 
-        val client = new Process[F, Event] {
+        val client = new Process[F, Event, Event] {
           def handle: Receive = {
             case Start      => Request ~> faultyServer
             case f: Failure =>
-              withSender { sender =>
-                sender shouldBe ProcessRef.SystemRef
-                eval(clientEventStore.add(ref, f))
-              }
+              eval(clientEventStore.add(ref, f))
           }
         }
 
@@ -52,12 +49,12 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
             eval(eventStore.add(ref, f))
           }
         }
-        val server = new Process[F, Event] {
+        val server = new Process[F, Event, Event] {
           def handle: Receive = { case Request =>
             eval(throw new RuntimeException("server is down"))
           }
         }
-        val client = new Process[F, Event] {
+        val client = new Process[F, Event, Event] {
           def handle: Receive = { case Start =>
             Request ~> server
           }
@@ -83,12 +80,12 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
             eval(eventStore.add(ref, f))
           }
         }
-        val server = new Process[F, Event] {
+        val server = new Process[F, Event, Event] {
           def handle: Receive = { case Request =>
             eval(throw new RuntimeException("server is down"))
           }
         }
-        val client = new Process[F, Event] {
+        val client = new Process[F, Event, Event] {
           def handle: Receive = {
             case Start      => Request ~> server
             case _: Failure => eval(throw new RuntimeException("client failed to handle error"))
@@ -109,7 +106,7 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
 
 object ErrorHandlingSpec {
 
-  def createFaultyServer[F[_]]: Process[F, Event] = new Process[F, Event] {
+  def createFaultyServer[F[_]]: Process[F, Event, Event] = new Process[F, Event, Event] {
 
     import dsl._
 

@@ -10,7 +10,7 @@ import scala.concurrent.duration.FiniteDuration
   */
 object TestProcesses {
 
-  def dummy[F[_]]: Process[F, Event] = new Process[F, Event] {
+  def dummy[F[_]]: Process[F, Event, Event] = new Process[F, Event, Event] {
     import dsl._
     override val handle: Receive = { case _ => unit }
   }
@@ -28,8 +28,8 @@ object TestProcesses {
       eventStore: EventStore[F, TestEvent],
       time: FiniteDuration = TaskProcessingTime.instant.time,
       blockingHandler: Boolean
-  ): Process[F, Event] =
-    new Process[F, Event] {
+  ): Process[F, Event, Event] =
+    new Process[F, Event, Event] {
       import dsl._
       val handle: Receive = { case e: TestEvent =>
         val body = delay(time) ++ eval(eventStore.add(ref, e))
@@ -53,8 +53,8 @@ object TestProcesses {
       workload: WorkloadProfile,
       eventStore: EventStore[F, TestEvent],
       blockingRatio: Double = 0.0
-  ): Array[Process[F, Event]] = {
-    val processes = new Array[Process[F, Event]](n)
+  ): Array[Process[F, Event, Event]] = {
+    val processes = new Array[Process[F, Event, Event]](n)
     val blocking  = blockingIndexes(n, blockingRatio)
     (0 until n).foreach { i =>
       processes(i) = create(eventStore, WorkloadProfile.timeFor(workload, i, n).time, blocking.contains(i))

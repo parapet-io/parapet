@@ -4,7 +4,7 @@ import io.parapet.core.Events.Stop
 import io.parapet.core.Process
 import io.parapet.core.api.Cmd
 import io.parapet.net.RequestResponseClient
-import io.parapet.{ProcessRef, core}
+import io.parapet.{Event, ProcessRef, core}
 
 /** Adapter [[Process]] exposing a [[RequestResponseClient]] as an event-driven endpoint.
   *
@@ -20,7 +20,7 @@ import io.parapet.{ProcessRef, core}
 class TcpClientProcess[F[_]](
     client: RequestResponseClient[F],
     override val ref: ProcessRef[Cmd.netClient.Send] = ProcessRef[Cmd.netClient.Send]("net-tcp-client")
-) extends Process[F, Cmd.netClient.Send]:
+) extends Process[F, Cmd.netClient.Send, Event]:
 
   import dsl._
 

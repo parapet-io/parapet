@@ -3,7 +3,7 @@ package io.parapet.net.processes
 import io.parapet.core.Events.{Start, Stop}
 import io.parapet.core.Process
 import io.parapet.net.{DatagramTransport, UdpEvents}
-import io.parapet.{ProcessRef, core}
+import io.parapet.{Event, ProcessRef, core}
 
 import scala.concurrent.duration.*
 
@@ -29,7 +29,7 @@ class UdpBroadcastProcess[F[_]](
     pollLimit: Int = 16,
     pollDelay: FiniteDuration = 10.millis,
     override val ref: ProcessRef[UdpEvents.Send] = ProcessRef[UdpEvents.Send]("net-udp-broadcast")
-) extends Process[F, UdpEvents.Send]:
+) extends Process[F, UdpEvents.Send, Event]:
 
   import dsl._
 

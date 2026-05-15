@@ -14,7 +14,7 @@ import io.parapet.{Event, ProcessRef}
   * @param subs
   *   subscribers to forward events to.
   */
-class Sub[F[_]](subs: Seq[Subscription]) extends Process[F, Event] {
+class Sub[F[_]](subs: Seq[Subscription]) extends Process[F, Event, Event] {
 
   import dsl._
 

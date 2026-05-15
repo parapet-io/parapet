@@ -71,7 +71,7 @@ object Dsl:
 
   /** Registers `child` as a sub-process of `parent`, integrating it into the supervision graph.
     */
-  final case class Register[F[_]](parent: ProcessRef.Unknown, child: Process[F, ?]) extends FlowOp[F, Unit]
+  final case class Register[F[_]](parent: ProcessRef.Unknown, child: Process[F, ?, ?]) extends FlowOp[F, Unit]
 
   /** Races `first` against `second` and returns whichever wins, cancelling the loser. */
   final case class Race[F[_], G[_], A, B](first: Free[G, A], second: Free[G, B]) extends FlowOp[F, Either[A, B]]
@@ -235,23 +235,7 @@ object Dsl:
     /** Forwards `event` to `receiver` (and `other`) while preserving the sender of the event currently being handled -
       * the typical building block of a proxy process.
       *
-      * Example:
-      *
-      * {{{
-      * val server = Process[F](_ => {
-      *   case Request(body) => withSender(sender => eval(println(s"$sender-$body")))
-      * })
-      *
-      * val proxy = Process[F](_ => {
-      *   case Request(body) => forward(Request(s"proxy-$body"), server.ref)
-      * })
-      *
-      * val client = Process.builder[F](_ =>
-      *   { case Start => Request("ping") ~> proxy }
-      * ).ref(ProcessRef("client")).build
-      * }}}
-      *
-      * Console output: `client-proxy-ping`
+      * Use this for proxy-style processes that should preserve the original sender for a downstream [[Process.reply]].
       */
     def forward[E <: Event](
         event: => E,
@@ -301,56 +285,28 @@ object Dsl:
     def delay(duration: FiniteDuration): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Delay[F](duration))
 
-    /** Runs `f` with the current sender's [[ProcessRef]] in scope. The most idiomatic way to inspect or reuse the
-      * originator of the event being handled.
+    /** Runs `f` with the current sender's [[ProcessRef]] in scope.
       *
-      * For the common "send one event back to the sender" case prefer the [[reply]] sugar below.
-      *
-      * Example:
-      *
-      * {{{
-      * val server = Process[F](_ => {
-      *   case Request(data) => withSender(sender => eval(println(s"$sender says $data")))
-      * })
-      *
-      * val client = Process.builder[F](_ =>
-      *   { case Start => Request("hello") ~> server }
-      * ).ref(ProcessRef("client")).build
-      * }}}
-      *
-      * Console output: `client says hello`
+      * This is intentionally core-private because it exposes the raw, untyped sender ref. User code should use
+      * [[Process.reply]], which checks replies against the process's declared `Out` protocol.
       */
-    def withSender[A](f: ProcessRef[Event] => Free[C, A]): Free[C, A] =
+    @developerApi
+    private[core] def withSender[A](f: ProcessRef[Event] => Free[C, A]): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](WithSender[F, C, A](f))
 
-    /** Sends `event` back to the sender of the message currently being handled. Sugar for `withSender(event ~> _)`.
+    /** Low-level untyped reply helper for core internals.
       *
-      * Example:
-      *
-      * {{{
-      * val echo = Process[F](_ => {
-      *   case Request(data) => reply(Response(s"echo: $data"))
-      * })
-      * }}}
-      *
-      * If the event being handled has no real sender (e.g. a lifecycle event delivered by
-      * [[io.parapet.core.processes.SystemProcess]]) the reply lands at the system / dead-letter ref - same semantics as
-      * a manual `withSender` reply.
+      * User processes should call [[Process.reply]], which checks the event against the process's declared `Out`
+      * protocol. This helper stays untyped because the generic DSL does not know which process is currently building a
+      * program.
       */
-    def reply(event: => Event): Free[C, Unit] =
+    @developerApi
+    private[core] def reply(event: => Event): Free[C, Unit] =
       withSender(sender => send(event, sender))
 
-    /** Sends each of `events` back to the sender, in order. Useful when a handler emits a small batch of replies.
-      *
-      * Example:
-      *
-      * {{{
-      * val acker = Process[F](_ => {
-      *   case Batch(items) => reply(items.map(Ack(_)))
-      * })
-      * }}}
-      */
-    def reply(events: Seq[Event]): Free[C, Unit] =
+    /** Low-level untyped batch reply helper for core internals. */
+    @developerApi
+    private[core] def reply(events: Seq[Event]): Free[C, Unit] =
       withSender { sender =>
         events.toList match
           case Nil          => unit
@@ -410,7 +366,7 @@ object Dsl:
       * stop server
       * }}}
       */
-    def register(parent: ProcessRef.Unknown, child: Process[F, ?]*): Free[C, Unit] =
+    def register(parent: ProcessRef.Unknown, child: Process[F, ?, ?]*): Free[C, Unit] =
       child
         .map(process => Free.inject[[x] =>> FlowOp[F, x], C, Unit](Register(parent, process)))
         .foldLeft(unit) { (result, next) =>
