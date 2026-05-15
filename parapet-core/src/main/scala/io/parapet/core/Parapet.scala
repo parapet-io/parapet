@@ -9,8 +9,6 @@ import io.parapet.core.Scheduler.SchedulerConfig
   * when an application needs to override defaults.
   */
 object Parapet extends StrictLogging:
-  /** Library version string, surfaced in logs and diagnostics. */
-  val Version = "0.0.1-RC7"
 
   /** Bundle of runtime configuration values supplied to [[io.parapet.ParApp]].
     *
