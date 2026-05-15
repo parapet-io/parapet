@@ -82,7 +82,7 @@ class Context[F[_]](
     * @throws io.parapet.core.exceptions.UnknownProcessException
     *   if `parent` is not registered.
     */
-  def register(parent: ProcessRef.Unknown, child: Process[F, ?]): F[ProcessRef.Unknown] =
+  def register(parent: ProcessRef.Unknown, child: Process[F, ?, ?]): F[ProcessRef.Unknown] =
     effect.suspend {
       if !processes.containsKey(parent) then
         effect.raiseError(UnknownProcessException(s"process cannot be registered because parent $parent doesn't exist"))
@@ -110,7 +110,7 @@ class Context[F[_]](
     graph.getOrDefault(parent, ListBuffer.empty).toVector
 
   /** Combination of [[register]] and dispatch of the initial [[Events.Start]] event. */
-  def registerAndStart(parent: ProcessRef.Unknown, process: Process[F, ?]): F[SubmissionResult] =
+  def registerAndStart(parent: ProcessRef.Unknown, process: Process[F, ?, ?]): F[SubmissionResult] =
     register(parent, process) >> sendStartEvent(process.ref)
 
   private def sendStartEvent(processRef: ProcessRef.Unknown): F[SubmissionResult] =
@@ -119,22 +119,22 @@ class Context[F[_]](
 
   /** Registers a batch of root processes (parented to [[ProcessRef.SystemRef]]) and starts each.
     */
-  def registerAll(processes0: List[Process[F, ?]]): F[List[ProcessRef.Unknown]] =
+  def registerAll(processes0: List[Process[F, ?, ?]]): F[List[ProcessRef.Unknown]] =
     registerAll(ProcessRef.SystemRef, processes0)
 
   /** Registers and starts each of `processes0` under `parent`. */
-  def registerAll(parent: ProcessRef.Unknown, processes0: List[Process[F, ?]]): F[List[ProcessRef.Unknown]] =
+  def registerAll(parent: ProcessRef.Unknown, processes0: List[Process[F, ?, ?]]): F[List[ProcessRef.Unknown]] =
     for
       refs   <- Monad.sequence(processes0.map(register(parent, _)))
       result <- Monad.sequence(refs.map(ref => sendStartEvent(ref).as(ref)))
     yield result
 
   /** Snapshot of every [[Process]] currently registered (system + user). */
-  def getProcesses: List[Process[F, ?]] =
+  def getProcesses: List[Process[F, ?, ?]] =
     processes.values().asScala.map(_.process).toList
 
   /** Looks up a process by ref. */
-  def getProcess(ref: ProcessRef.Unknown): Option[Process[F, ?]] =
+  def getProcess(ref: ProcessRef.Unknown): Option[Process[F, ?, ?]] =
     getProcessState(ref).map(_.process)
 
   /** Looks up the runtime state (mailbox + lifecycle flags) of a process. */
@@ -254,7 +254,7 @@ object Context:
     */
   final class ProcessState[F[_]](
       queue: TaskQueue[F],
-      val process: Process[F, ?],
+      val process: Process[F, ?, ?],
       val terminationSignal: Deferred[F, Unit]
   )(using effect: Effect[F]):
 
@@ -372,7 +372,7 @@ object Context:
     /** Builds a fresh [[ProcessState]], honoring the process's overridden mailbox size or falling back to the global
       * default.
       */
-    def apply[F[_]](process: Process[F, ?], config: Parapet.ParConfig)(using effect: Effect[F]): F[ProcessState[F]] =
+    def apply[F[_]](process: Process[F, ?, ?], config: Parapet.ParConfig)(using effect: Effect[F]): F[ProcessState[F]] =
       val processBufferSize =
         if process.bufferSize != -1 then process.bufferSize else config.processBufferSize
 

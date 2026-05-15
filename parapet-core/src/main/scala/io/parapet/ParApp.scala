@@ -83,7 +83,7 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
     * @param args
     *   command-line arguments passed to [[main]] / [[run]].
     */
-  def processes(args: Array[String]): F[Seq[Process[F, ?]]]
+  def processes(args: Array[String]): F[Seq[Process[F, ?, ?]]]
 
   /** Returns the [[DeadLetterProcess]] used for events that could not be delivered. By default a logging implementation
     * is installed; override to plug in custom behavior (metrics, alerting, persistence).

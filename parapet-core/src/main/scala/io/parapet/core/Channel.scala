@@ -22,7 +22,7 @@ import scala.util.Try
   *   optional fixed reference; defaults to a fresh UUID.
   */
 class Channel[F[_]](override val ref: ProcessRef[Event] = ProcessRef.jdkUUIDRef[Event])(using Effect[F])
-    extends Process[F, Event]:
+    extends Process[F, Event, Event]:
   import Channel.*
   import dsl.*
 

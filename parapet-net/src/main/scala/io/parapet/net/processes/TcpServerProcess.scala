@@ -4,7 +4,7 @@ import io.parapet.core.Events.{Start, Stop}
 import io.parapet.core.Process
 import io.parapet.core.api.Cmd
 import io.parapet.net.RequestResponseServer
-import io.parapet.{ProcessRef, core}
+import io.parapet.{Event, ProcessRef, core}
 
 /** Adapter [[Process]] exposing a [[RequestResponseServer]] as an event-driven endpoint.
   *
@@ -23,7 +23,7 @@ class TcpServerProcess[F[_]](
     server: RequestResponseServer[F],
     sink: ProcessRef[Cmd.netServer.Message],
     override val ref: ProcessRef[Cmd.netServer.Send] = ProcessRef[Cmd.netServer.Send]("net-tcp-server")
-) extends Process[F, Cmd.netServer.Send]:
+) extends Process[F, Cmd.netServer.Send, Event]:
 
   import dsl._
 

@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory
   * Override [[io.parapet.ParApp.deadLetter]] to substitute a custom implementation (metrics, alerting, persistence,
   * etc.).
   */
-trait DeadLetterProcess[F[_]] extends Process[F, DeadLetter]:
+trait DeadLetterProcess[F[_]] extends Process[F, DeadLetter, Nothing]:
   override val name: String                      = DeadLetterRef.value
   final override val ref: ProcessRef[DeadLetter] = DeadLetterRef
 

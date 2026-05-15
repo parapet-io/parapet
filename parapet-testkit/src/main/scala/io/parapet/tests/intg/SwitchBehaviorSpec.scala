@@ -51,7 +51,7 @@ object SwitchBehaviorSpec {
       initial: PartialFunction[Event, DslF[F, Unit]],
       es: EventStore[F, Event],
       override val ref: ProcessRef[Event]
-  ) extends Process[F, Event] {
+  ) extends Process[F, Event, Event] {
     self =>
 
     import dsl._
@@ -78,7 +78,7 @@ object SwitchBehaviorSpec {
       }
 
     def onSwitch: Receive = { case Switch(s) =>
-      switch(s) ++ withSender(Ok ~> _)
+      switch(s) ++ reply(Ok)
     }
 
     override def handle: Receive = onSwitch.orElse(initial)

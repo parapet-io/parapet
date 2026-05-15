@@ -18,7 +18,7 @@ trait EventSyntax[F[_]]:
       EventSyntax.send(List(event), process)
 
     /** Sends `event` to `process.ref`. */
-    def ~>(process: Process[F, ? >: E <: Event]): DslF[F, Unit] =
+    def ~>(process: Process[F, ? >: E <: Event, ?]): DslF[F, Unit] =
       EventSyntax.send(List(event), process.ref)
 
   extension [E <: Event](events: Seq[E])
@@ -27,7 +27,7 @@ trait EventSyntax[F[_]]:
       EventSyntax.send(events, process)
 
     /** Sends each of `events`, in order, to `process.ref`. */
-    def ~>(process: Process[F, ? >: E]): DslF[F, Unit] =
+    def ~>(process: Process[F, ? >: E, ?]): DslF[F, Unit] =
       EventSyntax.send(events, process.ref)
 
 /** Implementation backing [[EventSyntax]]. */

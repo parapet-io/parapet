@@ -11,4 +11,4 @@ import io.parapet.core.Process
   * @param state
   *   initial state; the subclass owns its mutation discipline.
   */
-abstract class ProcessWithState[F[_], In <: Event, S](val state: S) extends Process[F, In]
+abstract class ProcessWithState[F[_], In <: Event, Out <: Event, S](val state: S) extends Process[F, In, Out]

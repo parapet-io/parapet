@@ -12,7 +12,7 @@ trait WorkDistributionStrategy {
 
   /** Produces `Deliver` tasks.
     */
-  def createTasks[F[_]](n: Int, processes: Array[Process[F, Event]], numberOfSubmitters: Int): Seq[Deliver[F]]
+  def createTasks[F[_]](n: Int, processes: Array[Process[F, Event, Event]], numberOfSubmitters: Int): Seq[Deliver[F]]
 }
 
 object WorkDistributionStrategy {
@@ -24,7 +24,7 @@ object WorkDistributionStrategy {
 
     override def createTasks[F[_]](
         n: Int,
-        processes: Array[Process[F, Event]],
+        processes: Array[Process[F, Event, Event]],
         numberOfSubmitters: Int
     ): Seq[Deliver[F]] = {
       val submitters = math.max(1, numberOfSubmitters)
@@ -47,7 +47,7 @@ object WorkDistributionStrategy {
 
     override def createTasks[F[_]](
         n: Int,
-        processes: Array[Process[F, Event]],
+        processes: Array[Process[F, Event, Event]],
         numberOfSubmitters: Int
     ): Seq[Deliver[F]] = {
       val submitters = math.max(1, numberOfSubmitters)
@@ -75,7 +75,7 @@ object WorkDistributionStrategy {
 
     override def createTasks[F[_]](
         n: Int,
-        processes: Array[Process[F, Event]],
+        processes: Array[Process[F, Event, Event]],
         numberOfSubmitters: Int
     ): Seq[Deliver[F]] = {
       val submitters = math.max(1, numberOfSubmitters)

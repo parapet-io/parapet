@@ -13,7 +13,7 @@ typed DSL, executed by the runtime against any compatible effect type.
 final case class Ping(n: Int) extends Event
 final case class Pong(n: Int) extends Event
 
-class Echo[F[_]](peer: ProcessRef[Ping]) extends Process[F, Ping | Pong]:
+class Echo[F[_]](peer: ProcessRef[Ping]) extends Process[F, Ping | Pong, Pong]:
   import dsl.*
   override def handle: Receive =
     case Start              => Ping(0) ~> peer              // kick things off
@@ -117,7 +117,7 @@ application boundary. A process declares its API as events and reacts to them in
 import io.parapet.{Event, ProcessRef}
 import io.parapet.core.Process
 
-class Printer[F[_]] extends Process[F, Printer.Print]:
+class Printer[F[_]] extends Process[F, Printer.Print, Nothing]:
   import Printer.*
   import dsl.*
 
@@ -135,7 +135,7 @@ import io.parapet.ProcessRef
 import io.parapet.core.Process
 import io.parapet.core.Events.Start
 
-class Greeter[F[_]](printer: ProcessRef[Printer.Print]) extends Process[F, Event]:
+class Greeter[F[_]](printer: ProcessRef[Printer.Print]) extends Process[F, Event, Nothing]:
   import dsl.*
   override def handle: Receive =
     case Start => Printer.Print("hello world") ~> printer
@@ -150,18 +150,18 @@ Notes:
 
 ## Typed process refs
 
-Declare a process protocol with `Process[F, MyEvent]`, then pass around `ProcessRef[MyEvent]` to keep wiring explicit.
+Declare a process protocol with `Process[F, In, Out]`, then pass around `ProcessRef[In]` to keep wiring explicit.
 
 ```scala
 final case class Save(key: String, value: String) extends Event
 
-class Store[F[_]] extends Process[F, Save]:
+class Store[F[_]] extends Process[F, Save, Nothing]:
   import dsl.*
   override def handle: Receive =
     case Save(key, value) => eval(println(s"saved $key=$value"))
     case Stop             => eval(println("closing store"))
 
-class Writer[F[_]](store: ProcessRef[Save]) extends Process[F, Event]:
+class Writer[F[_]](store: ProcessRef[Save]) extends Process[F, Event, Nothing]:
   import dsl.*
   override def handle: Receive =
     case Start => Save("hello", "world") ~> store
@@ -178,7 +178,7 @@ import io.parapet.cats.CatsEffectParApp
 import io.parapet.core.Process
 
 object HelloApp extends CatsEffectParApp:
-  def processes(args: Array[String]): IO[Seq[Process[IO, ?]]] =
+  def processes(args: Array[String]): IO[Seq[Process[IO, ?, ?]]] =
     IO.delay {
       val printer = new Printer[IO]
       val greeter = new Greeter[IO](printer.ref)
@@ -212,7 +212,6 @@ The full set of combinators:
 | `event ~> ref`             | Send `event` to a process.                               |
 | `forward(event, ref)`      | Send while preserving the original sender.               |
 | `reply(event)`             | Send `event` back to the sender of the current message.  |
-| `withSender(s => program)` | Run a program parameterised by the current sender ref.   |
 | `flow { ... }`             | Suspend program construction (use for recursion).        |
 | `eval { sideEffect }`      | Suspend a side-effecting computation in `F`.             |
 | `evalWith(value)(f)`       | Evaluate `value` and feed it into a program builder.     |
@@ -240,11 +239,11 @@ import io.parapet.effect.Effect
 final case class Request(data: String) extends Event
 final case class Response(data: String) extends Event
 
-def server[F[_]]: Process[F, Request] = Process.typed[F, Request](_ => {
-  case Request(data) => reply(Response(s"echo: $data"))
-})
+class Server[F[_]] extends Process[F, Request, Response]:
+  override def handle: Receive =
+    case Request(data) => reply(Response(s"echo: $data"))
 
-class Client[F[_]: Effect](backend: ProcessRef[Request]) extends Process[F, Event]:
+class Client[F[_]: Effect](backend: ProcessRef[Request]) extends Process[F, Event, Nothing]:
   import dsl.*
   private lazy val ch = Channel[F]()
 

@@ -11,7 +11,7 @@ import io.parapet.core.Process
   * when the failed envelope's sender ref is itself unknown). The system process re-wraps the failure as a
   * [[DeadLetter]] and routes it to the [[DeadLetterProcess]].
   */
-class SystemProcess[F[_]] extends Process[F, Event] {
+class SystemProcess[F[_]] extends Process[F, Event, Event] {
 
   override val name: String           = SystemRef.value
   override val ref: ProcessRef[Event] = SystemRef
