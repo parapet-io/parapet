@@ -22,8 +22,8 @@ import scala.util.Try
   * representing the eventual reply.
   *
   * `Channel` is not a correlated-RPC abstraction: replies are matched only by the active receiver's ref, not by a
-  * per-request id. Without a correlation id, a late reply from the same receiver cannot be distinguished from the
-  * reply to the current in-flight request, so a stale reply can complete the wrong caller. Example:
+  * per-request id. Without a correlation id, a late reply from the same receiver cannot be distinguished from the reply
+  * to the current in-flight request, so a stale reply can complete the wrong caller. Example:
   *
   * {{{
   * T+0ms     channel.send(Req1, server, timeout = 100.millis)

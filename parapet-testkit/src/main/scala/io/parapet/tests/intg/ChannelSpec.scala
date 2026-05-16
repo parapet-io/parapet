@@ -7,6 +7,7 @@ import io.parapet.core.Scheduler.SchedulerConfig
 import io.parapet.core.exceptions.EventHandlingException
 import io.parapet.core.{Channel, Process}
 import io.parapet.core.Channel.{
+  ChannelInterruptedException,
   ChannelTimeoutException,
   IllegalChannelStateException,
   UnexpectedChannelResponseException
@@ -306,6 +307,38 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
     eventStore.get(client.ref) shouldBe Seq(WrongSender)
   }
 
+  test("channel surfaces interruption when stopped while a request is in flight") {
+    val eventStore = new EventStore[F, Event]
+    val clientRef  = ProcessRef("client")
+
+    val ch = Channel[F, Request, Response]
+
+    // Server stops the channel synchronously upon receiving the request, exercising the `case Stop` branch
+    // of `waitForResponse` while a request is in flight. The scheduler intercepts `Stop` on the channel's
+    // mailbox and runs the current handler synchronously via `deliverStopEvent`, so there is no timing race.
+    val server = new Process[F, Request, Nothing] {
+      override val ref: ProcessRef[Request] = ProcessRef("server")
+
+      override def handle: Receive = { case Request(_) =>
+        Stop ~> ch.ref // this sucks. but this is the good case to test.
+      }
+    }
+
+    val client = new Process[F, Event, Event] {
+      override val ref: ProcessRef[Event] = clientRef
+
+      override def handle: Receive = { case Start =>
+        register(ref, ch) ++ ch.send(Request(0), server.ref).flatMap {
+          case SFailure(_: ChannelInterruptedException) => eval(eventStore.add(ref, Interrupted))
+          case other                                    => eval(fail(s"expected interrupted, got $other"))
+        }
+      }
+    }
+
+    unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(client, server))).run))
+    eventStore.get(client.ref) shouldBe Seq(Interrupted)
+  }
+
 }
 
 object ChannelSpec {
@@ -325,5 +358,7 @@ object ChannelSpec {
   case object ReceiverFailed extends Event
 
   case object WrongSender extends Event
+
+  case object Interrupted extends Event
 
 }
