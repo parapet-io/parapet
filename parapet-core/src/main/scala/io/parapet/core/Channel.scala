@@ -6,7 +6,6 @@ import io.parapet.effect.{Deferred, Effect}
 import io.parapet.effect.Monad.*
 import io.parapet.{Event, ProcessRef}
 
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import scala.concurrent.duration.FiniteDuration
 import scala.reflect.ClassTag
@@ -44,25 +43,27 @@ class Channel[F[_], In <: Event, Out <: Event](
   private val runtimeDsl = summon[Dsl.RuntimeOps.Aux[F]]
   import runtimeDsl.*
 
+  // `inFlight` is mutated from two contexts:
+  //   (a) the channel's own handler (single-threaded by construction);
+  //   (b) `send`, while holding `lockProcess(ref)`
   private var inFlight: Option[InFlight[F, Out]] = None
-  private val debugCallNumber                    = new AtomicInteger()
   private val requestIds                         = new AtomicLong()
-  private val debugMode                          = false
 
   private def waitForRequest: Receive = {
     case req: Request[F, Out] @unchecked => sendReq(req)
-    case Timeout(_)                      => unit
+    // Swallow stray events: late `Timeout(_)` from a fiber that lost the cancel race, and stale replies that
+    // arrive after the channel has already timed out and reset. Without this, the runtime would dead-letter
+    // them with a WARN per stray event.
+    case _ => unit
   }
 
   private def waitForResponse: Receive = {
     case Start => unit
     case Stop  =>
-      flow {
-        inFlight match
-          case Some(active) =>
-            complete(active, scala.util.Failure(ChannelInterruptedException("channel has been closed")))
-          case None => unit
-      }
+      inFlight match
+        case Some(active) =>
+          complete(active, scala.util.Failure(ChannelInterruptedException("channel has been closed")))
+        case None => unit
     case req: Request[F, Out] @unchecked =>
       suspend(
         req.result
@@ -84,9 +85,7 @@ class Channel[F[_], In <: Event, Out <: Event](
       withSender { sender =>
         inFlight match
           case Some(active) if active.receiver == sender =>
-            debug(
-              s"resetAndWaitForRequest, event: $event"
-            ) ++ completeAndReset(active, castResponse(event))
+            completeAndReset(active, castResponse(event))
           case Some(active) =>
             completeAndReset(
               active,
@@ -150,7 +149,7 @@ class Channel[F[_], In <: Event, Out <: Event](
     }.flatMap {
       case true =>
         req.timeout.fold(unit)(timeout => fork(delay(timeout) ++ Timeout(req.id) ~> ref).void) ++
-          debug("waitForResponse") ++ switch(waitForResponse) ++
+          switch(waitForResponse) ++
           dsl.send(ref, req.event, req.receiver.asInstanceOf[ProcessRef[Event]])
       case false =>
         suspend(
@@ -175,14 +174,6 @@ class Channel[F[_], In <: Event, Out <: Event](
 
   private def completeAndReset(active: InFlight[F, Out], result: Try[Out]): DslF[F, Unit] =
     resetAndWaitForRequest ++ complete(active, result)
-
-  private def debug(message: => String): DslF[F, Unit] =
-    if debugMode then
-      eval {
-        val number = debugCallNumber.incrementAndGet()
-        println(s"channel[$ref, $number]: $message")
-      }
-    else unit
 
 /** Constructors and exceptions for [[Channel]]. */
 object Channel:

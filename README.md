@@ -228,7 +228,7 @@ Combine programs with `++` (sequential composition) - e.g. `eval(println("a")) +
 ## Channel - request/response
 
 `Channel` turns the asynchronous mailbox model into a strict one-call-at-a-time
-request/reply dialog. Send through it, get a `Try[Event]` back.
+request/reply dialog. Send through it, get a typed `Try[Out]` response back.
 
 ```scala
 import io.parapet.{Event, ProcessRef}
