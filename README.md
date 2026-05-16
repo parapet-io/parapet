@@ -235,6 +235,7 @@ import io.parapet.{Event, ProcessRef}
 import io.parapet.core.{Channel, Process}
 import io.parapet.core.Events.Start
 import io.parapet.effect.Effect
+import scala.concurrent.duration.*
 
 final case class Request(data: String) extends Event
 final case class Response(data: String) extends Event
@@ -245,15 +246,15 @@ class Server[F[_]] extends Process[F, Request, Response]:
 
 class Client[F[_]: Effect](backend: ProcessRef[Request]) extends Process[F, Event, Nothing]:
   import dsl.*
-  private lazy val ch = Channel[F]()
+  private lazy val ch = Channel[F, Request, Response]
 
   override def handle: Receive =
     case Start =>
       register(ref, ch) ++
-        ch.send(Request("PING"), backend, {
+        ch.send(Request("PING"), backend, 3.seconds).flatMap {
           case scala.util.Success(Response(d)) => eval(println(d))
           case scala.util.Failure(err)         => eval(println(s"failed: ${err.getMessage}"))
-        })
+        }
 ```
 
 ## Error handling

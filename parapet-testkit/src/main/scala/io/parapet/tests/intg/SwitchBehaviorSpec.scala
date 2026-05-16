@@ -31,11 +31,11 @@ abstract class SwitchBehaviorSpec[F[_]] extends AnyFunSuite with IntegrationSpec
     val p2 = new TestProcess[F](saveEvent2(p2Ref), eventStore, p2Ref)
 
     val p  = p1.or(p2)
-    val ch = new Channel[F]()
+    val ch = new Channel[F, Switch, Event]()
 
     val test = onStart {
       // we need a channel here to introduce synchronization boundary, this approach can be improved in future releases
-      register(TestSystemRef, ch) ++ ch.send(Switch(State3), p2.ref, _ => Event3 ~> p)
+      register(TestSystemRef, ch) ++ ch.send(Switch(State3), p2.ref).flatMap(_ => Event3 ~> p)
     }
 
     unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(test, p, p2))).run))
