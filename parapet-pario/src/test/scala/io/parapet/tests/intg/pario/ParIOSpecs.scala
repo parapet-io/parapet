@@ -7,7 +7,7 @@ import io.parapet.core.Events
 import io.parapet.core.Events.Start
 import io.parapet.core.Process
 import io.parapet.core.{Channel, Parapet}
-import io.parapet.core.Channel.ChannelInterruptedException
+import io.parapet.core.Channel.ChannelTimeoutException
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Scheduler.SchedulerConfig
 import io.parapet.effect.ParIO
@@ -103,24 +103,17 @@ class BlockingChannelWithTimeout extends AnyFunSuite with BasicParIOSpec:
       .build
 
     val clientRef = ProcessRef("client")
-    val ch        = new Channel[ParIO](clientRef)
+    val ch        = new Channel[ParIO, ByteEvent, ByteEvent](clientRef)
     val client    = Process
       .builder[ParIO](ref => { case Start =>
         register(ref, ch) ++
           blocking {
-            race(
-              ch.send(
-                ByteEvent("request".getBytes()),
-                server.ref,
-                {
-                  case scala.util.Failure(ChannelInterruptedException(_, _)) =>
-                    eval(println("channel was interrupted")) ++ ByteEvent("help".getBytes()) ~> failover
-                  case res =>
-                    eval(println(s"client received: $res"))
-                }
-              ),
-              delay(3.seconds) ++ eval(println("server doesn't respond"))
-            ) ++ ch.send(ByteEvent("request".getBytes()), failover.ref, _ => unit)
+            ch.send(ByteEvent("request".getBytes()), server.ref, 3.seconds).flatMap {
+              case scala.util.Failure(ChannelTimeoutException(_, _)) =>
+                eval(println("channel timed out")) ++ ByteEvent("help".getBytes()) ~> failover
+              case res =>
+                eval(println(s"client received: $res"))
+            } ++ ch.send(ByteEvent("request".getBytes()), failover.ref).void
           }
       })
       .ref(clientRef)
