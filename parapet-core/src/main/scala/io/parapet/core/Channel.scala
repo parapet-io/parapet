@@ -4,7 +4,7 @@ import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.{Failure, Start, Stop}
 import io.parapet.effect.{Deferred, Effect}
 import io.parapet.effect.Monad.*
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, ProcessRef, Scope}
 
 import java.util.concurrent.atomic.AtomicLong
 import scala.concurrent.duration.FiniteDuration
@@ -21,34 +21,7 @@ import scala.util.Try
   * Callers typically construct a channel, register it under their own process, and use [[send]] to obtain a `Try[Out]`
   * representing the eventual reply.
   *
-  * `Channel` is not a correlated-RPC abstraction: replies are matched only by the active receiver's ref, not by a
-  * per-request id. Without a correlation id, a late reply from the same receiver cannot be distinguished from the reply
-  * to the current in-flight request, so a stale reply can complete the wrong caller. Example:
-  *
-  * {{{
-  * T+0ms     channel.send(Req1, server, timeout = 100.millis)
-  *             -> inFlight = Some(id = 1, receiver = server)
-  *             -> state = waitForResponse
-  *             -> envelope Req1 dispatched to server
-  *             -> fork(delay(100.millis) ++ Timeout(1) ~> channel)
-  *
-  * T+100ms   Timeout(1) arrives at channel
-  *             -> active.id == 1, match
-  *             -> caller's Deferred completes with ChannelTimeoutException
-  *             -> resetAndWaitForRequest clears inFlight, switches to waitForRequest
-  *
-  * T+150ms   channel.send(Req2, server, timeout = 100.millis)   // second call
-  *             -> inFlight = Some(id = 2, receiver = server)
-  *             -> state = waitForResponse again
-  *             -> envelope Req2 dispatched
-  *
-  * T+160ms   Resp1 (server's slow reply to Req1) finally arrives at channel
-  *             -> falls into the `case event =>` branch
-  *             -> withSender: sender == server
-  *             -> inFlight.receiver == server, match
-  *             -> completeAndReset(active = id = 2, castResponse(Resp1))
-  *             -> caller waiting on Req2 gets Resp1  // wrong reply
-  * }}}
+  * Replies are correlated to in-flight requests by [[Scope.Causation]].
   *
   * @tparam In
   *   events this channel is allowed to send.
@@ -108,19 +81,29 @@ class Channel[F[_], In <: Event, Out <: Event](
         case None         => unit
     case event =>
       withSender { sender =>
-        inFlight match
-          case Some(active) if active.receiver == sender =>
-            completeAndReset(active, castResponse(event))
-          case Some(active) =>
-            completeAndReset(
-              active,
-              scala.util.Failure(
-                UnexpectedChannelResponseException(
-                  s"expected response from ${active.receiver}, but received $event from $sender"
+        withScope { scope =>
+          inFlight match
+            case Some(active) =>
+              val incomingCausation = scope.get(Scope.Causation)
+              if incomingCausation.contains(active.causationId) then
+                // Correlated reply for the in-flight request.
+                completeAndReset(active, castResponse(event))
+              else if active.receiver != sender then
+                // Wrong sender (an unrelated process sent something).
+                completeAndReset(
+                  active,
+                  scala.util.Failure(
+                    UnexpectedChannelResponseException(
+                      s"expected response from ${active.receiver}, but received $event from $sender"
+                    )
+                  )
                 )
-              )
-            )
-          case None => unit
+              else
+                // Active receiver, but causation does not match: stale reply from a prior (timed-out) request.
+                // Silently drop; the original caller has already received a ChannelTimeoutException.
+                unit
+            case None => unit
+        }
       }
   }
 
@@ -169,13 +152,18 @@ class Channel[F[_], In <: Event, Out <: Event](
       inFlight match
         case Some(_) => false
         case None    =>
-          inFlight = Some(InFlight(req.id, req.result, req.receiver, req.timeout))
+          inFlight = Some(InFlight(req.id, causationIdOf(req.id), req.result, req.receiver, req.timeout))
           true
     }.flatMap {
       case true =>
+        val causationId = causationIdOf(req.id)
         req.timeout.fold(unit)(timeout => fork(delay(timeout) ++ Timeout(req.id) ~> ref).void) ++
           switch(waitForResponse) ++
-          dsl.send(ref, req.event, req.receiver.asInstanceOf[ProcessRef[Event]])
+          // Stamp the outbound request envelope with this request's causation id; the receiver's reply will carry
+          // the same id back via scope auto-propagation, letting waitForResponse correlate it to `inFlight`.
+          mapScope(_.put(Scope.Causation, causationId)) {
+            dsl.send(ref, req.event, req.receiver.asInstanceOf[ProcessRef[Event]])
+          }
       case false =>
         suspend(
           req.result
@@ -183,6 +171,9 @@ class Channel[F[_], In <: Event, Out <: Event](
             .map(_ => ())
         )
     }
+
+  private def causationIdOf(id: Long): String =
+    s"${ref.value}:$id"
 
   private def castResponse(event: Event): Try[Out] =
     event match
@@ -251,6 +242,7 @@ object Channel:
 
   final private case class InFlight[F[_], Out <: Event](
       id: Long,
+      causationId: String,
       result: Deferred[F, Try[Out]],
       receiver: ProcessRef.Unknown,
       timeout: Option[FiniteDuration]

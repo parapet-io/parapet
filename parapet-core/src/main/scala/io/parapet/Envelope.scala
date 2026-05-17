@@ -2,17 +2,21 @@ package io.parapet
 
 /** A delivery wrapper that pairs an [[Event]] with its routing metadata.
   *
-  * The runtime never moves bare events between processes; it always wraps them in an `Envelope` so that the receiver
-  * can identify the sender (e.g., to reply) and the scheduler can dispatch to the correct mailbox.
-  *
   * @param sender
   *   the originating process; may be [[ProcessRef.UndefinedRef]] for events produced by the runtime itself.
   * @param event
   *   the payload being delivered.
   * @param receiver
-  *   the addressed process; the scheduler routes this envelope to the mailbox identified by this ref.
+  *   the addressed process.
+  * @param scope
+  *   metadata attached to this delivery; defaults to [[Scope.empty]].
   */
-final case class Envelope(sender: ProcessRef.Unknown, event: Event, receiver: ProcessRef.Unknown):
+final case class Envelope(
+    sender: ProcessRef.Unknown,
+    event: Event,
+    receiver: ProcessRef.Unknown,
+    scope: Scope = Scope.empty
+):
   self =>
 
   /** Reserved for future tracing/debugging support; currently always `0`. */
@@ -21,11 +25,12 @@ final case class Envelope(sender: ProcessRef.Unknown, event: Event, receiver: Pr
   /** Reserved for future tracing/debugging support; currently always empty. */
   val id: String = ""
 
-  /** Returns a copy of this envelope with [[event]] replaced by `value`. The sender and receiver are preserved - handy
-    * for [[io.parapet.core.EventTransformer]] stages.
+  /** Returns a copy of this envelope with [[event]] replaced by `value`. The sender, receiver, and scope are preserved -
+    * handy for [[io.parapet.core.EventTransformer]] stages.
     */
   def event(value: Event): Envelope =
     self.copy(event = value)
 
   override def toString: String =
-    s"Envelope(id:$id, sender:$sender, event:$event, receiver:$receiver, ts:$ts)"
+    if scope.isEmpty then s"Envelope(id:$id, sender:$sender, event:$event, receiver:$receiver, ts:$ts)"
+    else s"Envelope(id:$id, sender:$sender, event:$event, receiver:$receiver, ts:$ts, scope:${scope.entries.toMap})"

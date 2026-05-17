@@ -249,7 +249,7 @@ object Scheduler:
 
     def submit(task: Task[F]): F[SubmissionResult] =
       task match
-        case deliverTask @ Deliver(envelope @ Envelope(sender, event, receiver), _) =>
+        case deliverTask @ Deliver(envelope @ Envelope(sender, event, receiver, _), _) =>
           effect.suspend(
             context.getProcessState(receiver) match
               case None =>
@@ -492,7 +492,7 @@ object Scheduler:
                       for
                         flow    <- effect.delay(process(event))
                         effect0 <- effect.pure(
-                          flow.foldMap(interpreter.interpret(sender, processState, task.execTrace))
+                          flow.foldMap(interpreter.interpret(sender, processState, task.execTrace, envelope.scope))
                         )
                         _ <- runEffect(
                           effect0,
