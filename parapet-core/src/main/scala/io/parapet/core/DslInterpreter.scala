@@ -14,16 +14,20 @@ import io.parapet.{Envelope, Event, ProcessRef, Scope}
   * mapped to an `F`-effect and all routing/scheduling work goes through the surrounding [[Context]] and [[Scheduler]].
   *
   * Custom interpreters can be plugged in via [[io.parapet.ParApp.interpreter]] for cases such as tracing or recording.
+  *
+  * The interpreter also carries an immutable [[Scope]] reader context. The scheduler seeds that context from the
+  * incoming envelope, `Send` / `Forward` stamp it onto outbound envelopes, [[WithScope]] reads it, and [[MapScope]]
+  * interprets a nested program under a derived scope.
   */
 object DslInterpreter:
   /** A natural transformation from `FlowOp[F, *]` to `F[*]`. Several overloads adapt the call-site to whatever target
     * identification is convenient (raw ref vs. resolved [[ProcessState]]).
     */
   trait Interpreter[F[_]]:
-    /** Interprets ops in the context of `target`, allocating a fresh trace and empty scope. */
+    /** Interprets ops in the context of `target`, allocating a fresh trace and starting from [[Scope.empty]]. */
     def interpret(sender: ProcessRef.Unknown, target: ProcessRef.Unknown): ([x] =>> FlowOp[F, x]) ~> F
 
-    /** Interprets ops in the context of `target` reusing `execTrace` for causal id. */
+    /** Interprets ops in the context of `target`, reusing `execTrace` and starting from [[Scope.empty]]. */
     def interpret(
         sender: ProcessRef.Unknown,
         target: ProcessRef.Unknown,

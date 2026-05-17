@@ -114,13 +114,20 @@ object Dsl:
   /** Releases a previously acquired [[Lock]]. */
   final case class Unlock[F[_]](ref: ProcessRef.Unknown) extends FlowOp[F, Unit]
 
-  /** Provides the interpreter's current [[io.parapet.Scope]] to `f`, which builds the next program step from it.
-    * Read-only; the scope itself is not mutated by this op.
+  /** Reads the interpreter's current [[io.parapet.Scope]].
+    *
+    * The current scope is reader-context metadata, normally copied from the incoming [[io.parapet.Envelope]]. Reading
+    * it does not mutate anything. The continuation `f` builds the next program step after seeing the scope, and that
+    * next step continues under the same scope.
     */
   final case class WithScope[F[_], G[_], A](f: Scope => Free[G, A]) extends FlowOp[F, A]
 
-  /** Runs `body` with the current scope transformed by `f`. The outer scope is restored as soon as `body` completes
-    * (success or failure), so `mapScope` is a lexical, local override that never leaks past its block.
+  /** Runs `body` under a transformed scope.
+    *
+    * The interpreter evaluates `f(currentScope)` once when entering the block, then interprets `body` with that derived
+    * scope. Every outbound envelope emitted by `body` carries the derived scope. When `body` completes, the outer scope
+    * is restored for the rest of the program, so this is a lexical override rather than a mutation of global/runtime
+    * state.
     */
   final case class MapScope[F[_], G[_], A](f: Scope => Scope, body: Free[G, A]) extends FlowOp[F, A]
 
@@ -331,8 +338,10 @@ object Dsl:
     private[core] def withScope[A](f: Scope => Free[C, A]): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](WithScope[F, C, A](f))
 
-    /** Runs `body` under the scope produced by `f(currentScope)`. The transformation is lexical: once `body` finishes
-      * (whether by success or by raising), the outer scope is restored for the rest of the program.
+    /** Runs `body` under the scope produced by `f(currentScope)`.
+      *
+      * The transformation is lexical: outbound envelopes created inside `body` carry the derived scope, but once `body`
+      * finishes (whether by success or by raising), subsequent operations continue with the outer scope.
       */
     @developerApi
     private[core] def mapScope[A](f: Scope => Scope)(body: Free[C, A]): Free[C, A] =

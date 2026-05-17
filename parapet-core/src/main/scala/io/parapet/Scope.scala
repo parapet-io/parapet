@@ -1,11 +1,6 @@
 package io.parapet
 
-/** A typed metadata.
-  *
-  * Each entry is identified by a [[Scope.Key]] which fixes the value type at compile time, so reading an entry returns
-  * the exact type the writer put in. `Scope` is an immutable, persistent map; [[Scope.put]] returns a new value sharing
-  * structure with the original.
-  */
+/** Immutable typed metadata. */
 opaque type Scope = Map[String, Any]
 
 object Scope:
@@ -22,7 +17,8 @@ object Scope:
     /** Globally unique identifier; serves as the underlying map key. */
     def name: String
 
-  /** Identifier of a request that a subsequent message is the response to. */
+  /** Identifier of the operation/message that caused a subsequent message.
+    */
   case object Causation extends Key[String]:
     val name: String = "io.parapet.causation"
 
