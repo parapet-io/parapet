@@ -201,8 +201,6 @@ object TestUtils:
         case MapScope(_, body) =>
           body.asInstanceOf[DslF[Id, A]].foldMap(this)
 
-  /** Lightweight fixture for tests that need to exercise the real [[DslInterpreter.Impl]].
-    */
   final class RuntimeFixture:
     val captured: ListBuffer[Envelope] = ListBuffer.empty
 
@@ -218,7 +216,6 @@ object TestUtils:
 
     context.start(scheduler).unsafeRun()
 
-    /** A no-op process used as the "running" process for outbound sends. Its ref becomes the default sender. */
     private val noop: Noop[TestIO] = new Noop[TestIO]
     context.register(ProcessRef.SystemRef, noop).unsafeRun()
 
@@ -226,9 +223,6 @@ object TestUtils:
 
     private val impl = DslInterpreter[TestIO](context)
 
-    /** Interprets `program` with [[noop]] as the running-process context and `sender` as the (untyped) sender for any
-      * `WithSender` lookups.
-      */
     def runWithSender[A](
         sender: ProcessRef.Unknown,
         program: DslF[TestIO, A],
@@ -245,6 +239,5 @@ object TestUtils:
         )
         .unsafeRun()
 
-    /** Convenience overload using [[io.parapet.ProcessRef.UndefinedRef]] as the sender. */
     def run[A](program: DslF[TestIO, A], scope: Scope = Scope.empty): A =
       runWithSender(ProcessRef.UndefinedRef, program, scope)

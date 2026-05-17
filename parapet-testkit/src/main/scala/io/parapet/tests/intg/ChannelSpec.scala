@@ -309,9 +309,7 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
 
   test("channel drops a stale reply from the active receiver via causation correlation") {
     // The server's first response is intentionally slow enough to time out the first request, then arrives at the
-    // channel mailbox while the channel is already waiting for the second request's response. With sender-only
-    // matching this stale envelope would complete the new request with the old payload; with causation matching
-    // it is silently dropped because its scope.Causation does not match the in-flight request's id.
+    // channel mailbox while the channel is already waiting for the second request's response.
     val eventStore = new EventStore[F, Event]
     val clientRef  = ProcessRef[Event]("stale-reply-client")
 
@@ -342,7 +340,7 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
       }
     }
 
-    unsafeRun(eventStore.await(2, createApp(ct.pure(Seq(client, server))).run, timeout = 5.seconds))
+    unsafeRun(createApp(ct.pure(Seq(client, server))).run)
     eventStore.get(clientRef) shouldBe Seq(TimedOut, Response(2))
   }
 
