@@ -1,9 +1,12 @@
 package io.parapet.core
 
 import io.parapet.core.Dsl.*
+import io.parapet.core.Parapet.ParConfig
+import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task}
+import io.parapet.core.processes.Noop
 import io.parapet.effect.{Effect, EffectFiber, Monad}
 import io.parapet.free.FunctionK
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Envelope, Event, ProcessRef, Scope}
 
 import java.util.concurrent.CancellationException
 import scala.collection.mutable.ListBuffer
@@ -191,3 +194,50 @@ object TestUtils:
 
         case Dsl.Unlock(_) =>
           ().asInstanceOf[A]
+
+        case WithScope(f) =>
+          f.asInstanceOf[Scope => DslF[Id, A]].apply(Scope.empty).foldMap(this)
+
+        case MapScope(_, body) =>
+          body.asInstanceOf[DslF[Id, A]].foldMap(this)
+
+  final class RuntimeFixture:
+    val captured: ListBuffer[Envelope] = ListBuffer.empty
+
+    private val scheduler: Scheduler[TestIO] = new Scheduler[TestIO]:
+      def start: TestIO[Unit] = TestIO.unit
+
+      def submit(task: Task[TestIO]): TestIO[SubmissionResult] = task match
+        case Deliver(env, _) => TestIO.delay { captured += env; Scheduler.Ok }
+        case _               => TestIO.pure(Scheduler.Ok)
+
+    val context: Context[TestIO] =
+      Context[TestIO](ParConfig.default, EventStore.stub[TestIO], EventTransformers.empty).unsafeRun()
+
+    context.start(scheduler).unsafeRun()
+
+    private val noop: Noop[TestIO] = new Noop[TestIO]
+    context.register(ProcessRef.SystemRef, noop).unsafeRun()
+
+    captured.clear() // drop any boot-time envelopes captured by the stub scheduler
+
+    private val impl = DslInterpreter[TestIO](context)
+
+    def runWithSender[A](
+        sender: ProcessRef.Unknown,
+        program: DslF[TestIO, A],
+        scope: Scope = Scope.empty
+    ): A =
+      program
+        .foldMap(
+          impl.interpret(
+            sender,
+            context.getProcessState(noop.ref).get,
+            ExecutionTrace.Dummy,
+            scope
+          )
+        )
+        .unsafeRun()
+
+    def run[A](program: DslF[TestIO, A], scope: Scope = Scope.empty): A =
+      runWithSender(ProcessRef.UndefinedRef, program, scope)

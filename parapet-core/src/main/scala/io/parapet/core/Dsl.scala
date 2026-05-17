@@ -2,7 +2,7 @@ package io.parapet.core
 
 import io.parapet.core.annotations.developerApi
 import io.parapet.free.{Free, Inject}
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, ProcessRef, Scope}
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -113,6 +113,23 @@ object Dsl:
 
   /** Releases a previously acquired [[Lock]]. */
   final case class Unlock[F[_]](ref: ProcessRef.Unknown) extends FlowOp[F, Unit]
+
+  /** Reads the interpreter's current [[io.parapet.Scope]].
+    *
+    * The current scope is reader-context metadata, normally copied from the incoming [[io.parapet.Envelope]]. Reading
+    * it does not mutate anything. The continuation `f` builds the next program step after seeing the scope, and that
+    * next step continues under the same scope.
+    */
+  final case class WithScope[F[_], G[_], A](f: Scope => Free[G, A]) extends FlowOp[F, A]
+
+  /** Runs `body` under a transformed scope.
+    *
+    * The interpreter evaluates `f(currentScope)` once when entering the block, then interprets `body` with that derived
+    * scope. Every outbound envelope emitted by `body` carries the derived scope. When `body` completes, the outer scope
+    * is restored for the rest of the program, so this is a lexical override rather than a mutation of global/runtime
+    * state.
+    */
+  final case class MapScope[F[_], G[_], A](f: Scope => Scope, body: Free[G, A]) extends FlowOp[F, A]
 
   /** Smart constructors for the [[FlowOp]] algebra.
     *
@@ -315,6 +332,20 @@ object Dsl:
               acc.flatMap(_ => send(event, sender))
             }
       }
+
+    /** Reads the current [[Scope]] and builds the next step from it. */
+    @developerApi
+    private[core] def withScope[A](f: Scope => Free[C, A]): Free[C, A] =
+      Free.inject[[x] =>> FlowOp[F, x], C, A](WithScope[F, C, A](f))
+
+    /** Runs `body` under the scope produced by `f(currentScope)`.
+      *
+      * The transformation is lexical: outbound envelopes created inside `body` carry the derived scope, but once `body`
+      * finishes (whether by success or by raising), subsequent operations continue with the outer scope.
+      */
+    @developerApi
+    private[core] def mapScope[A](f: Scope => Scope)(body: Free[C, A]): Free[C, A] =
+      Free.inject[[x] =>> FlowOp[F, x], C, A](MapScope[F, C, A](f, body))
 
     /** Executes `flow` asynchronously as a [[Fiber]]. The fiber runs concurrently and the returned handle can be
       * awaited via [[Fiber.join]] or cancelled.

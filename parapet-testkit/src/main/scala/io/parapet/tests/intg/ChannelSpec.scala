@@ -307,6 +307,46 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
     eventStore.get(client.ref) shouldBe Seq(WrongSender)
   }
 
+  test("channel drops a stale reply from the active receiver via causation correlation") {
+    // The server's first response is intentionally slow enough to time out the first request, then arrives at the
+    // channel mailbox while the channel is already waiting for the second request's response.
+    val eventStore = new EventStore[F, Event]
+    val clientRef  = ProcessRef[Event]("stale-reply-client")
+
+    val ch = Channel[F, Request, Response]
+
+    val server = new Process[F, Request, Response] {
+      override val ref: ProcessRef[Request] = ProcessRef("stale-reply-server")
+
+      override def handle: Receive = { case Request(seq) =>
+        if seq == 1 then delay(200.millis) ++ reply(Response(seq))
+        else reply(Response(seq))
+      }
+    }
+
+    val client = new Process[F, Event, Event] {
+      override val ref: ProcessRef[Event] = clientRef
+
+      override def handle: Receive = { case Start =>
+        register(ref, ch) ++
+          ch.send(Request(1), server.ref, 50.millis).flatMap {
+            case SFailure(_: ChannelTimeoutException) => eval(eventStore.add(ref, TimedOut))
+            case other                                => eval(fail(s"expected timeout for request 1, got $other"))
+          } ++
+          ch.send(Request(2), server.ref, 2.seconds).flatMap {
+            case Success(Response(2)) => eval(eventStore.add(ref, Response(2)))
+            case other                => eval(fail(s"expected fresh Response(2), got $other"))
+          }
+      }
+    }
+
+    assertThrows[java.util.concurrent.TimeoutException] {
+      // late reply for the Request(1) should not be delivered
+      unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(client, server))).run, timeout = 5.seconds))
+    }
+    eventStore.get(clientRef) shouldBe Seq(TimedOut, Response(2))
+  }
+
   test("channel surfaces interruption when stopped while a request is in flight") {
     val eventStore = new EventStore[F, Event]
     val clientRef  = ProcessRef("client")

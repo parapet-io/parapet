@@ -123,7 +123,7 @@ abstract class EventDeliverySpec[F[_]] extends AnyFlatSpec with IntegrationSpec[
 
     eventStore.size shouldBe 1
     eventStore.get(deadLetter.ref).headOption.value should matchPattern {
-      case DeadLetter(Envelope(client.`ref`, UnknownEvent, server.`ref`), _: EventMatchException) =>
+      case DeadLetter(Envelope(client.`ref`, UnknownEvent, server.`ref`, _), _: EventMatchException) =>
     }
   }
 

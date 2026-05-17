@@ -45,7 +45,7 @@ abstract class SchedulerSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
         eventStore.size shouldBe 1
         eventStore.get(deadLetter.ref).headOption.value should matchPattern {
-          case DeadLetter(Envelope(client.`ref`, Request, unknownProcess.`ref`), _: UnknownProcessException) =>
+          case DeadLetter(Envelope(client.`ref`, Request, unknownProcess.`ref`, _), _: UnknownProcessException) =>
         }
       }
     }
@@ -85,7 +85,7 @@ abstract class SchedulerSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
         eventStore.size shouldBe 1
         eventStore.get(deadLetter.ref).headOption.value should matchPattern {
-          case DeadLetter(Envelope(client.`ref`, NamedRequest("3"), slowServer.`ref`), _: EventDeliveryException) =>
+          case DeadLetter(Envelope(client.`ref`, NamedRequest("3"), slowServer.`ref`, _), _: EventDeliveryException) =>
         }
 
       }
