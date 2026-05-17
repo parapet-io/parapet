@@ -340,7 +340,10 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
       }
     }
 
-    unsafeRun(createApp(ct.pure(Seq(client, server))).run)
+    assertThrows[java.util.concurrent.TimeoutException] {
+      // late reply for the Request(1) should not be delivered
+      unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(client, server))).run, timeout = 5.seconds))
+    }
     eventStore.get(clientRef) shouldBe Seq(TimedOut, Response(2))
   }
 
