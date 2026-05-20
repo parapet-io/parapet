@@ -7,7 +7,6 @@ import io.parapet.net.transport.*
 import org.zeromq.{SocketType, ZContext, ZMQException}
 
 import java.util.Base64
-import java.util.LinkedHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.collection.mutable.ListBuffer
 
@@ -32,7 +31,7 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
   private val socket  = context.createSocket(SocketType.ROUTER)
   private val closed  = new AtomicBoolean(false)
 
-  private val routes = new LinkedHashMap[String, RouteEntry](16, 0.75f, true):
+  private val routes = new java.util.LinkedHashMap[String, RouteEntry](16, 0.75f, true):
     override protected def removeEldestEntry(eldest: java.util.Map.Entry[String, RouteEntry]): Boolean =
       size() > config.maxRoutes
 
@@ -88,13 +87,10 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
       if closed.get() then Left(TransportError.Closed("reply"))
       else
         routes.synchronized(Option(routes.get(routingId.value))) match
-          case None =>
-            Left(TransportError.UnknownRoute(routingId))
+          case None        => Left(TransportError.UnknownRoute(routingId))
           case Some(entry) =>
             try sendReply(routingId, entry, message)
-            catch
-              case error: ZMQException =>
-                Left(TransportError.Unexpected(error))
+            catch case error: ZMQException => Left(TransportError.Unexpected(error))
     }
 
   private def sendReply(
@@ -112,12 +108,13 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
           sendMessage(message, "reply")
 
   private def sendMessage(message: Message, operation: String): Either[TransportError, Unit] =
-    val parts = if message.parts.isEmpty then Vector(Array.emptyByteArray) else message.parts
-    var sent  = true
-    parts.zipWithIndex.foreach { case (part, index) =>
-      val last = index == parts.size - 1
-      sent = sent && (if last then socket.send(part, 0) else socket.sendMore(part))
-    }
+    val parts =
+      if message.parts.isEmpty then Vector(Array.emptyByteArray)
+      else message.parts
+
+    val sent =
+      parts.init.forall(socket.sendMore) &&
+        socket.send(parts.last, 0)
     if sent then Right(()) else Left(TransportError.SendFailed(operation, "failed to send message body"))
 
   def close: F[Unit] =
