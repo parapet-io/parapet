@@ -152,5 +152,11 @@ lazy val parapetNet = project
       "org.typelevel" %% "cats-effect" % catsEffectVersion % Test,
       "ch.qos.logback" % "logback-classic" % "1.5.6" % Test,
       "org.scalatest" %% "scalatest" % scalaTestVersion % Test
+    ),
+    Test / run / javaOptions ++= Seq(
+      "--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED",
+      "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+      "--add-opens=java.base/java.util.zip=ALL-UNNAMED",
+      "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
     )
   )
