@@ -6,7 +6,7 @@ import io.parapet.core.Events.Start
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
-class ProcessSpec extends AnyFunSuite with WithDsl[TestUtils.Id]:
+class ProcessSpec extends AnyFunSuite with WithDsl[TestUtils.TestIO]:
   import TestUtils.*
   import TestUtils.given
   import dsl.*
@@ -19,52 +19,56 @@ class ProcessSpec extends AnyFunSuite with WithDsl[TestUtils.Id]:
   test("and composes system event handlers for typed processes") {
     var seen = Vector.empty[String]
 
-    val left = Process.typed[Id, Command](_ => {
+    val left = Process.typed[TestIO, Command](_ => {
       case Start => eval { seen = seen :+ "left" }
       case Ping  => unit
     })
 
-    val right = Process.typed[Id, Command](_ => {
+    val right = Process.typed[TestIO, Command](_ => {
       case Start => eval { seen = seen :+ "right" }
       case Ping  => unit
     })
 
     val composed = left.and(right)
+    val fixture  = new RuntimeFixture
 
     composed.canHandle(Start) shouldBe true
-    composed(Start).foldMap(new IdInterpreter())
+    fixture.run(composed(Start))
     seen shouldBe Vector("left", "right")
   }
 
   test("or dispatches system events to the branch that handles them") {
     var seen = Vector.empty[String]
 
-    val domainOnly = Process.typed[Id, Command](_ => { case Ping => unit })
+    val domainOnly = Process.typed[TestIO, Command](_ => { case Ping => unit })
 
-    val lifecycleAware = Process.typed[Id, Command](_ => {
+    val lifecycleAware = Process.typed[TestIO, Command](_ => {
       case Start => eval { seen = seen :+ "lifecycle" }
       case Ping  => unit
     })
 
     val composed = domainOnly.or(lifecycleAware)
+    val fixture  = new RuntimeFixture
 
     composed.canHandle(Start) shouldBe true
-    composed(Start).foldMap(new IdInterpreter())
+    fixture.run(composed(Start))
     seen shouldBe Vector("lifecycle")
   }
 
   test("reply is checked against the process output protocol") {
     val clientRef = ProcessRef[Response.type]("client")
-    val execution = new Execution()
+    val fixture   = new RuntimeFixture
 
-    val server = new Process[Id, Request.type, Response.type]:
+    val server = new Process[TestIO, Request.type, Response.type]:
       import dsl.*
 
       override def handle: Receive = { case Request =>
         reply(Response)
       }
 
-    server(Request).foldMap(new IdInterpreter(execution, senderRef = clientRef))
+    fixture.runWithSender(clientRef, server(Request))
 
-    execution.trace.toSeq shouldBe Seq(Message(Response, clientRef))
+    fixture.captured.toList should have size 1
+    fixture.captured.head.event shouldBe Response
+    fixture.captured.head.receiver shouldBe clientRef
   }

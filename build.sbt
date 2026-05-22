@@ -137,14 +137,28 @@ lazy val parapetProtocol = project
 
 lazy val parapetNet = project
   .in(file("parapet-net"))
-  .dependsOn(parapetCore % "compile->compile;test->test", parapetProtocol)
+  .dependsOn(
+    parapetCore % "compile->compile;test->test",
+    parapetProtocol,
+    parapetTestkit % "test->compile",
+    parapetCatsEffect % "test->test;test->compile"
+  )
   .settings(
     baseSettings,
     name := "parapet-net",
     libraryDependencies ++= Seq(
       "org.zeromq" % "jeromq" % jeromqVersion,
       "io.aeron" % "aeron-all" % aeronVersion,
+      "org.typelevel" %% "cats-effect" % catsEffectVersion % Test,
       "ch.qos.logback" % "logback-classic" % "1.5.6" % Test,
       "org.scalatest" %% "scalatest" % scalaTestVersion % Test
+    ),
+    Test / fork := true,
+    Test / javaOptions ++= Seq(
+      "--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED",
+      "--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED",
+      "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+      "--add-opens=java.base/java.util.zip=ALL-UNNAMED",
+      "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
     )
   )

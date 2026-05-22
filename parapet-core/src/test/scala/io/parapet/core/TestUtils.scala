@@ -5,8 +5,7 @@ import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task}
 import io.parapet.core.processes.Noop
 import io.parapet.effect.{Effect, EffectFiber, Monad}
-import io.parapet.free.FunctionK
-import io.parapet.{Envelope, Event, ProcessRef, Scope}
+import io.parapet.{Envelope, ProcessRef, Scope}
 
 import java.util.concurrent.CancellationException
 import scala.collection.mutable.ListBuffer
@@ -105,101 +104,6 @@ object TestUtils:
             catch case finalizerError: Throwable => original.addSuppressed(finalizerError)
             throw original
       }
-
-  final case class Message(event: Event, target: ProcessRef.Unknown)
-
-  final class Execution(val trace: ListBuffer[Message] = ListBuffer.empty):
-    override def toString: String =
-      trace.toString()
-
-  final class IdInterpreter(
-      execution: Execution = new Execution(),
-      mapper: Event => Event = identity,
-      senderRef: ProcessRef.Unknown = ProcessRef.UndefinedRef
-  ) extends FunctionK[[x] =>> FlowOp[Id, x], Id]:
-
-    def apply[A](fa: FlowOp[Id, A]): A =
-      fa match
-        case UnitFlow() =>
-          ().asInstanceOf[A]
-
-        case Pure(value) =>
-          value
-
-        case Send(event, _, receiver, receivers) =>
-          val mapped = mapper(event())
-          execution.trace.append(Message(mapped, receiver))
-          receivers.foreach(target => execution.trace.append(Message(mapped, target)))
-          ().asInstanceOf[A]
-
-        case Forward(event, receivers) =>
-          val mapped = mapper(event())
-          receivers.foreach(target => execution.trace.append(Message(mapped, target)))
-          ().asInstanceOf[A]
-
-        case Par(flow) =>
-          flow.asInstanceOf[DslF[Id, Unit]].foldMap(this)
-          ().asInstanceOf[A]
-
-        case Delay(_) =>
-          ().asInstanceOf[A]
-
-        case WithSender(run) =>
-          run.asInstanceOf[ProcessRef.Unknown => DslF[Id, A]](senderRef).foldMap(this)
-
-        case Fork(flow) =>
-          new Fiber.IdFiber(flow.asInstanceOf[DslF[Id, A]].foldMap(this)).asInstanceOf[A]
-
-        case Register(_, _) =>
-          ().asInstanceOf[A]
-
-        case Race(first, _) =>
-          Left(first.asInstanceOf[DslF[Id, Any]].foldMap(this)).asInstanceOf[A]
-
-        case Suspend(thunk) =>
-          thunk().asInstanceOf[A]
-
-        case SuspendF(thunk) =>
-          thunk().asInstanceOf[DslF[Id, A]].foldMap(this)
-
-        case Eval(thunk) =>
-          thunk().asInstanceOf[A]
-
-        case Offload(body) =>
-          body().asInstanceOf[DslF[Id, Any]].foldMap(this)
-          ().asInstanceOf[A]
-
-        case RaiseError(error) =>
-          throw error
-
-        case HandleError(body, onError) =>
-          try body().asInstanceOf[DslF[Id, A]].foldMap(this)
-          catch case error: Throwable => onError(error).asInstanceOf[DslF[Id, A]].foldMap(this)
-
-        case Halt(_) =>
-          ().asInstanceOf[A]
-
-        case Guarantee(body, finalizer) =>
-          try
-            body().asInstanceOf[DslF[Id, Any]].foldMap(this)
-            finalizer().asInstanceOf[DslF[Id, Unit]].foldMap(this)
-            ().asInstanceOf[A]
-          catch
-            case error: Throwable =>
-              finalizer().asInstanceOf[DslF[Id, Unit]].foldMap(this)
-              throw error
-
-        case Dsl.Lock(_) =>
-          ().asInstanceOf[A]
-
-        case Dsl.Unlock(_) =>
-          ().asInstanceOf[A]
-
-        case WithScope(f) =>
-          f.asInstanceOf[Scope => DslF[Id, A]].apply(Scope.empty).foldMap(this)
-
-        case MapScope(_, body) =>
-          body.asInstanceOf[DslF[Id, A]].foldMap(this)
 
   final class RuntimeFixture:
     val captured: ListBuffer[Envelope] = ListBuffer.empty
