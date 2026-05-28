@@ -19,9 +19,9 @@ final class ClientProcess[F[_]](
   override val name: String = "net-client"
 
   override def handle: Receive = {
-    case Request(message) =>
-      suspend(transport.request(message)).flatMap {
-        case Right(response) => reply(Response(response))
+    case Request(data) =>
+      suspend(transport.request(Message(data))).flatMap {
+        case Right(response) => reply(Response(response.parts))
         case Left(error)     => reply(Failed(error))
       }
 
@@ -30,6 +30,10 @@ final class ClientProcess[F[_]](
   }
 
 object ClientProcess:
-  final case class Request(message: Message)     extends Event
-  final case class Response(message: Message)    extends Event
-  final case class Failed(error: TransportError) extends Event
+  final case class Request(data: Vector[Array[Byte]]) extends Event
+  object Request:
+    def single(data: Array[Byte]): Request =
+      Request(Vector(data))
+
+  final case class Response(data: Vector[Array[Byte]]) extends Event
+  final case class Failed(error: TransportError)       extends Event
