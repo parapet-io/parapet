@@ -7,6 +7,8 @@ import io.parapet.net.transport.{Message, TransportError}
 import io.parapet.net.transport.ClientTransport
 import io.parapet.ProcessRef
 
+import java.util.UUID
+
 import ClientProcess.*
 
 final class ClientProcess[F[_]](
@@ -20,9 +22,13 @@ final class ClientProcess[F[_]](
 
   override def handle: Receive = {
     case Request(data) =>
-      suspend(transport.request(Message(data))).flatMap {
-        case Right(response) => reply(Response(response.parts))
-        case Left(error)     => reply(Failed(error))
+      val correlationId = UUID.randomUUID().toString
+      suspend(transport.request(Message(correlationId, data))).flatMap {
+        case Right(response) =>
+          if response.correlationId == correlationId then reply(Response(response.payload))
+          else reply(Failed(TransportError.ProtocolViolation("client response correlation id does not match request")))
+        case Left(error) =>
+          reply(Failed(error))
       }
 
     case Stop =>
@@ -30,10 +36,6 @@ final class ClientProcess[F[_]](
   }
 
 object ClientProcess:
-  final case class Request(data: Vector[Array[Byte]]) extends Event
-  object Request:
-    def single(data: Array[Byte]): Request =
-      Request(Vector(data))
-
-  final case class Response(data: Vector[Array[Byte]]) extends Event
-  final case class Failed(error: TransportError)       extends Event
+  final case class Request(data: Array[Byte])    extends Event
+  final case class Response(data: Array[Byte])   extends Event
+  final case class Failed(error: TransportError) extends Event

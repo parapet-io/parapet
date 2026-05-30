@@ -37,7 +37,7 @@ final class ZmqTcpClient[F[_]] private (config: ZmqTcpClientConfig)(using effect
                 val parts = Vector.newBuilder[Array[Byte]]
                 parts += first
                 while socket.hasReceiveMore do parts += socket.recv(0)
-                Right(Message(parts.result()))
+                decodeMessage(parts.result())
           }
         catch
           case error: ZMQException =>
@@ -45,13 +45,18 @@ final class ZmqTcpClient[F[_]] private (config: ZmqTcpClientConfig)(using effect
     }
 
   private def sendMessage(message: Message): Either[TransportError, Unit] =
-    val parts = if message.parts.isEmpty then Vector(Array.emptyByteArray) else message.parts
-    var sent  = true
-    parts.zipWithIndex.foreach { case (part, index) =>
-      val last = index == parts.size - 1
-      sent = sent && (if last then socket.send(part, 0) else socket.sendMore(part))
-    }
+    val sent = socket.send(ZmqWireFraming.encode(message), 0)
     if sent then Right(()) else Left(TransportError.SendFailed("request", s"failed to send to ${config.remote.uri}"))
+
+  private def decodeMessage(frames: Vector[Array[Byte]]): Either[TransportError, Message] =
+    frames match
+      case Vector(frame) => ZmqWireFraming.decode(frame, "response")
+      case other         =>
+        Left(
+          TransportError.ProtocolViolation(
+            s"ZMQ response message must contain exactly one wire frame, got ${other.size}"
+          )
+        )
 
   def close: F[Unit] =
     effect.delay {

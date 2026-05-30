@@ -80,7 +80,7 @@ class Channel[F[_], In <: Event, Out <: Event](
         case Some(active) => completeAndReset(active, scala.util.Failure(error))
         case None         => unit
     case event =>
-      withSender { sender =>
+      dsl.unsafe.withSender { sender =>
         withScope { scope =>
           inFlight match
             case Some(active) =>

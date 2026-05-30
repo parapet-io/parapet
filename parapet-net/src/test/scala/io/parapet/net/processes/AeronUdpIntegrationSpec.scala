@@ -3,7 +3,6 @@ package io.parapet.net.processes
 import cats.effect.IO
 import io.parapet.core.Events.Start
 import io.parapet.core.Process
-import io.parapet.net.transport.Message
 import io.parapet.net.transport.aeron.{AeronUdpConfig, AeronUdpTransport}
 import io.parapet.tests.intg.cats.BasicCatsEffectSpec
 import io.parapet.testutils.EventStore
@@ -45,7 +44,7 @@ class AeronUdpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
           override val ref: ProcessRef[Event] = ProcessRef("driver")
           override def handle: Receive        = { case Start =>
             // Aeron publication needs a brief warmup before offer() succeeds.
-            delay(500.millis) ++ DatagramProcess.Publish(Message.single("hello".getBytes("UTF-8"))) ~> udpProc.ref
+            delay(500.millis) ++ DatagramProcess.Publish("hello".getBytes("UTF-8")) ~> udpProc.ref
           }
         }
 
@@ -60,8 +59,8 @@ class AeronUdpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
     val msgs = store.get(sinkRef)
     msgs should have size 1
     msgs.head match
-      case DatagramProcess.Received(message) =>
-        new String(message.parts.head, "UTF-8") shouldBe "hello"
+      case DatagramProcess.Received(data) =>
+        new String(data, "UTF-8") shouldBe "hello"
       case other =>
         fail(s"unexpected datagram event: $other")
   }

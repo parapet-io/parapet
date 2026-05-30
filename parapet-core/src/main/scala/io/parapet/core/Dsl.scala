@@ -302,15 +302,6 @@ object Dsl:
     def delay(duration: FiniteDuration): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Delay[F](duration))
 
-    /** Runs `f` with the current sender's [[ProcessRef]] in scope.
-      *
-      * This is intentionally core-private because it exposes the raw, untyped sender ref. User code should use
-      * [[Process.reply]], which checks replies against the process's declared `Out` protocol.
-      */
-    @developerApi
-    private[core] def withSender[A](f: ProcessRef[Event] => Free[C, A]): Free[C, A] =
-      Free.inject[[x] =>> FlowOp[F, x], C, A](WithSender[F, C, A](f))
-
     /** Low-level untyped reply helper for core internals.
       *
       * User processes should call [[Process.reply]], which checks the event against the process's declared `Out`
@@ -319,12 +310,12 @@ object Dsl:
       */
     @developerApi
     private[core] def reply(event: => Event): Free[C, Unit] =
-      withSender(sender => send(event, sender))
+      unsafe.withSender(sender => send(event, sender))
 
     /** Low-level untyped batch reply helper for core internals. */
     @developerApi
     private[core] def reply(events: Seq[Event]): Free[C, Unit] =
-      withSender { sender =>
+      unsafe.withSender { sender =>
         events.toList match
           case Nil          => unit
           case head :: tail =>
@@ -525,6 +516,19 @@ object Dsl:
     /** Stops the process identified by `ref` and any descendants. */
     def halt(ref: ProcessRef.Unknown): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Halt[F](ref))
+
+    object unsafe {
+
+      /** Runs `f` with the current sender's [[ProcessRef]] in scope.
+        *
+        * This is intentionally core-private because it exposes the raw, untyped sender ref. User code should use
+        * [[Process.reply]], which checks replies against the process's declared `Out` protocol.
+        */
+      @developerApi
+      def withSender[A](f: ProcessRef[Event] => Free[C, A]): Free[C, A] =
+        Free.inject[[x] =>> FlowOp[F, x], C, A](WithSender[F, C, A](f))
+
+    }
 
     private def sequence[A](values: List[Free[C, A]]): Free[C, List[A]] =
       values.foldRight(pure(List.empty[A])) { (current, acc) =>

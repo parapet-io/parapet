@@ -62,11 +62,15 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
         case Left(error) =>
           ReceiveResult.Failed(error)
         case Right(body) =>
-          val routingId = RoutingId(Base64.getEncoder.encodeToString(identity))
-          routes.synchronized {
-            routes.put(routingId.value, RouteEntry(identity.clone()))
-          }
-          ReceiveResult.Received(RoutedMessage(routingId, Message(body)))
+          decodeMessage(body) match
+            case Left(error) =>
+              ReceiveResult.Failed(error)
+            case Right(message) =>
+              val routingId = RoutingId(Base64.getEncoder.encodeToString(identity))
+              routes.synchronized {
+                routes.put(routingId.value, RouteEntry(identity.clone()))
+              }
+              ReceiveResult.Received(RoutedMessage(routingId, message))
 
   private def bodyParts(frames: Vector[Array[Byte]]): Either[TransportError, Vector[Array[Byte]]] =
     config.peerSocketType match
@@ -108,14 +112,21 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
           sendMessage(message, "reply")
 
   private def sendMessage(message: Message, operation: String): Either[TransportError, Unit] =
-    val parts =
-      if message.parts.isEmpty then Vector(Array.emptyByteArray)
-      else message.parts
-
-    val sent =
-      parts.init.forall(socket.sendMore) &&
-        socket.send(parts.last, 0)
+    val sent = socket.send(encodeMessage(message), 0)
     if sent then Right(()) else Left(TransportError.SendFailed(operation, "failed to send message body"))
+
+  private def decodeMessage(parts: Vector[Array[Byte]]): Either[TransportError, Message] =
+    parts match
+      case Vector(frame) => ZmqWireFraming.decode(frame, "request")
+      case other         =>
+        Left(
+          TransportError.ProtocolViolation(
+            s"ZMQ request message must contain exactly one wire frame, got ${other.size}"
+          )
+        )
+
+  private def encodeMessage(message: Message): Array[Byte] =
+    ZmqWireFraming.encode(message)
 
   def close: F[Unit] =
     effect.delay {

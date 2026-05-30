@@ -149,9 +149,14 @@ lazy val parapetNet = project
     libraryDependencies ++= Seq(
       "org.zeromq" % "jeromq" % jeromqVersion,
       "io.aeron" % "aeron-all" % aeronVersion,
+      "com.sksamuel.avro4s" %% "avro4s-core" % "5.0.13",
+      "com.thesamet.scalapb" %% "scalapb-runtime" % scalapb.compiler.Version.scalapbVersion % "protobuf",
       "org.typelevel" %% "cats-effect" % catsEffectVersion % Test,
       "ch.qos.logback" % "logback-classic" % "1.5.6" % Test,
       "org.scalatest" %% "scalatest" % scalaTestVersion % Test
+    ),
+    Compile / PB.targets := Seq(
+      scalapb.gen(grpc = false, flatPackage = true, scala3Sources = true) -> (Compile / sourceManaged).value / "scalapb"
     ),
     Test / fork := true,
     Test / javaOptions ++= Seq(

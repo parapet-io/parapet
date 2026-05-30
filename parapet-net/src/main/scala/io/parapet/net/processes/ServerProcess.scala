@@ -12,8 +12,6 @@ import scala.concurrent.duration.*
 import ServerProcess.*
 import io.parapet.net.transport.TransportError.ProtocolViolation
 
-import java.util.UUID
-
 final class ServerProcess[F[_]](
     transport: ServerTransport[F],
     sink: ProcessRef[Received | Failed],
@@ -25,16 +23,15 @@ final class ServerProcess[F[_]](
 
   override val name: String = "net-server"
 
-  private val requests = new ConcurrentHashMap[String, RouteInfo]()
+  private val requests = new ConcurrentHashMap[String, RoutingId]()
 
   private def receiveLoop: Program = flow {
     suspend(transport.receive).flatMap {
       case ReceiveResult.Received(RoutedMessage(routingId, message)) =>
         eval {
-          val correlationId = message.id.getOrElse(UUID.randomUUID().toString)
-          requests.put(correlationId, RouteInfo(routingId, message.id))
-          correlationId
-        }.flatMap(id => Received(id, message.parts) ~> sink)
+          requests.put(message.correlationId, routingId)
+          message.correlationId
+        }.flatMap(id => Received(id, message.payload) ~> sink)
 
       case ReceiveResult.Idle =>
         delay(pollDelay)
@@ -49,22 +46,23 @@ final class ServerProcess[F[_]](
       fork(receiveLoop).void
 
     case Reply(correlationId, data) =>
-      Option(requests.remove(correlationId)) match {
-        case Some(routeInfo) =>
-          suspend(transport.reply(routeInfo.routingId, Message.single(data).copy(id = routeInfo.correlationId)))
-            .flatMap {
-              case Right(_)    => unit
-              case Left(error) => Failed(error) ~> sink
-            }
-        case None => Failed(ProtocolViolation(s"unknown correlationId: $correlationId")) ~> sink
+      dsl.unsafe.withSender { sender =>
+        Option(requests.remove(correlationId)) match {
+          case Some(routingId) =>
+            suspend(transport.reply(routingId, Message(correlationId, data)))
+              .flatMap {
+                case Right(_)    => unit
+                case Left(error) => Failed(error) ~> sender
+              }
+          case None =>
+            Failed(ProtocolViolation(s"unknown correlationId: $correlationId")) ~> sender
+        }
       }
     case Stop =>
       suspend(transport.close)
   }
 
 object ServerProcess:
-  private case class RouteInfo(routingId: RoutingId, correlationId: Option[String])
-
-  final case class Reply(correlationId: String, data: Array[Byte])            extends Event
-  final case class Received(correlationId: String, data: Vector[Array[Byte]]) extends Event
-  final case class Failed(error: TransportError)                              extends Event
+  final case class Reply(correlationId: String, data: Array[Byte])    extends Event
+  final case class Received(correlationId: String, data: Array[Byte]) extends Event
+  final case class Failed(error: TransportError)                      extends Event

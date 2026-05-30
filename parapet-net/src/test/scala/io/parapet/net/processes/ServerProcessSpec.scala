@@ -8,11 +8,11 @@ import io.parapet.net.transport.{Message, ReceiveResult, RoutedMessage, RoutingI
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
+import java.util.concurrent.ConcurrentHashMap
+
 class ServerProcessSpec extends AnyFunSuite:
-  test("server process sends replies through the transport") {
-    val routingId = RoutingId("client-1")
-    val response  = Message.single("pong".getBytes)
-    var replies   = Vector.empty[(RoutingId, Message)]
+  test("server process reports unknown correlation ids to the reply sender") {
+    var replied = false
 
     val transport = new ServerTransport[TestIO]:
       def receive: TestIO[ReceiveResult[RoutedMessage]] =
@@ -20,7 +20,7 @@ class ServerProcessSpec extends AnyFunSuite:
 
       def reply(routingId: RoutingId, message: Message): TestIO[Either[TransportError, Unit]] =
         TestIO.delay {
-          replies = replies :+ (routingId -> message)
+          replied = true
           Right(())
         }
 
@@ -30,16 +30,24 @@ class ServerProcessSpec extends AnyFunSuite:
     val sink    = ProcessRef[ServerProcess.Received | ServerProcess.Failed]("sink")
     val process = new ServerProcess[TestIO](transport, sink)
     val fixture = new RuntimeFixture
+    val sender  = ProcessRef[ServerProcess.Failed]("reply-sender")
 
-    fixture.run(process(ServerProcess.Reply(routingId, response)))
+    fixture.runWithSender(sender, process(ServerProcess.Reply("missing-correlation-id", "pong".getBytes)))
 
-    replies shouldBe Vector(routingId -> response)
-    fixture.captured shouldBe empty
+    replied shouldBe false
+    fixture.captured.toList should have size 1
+    fixture.captured.head.receiver shouldBe sender
+    fixture.captured.head.event match
+      case ServerProcess.Failed(TransportError.ProtocolViolation(message)) =>
+        message should include("missing-correlation-id")
+      case other =>
+        fail(s"unexpected event: $other")
   }
 
-  test("server process reports reply transport failure to the sink") {
-    val routingId = RoutingId("missing-client")
-    val error     = TransportError.UnknownRoute(routingId)
+  test("server process reports reply transport failures to the reply sender") {
+    val correlationId = "request-1"
+    val routingId     = RoutingId("client-1")
+    val error         = TransportError.UnknownRoute(routingId)
 
     val transport = new ServerTransport[TestIO]:
       def receive: TestIO[ReceiveResult[RoutedMessage]] =
@@ -54,11 +62,13 @@ class ServerProcessSpec extends AnyFunSuite:
     val sink    = ProcessRef[ServerProcess.Received | ServerProcess.Failed]("sink")
     val process = new ServerProcess[TestIO](transport, sink)
     val fixture = new RuntimeFixture
+    val sender  = ProcessRef[ServerProcess.Failed]("reply-sender")
 
-    fixture.run(process(ServerProcess.Reply(routingId, Message.single("pong".getBytes))))
+    pendingRequests(process).put(correlationId, routingId)
+    fixture.runWithSender(sender, process(ServerProcess.Reply(correlationId, "pong".getBytes)))
 
     fixture.captured.toList should have size 1
-    fixture.captured.head.receiver shouldBe sink
+    fixture.captured.head.receiver shouldBe sender
     fixture.captured.head.event shouldBe ServerProcess.Failed(error)
   }
 
@@ -85,3 +95,8 @@ class ServerProcessSpec extends AnyFunSuite:
 
     closed shouldBe true
   }
+
+  private def pendingRequests(process: ServerProcess[TestIO]): ConcurrentHashMap[String, RoutingId] =
+    val field = process.getClass.getDeclaredFields.find(_.getName.contains("requests")).get
+    field.setAccessible(true)
+    field.get(process).asInstanceOf[ConcurrentHashMap[String, RoutingId]]

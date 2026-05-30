@@ -5,7 +5,7 @@ import io.aeron.logbuffer.FragmentHandler
 import io.aeron.{Aeron, Publication}
 import io.parapet.effect.Effect
 import io.parapet.effect.Resource
-import io.parapet.net.transport.{DatagramTransport, Message, ReceiveResult, TransportError}
+import io.parapet.net.transport.{Datagram, DatagramTransport, ReceiveResult, TransportError}
 import org.agrona.concurrent.UnsafeBuffer
 
 import java.util.concurrent.atomic.AtomicBoolean
@@ -40,17 +40,10 @@ final class AeronUdpTransport[F[_]] private (config: AeronUdpConfig)(using effec
   private val publication  = aeron.addPublication(config.channel, config.streamId)
   private val subscription = aeron.addSubscription(config.channel, config.streamId)
 
-  def publish(message: Message): F[Either[TransportError, Unit]] =
+  def publish(datagram: Datagram): F[Either[TransportError, Unit]] =
     effect.blocking {
       if closed.get() then Left(TransportError.Closed("publish"))
-      else
-        message.parts.headOption match
-          case None =>
-            publishPart(Array.emptyByteArray)
-          case Some(first) if message.parts.sizeIs == 1 =>
-            publishPart(first)
-          case Some(_) =>
-            Left(TransportError.ProtocolViolation("Aeron datagrams support exactly one message part"))
+      else publishPart(datagram.payload)
     }
 
   private def publishPart(payload: Array[Byte]): Either[TransportError, Unit] =
@@ -67,11 +60,11 @@ final class AeronUdpTransport[F[_]] private (config: AeronUdpConfig)(using effec
     if result < 0 then Left(TransportError.SendFailed("publish", s"Aeron publication result=$result"))
     else Right(())
 
-  def receiveBatch(limit: Int): F[ReceiveResult[Vector[Message]]] =
+  def receiveBatch(limit: Int): F[ReceiveResult[Vector[Datagram]]] =
     effect.blocking {
       if closed.get() then ReceiveResult.Failed(TransportError.Closed("receiveBatch"))
       else
-        val messages = ListBuffer.empty[Message]
+        val messages = ListBuffer.empty[Datagram]
         val handler  = new FragmentHandler:
           override def onFragment(
               buffer: org.agrona.DirectBuffer,
@@ -81,7 +74,7 @@ final class AeronUdpTransport[F[_]] private (config: AeronUdpConfig)(using effec
           ): Unit =
             val bytes = new Array[Byte](length)
             buffer.getBytes(offset, bytes)
-            messages += Message.single(bytes)
+            messages += Datagram(bytes)
 
         subscription.poll(handler, limit)
         if messages.isEmpty then ReceiveResult.Idle
