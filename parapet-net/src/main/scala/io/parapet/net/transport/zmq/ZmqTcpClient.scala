@@ -3,7 +3,7 @@ package io.parapet.net.transport.zmq
 import io.parapet.effect.Effect
 import io.parapet.effect.Resource
 import io.parapet.net.{Endpoint, TransportProtocol}
-import io.parapet.net.transport.{ClientTransport, Message, TransportError}
+import io.parapet.net.transport.{ClientTransport, Message, MessageCodec, TransportError}
 import org.zeromq.{SocketType, ZContext, ZMQException}
 
 import java.util.concurrent.atomic.AtomicBoolean
@@ -45,12 +45,12 @@ final class ZmqTcpClient[F[_]] private (config: ZmqTcpClientConfig)(using effect
     }
 
   private def sendMessage(message: Message): Either[TransportError, Unit] =
-    val sent = socket.send(ZmqWireFraming.encode(message), 0)
+    val sent = socket.send(MessageCodec.encode(message), 0)
     if sent then Right(()) else Left(TransportError.SendFailed("request", s"failed to send to ${config.remote.uri}"))
 
   private def decodeMessage(frames: Vector[Array[Byte]]): Either[TransportError, Message] =
     frames match
-      case Vector(frame) => ZmqWireFraming.decode(frame, "response")
+      case Vector(frame) => MessageCodec.decode(frame, "response")
       case other         =>
         Left(
           TransportError.ProtocolViolation(

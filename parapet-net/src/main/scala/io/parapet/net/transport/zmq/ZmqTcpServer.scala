@@ -117,7 +117,7 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
 
   private def decodeMessage(parts: Vector[Array[Byte]]): Either[TransportError, Message] =
     parts match
-      case Vector(frame) => ZmqWireFraming.decode(frame, "request")
+      case Vector(frame) => MessageCodec.decode(frame, "request")
       case other         =>
         Left(
           TransportError.ProtocolViolation(
@@ -126,7 +126,7 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
         )
 
   private def encodeMessage(message: Message): Array[Byte] =
-    ZmqWireFraming.encode(message)
+    MessageCodec.encode(message)
 
   def close: F[Unit] =
     effect.delay {

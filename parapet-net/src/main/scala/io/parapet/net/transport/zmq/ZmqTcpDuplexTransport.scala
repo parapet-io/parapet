@@ -3,7 +3,7 @@ package io.parapet.net.transport.zmq
 import io.parapet.effect.Effect
 import io.parapet.effect.Resource
 import io.parapet.net.{Endpoint, TransportProtocol}
-import io.parapet.net.transport.{DuplexTransport, Message, ReceiveResult, TransportError}
+import io.parapet.net.transport.{DuplexTransport, Message, MessageCodec, ReceiveResult, TransportError}
 import org.zeromq.{SocketType, ZContext, ZMQException}
 
 import java.util.concurrent.atomic.AtomicBoolean
@@ -63,14 +63,14 @@ final class ZmqTcpDuplexTransport[F[_]] private (config: ZmqTcpDuplexConfig)(usi
           case Left(error)    => ReceiveResult.Failed(error)
 
   private def sendMessage(message: Message, operation: String): Either[TransportError, Unit] =
-    val sent = socket.send(ZmqWireFraming.encode(message), 0)
+    val sent = socket.send(MessageCodec.encode(message), 0)
 
     if sent then Right(())
     else Left(TransportError.SendFailed(operation, s"failed to send to ${config.remote.uri}"))
 
   private def decodeMessage(frames: Vector[Array[Byte]]): Either[TransportError, Message] =
     frames match
-      case Vector(frame) => ZmqWireFraming.decode(frame, "duplex")
+      case Vector(frame) => MessageCodec.decode(frame, "duplex")
       case other         =>
         Left(
           TransportError.ProtocolViolation(s"ZMQ duplex message must contain exactly one wire frame, got ${other.size}")
