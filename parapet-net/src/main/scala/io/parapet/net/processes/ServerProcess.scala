@@ -1,11 +1,13 @@
 package io.parapet.net.processes
 
+import com.typesafe.scalalogging.Logger
 import io.parapet.core.Events.{Start, Stop}
 import io.parapet.core.Process
 import io.parapet.Event
 import io.parapet.net.transport.{Message, ReceiveResult, RoutedMessage, RoutingId, TransportError}
 import io.parapet.net.transport.ServerTransport
 import io.parapet.ProcessRef
+import org.slf4j.LoggerFactory
 
 import java.util.concurrent.ConcurrentHashMap
 import scala.concurrent.duration.*
@@ -20,6 +22,8 @@ final class ServerProcess[F[_]](
 ) extends Process[F, Reply, Nothing]:
 
   import dsl.*
+
+  private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
 
   override val name: String = "net-server"
 
@@ -37,7 +41,7 @@ final class ServerProcess[F[_]](
         delay(pollDelay)
 
       case ReceiveResult.Failed(error) =>
-        Failed(error) ~> sink
+        eval(logger.warn("server receive failed. error: {}", error)) ++ (Failed(error) ~> sink)
     } ++ receiveLoop
   }
 
@@ -51,11 +55,15 @@ final class ServerProcess[F[_]](
           case Some(routingId) =>
             suspend(transport.reply(routingId, Message(correlationId, data)))
               .flatMap {
-                case Right(_)    => unit
-                case Left(error) => Failed(error) ~> sender
+                case Right(_) =>
+                  unit
+                case Left(error) =>
+                  eval(logger.warn("server reply failed. correlationId: {}, error: {}", correlationId, error)) ++
+                    (Failed(error) ~> sender)
               }
           case None =>
-            Failed(ProtocolViolation(s"unknown correlationId: $correlationId")) ~> sender
+            eval(logger.warn("server reply has unknown correlationId: {}", correlationId)) ++
+              (Failed(ProtocolViolation(s"unknown correlationId: $correlationId")) ~> sender)
         }
       }
     case Stop =>
