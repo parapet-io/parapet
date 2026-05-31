@@ -75,14 +75,10 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
       decodeEnvelope(frames.toVector) match
         case Left(error) =>
           ReceiveResult.Failed(error)
-        case Right((envelope, frame)) =>
-          decodeMessage(frame) match
-            case Left(error) =>
-              ReceiveResult.Failed(error)
-            case Right(message) =>
-              expireRoutes()
-              val routingId = registerRoute(identity, envelope)
-              ReceiveResult.Received(RoutedMessage(routingId, message))
+        case Right((envelope, message)) =>
+          expireRoutes()
+          val routingId = registerRoute(identity, envelope)
+          ReceiveResult.Received(RoutedMessage(routingId, message))
 
   private def registerRoute(identity: Array[Byte], envelope: PeerEnvelope): RoutingId =
     val routingId = RoutingId(UUID.randomUUID().toString)
@@ -101,26 +97,23 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
   private def isExpired(entry: RouteEntry): Boolean =
     System.currentTimeMillis() - entry.createdAtMs > config.routeTtlMs
 
-  private def decodeEnvelope(frames: Vector[Array[Byte]]): Either[TransportError, (PeerEnvelope, Array[Byte])] =
-    frames match
-      case Vector(delimiter, frame) if delimiter.isEmpty =>
-        Right((PeerEnvelope.Req, frame))
-      case Vector(frame) if frame.isEmpty =>
-        Left(TransportError.ProtocolViolation("ZMQ request message has an empty wire frame"))
-      case Vector(frame) =>
-        Right((PeerEnvelope.Dealer, frame))
-      case other if other.headOption.exists(_.isEmpty) =>
-        Left(
-          TransportError.ProtocolViolation(
-            s"REQ peer message must contain an empty delimiter and exactly one wire frame, got ${other.size} frames"
-          )
-        )
-      case other =>
-        Left(
-          TransportError.ProtocolViolation(
-            s"DEALER peer message must contain exactly one wire frame, got ${other.size}"
-          )
-        )
+  private def decodeEnvelope(frames: Vector[Array[Byte]]): Either[TransportError, (PeerEnvelope, Message)] =
+    if frames.isEmpty || frames.size > 2 then
+      Left(TransportError.ProtocolViolation(s"ZMQ request message must contain one or two frames, got ${frames.size}"))
+    else if frames.size == 2 then
+      val delimiter = frames.head
+      val frame     = frames.last
+
+      if delimiter.nonEmpty then
+        Left(TransportError.ProtocolViolation("REQ peer message is missing empty delimiter frame"))
+      else if frame.isEmpty then
+        Left(TransportError.ProtocolViolation("REQ peer message has an empty wire frame"))
+      else decodeMessage(frame).map(message => (PeerEnvelope.Req, message))
+    else
+      val frame = frames.head
+      if frame.isEmpty then
+        Left(TransportError.ProtocolViolation("DEALER peer message has an empty wire frame"))
+      else decodeMessage(frame).map(message => (PeerEnvelope.Dealer, message))
 
   private def sendReply(
       sock: ZMQ.Socket,
