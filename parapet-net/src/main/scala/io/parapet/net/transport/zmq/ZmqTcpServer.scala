@@ -28,7 +28,7 @@ final case class ZmqTcpServerConfig(
   * bytes stay inside the transport.
   */
 final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect: Effect[F]) extends ServerTransport[F]:
-  import ZmqTcpServer.{Command, PeerEnvelope, RouteEntry}
+  import ZmqTcpServer.{Command, RouteEntry}
 
   private val context = new ZContext(config.ioThreads)
   private val socket  = context.createSocket(SocketType.ROUTER)
@@ -80,9 +80,9 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
           val routingId = registerRoute(identity, envelope)
           ReceiveResult.Received(RoutedMessage(routingId, message))
 
-  private def registerRoute(identity: Array[Byte], envelope: PeerEnvelope): RoutingId =
+  private def registerRoute(identity: Array[Byte], socketType: SocketType): RoutingId =
     val routingId = RoutingId(UUID.randomUUID().toString)
-    routes.put(routingId.value, RouteEntry(identity.clone(), envelope, System.currentTimeMillis()))
+    routes.put(routingId.value, RouteEntry(identity.clone(), socketType, System.currentTimeMillis()))
     routingId
 
   private def takeRoute(routingId: RoutingId): Option[RouteEntry] =
@@ -97,23 +97,30 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
   private def isExpired(entry: RouteEntry): Boolean =
     System.currentTimeMillis() - entry.createdAtMs > config.routeTtlMs
 
-  private def decodeEnvelope(frames: Vector[Array[Byte]]): Either[TransportError, (PeerEnvelope, Message)] =
-    if frames.isEmpty || frames.size > 2 then
-      Left(TransportError.ProtocolViolation(s"ZMQ request message must contain one or two frames, got ${frames.size}"))
-    else if frames.size == 2 then
-      val delimiter = frames.head
-      val frame     = frames.last
+  private def violation(message: String): Either[TransportError, Nothing] =
+    Left(TransportError.ProtocolViolation(message))
 
-      if delimiter.nonEmpty then
-        Left(TransportError.ProtocolViolation("REQ peer message is missing empty delimiter frame"))
-      else if frame.isEmpty then
-        Left(TransportError.ProtocolViolation("REQ peer message has an empty wire frame"))
-      else decodeMessage(frame).map(message => (PeerEnvelope.Req, message))
-    else
-      val frame = frames.head
-      if frame.isEmpty then
-        Left(TransportError.ProtocolViolation("DEALER peer message has an empty wire frame"))
-      else decodeMessage(frame).map(message => (PeerEnvelope.Dealer, message))
+  private def decodeEnvelope(frames: Vector[Array[Byte]]): Either[TransportError, (SocketType, Message)] =
+    def decode(socketType: SocketType, frame: Array[Byte]): Either[TransportError, (SocketType, Message)] =
+      if frame.isEmpty then violation(s"$socketType peer message has an empty wire frame")
+      else decodeMessage(frame).map(message => (socketType, message))
+
+    frames.size match
+      case 0 =>
+        violation("ZMQ request message must contain one or two frames, got 0")
+
+      case 1 =>
+        decode(SocketType.DEALER, frames.head)
+
+      case 2 =>
+        val delimiter = frames.head
+        val frame     = frames.last
+
+        if delimiter.nonEmpty then violation("REQ peer message is missing empty delimiter frame")
+        else decode(SocketType.REQ, frame)
+
+      case n =>
+        violation(s"ZMQ request message must contain one or two frames, got $n")
 
   private def sendReply(
       sock: ZMQ.Socket,
@@ -124,8 +131,8 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
     if !sock.sendMore(entry.identity) then
       Left(TransportError.SendFailed("reply", s"failed to route reply to ${routingId.value}"))
     else
-      entry.envelope match
-        case PeerEnvelope.Req if !sock.sendMore(Array.emptyByteArray) =>
+      entry.socketType match
+        case SocketType.REQ if !sock.sendMore(Array.emptyByteArray) =>
           Left(TransportError.SendFailed("reply", s"failed to send delimiter to ${routingId.value}"))
         case _ =>
           sendMessage(sock, message, "reply")
@@ -147,7 +154,4 @@ object ZmqTcpServer:
   private object Command:
     final case class Reply(routingId: RoutingId, message: Message) extends Command
 
-  private enum PeerEnvelope:
-    case Req, Dealer
-
-  final private case class RouteEntry(identity: Array[Byte], envelope: PeerEnvelope, createdAtMs: Long)
+  final private case class RouteEntry(identity: Array[Byte], socketType: SocketType, createdAtMs: Long)
