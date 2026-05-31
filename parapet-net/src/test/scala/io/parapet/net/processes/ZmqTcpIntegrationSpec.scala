@@ -25,7 +25,6 @@ import io.parapet.testutils.EventStore
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers.*
-import org.zeromq.SocketType
 
 import java.net.ServerSocket
 import scala.concurrent.duration.*
@@ -95,7 +94,7 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
 
     unsafeRun {
       ZmqTcpServer
-        .make[IO](ZmqTcpServerConfig(bind, receiveTimeoutMs = 100, peerSocketType = SocketType.DEALER))
+        .make[IO](ZmqTcpServerConfig(bind, receiveTimeoutMs = 100))
         .use { server =>
           ZmqTcpDuplexTransport.make[IO](ZmqTcpDuplexConfig(connect, receiveTimeoutMs = 100)).use { client =>
             val payload = "ping".getBytes("UTF-8")
@@ -128,7 +127,7 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
 
     unsafeRun {
       ZmqTcpServer
-        .make[IO](ZmqTcpServerConfig(bind, receiveTimeoutMs = 100, peerSocketType = SocketType.DEALER))
+        .make[IO](ZmqTcpServerConfig(bind, receiveTimeoutMs = 100))
         .use { server =>
           ZmqTcpDuplexTransport.make[IO](ZmqTcpDuplexConfig(connect, receiveTimeoutMs = 100)).use { client =>
             val request1 = Message("request-1", "ping-1".getBytes("UTF-8"))
@@ -174,6 +173,49 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
     }
   }
 
+  it should "detect REQ and DEALER peer envelopes on the same server" in {
+    val port    = ZmqTcpIntegrationSpec.freePort()
+    val bind    = Endpoint(TransportProtocol.Tcp, "*", port)
+    val connect = Endpoint(TransportProtocol.Tcp, "127.0.0.1", port)
+
+    unsafeRun {
+      ZmqTcpServer.make[IO](ZmqTcpServerConfig(bind, receiveTimeoutMs = 100)).use { server =>
+        ZmqTcpClient.make[IO](ZmqTcpClientConfig(connect, receiveTimeoutMs = 2000)).use { reqClient =>
+          ZmqTcpDuplexTransport.make[IO](ZmqTcpDuplexConfig(connect, receiveTimeoutMs = 100)).use { dealerClient =>
+            val reqRequest    = Message("req-1", "req".getBytes("UTF-8"))
+            val dealerRequest = Message("dealer-1", "dealer".getBytes("UTF-8"))
+            val reqReply      = Message("req-1", "REQ".getBytes("UTF-8"))
+            val dealerReply   = Message("dealer-1", "DEALER".getBytes("UTF-8"))
+
+            for
+              reqFiber   <- reqClient.request(reqRequest).start
+              _          <- IO.sleep(100.millis)
+              dealerSent <- dealerClient.send(dealerRequest)
+              _          <- IO.delay(dealerSent shouldBe Right(()))
+              inbound1   <- ZmqTcpIntegrationSpec.awaitServer(server)
+              inbound2   <- ZmqTcpIntegrationSpec.awaitServer(server)
+              _          <- ZmqTcpIntegrationSpec.replyByCorrelation(server, inbound1, reqReply, dealerReply)
+              _          <- ZmqTcpIntegrationSpec.replyByCorrelation(server, inbound2, reqReply, dealerReply)
+              reqResult  <- reqFiber.joinWithNever
+              dealerResp <- ZmqTcpIntegrationSpec.awaitClient(dealerClient)
+              _          <- IO.delay {
+                reqResult match
+                  case Right(response) =>
+                    response.correlationId shouldBe "req-1"
+                    new String(response.payload, "UTF-8") shouldBe "REQ"
+                  case Left(error) =>
+                    fail(s"REQ client failed: $error")
+
+                dealerResp.correlationId shouldBe "dealer-1"
+                new String(dealerResp.payload, "UTF-8") shouldBe "DEALER"
+              }
+            yield ()
+          }
+        }
+      }
+    }
+  }
+
   it should "expire server routes that are not replied to within the route ttl" in {
     val port    = ZmqTcpIntegrationSpec.freePort()
     val bind    = Endpoint(TransportProtocol.Tcp, "*", port)
@@ -185,7 +227,6 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
           ZmqTcpServerConfig(
             bind,
             receiveTimeoutMs = 100,
-            peerSocketType = SocketType.DEALER,
             routeTtlMs = 50
           )
         )
@@ -216,7 +257,7 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
 
     unsafeRun {
       ZmqTcpServer
-        .make[IO](ZmqTcpServerConfig(bind, receiveTimeoutMs = 100, peerSocketType = SocketType.DEALER))
+        .make[IO](ZmqTcpServerConfig(bind, receiveTimeoutMs = 100))
         .use { serverTransport =>
           ZmqTcpDuplexTransport.make[IO](ZmqTcpDuplexConfig(connect, receiveTimeoutMs = 100)).use { duplexTransport =>
             val serverProcess =
@@ -274,7 +315,7 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
 
     unsafeRun {
       ZmqTcpServer
-        .make[IO](ZmqTcpServerConfig(bind, receiveTimeoutMs = 100, peerSocketType = SocketType.DEALER))
+        .make[IO](ZmqTcpServerConfig(bind, receiveTimeoutMs = 100))
         .use { serverTransport =>
           ZmqTcpDuplexTransport.make[IO](ZmqTcpDuplexConfig(connect, receiveTimeoutMs = 100)).use { duplexTransport =>
             val serverProcess =
@@ -347,7 +388,7 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
 
     unsafeRun {
       ZmqTcpServer
-        .make[IO](ZmqTcpServerConfig(bind, receiveTimeoutMs = 100, peerSocketType = SocketType.DEALER))
+        .make[IO](ZmqTcpServerConfig(bind, receiveTimeoutMs = 100))
         .use { serverTransport =>
           ZmqTcpDuplexTransport.make[IO](ZmqTcpDuplexConfig(connect, receiveTimeoutMs = 100)).use { duplexTransport =>
             val serverProcess =
@@ -425,3 +466,20 @@ object ZmqTcpIntegrationSpec:
         case ReceiveResult.Idle            => IO.sleep(25.millis).flatMap(_ => awaitClient(client, attempts - 1))
         case ReceiveResult.Failed(error)   => IO.raiseError(new AssertionError(s"client receive failed: $error"))
       }
+
+  def replyByCorrelation(
+      server: ServerTransport[IO],
+      routed: RoutedMessage,
+      reqReply: Message,
+      dealerReply: Message
+  ): IO[Unit] =
+    val reply =
+      routed.message.correlationId match
+        case "req-1"    => reqReply
+        case "dealer-1" => dealerReply
+        case other      => throw new AssertionError(s"unexpected correlation id: $other")
+
+    server.reply(routed.routingId, reply).flatMap {
+      case Right(())   => IO.unit
+      case Left(error) => IO.raiseError(new AssertionError(s"reply failed: $error"))
+    }
