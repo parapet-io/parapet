@@ -12,7 +12,14 @@ import io.parapet.net.transport.zmq.{
   ZmqTcpServerConfig
 }
 import io.parapet.net.{Endpoint, TransportProtocol}
-import io.parapet.net.transport.{DuplexTransport, Message, ReceiveResult, RoutedMessage, ServerTransport}
+import io.parapet.net.transport.{
+  DuplexTransport,
+  Message,
+  ReceiveResult,
+  RoutedMessage,
+  ServerTransport,
+  TransportError
+}
 import io.parapet.tests.intg.cats.BasicCatsEffectSpec
 import io.parapet.testutils.EventStore
 import io.parapet.{Event, ProcessRef}
@@ -108,6 +115,93 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
                 response.correlationId shouldBe "request-1"
                 new String(response.payload, "UTF-8") shouldBe "PONG"
               }
+            yield ()
+          }
+        }
+    }
+  }
+
+  it should "create one-shot server routes for each received message" in {
+    val port    = ZmqTcpIntegrationSpec.freePort()
+    val bind    = Endpoint(TransportProtocol.Tcp, "*", port)
+    val connect = Endpoint(TransportProtocol.Tcp, "127.0.0.1", port)
+
+    unsafeRun {
+      ZmqTcpServer
+        .make[IO](ZmqTcpServerConfig(bind, receiveTimeoutMs = 100, peerSocketType = SocketType.DEALER))
+        .use { server =>
+          ZmqTcpDuplexTransport.make[IO](ZmqTcpDuplexConfig(connect, receiveTimeoutMs = 100)).use { client =>
+            val request1 = Message("request-1", "ping-1".getBytes("UTF-8"))
+            val request2 = Message("request-2", "ping-2".getBytes("UTF-8"))
+            val reply1   = Message("request-1", "PONG-1".getBytes("UTF-8"))
+            val reply2   = Message("request-2", "PONG-2".getBytes("UTF-8"))
+
+            for
+              _     <- IO.sleep(100.millis)
+              sent1 <- client.send(request1)
+              sent2 <- client.send(request2)
+              _     <- IO.delay {
+                sent1 shouldBe Right(())
+                sent2 shouldBe Right(())
+              }
+              inbound1 <- ZmqTcpIntegrationSpec.awaitServer(server)
+              inbound2 <- ZmqTcpIntegrationSpec.awaitServer(server)
+              _        <- IO.delay {
+                Set(inbound1.message.correlationId, inbound2.message.correlationId) shouldBe Set(
+                  "request-1",
+                  "request-2"
+                )
+                inbound1.routingId should not be inbound2.routingId
+              }
+              replied1  <- server.reply(inbound1.routingId, reply1)
+              duplicate <- server.reply(inbound1.routingId, reply1)
+              replied2  <- server.reply(inbound2.routingId, reply2)
+              _         <- IO.delay {
+                replied1 shouldBe Right(())
+                duplicate shouldBe Left(TransportError.UnknownRoute(inbound1.routingId))
+                replied2 shouldBe Right(())
+              }
+              response1 <- ZmqTcpIntegrationSpec.awaitClient(client)
+              response2 <- ZmqTcpIntegrationSpec.awaitClient(client)
+              _         <- IO.delay {
+                Set(response1.correlationId, response2.correlationId) shouldBe Set("request-1", "request-2")
+                Set(new String(response1.payload, "UTF-8"), new String(response2.payload, "UTF-8")) shouldBe
+                  Set("PONG-1", "PONG-2")
+              }
+            yield ()
+          }
+        }
+    }
+  }
+
+  it should "expire server routes that are not replied to within the route ttl" in {
+    val port    = ZmqTcpIntegrationSpec.freePort()
+    val bind    = Endpoint(TransportProtocol.Tcp, "*", port)
+    val connect = Endpoint(TransportProtocol.Tcp, "127.0.0.1", port)
+
+    unsafeRun {
+      ZmqTcpServer
+        .make[IO](
+          ZmqTcpServerConfig(
+            bind,
+            receiveTimeoutMs = 100,
+            peerSocketType = SocketType.DEALER,
+            routeTtlMs = 50
+          )
+        )
+        .use { server =>
+          ZmqTcpDuplexTransport.make[IO](ZmqTcpDuplexConfig(connect, receiveTimeoutMs = 100)).use { client =>
+            val request = Message("request-ttl", "ping".getBytes("UTF-8"))
+            val reply   = Message("request-ttl", "PONG".getBytes("UTF-8"))
+
+            for
+              _       <- IO.sleep(100.millis)
+              sent    <- client.send(request)
+              _       <- IO.delay(sent shouldBe Right(()))
+              inbound <- ZmqTcpIntegrationSpec.awaitServer(server)
+              _       <- IO.sleep(100.millis)
+              replied <- server.reply(inbound.routingId, reply)
+              _       <- IO.delay(replied shouldBe Left(TransportError.UnknownRoute(inbound.routingId)))
             yield ()
           }
         }
@@ -242,6 +336,69 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
 
     responseFor(ProcessRef("duplex-client-a")) shouldBe "PING-A"
     responseFor(ProcessRef("duplex-client-b")) shouldBe "PING-B"
+  }
+
+  it should "interleave many concurrent receives and replies on the ROUTER socket without corruption" in {
+    val clientCount = 25
+    val port        = ZmqTcpIntegrationSpec.freePort()
+    val bind        = Endpoint(TransportProtocol.Tcp, "*", port)
+    val connect     = Endpoint(TransportProtocol.Tcp, "127.0.0.1", port)
+    val store       = new EventStore[IO, Event]
+
+    unsafeRun {
+      ZmqTcpServer
+        .make[IO](ZmqTcpServerConfig(bind, receiveTimeoutMs = 100, peerSocketType = SocketType.DEALER))
+        .use { serverTransport =>
+          ZmqTcpDuplexTransport.make[IO](ZmqTcpDuplexConfig(connect, receiveTimeoutMs = 100)).use { duplexTransport =>
+            val serverProcess =
+              new ServerProcess[IO](
+                serverTransport,
+                ProcessRef[ServerProcess.Received | ServerProcess.Failed]("stress-echo")
+              )
+            val duplexProcess = new DuplexProcess[IO](duplexTransport)
+
+            val echo = new Process[IO, ServerProcess.Received | ServerProcess.Failed, ServerProcess.Reply] {
+              override val ref: ProcessRef[ServerProcess.Received | ServerProcess.Failed] = ProcessRef("stress-echo")
+              override def handle: Receive                                                = {
+                case ServerProcess.Received(correlationId, data) =>
+                  val reply = new String(data, "UTF-8").toUpperCase.getBytes("UTF-8")
+                  ServerProcess.Reply(correlationId, reply) ~> serverProcess.ref
+                case failed @ ServerProcess.Failed(_) =>
+                  eval(store.add(ref, failed))
+              }
+            }
+
+            def client(index: Int): Process[IO, Event, Event] =
+              new Process[IO, Event, Event] {
+                override val ref: ProcessRef[Event] = ProcessRef(s"stress-client-$index")
+                override def handle: Receive        = {
+                  case Start =>
+                    DuplexProcess.Request(s"ping-$index".getBytes("UTF-8")) ~> duplexProcess.ref
+                  case response @ DuplexProcess.Response(_) =>
+                    eval(store.add(ref, response))
+                  case failed @ DuplexProcess.Failed(_) =>
+                    eval(store.add(ref, failed))
+                }
+              }
+
+            val clients = (0 until clientCount).map(client)
+
+            store.await(
+              expectedSize = clientCount,
+              op = createApp(ct.pure(Seq(echo, serverProcess, duplexProcess) ++ clients)).run,
+              timeout = 30.seconds
+            )
+          }
+        }
+    }
+
+    (0 until clientCount).foreach { index =>
+      store.get(ProcessRef(s"stress-client-$index")).toList match
+        case DuplexProcess.Response(data) :: Nil =>
+          new String(data, "UTF-8") shouldBe s"PING-$index"
+        case other =>
+          fail(s"unexpected events for stress-client-$index: $other")
+    }
   }
 
 object ZmqTcpIntegrationSpec:

@@ -4,59 +4,78 @@ import io.parapet.effect.Effect
 import io.parapet.effect.Resource
 import io.parapet.net.{Endpoint, TransportProtocol}
 import io.parapet.net.transport.*
-import org.zeromq.{SocketType, ZContext, ZMQException}
+import org.zeromq.{SocketType, ZContext, ZMQ}
 
-import java.util.Base64
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import scala.collection.mutable.ListBuffer
 
 final case class ZmqTcpServerConfig(
     bind: Endpoint,
     receiveTimeoutMs: Int = 250,
+    workerPollMs: Int = 20,
     ioThreads: Int = 1,
     peerSocketType: SocketType = SocketType.REQ,
-    maxRoutes: Int = 4096
+    routeTtlMs: Long = 30_000
 ):
   require(bind.protocol == TransportProtocol.Tcp, "ZMQ TCP server requires a tcp endpoint")
   require(
     peerSocketType == SocketType.REQ || peerSocketType == SocketType.DEALER,
     "ZMQ TCP server supports REQ and DEALER peer socket types"
   )
-  require(maxRoutes > 0, "maxRoutes must be positive")
+  require(workerPollMs > 0, "workerPollMs must be positive")
+  require(routeTtlMs > 0, "routeTtlMs must be positive")
 
+/** ROUTER-backed request/reply server transport.
+  *
+  * The ROUTER socket is owned by a single [[ZmqSocketWorker]]: `receive` drains messages the worker has polled, and
+  * `reply` submits an explicit reply command to that worker. Routing ids are opaque, server-local handles; ZMQ identity
+  * bytes stay inside the transport.
+  */
 final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect: Effect[F]) extends ServerTransport[F]:
-  import ZmqTcpServer.RouteEntry
+  import ZmqTcpServer.{Command, RouteEntry}
 
   private val context = new ZContext(config.ioThreads)
   private val socket  = context.createSocket(SocketType.ROUTER)
-  private val closed  = new AtomicBoolean(false)
 
-  private val routes = new java.util.LinkedHashMap[String, RouteEntry](16, 0.75f, true):
-    override protected def removeEldestEntry(eldest: java.util.Map.Entry[String, RouteEntry]): Boolean =
-      size() > config.maxRoutes
+  private val routes = new ConcurrentHashMap[String, RouteEntry]()
 
-  socket.setReceiveTimeOut(config.receiveTimeoutMs)
+  socket.setReceiveTimeOut(config.workerPollMs)
   socket.setLinger(0)
   socket.bind(config.bind.uri)
 
-  def receive: F[ReceiveResult[RoutedMessage]] =
-    effect.blocking {
-      if closed.get() then ReceiveResult.Failed(TransportError.Closed("receive"))
-      else
-        try receiveOnce()
-        catch
-          case _: ZMQException if closed.get() =>
-            ReceiveResult.Failed(TransportError.Closed("receive"))
-          case error: ZMQException =>
-            ReceiveResult.Failed(TransportError.Unexpected(error))
-    }
+  private val loop =
+    new ZmqSocketWorker[Command, RoutedMessage](
+      context,
+      socket,
+      readInbound,
+      handleCommand,
+      s"zmq-server-${config.bind.port}"
+    )
 
-  private def receiveOnce(): ReceiveResult[RoutedMessage] =
-    val identity = socket.recv(0)
+  def receive: F[ReceiveResult[RoutedMessage]] =
+    effect.blocking(loop.poll(config.receiveTimeoutMs))
+
+  def reply(routingId: RoutingId, message: Message): F[Either[TransportError, Unit]] =
+    effect.blocking(loop.submit(Command.Reply(routingId, message)))
+
+  def close: F[Unit] =
+    effect.delay(loop.close())
+
+  private def handleCommand(sock: ZMQ.Socket, command: Command): Either[TransportError, Unit] =
+    expireRoutes()
+    command match
+      case Command.Reply(routingId, message) =>
+        takeRoute(routingId) match
+          case None        => Left(TransportError.UnknownRoute(routingId))
+          case Some(entry) => sendReply(sock, routingId, entry, message)
+
+  private def readInbound(sock: ZMQ.Socket): ReceiveResult[RoutedMessage] =
+    val identity = sock.recv(0)
     if identity == null then ReceiveResult.Idle
     else
       val frames = ListBuffer.empty[Array[Byte]]
-      while socket.hasReceiveMore do frames += socket.recv(0)
+      while sock.hasReceiveMore do frames += sock.recv(0)
 
       bodyParts(frames.toVector) match
         case Left(error) =>
@@ -66,11 +85,26 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
             case Left(error) =>
               ReceiveResult.Failed(error)
             case Right(message) =>
-              val routingId = RoutingId(Base64.getEncoder.encodeToString(identity))
-              routes.synchronized {
-                routes.put(routingId.value, RouteEntry(identity.clone()))
-              }
+              expireRoutes()
+              val routingId = registerRoute(identity)
               ReceiveResult.Received(RoutedMessage(routingId, message))
+
+  private def registerRoute(identity: Array[Byte]): RoutingId =
+    val routingId = RoutingId(UUID.randomUUID().toString)
+    routes.put(routingId.value, RouteEntry(identity.clone(), System.currentTimeMillis()))
+    routingId
+
+  private def takeRoute(routingId: RoutingId): Option[RouteEntry] =
+    Option(routes.remove(routingId.value)).filterNot(isExpired)
+
+  private def expireRoutes(): Unit =
+    val iterator = routes.entrySet().iterator()
+    while iterator.hasNext do
+      val entry = iterator.next()
+      if isExpired(entry.getValue) then iterator.remove()
+
+  private def isExpired(entry: RouteEntry): Boolean =
+    System.currentTimeMillis() - entry.createdAtMs > config.routeTtlMs
 
   private def bodyParts(frames: Vector[Array[Byte]]): Either[TransportError, Vector[Array[Byte]]] =
     config.peerSocketType match
@@ -86,33 +120,23 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
       case None =>
         Left(TransportError.ProtocolViolation("REQ peer message is missing delimiter and body frames"))
 
-  def reply(routingId: RoutingId, message: Message): F[Either[TransportError, Unit]] =
-    effect.blocking {
-      if closed.get() then Left(TransportError.Closed("reply"))
-      else
-        routes.synchronized(Option(routes.get(routingId.value))) match
-          case None        => Left(TransportError.UnknownRoute(routingId))
-          case Some(entry) =>
-            try sendReply(routingId, entry, message)
-            catch case error: ZMQException => Left(TransportError.Unexpected(error))
-    }
-
   private def sendReply(
+      sock: ZMQ.Socket,
       routingId: RoutingId,
       entry: RouteEntry,
       message: Message
   ): Either[TransportError, Unit] =
-    if !socket.sendMore(entry.identity) then
+    if !sock.sendMore(entry.identity) then
       Left(TransportError.SendFailed("reply", s"failed to route reply to ${routingId.value}"))
     else
       config.peerSocketType match
-        case SocketType.REQ if !socket.sendMore(Array.emptyByteArray) =>
+        case SocketType.REQ if !sock.sendMore(Array.emptyByteArray) =>
           Left(TransportError.SendFailed("reply", s"failed to send delimiter to ${routingId.value}"))
         case _ =>
-          sendMessage(message, "reply")
+          sendMessage(sock, message, "reply")
 
-  private def sendMessage(message: Message, operation: String): Either[TransportError, Unit] =
-    val sent = socket.send(encodeMessage(message), 0)
+  private def sendMessage(sock: ZMQ.Socket, message: Message, operation: String): Either[TransportError, Unit] =
+    val sent = sock.send(MessageCodec.encode(message), 0)
     if sent then Right(()) else Left(TransportError.SendFailed(operation, "failed to send message body"))
 
   private def decodeMessage(parts: Vector[Array[Byte]]): Either[TransportError, Message] =
@@ -125,17 +149,14 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
           )
         )
 
-  private def encodeMessage(message: Message): Array[Byte] =
-    MessageCodec.encode(message)
-
-  def close: F[Unit] =
-    effect.delay {
-      if closed.compareAndSet(false, true) then context.close()
-    }
-
 object ZmqTcpServer:
   def make[F[_]: Effect](config: ZmqTcpServerConfig): Resource[F, ServerTransport[F]] =
     val effect = Effect[F]
     Resource.make(effect.delay(new ZmqTcpServer[F](config)))(_.close)
 
-  final private case class RouteEntry(identity: Array[Byte])
+  sealed private trait Command
+
+  private object Command:
+    final case class Reply(routingId: RoutingId, message: Message) extends Command
+
+  final private case class RouteEntry(identity: Array[Byte], createdAtMs: Long)
