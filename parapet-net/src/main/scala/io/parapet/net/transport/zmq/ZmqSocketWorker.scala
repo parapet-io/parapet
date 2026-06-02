@@ -19,13 +19,14 @@ final private[zmq] class ZmqSocketWorker[C, A](
     socket: ZMQ.Socket,
     readInbound: ZMQ.Socket => ReceiveResult[A],
     handleCommand: (ZMQ.Socket, C) => Either[TransportError, Unit],
-    threadName: String
+    threadName: String,
+    inboundCapacity: Int
 ):
-  import ZmqSocketWorker.WorkItem
+  import ZmqSocketWorker.{EnqueuePollMs, WorkItem}
 
   private val logger   = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
   private val commands = new ConcurrentLinkedQueue[WorkItem[C]]()
-  private val inbound  = new LinkedBlockingQueue[ReceiveResult[A]]()
+  private val inbound  = new LinkedBlockingQueue[ReceiveResult[A]](inboundCapacity)
   private val running  = new AtomicBoolean(true)
 
   private val worker = new Thread(() => runLoop(), threadName)
@@ -40,7 +41,7 @@ final private[zmq] class ZmqSocketWorker[C, A](
         if running.get() then
           readInbound(socket) match
             case ReceiveResult.Idle => ()
-            case result             => inbound.put(result)
+            case result             => enqueue(result)
     catch
       case error: InterruptedException =>
         Thread.currentThread().interrupt()
@@ -68,6 +69,10 @@ final private[zmq] class ZmqSocketWorker[C, A](
     while command != null do
       command.run(socket, handleCommand)
       command = commands.poll()
+
+  private def enqueue(result: ReceiveResult[A]): Unit =
+    while running.get() && !inbound.offer(result, EnqueuePollMs, TimeUnit.MILLISECONDS) do
+      logger.warn("inbound queue is full")
 
   def poll(timeoutMs: Int): ReceiveResult[A] =
     Option(inbound.poll()) match
@@ -105,6 +110,8 @@ final private[zmq] class ZmqSocketWorker[C, A](
           Thread.currentThread().interrupt()
 
 object ZmqSocketWorker:
+  private val EnqueuePollMs = 100L
+
   final private class WorkItem[C](command: C):
     private val result = new CompletableFuture[Either[TransportError, Unit]]()
 

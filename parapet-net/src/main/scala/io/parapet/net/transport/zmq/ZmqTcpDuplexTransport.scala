@@ -12,10 +12,12 @@ final case class ZmqTcpDuplexConfig(
     remote: Endpoint,
     receiveTimeoutMs: Int = 250,
     workerPollMs: Int = 20,
-    ioThreads: Int = 1
+    ioThreads: Int = 1,
+    inboundCapacity: Int = 1024
 ):
   require(remote.protocol == TransportProtocol.Tcp, "ZMQ TCP duplex transport requires a tcp endpoint")
   require(workerPollMs > 0, "workerPollMs must be positive")
+  require(inboundCapacity > 0, "inboundCapacity must be positive")
 
 /** DEALER-backed duplex transport.
   *
@@ -40,7 +42,8 @@ final class ZmqTcpDuplexTransport[F[_]] private (config: ZmqTcpDuplexConfig)(usi
       socket,
       readInbound,
       handleCommand,
-      s"zmq-duplex-${config.remote.port}"
+      s"zmq-duplex-${config.remote.port}",
+      config.inboundCapacity
     )
 
   def send(message: Message): F[Either[TransportError, Unit]] =

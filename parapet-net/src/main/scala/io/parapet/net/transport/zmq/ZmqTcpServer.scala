@@ -7,7 +7,7 @@ import io.parapet.net.transport.*
 import org.zeromq.{SocketType, ZContext, ZMQ}
 
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
+import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 final case class ZmqTcpServerConfig(
@@ -15,11 +15,13 @@ final case class ZmqTcpServerConfig(
     receiveTimeoutMs: Int = 250,
     workerPollMs: Int = 20,
     ioThreads: Int = 1,
-    routeTtlMs: Long = 30_000
+    routeTtlMs: Long = 30_000,
+    inboundCapacity: Int = 1024
 ):
   require(bind.protocol == TransportProtocol.Tcp, "ZMQ TCP server requires a tcp endpoint")
   require(workerPollMs > 0, "workerPollMs must be positive")
   require(routeTtlMs > 0, "routeTtlMs must be positive")
+  require(inboundCapacity > 0, "inboundCapacity must be positive")
 
 /** ROUTER-backed request/reply server transport.
   *
@@ -33,7 +35,9 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
   private val context = new ZContext(config.ioThreads)
   private val socket  = context.createSocket(SocketType.ROUTER)
 
-  private val routes = new ConcurrentHashMap[String, RouteEntry]()
+  private val routes               = mutable.HashMap.empty[String, RouteEntry]
+  private val routeSweepIntervalMs = math.max(1L, config.routeTtlMs / 10)
+  private var lastSweepMs          = 0L
 
   socket.setReceiveTimeOut(config.workerPollMs)
   socket.setLinger(0)
@@ -45,7 +49,8 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
       socket,
       readInbound,
       handleCommand,
-      s"zmq-server-${config.bind.port}"
+      s"zmq-server-${config.bind.port}",
+      config.inboundCapacity
     )
 
   def receive: F[ReceiveResult[RoutedMessage]] =
@@ -58,7 +63,6 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
     effect.delay(loop.close())
 
   private def handleCommand(sock: ZMQ.Socket, command: Command): Either[TransportError, Unit] =
-    expireRoutes()
     command match
       case Command.Reply(routingId, message) =>
         takeRoute(routingId) match
@@ -66,6 +70,7 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
           case Some(entry) => sendReply(sock, routingId, entry, message)
 
   private def readInbound(sock: ZMQ.Socket): ReceiveResult[RoutedMessage] =
+    expireRoutes()
     val identity = sock.recv(0)
     if identity == null then ReceiveResult.Idle
     else
@@ -76,26 +81,25 @@ final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect
         case Left(error) =>
           ReceiveResult.Failed(error)
         case Right((envelope, message)) =>
-          expireRoutes()
           val routingId = registerRoute(identity, envelope)
           ReceiveResult.Received(RoutedMessage(routingId, message))
 
   private def registerRoute(identity: Array[Byte], socketType: SocketType): RoutingId =
     val routingId = RoutingId(UUID.randomUUID().toString)
-    routes.put(routingId.value, RouteEntry(identity.clone(), socketType, System.currentTimeMillis()))
+    routes.update(routingId.value, RouteEntry(identity.clone(), socketType, System.currentTimeMillis()))
     routingId
 
   private def takeRoute(routingId: RoutingId): Option[RouteEntry] =
-    Option(routes.remove(routingId.value)).filterNot(isExpired)
+    routes.remove(routingId.value).filterNot(entry => isExpired(entry, System.currentTimeMillis()))
 
   private def expireRoutes(): Unit =
-    val iterator = routes.entrySet().iterator()
-    while iterator.hasNext do
-      val entry = iterator.next()
-      if isExpired(entry.getValue) then iterator.remove()
+    val now = System.currentTimeMillis()
+    if now - lastSweepMs >= routeSweepIntervalMs then
+      lastSweepMs = now
+      routes.filterInPlace((_, entry) => !isExpired(entry, now))
 
-  private def isExpired(entry: RouteEntry): Boolean =
-    System.currentTimeMillis() - entry.createdAtMs > config.routeTtlMs
+  private def isExpired(entry: RouteEntry, now: Long): Boolean =
+    now - entry.createdAtMs > config.routeTtlMs
 
   private def violation(message: String): Either[TransportError, Nothing] =
     Left(TransportError.ProtocolViolation(message))
