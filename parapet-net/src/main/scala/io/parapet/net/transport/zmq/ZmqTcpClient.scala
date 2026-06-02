@@ -15,10 +15,17 @@ final case class ZmqTcpClientConfig(
 ):
   require(remote.protocol == TransportProtocol.Tcp, "ZMQ TCP client requires a tcp endpoint")
 
+/** Strict REQ/REP client transport.
+  *
+  * A REQ socket must alternate `send -> receive -> send -> receive`, and ZMQ sockets are not thread-safe. This
+  * transport is intended for serialized use, for example behind a single `ClientProcess`. Concurrent `request` calls
+  * are rejected with `TransportError.SendFailed` instead of being allowed to corrupt the socket state.
+  */
 final class ZmqTcpClient[F[_]] private (config: ZmqTcpClientConfig)(using effect: Effect[F]) extends ClientTransport[F]:
-  private val context = new ZContext(config.ioThreads)
-  private val socket  = context.createSocket(SocketType.REQ)
-  private val closed  = new AtomicBoolean(false)
+  private val context  = new ZContext(config.ioThreads)
+  private val socket   = context.createSocket(SocketType.REQ)
+  private val closed   = new AtomicBoolean(false)
+  private val inFlight = new AtomicBoolean(false)
 
   socket.setReceiveTimeOut(config.receiveTimeoutMs)
   socket.setLinger(0)
@@ -27,22 +34,28 @@ final class ZmqTcpClient[F[_]] private (config: ZmqTcpClientConfig)(using effect
   def request(message: Message): F[Either[TransportError, Message]] =
     effect.blocking {
       if closed.get() then Left(TransportError.Closed("request"))
+      else if !inFlight.compareAndSet(false, true) then
+        Left(TransportError.SendFailed("request", "REQ client already has an in-flight request"))
       else
-        try
-          sendMessage(message).flatMap { _ =>
-            Option(socket.recv(0)) match
-              case None =>
-                Left(TransportError.TimedOut("request"))
-              case Some(first) =>
-                val parts = Vector.newBuilder[Array[Byte]]
-                parts += first
-                while socket.hasReceiveMore do parts += socket.recv(0)
-                decodeMessage(parts.result())
-          }
-        catch
-          case error: ZMQException =>
-            Left(TransportError.Unexpected(error))
+        try requestOnce(message)
+        finally inFlight.set(false)
     }
+
+  private def requestOnce(message: Message): Either[TransportError, Message] =
+    try
+      sendMessage(message).flatMap { _ =>
+        Option(socket.recv(0)) match
+          case None =>
+            Left(TransportError.TimedOut("request"))
+          case Some(first) =>
+            val parts = Vector.newBuilder[Array[Byte]]
+            parts += first
+            while socket.hasReceiveMore do parts += socket.recv(0)
+            decodeMessage(parts.result())
+      }
+    catch
+      case error: ZMQException =>
+        Left(TransportError.Unexpected(error))
 
   private def sendMessage(message: Message): Either[TransportError, Unit] =
     val sent = socket.send(MessageCodec.encode(message), 0)

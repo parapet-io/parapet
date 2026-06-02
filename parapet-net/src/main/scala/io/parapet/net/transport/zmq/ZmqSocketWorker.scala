@@ -12,7 +12,14 @@ import scala.concurrent.CancellationException
 
 /** Owns a single non-thread-safe ZMQ socket on one worker thread.
   *
-  * ZMQ sockets should be touched by one thread.
+  * ZMQ sockets should be touched by one thread. Callers submit typed commands into the command queue; the worker drains
+  * those commands and interprets them against the socket. Inbound socket messages are decoded by `readInbound` and
+  * placed into a bounded queue consumed by [[poll]].
+  *
+  * A full inbound queue applies backpressure by slowing socket reads instead of dropping messages. Malformed/protocol
+  * data should be returned as `ReceiveResult.Failed` so the worker can keep running. Exceptions that escape the worker
+  * loop are treated as transport failure: pending commands are completed, the context is closed, and future calls
+  * observe `Closed`/`Failed`.
   */
 final private[zmq] class ZmqSocketWorker[C, A](
     context: ZContext,
@@ -71,8 +78,12 @@ final private[zmq] class ZmqSocketWorker[C, A](
       command = commands.poll()
 
   private def enqueue(result: ReceiveResult[A]): Unit =
+    var warned = false
     while running.get() && !inbound.offer(result, EnqueuePollMs, TimeUnit.MILLISECONDS) do
-      logger.warn("inbound queue is full")
+      if !warned then
+        logger.warn("inbound queue is full")
+        warned = true
+      drainCommands()
 
   def poll(timeoutMs: Int): ReceiveResult[A] =
     Option(inbound.poll()) match
