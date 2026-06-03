@@ -21,7 +21,7 @@ final case class ZmqTcpClientConfig(
   * transport is intended for serialized use, for example behind a single `ClientProcess`. Concurrent `request` calls
   * are rejected with `TransportError.SendFailed` instead of being allowed to corrupt the socket state.
   */
-final class ZmqTcpClient[F[_]] private (config: ZmqTcpClientConfig)(using effect: Effect[F]) extends ClientTransport[F]:
+final class ZmqTcpClient[F[_]](config: ZmqTcpClientConfig)(using effect: Effect[F]) extends ClientTransport[F]:
   private val context  = new ZContext(config.ioThreads)
   private val socket   = context.createSocket(SocketType.REQ)
   private val closed   = new AtomicBoolean(false)

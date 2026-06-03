@@ -25,8 +25,7 @@ final case class ZmqTcpDuplexConfig(
   * explicit send command to that worker. This replaces the earlier coarse `socketLock`, which was safe but coupled send
   * latency to the full receive poll window.
   */
-final class ZmqTcpDuplexTransport[F[_]] private (config: ZmqTcpDuplexConfig)(using effect: Effect[F])
-    extends DuplexTransport[F]:
+final class ZmqTcpDuplexTransport[F[_]](config: ZmqTcpDuplexConfig)(using effect: Effect[F]) extends DuplexTransport[F]:
   import ZmqTcpDuplexTransport.Command
 
   private val context = new ZContext(config.ioThreads)

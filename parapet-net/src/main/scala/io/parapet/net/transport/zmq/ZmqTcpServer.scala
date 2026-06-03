@@ -29,7 +29,7 @@ final case class ZmqTcpServerConfig(
   * `reply` submits an explicit reply command to that worker. Routing ids are opaque, server-local handles; ZMQ identity
   * bytes stay inside the transport.
   */
-final class ZmqTcpServer[F[_]] private (config: ZmqTcpServerConfig)(using effect: Effect[F]) extends ServerTransport[F]:
+final class ZmqTcpServer[F[_]](config: ZmqTcpServerConfig)(using effect: Effect[F]) extends ServerTransport[F]:
   import ZmqTcpServer.{Command, RouteEntry}
 
   private val context = new ZContext(config.ioThreads)
