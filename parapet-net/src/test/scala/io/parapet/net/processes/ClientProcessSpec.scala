@@ -12,7 +12,7 @@ class ClientProcessSpec extends AnyFunSuite:
   test("client process replies to the sender with the transport response") {
     val client = new ClientTransport[TestIO]:
       def request(message: Message): TestIO[Either[TransportError, Message]] =
-        TestIO.pure(Right(Message.single("pong".getBytes)))
+        TestIO.pure(Right(Message(message.correlationId, "pong".getBytes)))
 
       def close: TestIO[Unit] =
         TestIO.unit
@@ -23,15 +23,14 @@ class ClientProcessSpec extends AnyFunSuite:
 
     fixture.runWithSender(
       sender = sender,
-      program = process(ClientProcess.Request(Message.single("ping".getBytes)))
+      program = process(ClientProcess.Request("ping".getBytes))
     )
 
     fixture.captured.toList should have size 1
     fixture.captured.head.receiver shouldBe sender
     fixture.captured.head.event match
-      case ClientProcess.Response(message) =>
-        message.parts should have size 1
-        message.parts.head.toSeq shouldBe "pong".getBytes.toSeq
+      case ClientProcess.Response(data) =>
+        data.toSeq shouldBe "pong".getBytes.toSeq
       case other =>
         fail(s"unexpected reply event: $other")
   }
@@ -51,7 +50,7 @@ class ClientProcessSpec extends AnyFunSuite:
 
     fixture.runWithSender(
       sender = sender,
-      program = process(ClientProcess.Request(Message.single("ping".getBytes)))
+      program = process(ClientProcess.Request("ping".getBytes))
     )
 
     fixture.captured.toList should have size 1

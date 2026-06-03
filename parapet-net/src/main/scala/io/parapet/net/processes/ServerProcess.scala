@@ -1,15 +1,18 @@
 package io.parapet.net.processes
 
+import com.typesafe.scalalogging.Logger
 import io.parapet.core.Events.{Start, Stop}
 import io.parapet.core.Process
 import io.parapet.Event
 import io.parapet.net.transport.{Message, ReceiveResult, RoutedMessage, RoutingId, TransportError}
 import io.parapet.net.transport.ServerTransport
 import io.parapet.ProcessRef
+import org.slf4j.LoggerFactory
 
+import java.util.concurrent.ConcurrentHashMap
 import scala.concurrent.duration.*
-
 import ServerProcess.*
+import io.parapet.net.transport.TransportError.ProtocolViolation
 
 final class ServerProcess[F[_]](
     transport: ServerTransport[F],
@@ -20,18 +23,25 @@ final class ServerProcess[F[_]](
 
   import dsl.*
 
+  private val logger = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
+
   override val name: String = "net-server"
+
+  private val requests = new ConcurrentHashMap[String, RoutingId]()
 
   private def receiveLoop: Program = flow {
     suspend(transport.receive).flatMap {
       case ReceiveResult.Received(RoutedMessage(routingId, message)) =>
-        Received(routingId, message) ~> sink
+        eval {
+          requests.put(message.correlationId, routingId)
+          message.correlationId
+        }.flatMap(id => Received(id, message.payload) ~> sink)
 
       case ReceiveResult.Idle =>
         delay(pollDelay)
 
       case ReceiveResult.Failed(error) =>
-        Failed(error) ~> sink
+        eval(logger.warn("server receive failed. error: {}", error)) ++ (Failed(error) ~> sink)
     } ++ receiveLoop
   }
 
@@ -39,17 +49,28 @@ final class ServerProcess[F[_]](
     case Start =>
       fork(receiveLoop).void
 
-    case Reply(routingId, message) =>
-      suspend(transport.reply(routingId, message)).flatMap {
-        case Right(_)    => unit
-        case Left(error) => Failed(error) ~> sink
+    case Reply(correlationId, data) =>
+      dsl.unsafe.withSender { sender =>
+        Option(requests.remove(correlationId)) match {
+          case Some(routingId) =>
+            suspend(transport.reply(routingId, Message(correlationId, data)))
+              .flatMap {
+                case Right(_) =>
+                  unit
+                case Left(error) =>
+                  eval(logger.warn("server reply failed. correlationId: {}, error: {}", correlationId, error)) ++
+                    (Failed(error) ~> sender)
+              }
+          case None =>
+            eval(logger.warn("server reply has unknown correlationId: {}", correlationId)) ++
+              (Failed(ProtocolViolation(s"unknown correlationId: $correlationId")) ~> sender)
+        }
       }
-
     case Stop =>
       suspend(transport.close)
   }
 
 object ServerProcess:
-  final case class Reply(routingId: RoutingId, message: Message)    extends Event
-  final case class Received(routingId: RoutingId, message: Message) extends Event
-  final case class Failed(error: TransportError)                    extends Event
+  final case class Reply(correlationId: String, data: Array[Byte])    extends Event
+  final case class Received(correlationId: String, data: Array[Byte]) extends Event
+  final case class Failed(error: TransportError)                      extends Event

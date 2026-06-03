@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package io.parapet.net.transport.wire;
+
+option java_multiple_files = true;
+option java_package = "io.parapet.net.transport.wire";
+
+message Header {
+  string correlation_id = 1;
+}
+
+message Message {
+  Header header = 1;
+  bytes payload = 2;
+}

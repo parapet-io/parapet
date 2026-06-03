@@ -3,7 +3,7 @@ package io.parapet.net.processes
 import io.parapet.core.Events.{Start, Stop}
 import io.parapet.core.Process
 import io.parapet.Event
-import io.parapet.net.transport.{Message, ReceiveResult, TransportError}
+import io.parapet.net.transport.{Datagram, ReceiveResult, TransportError}
 import io.parapet.net.transport.DatagramTransport
 import io.parapet.ProcessRef
 
@@ -26,8 +26,8 @@ final class DatagramProcess[F[_]](
   private def receiveLoop: Program = flow {
     suspend(transport.receiveBatch(pollLimit)).flatMap {
       case ReceiveResult.Received(messages) =>
-        messages.foldLeft(unit) { (acc, message) =>
-          acc ++ (Received(message) ~> sink)
+        messages.foldLeft(unit) { (acc, datagram) =>
+          acc ++ (Received(datagram.payload) ~> sink)
         }
 
       case ReceiveResult.Idle =>
@@ -42,8 +42,8 @@ final class DatagramProcess[F[_]](
     case Start =>
       fork(receiveLoop).void
 
-    case Publish(message) =>
-      suspend(transport.publish(message)).flatMap {
+    case Publish(data) =>
+      suspend(transport.publish(Datagram(data))).flatMap {
         case Right(_)    => unit
         case Left(error) => Failed(error) ~> sink
       }
@@ -53,6 +53,6 @@ final class DatagramProcess[F[_]](
   }
 
 object DatagramProcess:
-  final case class Publish(message: Message)     extends Event
-  final case class Received(message: Message)    extends Event
+  final case class Publish(data: Array[Byte])    extends Event
+  final case class Received(data: Array[Byte])   extends Event
   final case class Failed(error: TransportError) extends Event

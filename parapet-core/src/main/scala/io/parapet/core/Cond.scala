@@ -31,7 +31,7 @@ class Cond[F[_]](predicate: Event => Boolean, timeout: FiniteDuration)(using Eff
 
   override def handle: Receive = {
     case Start =>
-      withSender { sender =>
+      dsl.unsafe.withSender { sender =>
         eval {
           replyTo = sender
         } ++ fork(delay(timeout) ++ respond(Result(None))).void
