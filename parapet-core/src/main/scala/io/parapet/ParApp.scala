@@ -10,6 +10,8 @@ import io.parapet.core.{
   EventStore,
   EventTransformer,
   EventTransformers,
+  FaultInjector,
+  FaultPolicy,
   Parallel,
   Process,
   Scheduler,
@@ -91,11 +93,29 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
   def deadLetter: F[DeadLetterProcess[F]] =
     summon[Effect[F]].pure(DeadLetterProcess.logging)
 
-  /** Constructs the [[DslInterpreter]] used to translate a process's `Dsl` program into effects in `F`. Override to
-    * substitute a custom interpreter (e.g. for tracing).
+  /** When true, the runtime wraps the interpreter with a [[io.parapet.core.FaultInjector]] that injects the faults
+    * described by [[faultPolicy]]. Defaults to false, so production runs are unaffected. Override - e.g. from a system
+    * property - to enable fault injection for tests or simulations.
+    */
+  def faultInjectionEnabled: Boolean = false
+
+  /** The faults to inject while [[faultInjectionEnabled]] is true; ignored otherwise. Build one with
+    * [[io.parapet.core.FaultPolicy]].
+    */
+  def faultPolicy: FaultPolicy[F] = FaultPolicy.none
+
+  /** Seed for fault selection. Fix it for reproducible runs. */
+  def faultSeed: Long = System.nanoTime()
+
+  /** Constructs the [[DslInterpreter]] used to translate a process's `Dsl` program into effects in `F`, wrapping it
+    * with a [[io.parapet.core.FaultInjector]] when [[faultInjectionEnabled]] is set.
+    *
+    * Most applications override [[faultInjectionEnabled]] / [[faultPolicy]] rather than this method; override here only
+    * to substitute an entirely custom interpreter (e.g. for tracing).
     */
   def interpreter(context: Context[F]): Interpreter[F] =
-    DslInterpreter(context)
+    val base = DslInterpreter(context)
+    if faultInjectionEnabled then new FaultInjector(base, faultPolicy, faultSeed) else base
 
   /** Synchronously executes the given `F`-program, blocking the calling thread until it completes. Concrete subclasses
     * bind this to the underlying effect runtime.

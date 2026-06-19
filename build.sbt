@@ -159,6 +159,10 @@ lazy val parapetNet = project
       scalapb.gen(grpc = false, flatPackage = true, scala3Sources = true) -> (Compile / sourceManaged).value / "scalapb"
     ),
     Test / fork := true,
+    // ZMQ/Aeron integration suites spin background I/O threads and bind TCP ports; running them
+    // concurrently on a low-core CI runner starves the handshake and trips the receive timeouts
+    // (the "slow joiner" problem). Serialize suites so they don't contend.
+    Test / parallelExecution := false,
     Test / javaOptions ++= Seq(
       "--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED",
       "--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED",
