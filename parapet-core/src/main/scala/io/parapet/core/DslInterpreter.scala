@@ -223,7 +223,7 @@ object DslInterpreter:
 
         val envelope = Envelope(sender, event, receiver, scope)
         context.addToEventLog(envelope) >>
-          context.schedule(Deliver(envelope, execTrace.add(envelope.id))).flatMap {
+          context.schedule(Deliver(envelope, execTrace.next(envelope.id))).flatMap {
             case ProcessQueueIsFull => context.eventStore.write(envelope)
             case _                  => effect.pure(())
           }

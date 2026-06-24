@@ -34,7 +34,7 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
 
         clientEventStore.size shouldBe 1
         clientEventStore.get(client.ref).headOption.value should matchPattern {
-          case Failure(Envelope(client.`ref`, Request, faultyServer.`ref`, _), _: EventHandlingException) =>
+          case Failure(Envelope(client.`ref`, Request, faultyServer.`ref`, _, _), _: EventHandlingException) =>
         }
       }
     }
@@ -64,7 +64,7 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
 
         eventStore.size shouldBe 1
         eventStore.get(deadLetter.ref).headOption.value should matchPattern {
-          case DeadLetter(Envelope(client.`ref`, Request, server.`ref`, _), _: EventHandlingException) =>
+          case DeadLetter(Envelope(client.`ref`, Request, server.`ref`, _, _), _: EventHandlingException) =>
         }
 
       }
@@ -96,7 +96,7 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
 
         eventStore.size shouldBe 1
         eventStore.get(deadLetter.ref).headOption.value should matchPattern {
-          case DeadLetter(Envelope(client.`ref`, Request, server.`ref`, _), _: EventHandlingException) =>
+          case DeadLetter(Envelope(client.`ref`, Request, server.`ref`, _, _), _: EventHandlingException) =>
         }
       }
     }

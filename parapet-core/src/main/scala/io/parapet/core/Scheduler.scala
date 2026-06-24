@@ -226,7 +226,7 @@ object Scheduler:
                 case false =>
                   effect.suspend(selectSubmitQueue().enqueue(Signal(task.envelope, task.execTrace))) >>
                     logger.debug(
-                      s"Scheduler::submit(ps=${processState.process}, task=$task) - added to notification queue. traceId:${task.execTrace.last}"
+                      s"Scheduler::submit(ps=${processState.process}, task=$task) - added to notification queue. traceId:${task.execTrace.current}"
                     )
               }
               .as(Ok)
@@ -249,7 +249,7 @@ object Scheduler:
 
     def submit(task: Task[F]): F[SubmissionResult] =
       task match
-        case deliverTask @ Deliver(envelope @ Envelope(sender, event, receiver, _), _) =>
+        case deliverTask @ Deliver(envelope @ Envelope(sender, event, receiver, _, _), _) =>
           effect.suspend(
             context.getProcessState(receiver) match
               case None =>

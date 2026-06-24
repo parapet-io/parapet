@@ -1,46 +1,26 @@
 package io.parapet.core
 
-/** A causal trace of envelope ids spanning a chain of related events.
+/** A causal pointer carried by every envelope routed by the [[Scheduler]]: the id of the envelope currently being
+  * handled in a chain of related events.
   *
-  * Each envelope routed by the [[Scheduler]] carries an [[ExecutionTrace]] that grows by one entry per hop. Useful for
-  * after-the-fact reconstruction of "which incoming event caused which downstream effects" when
-  * [[Parapet.ParConfig.tracingEnabled]] is on.
+  * It is *just that id* — an opaque `Long`, so threading it costs nothing and there is no per-hop allocation. That id
+  * is all the runtime needs to stamp the `cause` of the next emitted envelope; the full causal chain is reconstructable
+  * from the record/replay journal's `(id, cause)` edges. `0L` is the "no cause"/root sentinel (also used when tracing
+  * is disabled).
   */
-trait ExecutionTrace:
-  /** Ordered list of envelope ids visited so far. Oldest first. */
-  val values: List[String]
+opaque type ExecutionTrace = Long
 
-  /** The most recent envelope id. */
-  val last: String
-
-  /** Returns a new trace with `value` appended; the original trace is unchanged. */
-  def add(value: String): ExecutionTrace
-
-/** Constructors for [[ExecutionTrace]] and the no-op [[Dummy]]. */
 object ExecutionTrace:
-  /** Builds a trace seeded with `value`. */
-  def apply(value: String): ExecutionTrace =
-    Impl(List(value))
 
-  /** Default linked-list-backed implementation. */
-  final case class Impl(values: List[String]) extends ExecutionTrace:
-    val last: String = values.last
+  /** No causal context — a root, or tracing disabled. */
+  val Dummy: ExecutionTrace = 0L
 
-    def add(value: String): ExecutionTrace =
-      copy(values = values :+ value)
+  /** A context positioned at envelope id `current`. */
+  def apply(current: Long): ExecutionTrace = current
 
-    override def toString: String =
-      s"Trace(${values.mkString("->")})"
+  extension (trace: ExecutionTrace)
+    /** Id of the envelope currently being handled; becomes the `cause` of the next emitted envelope. */
+    def current: Long = trace
 
-  /** Trace placeholder used when tracing is disabled. Records nothing and returns itself from [[add]] for
-    * zero-allocation behavior on the hot path.
-    */
-  object Dummy extends ExecutionTrace:
-    val values: List[String] = Nil
-    val last: String         = "disabled"
-
-    def add(value: String): ExecutionTrace =
-      this
-
-    override def toString: String =
-      "disabled"
+    /** A context advanced to envelope id `id`. */
+    def next(id: Long): ExecutionTrace = id

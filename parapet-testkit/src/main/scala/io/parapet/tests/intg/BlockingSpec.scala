@@ -125,7 +125,7 @@ abstract class BlockingSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
     eventStore.get(server.ref) shouldBe Seq(Ping)
     eventStore.get(client.ref).headOption.value should matchPattern {
       case Failure(
-            Envelope(client.`ref`, Trigger, server.`ref`, _),
+            Envelope(client.`ref`, Trigger, server.`ref`, _, _),
             EventHandlingException(_, ServerError)
           ) =>
     }

@@ -10,8 +10,7 @@ import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
 import io.parapet.effect.Monad.*
 import io.parapet.{Envelope, ProcessRef}
 
-import java.util.UUID
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
 import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters.*
 
@@ -49,6 +48,12 @@ class Context[F[_]](
   private val graph     = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ListBuffer[ProcessRef.Unknown]]()
   private val parents   = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessRef.Unknown]()
   private val eventLog  = EventLog()
+
+  /** Global monotonic delivery sequence. */
+  private val seqCounter = new AtomicLong(0L)
+
+  /** Returns the next global delivery sequence number. */
+  def nextSeq(): Long = seqCounter.incrementAndGet()
 
   private var scheduler: Scheduler[F] = _
 
@@ -161,11 +166,11 @@ class Context[F[_]](
   /** Allocates a fresh [[ExecutionTrace]] (or [[ExecutionTrace.Dummy]] when tracing is disabled).
     */
   def createTrace: ExecutionTrace =
-    createTrace(UUID.randomUUID().toString)
+    createTrace(0L)
 
   /** Returns an [[ExecutionTrace]] seeded with `id` (or [[ExecutionTrace.Dummy]] when tracing is disabled).
     */
-  def createTrace(id: String): ExecutionTrace =
+  def createTrace(id: Long): ExecutionTrace =
     if tracingEnabled then ExecutionTrace(id) else ExecutionTrace.Dummy
 
   /** Appends `envelope` to the in-memory [[EventLog]] when event logging is enabled; otherwise no-op.
