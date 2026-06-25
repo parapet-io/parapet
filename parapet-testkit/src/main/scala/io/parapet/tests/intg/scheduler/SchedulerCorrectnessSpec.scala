@@ -1,7 +1,7 @@
 package io.parapet.tests.intg.scheduler
 
 import io.parapet.core.Scheduler.*
-import io.parapet.core.{ExecutionTrace, Process}
+import io.parapet.core.Process
 import io.parapet.tests.intg.scheduler.*
 import io.parapet.tests.intg.scheduler.TaskProcessingTime.*
 import io.parapet.tests.intg.scheduler.TaskSubmitter.assertEventsOrder
@@ -110,8 +110,8 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with Scheduler
   test("verifyEvents fails on loss") {
     val process = TestProcesses.dummy[F]
     val tasks   = Seq(
-      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(0, 1), process.ref), ExecutionTrace.Dummy),
-      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(0, 2), process.ref), ExecutionTrace.Dummy)
+      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(0, 1), process.ref)),
+      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(0, 2), process.ref))
     )
     val store = new EventStore[F, TestEvent]
     store.add(process.ref, TestEvent(0, 1))
@@ -123,8 +123,8 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with Scheduler
   test("verifyEvents fails on out-of-order per submitter") {
     val process = TestProcesses.dummy[F]
     val tasks   = Seq(
-      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(0, 1), process.ref), ExecutionTrace.Dummy),
-      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(0, 2), process.ref), ExecutionTrace.Dummy)
+      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(0, 1), process.ref)),
+      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(0, 2), process.ref))
     )
     val store = new EventStore[F, TestEvent]
     store.add(process.ref, TestEvent(0, 2))
@@ -138,10 +138,10 @@ abstract class SchedulerCorrectnessSpec[F[_]] extends AnyFunSuite with Scheduler
     val receiver = ProcessRef("diagnostic-target")
     val _        = Process.builder[F](_ => { case _: TestEvent => dsl.unit }).ref(receiver).build
     val tasks    = Seq(
-      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(0, 1), receiver), ExecutionTrace.Dummy),
-      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(0, 2), receiver), ExecutionTrace.Dummy),
-      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(1, 3), receiver), ExecutionTrace.Dummy),
-      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(1, 4), receiver), ExecutionTrace.Dummy)
+      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(0, 1), receiver)),
+      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(0, 2), receiver)),
+      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(1, 3), receiver)),
+      Deliver[F](Envelope(ProcessRef.SystemRef, TestEvent(1, 4), receiver))
     )
     val store = new EventStore[F, TestEvent]
     store.add(receiver, TestEvent(0, 2))

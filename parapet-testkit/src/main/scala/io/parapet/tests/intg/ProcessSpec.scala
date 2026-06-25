@@ -101,7 +101,7 @@ abstract class ProcessSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
         eventStore.size shouldBe 1
 
         eventStore.get(deadLetter.ref).headOption.value should matchPattern {
-          case DeadLetter(Envelope(TestSystemRef, Result(42), composed.`ref`, _, _), _: EventMatchException) =>
+          case DeadLetter(Envelope.Routing(TestSystemRef, Result(42), composed.`ref`), _: EventMatchException) =>
         }
 
       }

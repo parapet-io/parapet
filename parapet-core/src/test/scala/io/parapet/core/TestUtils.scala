@@ -112,8 +112,8 @@ object TestUtils:
       def start: TestIO[Unit] = TestIO.unit
 
       def submit(task: Task[TestIO]): TestIO[SubmissionResult] = task match
-        case Deliver(env, _) => TestIO.delay { captured += env; Scheduler.Ok }
-        case _               => TestIO.pure(Scheduler.Ok)
+        case Deliver(env) => TestIO.delay { captured += env; Scheduler.Ok }
+        case _            => TestIO.pure(Scheduler.Ok)
 
     val context: Context[TestIO] =
       Context[TestIO](ParConfig.default, EventStore.stub[TestIO], EventTransformers.empty).unsafeRun()
@@ -137,7 +137,7 @@ object TestUtils:
           impl.interpret(
             sender,
             context.getProcessState(noop.ref).get,
-            ExecutionTrace.Dummy,
+            0L,
             scope
           )
         )

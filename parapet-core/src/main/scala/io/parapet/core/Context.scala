@@ -120,7 +120,7 @@ class Context[F[_]](
 
   private def sendStartEvent(processRef: ProcessRef.Unknown): F[SubmissionResult] =
     val envelope = Envelope(ProcessRef.SystemRef, Start, processRef)
-    scheduler.submit(Deliver(envelope, createTrace(envelope.id)))
+    scheduler.submit(Deliver(envelope))
 
   /** Registers a batch of root processes (parented to [[ProcessRef.SystemRef]]) and starts each.
     */
@@ -162,16 +162,6 @@ class Context[F[_]](
       graph.computeIfPresent(parents.get(ref), (_, values) => values -= ref)
       processes.remove(ref) != null
     }
-
-  /** Allocates a fresh [[ExecutionTrace]] (or [[ExecutionTrace.Dummy]] when tracing is disabled).
-    */
-  def createTrace: ExecutionTrace =
-    createTrace(0L)
-
-  /** Returns an [[ExecutionTrace]] seeded with `id` (or [[ExecutionTrace.Dummy]] when tracing is disabled).
-    */
-  def createTrace(id: Long): ExecutionTrace =
-    if tracingEnabled then ExecutionTrace(id) else ExecutionTrace.Dummy
 
   /** Appends `envelope` to the in-memory [[EventLog]] when event logging is enabled; otherwise no-op.
     */

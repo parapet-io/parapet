@@ -24,28 +24,30 @@ object DslInterpreter:
     * identification is convenient (raw ref vs. resolved [[ProcessState]]).
     */
   trait Interpreter[F[_]]:
-    /** Interprets ops in the context of `target`, allocating a fresh trace and starting from [[Scope.empty]]. */
+    /** Interprets ops in the context of `target`, with no causal context (`cause = 0L`), from [[Scope.empty]]. */
     def interpret(sender: ProcessRef.Unknown, target: ProcessRef.Unknown): ([x] =>> FlowOp[F, x]) ~> F
 
-    /** Interprets ops in the context of `target`, reusing `execTrace` and starting from [[Scope.empty]]. */
+    /** Interprets ops in the context of `target`; `cause` is the id of the envelope being handled (stamped onto emitted
+      * envelopes), `0L` if none. Starts from [[Scope.empty]].
+      */
     def interpret(
         sender: ProcessRef.Unknown,
         target: ProcessRef.Unknown,
-        execTrace: ExecutionTrace
+        cause: Long
     ): ([x] =>> FlowOp[F, x]) ~> F
 
     /** Interprets ops directly against a known [[ProcessState]] with an empty scope. */
     def interpret(
         sender: ProcessRef.Unknown,
         processState: ProcessState[F],
-        execTrace: ExecutionTrace
+        cause: Long
     ): ([x] =>> FlowOp[F, x]) ~> F
 
     /** Interprets ops against a known [[ProcessState]] starting from `scope`. */
     def interpret(
         sender: ProcessRef.Unknown,
         processState: ProcessState[F],
-        execTrace: ExecutionTrace,
+        cause: Long,
         scope: Scope
     ): ([x] =>> FlowOp[F, x]) ~> F
 
@@ -58,26 +60,26 @@ object DslInterpreter:
     */
   final class Impl[F[_]](context: Context[F])(using effect: Effect[F]) extends Interpreter[F]:
     def interpret(sender: ProcessRef.Unknown, target: ProcessRef.Unknown): ([x] =>> FlowOp[F, x]) ~> F =
-      interpret(sender, target, context.createTrace)
+      interpret(sender, target, 0L)
 
     def interpret(
         sender: ProcessRef.Unknown,
         target: ProcessRef.Unknown,
-        execTrace: ExecutionTrace
+        cause: Long
     ): ([x] =>> FlowOp[F, x]) ~> F =
-      interpret(sender, context.getProcessState(target).get, execTrace, Scope.empty)
+      interpret(sender, context.getProcessState(target).get, cause, Scope.empty)
 
     def interpret(
         sender: ProcessRef.Unknown,
         processState: ProcessState[F],
-        execTrace: ExecutionTrace
+        cause: Long
     ): ([x] =>> FlowOp[F, x]) ~> F =
-      interpret(sender, processState, execTrace, Scope.empty)
+      interpret(sender, processState, cause, Scope.empty)
 
     def interpret(
         sender: ProcessRef.Unknown,
         processState: ProcessState[F],
-        execTrace: ExecutionTrace,
+        cause: Long,
         scope: Scope
     ): ([x] =>> FlowOp[F, x]) ~> F =
       new FunctionK[[x] =>> FlowOp[F, x], F]:
@@ -91,10 +93,10 @@ object DslInterpreter:
 
             case Send(event, senderOverride, receiver, receivers) =>
               val source = senderOverride.getOrElse(processState.process.ref)
-              val first  = send(source, event, receiver, execTrace, scope)
+              val first  = send(source, event, receiver, cause, scope)
               if receivers.nonEmpty then
                 first >> receivers.foldLeft(effect.pure(())) { (acc, next) =>
-                  acc >> send(source, event, next, execTrace, scope)
+                  acc >> send(source, event, next, cause, scope)
                 }
               else first
 
@@ -102,25 +104,25 @@ object DslInterpreter:
               runWithSender
                 .asInstanceOf[ProcessRef[Event] => DslF[F, A]]
                 .apply(sender.asInstanceOf[ProcessRef[Event]])
-                .foldMap(interpret(sender, processState, execTrace, scope))
+                .foldMap(interpret(sender, processState, cause, scope))
 
             case Forward(event, receivers) =>
               receivers
                 .foldLeft(effect.pure(())) { (acc, receiver) =>
-                  acc >> send(sender, event, receiver, execTrace, scope)
+                  acc >> send(sender, event, receiver, cause, scope)
                 }
 
             case Par(flow) =>
               flow
                 .asInstanceOf[DslF[F, Unit]]
-                .foldMap(interpret(sender, processState, execTrace, scope))
+                .foldMap(interpret(sender, processState, cause, scope))
 
             case Fork(flow) =>
               effect
                 .start(
                   flow
                     .asInstanceOf[DslF[F, A]]
-                    .foldMap(interpret(sender, processState, execTrace, scope))
+                    .foldMap(interpret(sender, processState, cause, scope))
                 )
                 .map(fiber => Fiber.RuntimeFiber(fiber).asInstanceOf[A])
 
@@ -138,12 +140,12 @@ object DslInterpreter:
                 .suspend(
                   thunk()
                     .asInstanceOf[DslF[F, A]]
-                    .foldMap(interpret(sender, processState, execTrace, scope))
+                    .foldMap(interpret(sender, processState, cause, scope))
                 )
 
             case Race(first, second) =>
-              val first0  = first.asInstanceOf[DslF[F, Any]].foldMap(interpret(sender, processState, execTrace, scope))
-              val second0 = second.asInstanceOf[DslF[F, Any]].foldMap(interpret(sender, processState, execTrace, scope))
+              val first0  = first.asInstanceOf[DslF[F, Any]].foldMap(interpret(sender, processState, cause, scope))
+              val second0 = second.asInstanceOf[DslF[F, Any]].foldMap(interpret(sender, processState, cause, scope))
               effect.race(first0, second0).asInstanceOf[F[A]]
 
             case Offload(body) =>
@@ -152,7 +154,7 @@ object DslInterpreter:
                 fiber <- effect.startBlocking(
                   body()
                     .asInstanceOf[DslF[F, Any]]
-                    .foldMap(interpret(sender, processState, execTrace, scope))
+                    .foldMap(interpret(sender, processState, cause, scope))
                     .map(_ => Right(()))
                     .handleErrorWith(error => effect.pure(Left(error)))
                     .flatMap(outcome => done.complete(outcome).void)
@@ -169,9 +171,9 @@ object DslInterpreter:
             case HandleError(body, onError) =>
               body()
                 .asInstanceOf[DslF[F, A]]
-                .foldMap(interpret(sender, processState, execTrace, scope))
+                .foldMap(interpret(sender, processState, cause, scope))
                 .handleErrorWith { error =>
-                  onError(error).asInstanceOf[DslF[F, A]].foldMap(interpret(sender, processState, execTrace, scope))
+                  onError(error).asInstanceOf[DslF[F, A]].foldMap(interpret(sender, processState, cause, scope))
                 }
 
             case Halt(ref) =>
@@ -180,11 +182,11 @@ object DslInterpreter:
             case Guarantee(body, finalizer) =>
               effect
                 .guarantee(
-                  body().asInstanceOf[DslF[F, Any]].foldMap(interpret(sender, processState, execTrace, scope))
+                  body().asInstanceOf[DslF[F, Any]].foldMap(interpret(sender, processState, cause, scope))
                 ) {
                   finalizer()
                     .asInstanceOf[DslF[F, Unit]]
-                    .foldMap(interpret(sender, processState, execTrace, scope))
+                    .foldMap(interpret(sender, processState, cause, scope))
                 }
                 .void
 
@@ -195,25 +197,25 @@ object DslInterpreter:
               context.getProcessState(ref).get.release >>
                 context
                   .schedule(
-                    Scheduler.Deliver(Envelope(ProcessRef.SystemRef, Scheduler.Inbox, ref), execTrace)
+                    Scheduler.Deliver(Envelope(ProcessRef.SystemRef, Scheduler.Inbox, ref))
                   )
                   .void
 
             case WithScope(f) =>
               f.asInstanceOf[Scope => DslF[F, A]]
                 .apply(scope)
-                .foldMap(interpret(sender, processState, execTrace, scope))
+                .foldMap(interpret(sender, processState, cause, scope))
 
             case MapScope(f, body) =>
               body
                 .asInstanceOf[DslF[F, A]]
-                .foldMap(interpret(sender, processState, execTrace, f(scope)))
+                .foldMap(interpret(sender, processState, cause, f(scope)))
 
     private def send(
         sender: ProcessRef.Unknown,
         eventThunk: () => Event,
         receiver: ProcessRef.Unknown,
-        execTrace: ExecutionTrace,
+        cause: Long,
         scope: Scope
     ): F[Unit] =
       effect.suspend {
@@ -221,9 +223,10 @@ object DslInterpreter:
           case Some(transformer) => transformer.transform(eventThunk())
           case None              => eventThunk()
 
-        val envelope = Envelope(sender, event, receiver, scope)
+        // `cause` = id of the envelope being handled; links this outbound envelope into the causal DAG.
+        val envelope = Envelope(sender, event, receiver, scope, cause = cause)
         context.addToEventLog(envelope) >>
-          context.schedule(Deliver(envelope, execTrace.next(envelope.id))).flatMap {
+          context.schedule(Deliver(envelope)).flatMap {
             case ProcessQueueIsFull => context.eventStore.write(envelope)
             case _                  => effect.pure(())
           }

@@ -34,8 +34,7 @@ import io.parapet.core.Scheduler.SchedulerConfig
   *   enables verbose DEBUG-level scheduler logging. Routed to the file appender configured in `logback-test.xml` so the
   *   console stays quiet. Default off to keep `sbt test` fast.
   * @param tracingEnabled
-  *   propagates [[io.parapet.core.ExecutionTrace]] ids through envelopes so each scheduler hop logs a `traceId:...`
-  *   suffix. Only useful when `devMode` is also on.
+  *   currently inert (the `ExecutionTrace` mechanism was removed; causal `cause` ids are always on envelopes).
   * @param eventLogEnabled
   *   records every delivered envelope into an in-memory [[io.parapet.core.EventLog]] graph. The runtime does not
   *   currently persist this to disk, but it can be inspected in-process on failure.

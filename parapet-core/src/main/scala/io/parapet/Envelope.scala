@@ -12,22 +12,21 @@ package io.parapet
   *   metadata attached to this delivery; defaults to [[Scope.empty]].
   * @param cause
   *   id of the envelope being handled when this one was emitted.
+  * @param id
+  *   unique identity; defaults to a fresh [[Envelope.nextId]].
   */
 final case class Envelope(
     sender: ProcessRef.Unknown,
     event: Event,
     receiver: ProcessRef.Unknown,
     scope: Scope = Scope.empty,
-    cause: Long = 0L
+    cause: Long = 0L,
+    id: Long = Envelope.nextId()
 ):
   self =>
 
   /** Reserved for future tracing/debugging support; currently always `0`. */
   val ts: Long = 0L
-
-  /** Unique identity for this envelope.
-    */
-  val id: Long = Envelope.nextId()
 
   /** Returns a copy of this envelope with [[event]] replaced by `value`. */
   def event(value: Event): Envelope =
@@ -44,3 +43,15 @@ object Envelope:
 
   /** A cheap, JVM-unique, monotonically increasing envelope id (starts at 1; `0L` denotes "none"/root). */
   def nextId(): Long = idCounter.incrementAndGet()
+
+  /** Extractor over an envelope's core routing fields `(sender, event, receiver)`, ignoring metadata such as `scope`,
+    * `cause`, and `id`. Use it in patterns instead of the full positional `Envelope(...)` so that adding metadata
+    * fields never breaks existing matches:
+    *
+    * {{{
+    * case DeadLetter(Envelope.Routing(client.ref, Request, server.ref), _) => ...
+    * }}}
+    */
+  object Routing:
+    def unapply(e: Envelope): Some[(ProcessRef.Unknown, Event, ProcessRef.Unknown)] =
+      Some((e.sender, e.event, e.receiver))
