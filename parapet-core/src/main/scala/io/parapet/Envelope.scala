@@ -9,9 +9,7 @@ package io.parapet
   * @param receiver
   *   the addressed process.
   * @param scope
-  *   metadata attached to this delivery; defaults to [[Scope.empty]].
-  * @param cause
-  *   id of the envelope being handled when this one was emitted.
+  *   per-delivery metadata; defaults to [[Scope.empty]].
   * @param id
   *   unique identity; defaults to a fresh [[Envelope.nextId]].
   */
@@ -20,13 +18,18 @@ final case class Envelope(
     event: Event,
     receiver: ProcessRef.Unknown,
     scope: Scope = Scope.empty,
-    cause: Long = 0L,
     id: Long = Envelope.nextId()
 ):
   self =>
 
   /** Reserved for future tracing/debugging support; currently always `0`. */
   val ts: Long = 0L
+
+  /** Id of the envelope that caused this one. */
+  def cause: Long = scope.get(Scope.Cause).getOrElse(0L)
+
+  /** A scope in which this envelope is the cause: events emitted under it are recorded as caused by this envelope. */
+  def causalScope: Scope = scope.put(Scope.Cause, id)
 
   /** Returns a copy of this envelope with [[event]] replaced by `value`. */
   def event(value: Event): Envelope =

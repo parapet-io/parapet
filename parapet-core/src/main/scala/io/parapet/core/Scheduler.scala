@@ -11,7 +11,7 @@ import io.parapet.core.Scheduler.*
 import io.parapet.core.exceptions.*
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
-import io.parapet.{Envelope, Event, ProcessRef}
+import io.parapet.{Envelope, Event, ProcessRef, Scope}
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
@@ -205,7 +205,7 @@ object Scheduler:
           context = context,
           receiver = ProcessRef.SystemRef,
           interpreter = interpreter,
-          cause = 0L,
+          scope = Scope.empty,
           logger = logger,
           onError = (processRef, error) => logger.error(s"An error occurred while stopping process $processRef", error)
         ) >> context.saveEventLog >> logger.info("scheduler has been shut down")
@@ -244,7 +244,7 @@ object Scheduler:
         ),
         context.getProcessState(envelope.sender).get,
         interpreter,
-        envelope.id
+        envelope.causalScope
       )
 
     def submit(task: Task[F]): F[SubmissionResult] =
@@ -264,7 +264,7 @@ object Scheduler:
                           context = context,
                           receiver = receiver,
                           interpreter = interpreter,
-                          cause = envelope.id,
+                          scope = envelope.causalScope,
                           logger = logger,
                           onError = (_, error) =>
                             SchedulerImpl.handleError(
@@ -272,7 +272,7 @@ object Scheduler:
                               envelope,
                               context,
                               interpreter,
-                              envelope.id,
+                              envelope.causalScope,
                               error,
                               logger
                             )
@@ -463,7 +463,7 @@ object Scheduler:
                   DeadLetter(envelope, ProcessStoppedException(process.ref)),
                   context,
                   interpreter,
-                  envelope.id
+                  envelope.causalScope
                 )
               case false =>
                 stopProcess(
@@ -471,9 +471,10 @@ object Scheduler:
                   context,
                   process.ref,
                   interpreter,
-                  envelope.id,
+                  envelope.causalScope,
                   logger,
-                  (_, error) => handleError(process, envelope, context, interpreter, envelope.id, error, logger)
+                  (_, error) =>
+                    handleError(process, envelope, context, interpreter, envelope.causalScope, error, logger)
                 ) >> context.remove(process.ref).void
             }
           case _ =>
@@ -484,7 +485,7 @@ object Scheduler:
                     DeadLetter(envelope, new IllegalStateException(s"process=$process is terminated")),
                     context,
                     interpreter,
-                    envelope.id
+                    envelope.causalScope
                   )
                 else
                   effect.delay(Try(process.canHandle(event))).flatMap {
@@ -492,13 +493,14 @@ object Scheduler:
                       for
                         flow    <- effect.delay(process(event))
                         effect0 <- effect.pure(
-                          flow.foldMap(interpreter.interpret(sender, processState, envelope.id, envelope.scope))
+                          flow.foldMap(interpreter.interpret(sender, processState, envelope.causalScope))
                         )
                         _ <- runEffect(
                           effect0,
                           envelope,
                           processState,
-                          error => handleError(process, envelope, context, interpreter, envelope.id, error, logger)
+                          error =>
+                            handleError(process, envelope, context, interpreter, envelope.causalScope, error, logger)
                         )
                       yield ()
 
@@ -506,7 +508,7 @@ object Scheduler:
                       val errorMessage           = s"process $process handler is not defined for event: $event"
                       val whenUndefined: F[Unit] = event match
                         case failure: Failure =>
-                          sendToDeadLetter(DeadLetter(failure), context, interpreter, envelope.id)
+                          sendToDeadLetter(DeadLetter(failure), context, interpreter, envelope.causalScope)
                         case Start =>
                           effect.pure(())
                         case _ =>
@@ -515,7 +517,7 @@ object Scheduler:
                             Failure(envelope, EventMatchException(errorMessage)),
                             context.getProcessState(envelope.sender).get,
                             interpreter,
-                            envelope.id
+                            envelope.causalScope
                           )
 
                       val logMessage = event match
@@ -551,7 +553,7 @@ object Scheduler:
                     deliver.envelope,
                     context,
                     interpreter,
-                    deliver.envelope.id,
+                    deliver.envelope.causalScope,
                     error,
                     logger
                   )
@@ -601,14 +603,14 @@ object Scheduler:
         envelope: Envelope,
         context: Context[F],
         interpreter: Interpreter[F],
-        causeId: Long,
+        scope: Scope,
         cause: Throwable,
         logger: LoggerWrapper[F]
     )(using effect: Effect[F]): F[Unit] =
       envelope.event match
         case failure: Failure =>
           logger.error(s"process $process has failed to handle Failure event. send to dead-letter", cause) >>
-            sendToDeadLetter(DeadLetter(failure), context, interpreter, causeId)
+            sendToDeadLetter(DeadLetter(failure), context, interpreter, scope)
         case event =>
           val errorMessage = s"process $process has failed to handle event: $event"
           logger.error(errorMessage, cause) >>
@@ -616,7 +618,7 @@ object Scheduler:
               envelope,
               context,
               interpreter,
-              causeId,
+              scope,
               EventHandlingException(errorMessage, cause)
             )
 
@@ -624,7 +626,7 @@ object Scheduler:
         envelope: Envelope,
         context: Context[F],
         interpreter: Interpreter[F],
-        cause: Long,
+        scope: Scope,
         error: Throwable
     )(using effect: Effect[F]): F[Unit] =
       send(
@@ -632,36 +634,36 @@ object Scheduler:
         Failure(envelope, error),
         context.getProcessState(envelope.sender).get,
         interpreter,
-        cause
+        scope
       )
 
     private def sendToDeadLetter[F[_]](
         deadLetter: DeadLetter,
         context: Context[F],
         interpreter: Interpreter[F],
-        cause: Long
+        scope: Scope
     )(using effect: Effect[F], flowOps: FlowOps[F, [x] =>> Dsl[F, x]]): F[Unit] =
-      send(SystemRef, deadLetter, context.getProcessState(DeadLetterRef).get, interpreter, cause)
+      send(SystemRef, deadLetter, context.getProcessState(DeadLetterRef).get, interpreter, scope)
 
     private def send[F[_]](
         sender: ProcessRef.Unknown,
         event: Event,
         receiver: ProcessState[F],
         interpreter: Interpreter[F],
-        cause: Long
+        scope: Scope
     )(using effect: Effect[F], flowOps: FlowOps[F, [x] =>> Dsl[F, x]]): F[Unit] =
       flowOps
         .send(sender, event, receiver.process.ref.asInstanceOf[ProcessRef[Event]])
-        .foldMap(interpreter.interpret(sender, receiver, cause))
+        .foldMap(interpreter.interpret(sender, receiver, scope))
 
     private def deliverStopEvent[F[_]](
         sender: ProcessRef.Unknown,
         processState: ProcessState[F],
         interpreter: Interpreter[F],
-        cause: Long
+        scope: Scope
     )(using effect: Effect[F]): F[Unit] =
       if processState.process.canHandle(Stop) then
-        processState.process(Stop).foldMap(interpreter.interpret(sender, processState, cause))
+        processState.process(Stop).foldMap(interpreter.interpret(sender, processState, scope))
       else effect.pure(())
 
     private def stopProcess[F[_]](
@@ -669,7 +671,7 @@ object Scheduler:
         context: Context[F],
         receiver: ProcessRef.Unknown,
         interpreter: Interpreter[F],
-        cause: Long,
+        scope: Scope,
         logger: LoggerWrapper[F],
         onError: (ProcessRef.Unknown, Throwable) => F[Unit]
     )(using effect: Effect[F], parallel: Parallel[F]): F[Boolean] =
@@ -678,7 +680,7 @@ object Scheduler:
           parallel.par(
             context
               .child(receiver)
-              .map(child => stopProcess(receiver, context, child, interpreter, cause, logger, onError).void)
+              .map(child => stopProcess(receiver, context, child, interpreter, scope, logger, onError).void)
           )
 
         context.getProcessState(receiver) match
@@ -687,7 +689,7 @@ object Scheduler:
               case true =>
                 stopChildProcesses >>
                   processState.offloads.cancelAll >>
-                  deliverStopEvent(sender, processState, interpreter, cause)
+                  deliverStopEvent(sender, processState, interpreter, scope)
                     .handleErrorWith(error => onError(receiver, error)) >>
                   logger.debug(s"process: '$receiver' has been stopped") >>
                   effect.pure(true)

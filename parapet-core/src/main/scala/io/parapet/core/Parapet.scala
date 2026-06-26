@@ -38,7 +38,7 @@ object Parapet extends StrictLogging:
     def withWorkerCount(value: Int): ParConfig =
       copy(schedulerConfig = schedulerConfig.copy(numberOfWorkers = value))
 
-    /** Sets [[tracingEnabled]]  */
+    /** Sets [[tracingEnabled]] */
     def enableTracing: ParConfig =
       copy(tracingEnabled = true)
 

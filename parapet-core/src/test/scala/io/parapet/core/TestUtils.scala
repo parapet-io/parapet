@@ -137,7 +137,6 @@ object TestUtils:
           impl.interpret(
             sender,
             context.getProcessState(noop.ref).get,
-            0L,
             scope
           )
         )
