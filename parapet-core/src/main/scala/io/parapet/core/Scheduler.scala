@@ -11,7 +11,7 @@ import io.parapet.core.Scheduler.*
 import io.parapet.core.exceptions.*
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
-import io.parapet.{Envelope, Event, ProcessRef}
+import io.parapet.{Envelope, Event, ProcessRef, Scope}
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
@@ -48,17 +48,17 @@ object Scheduler:
   /** A single notification placed on the scheduler's signal queue, instructing workers to pull from the addressed
     * process's mailbox.
     */
-  final case class Signal(envelope: Envelope, execTrace: ExecutionTrace):
+  final case class Signal(envelope: Envelope):
     override def toString: String =
-      s"Signal($envelope, $execTrace)"
+      s"Signal($envelope)"
 
   /** Algebra of work items the scheduler accepts. Currently only [[Deliver]] but the type is sealed to allow future
     * expansion (e.g. timers, cron).
     */
   sealed trait Task[F[_]]
 
-  /** Deliver `envelope` to its addressed process; `execTrace` carries causal id. */
-  final case class Deliver[F[_]](envelope: Envelope, execTrace: ExecutionTrace) extends Task[F]
+  /** Deliver `envelope` to its addressed process. */
+  final case class Deliver[F[_]](envelope: Envelope) extends Task[F]
 
   /** A mailbox holding [[Task]]s for a single process. */
   type TaskQueue[F[_]] = Queue[F, Task[F]]
@@ -205,7 +205,7 @@ object Scheduler:
           context = context,
           receiver = ProcessRef.SystemRef,
           interpreter = interpreter,
-          execTrace = context.createTrace,
+          scope = Scope.empty,
           logger = logger,
           onError = (processRef, error) => logger.error(s"An error occurred while stopping process $processRef", error)
         ) >> context.saveEventLog >> logger.info("scheduler has been shut down")
@@ -224,9 +224,9 @@ object Scheduler:
                     s"Scheduler::submit(ps=${processState.process}, task=$task) - lock is already acquired. do not notify"
                   )
                 case false =>
-                  effect.suspend(selectSubmitQueue().enqueue(Signal(task.envelope, task.execTrace))) >>
+                  effect.suspend(selectSubmitQueue().enqueue(Signal(task.envelope))) >>
                     logger.debug(
-                      s"Scheduler::submit(ps=${processState.process}, task=$task) - added to notification queue. traceId:${task.execTrace.last}"
+                      s"Scheduler::submit(ps=${processState.process}, task=$task) - added to notification queue. id:${task.envelope.id}"
                     )
               }
               .as(Ok)
@@ -244,12 +244,12 @@ object Scheduler:
         ),
         context.getProcessState(envelope.sender).get,
         interpreter,
-        task.execTrace
+        envelope.causalScope
       )
 
     def submit(task: Task[F]): F[SubmissionResult] =
       task match
-        case deliverTask @ Deliver(envelope @ Envelope(sender, event, receiver, _), _) =>
+        case deliverTask @ Deliver(envelope @ Envelope.Routing(sender, event, receiver)) =>
           effect.suspend(
             context.getProcessState(receiver) match
               case None =>
@@ -264,7 +264,7 @@ object Scheduler:
                           context = context,
                           receiver = receiver,
                           interpreter = interpreter,
-                          execTrace = deliverTask.execTrace,
+                          scope = envelope.causalScope,
                           logger = logger,
                           onError = (_, error) =>
                             SchedulerImpl.handleError(
@@ -272,7 +272,7 @@ object Scheduler:
                               envelope,
                               context,
                               interpreter,
-                              deliverTask.execTrace,
+                              envelope.causalScope,
                               error,
                               logger
                             )
@@ -463,7 +463,7 @@ object Scheduler:
                   DeadLetter(envelope, ProcessStoppedException(process.ref)),
                   context,
                   interpreter,
-                  task.execTrace
+                  envelope.causalScope
                 )
               case false =>
                 stopProcess(
@@ -471,9 +471,10 @@ object Scheduler:
                   context,
                   process.ref,
                   interpreter,
-                  task.execTrace,
+                  envelope.causalScope,
                   logger,
-                  (_, error) => handleError(process, envelope, context, interpreter, task.execTrace, error, logger)
+                  (_, error) =>
+                    handleError(process, envelope, context, interpreter, envelope.causalScope, error, logger)
                 ) >> context.remove(process.ref).void
             }
           case _ =>
@@ -484,7 +485,7 @@ object Scheduler:
                     DeadLetter(envelope, new IllegalStateException(s"process=$process is terminated")),
                     context,
                     interpreter,
-                    task.execTrace
+                    envelope.causalScope
                   )
                 else
                   effect.delay(Try(process.canHandle(event))).flatMap {
@@ -492,13 +493,14 @@ object Scheduler:
                       for
                         flow    <- effect.delay(process(event))
                         effect0 <- effect.pure(
-                          flow.foldMap(interpreter.interpret(sender, processState, task.execTrace, envelope.scope))
+                          flow.foldMap(interpreter.interpret(sender, processState, envelope.causalScope))
                         )
                         _ <- runEffect(
                           effect0,
                           envelope,
                           processState,
-                          error => handleError(process, envelope, context, interpreter, task.execTrace, error, logger)
+                          error =>
+                            handleError(process, envelope, context, interpreter, envelope.causalScope, error, logger)
                         )
                       yield ()
 
@@ -506,7 +508,7 @@ object Scheduler:
                       val errorMessage           = s"process $process handler is not defined for event: $event"
                       val whenUndefined: F[Unit] = event match
                         case failure: Failure =>
-                          sendToDeadLetter(DeadLetter(failure), context, interpreter, task.execTrace)
+                          sendToDeadLetter(DeadLetter(failure), context, interpreter, envelope.causalScope)
                         case Start =>
                           effect.pure(())
                         case _ =>
@@ -515,7 +517,7 @@ object Scheduler:
                             Failure(envelope, EventMatchException(errorMessage)),
                             context.getProcessState(envelope.sender).get,
                             interpreter,
-                            task.execTrace
+                            envelope.causalScope
                           )
 
                       val logMessage = event match
@@ -551,7 +553,7 @@ object Scheduler:
                     deliver.envelope,
                     context,
                     interpreter,
-                    deliver.execTrace,
+                    deliver.envelope.causalScope,
                     error,
                     logger
                   )
@@ -594,22 +596,21 @@ object Scheduler:
         logger.debug(s"worker[$name]::runEffect. envelope: $envelope") >> effect0.handleErrorWith(errorHandler)
 
       private def createNotifySignal(ref: ProcessRef.Unknown): Signal =
-        val envelope = Envelope(ProcessRef.SchedulerRef, NotifyEvent, ref)
-        Signal(envelope, context.createTrace(envelope.id))
+        Signal(Envelope(ProcessRef.SchedulerRef, NotifyEvent, ref))
 
     private def handleError[F[_]](
         process: Process[F, ?, ?],
         envelope: Envelope,
         context: Context[F],
         interpreter: Interpreter[F],
-        executionTrace: ExecutionTrace,
+        scope: Scope,
         cause: Throwable,
         logger: LoggerWrapper[F]
     )(using effect: Effect[F]): F[Unit] =
       envelope.event match
         case failure: Failure =>
           logger.error(s"process $process has failed to handle Failure event. send to dead-letter", cause) >>
-            sendToDeadLetter(DeadLetter(failure), context, interpreter, executionTrace)
+            sendToDeadLetter(DeadLetter(failure), context, interpreter, scope)
         case event =>
           val errorMessage = s"process $process has failed to handle event: $event"
           logger.error(errorMessage, cause) >>
@@ -617,7 +618,7 @@ object Scheduler:
               envelope,
               context,
               interpreter,
-              executionTrace,
+              scope,
               EventHandlingException(errorMessage, cause)
             )
 
@@ -625,7 +626,7 @@ object Scheduler:
         envelope: Envelope,
         context: Context[F],
         interpreter: Interpreter[F],
-        executionTrace: ExecutionTrace,
+        scope: Scope,
         error: Throwable
     )(using effect: Effect[F]): F[Unit] =
       send(
@@ -633,36 +634,36 @@ object Scheduler:
         Failure(envelope, error),
         context.getProcessState(envelope.sender).get,
         interpreter,
-        executionTrace
+        scope
       )
 
     private def sendToDeadLetter[F[_]](
         deadLetter: DeadLetter,
         context: Context[F],
         interpreter: Interpreter[F],
-        executionTrace: ExecutionTrace
+        scope: Scope
     )(using effect: Effect[F], flowOps: FlowOps[F, [x] =>> Dsl[F, x]]): F[Unit] =
-      send(SystemRef, deadLetter, context.getProcessState(DeadLetterRef).get, interpreter, executionTrace)
+      send(SystemRef, deadLetter, context.getProcessState(DeadLetterRef).get, interpreter, scope)
 
     private def send[F[_]](
         sender: ProcessRef.Unknown,
         event: Event,
         receiver: ProcessState[F],
         interpreter: Interpreter[F],
-        execTrace: ExecutionTrace
+        scope: Scope
     )(using effect: Effect[F], flowOps: FlowOps[F, [x] =>> Dsl[F, x]]): F[Unit] =
       flowOps
         .send(sender, event, receiver.process.ref.asInstanceOf[ProcessRef[Event]])
-        .foldMap(interpreter.interpret(sender, receiver, execTrace))
+        .foldMap(interpreter.interpret(sender, receiver, scope))
 
     private def deliverStopEvent[F[_]](
         sender: ProcessRef.Unknown,
         processState: ProcessState[F],
         interpreter: Interpreter[F],
-        executionTrace: ExecutionTrace
+        scope: Scope
     )(using effect: Effect[F]): F[Unit] =
       if processState.process.canHandle(Stop) then
-        processState.process(Stop).foldMap(interpreter.interpret(sender, processState, executionTrace))
+        processState.process(Stop).foldMap(interpreter.interpret(sender, processState, scope))
       else effect.pure(())
 
     private def stopProcess[F[_]](
@@ -670,7 +671,7 @@ object Scheduler:
         context: Context[F],
         receiver: ProcessRef.Unknown,
         interpreter: Interpreter[F],
-        execTrace: ExecutionTrace,
+        scope: Scope,
         logger: LoggerWrapper[F],
         onError: (ProcessRef.Unknown, Throwable) => F[Unit]
     )(using effect: Effect[F], parallel: Parallel[F]): F[Boolean] =
@@ -679,7 +680,7 @@ object Scheduler:
           parallel.par(
             context
               .child(receiver)
-              .map(child => stopProcess(receiver, context, child, interpreter, execTrace, logger, onError).void)
+              .map(child => stopProcess(receiver, context, child, interpreter, scope, logger, onError).void)
           )
 
         context.getProcessState(receiver) match
@@ -688,7 +689,7 @@ object Scheduler:
               case true =>
                 stopChildProcesses >>
                   processState.offloads.cancelAll >>
-                  deliverStopEvent(sender, processState, interpreter, execTrace)
+                  deliverStopEvent(sender, processState, interpreter, scope)
                     .handleErrorWith(error => onError(receiver, error)) >>
                   logger.debug(s"process: '$receiver' has been stopped") >>
                   effect.pure(true)

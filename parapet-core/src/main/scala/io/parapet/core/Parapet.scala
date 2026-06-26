@@ -19,7 +19,7 @@ object Parapet extends StrictLogging:
     * @param devMode
     *   when `true` enables verbose runtime logging useful while developing.
     * @param tracingEnabled
-    *   when `true` propagates [[ExecutionTrace]] ids through envelopes for cross-process causal tracing.
+    *   currently inert.
     * @param eventLogEnabled
     *   when `true` records every delivered envelope to an in-memory [[EventLog]]; primarily for replay/debugging.
     */
@@ -38,7 +38,7 @@ object Parapet extends StrictLogging:
     def withWorkerCount(value: Int): ParConfig =
       copy(schedulerConfig = schedulerConfig.copy(numberOfWorkers = value))
 
-    /** Enables [[ExecutionTrace]] propagation. */
+    /** Sets [[tracingEnabled]] */
     def enableTracing: ParConfig =
       copy(tracingEnabled = true)
 

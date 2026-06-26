@@ -50,16 +50,8 @@ final class FaultInjector[F[_]](inner: Interpreter[F], policy: FaultPolicy[F], s
   def interpret(sender: ProcessRef.Unknown, target: ProcessRef.Unknown): Op ~> F =
     faulty(sender)(inner.interpret(sender, target))
 
-  def interpret(sender: ProcessRef.Unknown, target: ProcessRef.Unknown, execTrace: ExecutionTrace): Op ~> F =
-    faulty(sender)(inner.interpret(sender, target, execTrace))
+  def interpret(sender: ProcessRef.Unknown, target: ProcessRef.Unknown, scope: Scope): Op ~> F =
+    faulty(sender)(inner.interpret(sender, target, scope))
 
-  def interpret(sender: ProcessRef.Unknown, processState: ProcessState[F], execTrace: ExecutionTrace): Op ~> F =
-    faulty(sender)(inner.interpret(sender, processState, execTrace))
-
-  def interpret(
-      sender: ProcessRef.Unknown,
-      processState: ProcessState[F],
-      execTrace: ExecutionTrace,
-      scope: Scope
-  ): Op ~> F =
-    faulty(sender)(inner.interpret(sender, processState, execTrace, scope))
+  def interpret(sender: ProcessRef.Unknown, processState: ProcessState[F], scope: Scope): Op ~> F =
+    faulty(sender)(inner.interpret(sender, processState, scope))

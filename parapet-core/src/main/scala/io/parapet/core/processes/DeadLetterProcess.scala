@@ -32,7 +32,7 @@ object DeadLetterProcess:
     private val logger        = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
     override val name: String = s"${DeadLetterRef.value}-logging"
 
-    override val handle: Receive = { case DeadLetter(Envelope(sender, event, receiver, _), error) =>
+    override val handle: Receive = { case DeadLetter(Envelope.Routing(sender, event, receiver), error) =>
       val mdcFields: MDCFields = Map(
         "processRef"  -> ref,
         "processName" -> name,
