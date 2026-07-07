@@ -250,6 +250,7 @@ object Scheduler:
     def submit(task: Task[F]): F[SubmissionResult] =
       task match
         case deliverTask @ Deliver(envelope @ Envelope.Routing(sender, event, receiver)) =>
+          val deliveryScope = envelope.causalScope
           effect.suspend(
             context.getProcessState(receiver) match
               case None =>
@@ -264,7 +265,7 @@ object Scheduler:
                           context = context,
                           receiver = receiver,
                           interpreter = interpreter,
-                          scope = envelope.causalScope,
+                          scope = deliveryScope,
                           logger = logger,
                           onError = (_, error) =>
                             SchedulerImpl.handleError(
@@ -272,7 +273,7 @@ object Scheduler:
                               envelope,
                               context,
                               interpreter,
-                              envelope.causalScope,
+                              deliveryScope,
                               error,
                               logger
                             )
@@ -450,10 +451,11 @@ object Scheduler:
         logger.debug(s"worker[$name]::run(${processState.process}) slice=$mailboxSlice") >> step(mailboxSlice)
 
       private def deliver(processState: ProcessState[F], task: Deliver[F]): F[Unit] =
-        val envelope = task.envelope
-        val process  = processState.process
-        val event    = envelope.event
-        val sender   = envelope.sender
+        val envelope      = task.envelope
+        val process       = processState.process
+        val event         = envelope.event
+        val sender        = envelope.sender
+        val deliveryScope = envelope.causalScope
 
         event match
           case Stop =>
@@ -463,7 +465,7 @@ object Scheduler:
                   DeadLetter(envelope, ProcessStoppedException(process.ref)),
                   context,
                   interpreter,
-                  envelope.causalScope
+                  deliveryScope
                 )
               case false =>
                 stopProcess(
@@ -471,10 +473,9 @@ object Scheduler:
                   context,
                   process.ref,
                   interpreter,
-                  envelope.causalScope,
+                  deliveryScope,
                   logger,
-                  (_, error) =>
-                    handleError(process, envelope, context, interpreter, envelope.causalScope, error, logger)
+                  (_, error) => handleError(process, envelope, context, interpreter, deliveryScope, error, logger)
                 ) >> context.remove(process.ref).void
             }
           case _ =>
@@ -485,7 +486,7 @@ object Scheduler:
                     DeadLetter(envelope, new IllegalStateException(s"process=$process is terminated")),
                     context,
                     interpreter,
-                    envelope.causalScope
+                    deliveryScope
                   )
                 else
                   effect.delay(Try(process.canHandle(event))).flatMap {
@@ -493,14 +494,13 @@ object Scheduler:
                       for
                         flow    <- effect.delay(process(event))
                         effect0 <- effect.pure(
-                          flow.foldMap(interpreter.interpret(sender, processState, envelope.causalScope))
+                          flow.foldMap(interpreter.interpret(sender, processState, deliveryScope))
                         )
                         _ <- runEffect(
                           effect0,
                           envelope,
                           processState,
-                          error =>
-                            handleError(process, envelope, context, interpreter, envelope.causalScope, error, logger)
+                          error => handleError(process, envelope, context, interpreter, deliveryScope, error, logger)
                         )
                       yield ()
 
@@ -508,7 +508,7 @@ object Scheduler:
                       val errorMessage           = s"process $process handler is not defined for event: $event"
                       val whenUndefined: F[Unit] = event match
                         case failure: Failure =>
-                          sendToDeadLetter(DeadLetter(failure), context, interpreter, envelope.causalScope)
+                          sendToDeadLetter(DeadLetter(failure), context, interpreter, deliveryScope)
                         case Start =>
                           effect.pure(())
                         case _ =>
@@ -517,7 +517,7 @@ object Scheduler:
                             Failure(envelope, EventMatchException(errorMessage)),
                             context.getProcessState(envelope.sender).get,
                             interpreter,
-                            envelope.causalScope
+                            deliveryScope
                           )
 
                       val logMessage = event match
