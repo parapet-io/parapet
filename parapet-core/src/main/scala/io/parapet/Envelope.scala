@@ -40,16 +40,13 @@ final case class Envelope(
     else
       s"Envelope(id:$id, cause:$cause, sender:$sender, event:$event, receiver:$receiver, scope:${scope.entries.toMap})"
 
-/** Companion providing cheap, monotonic envelope identity. */
 object Envelope:
   private val idCounter = new java.util.concurrent.atomic.AtomicLong(0L)
 
   /** A cheap, JVM-unique, monotonically increasing envelope id (starts at 1; `0L` denotes "none"/root). */
   def nextId(): Long = idCounter.incrementAndGet()
 
-  /** Extractor over an envelope's core routing fields `(sender, event, receiver)`, ignoring metadata such as `scope`,
-    * `cause`, and `id`. Use it in patterns instead of the full positional `Envelope(...)` so that adding metadata
-    * fields never breaks existing matches:
+  /** Extractor over an envelope's core routing fields `(sender, event, receiver)`.
     *
     * {{{
     * case DeadLetter(Envelope.Routing(client.ref, Request, server.ref), _) => ...
