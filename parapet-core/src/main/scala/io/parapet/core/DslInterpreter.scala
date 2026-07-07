@@ -24,7 +24,7 @@ object DslInterpreter:
     * identification is convenient (raw ref vs. resolved [[ProcessState]]).
     */
   trait Interpreter[F[_]]:
-    /** Interprets ops in the context of `target`, from [[Scope.empty]] (no causal context). */
+    /** Interprets ops in the context of `target`, from [[Scope.empty]]. */
     def interpret(sender: ProcessRef.Unknown, target: ProcessRef.Unknown): ([x] =>> FlowOp[F, x]) ~> F
 
     /** Interprets ops in the context of `target` under `scope`. */

@@ -4,9 +4,6 @@ import java.util.UUID
 
 /** A short identifier used to correlate related log lines, events, and external requests across process boundaries.
   *
-  * Distinct from an envelope's `cause` (the immediate causal parent id); a `CorrelationId` is just a single id intended
-  * for tagging.
-  *
   * @param value
   *   the underlying string id (typically a UUID).
   */
