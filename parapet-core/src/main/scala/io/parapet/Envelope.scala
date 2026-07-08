@@ -43,7 +43,7 @@ final case class Envelope(
 object Envelope:
   private val idCounter = new java.util.concurrent.atomic.AtomicLong(0L)
 
-  /** A cheap, JVM-unique, monotonically increasing envelope id (starts at 1; `0L` denotes "none"/root). */
+  /** Monotonically increasing envelope id (starts at 1; `0L` denotes "none"/root). */
   def nextId(): Long = idCounter.incrementAndGet()
 
   /** Extractor over an envelope's core routing fields `(sender, event, receiver)`.
