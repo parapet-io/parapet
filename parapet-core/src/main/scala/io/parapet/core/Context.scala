@@ -41,9 +41,6 @@ class Context[F[_]](
   /** Convenience accessor for [[Parapet.ParConfig.devMode]]. */
   val devMode: Boolean = config.devMode
 
-  /** Convenience accessor for [[Parapet.ParConfig.tracingEnabled]]. */
-  val tracingEnabled: Boolean = config.tracingEnabled
-
   private val processes = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessState[F]]()
   private val graph     = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ListBuffer[ProcessRef.Unknown]]()
   private val parents   = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessRef.Unknown]()

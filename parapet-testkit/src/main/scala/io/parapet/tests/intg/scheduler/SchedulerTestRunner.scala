@@ -18,8 +18,8 @@ import java.util.concurrent.TimeUnit
 /** Shared driver that runs a [[StabilitySpec]].
   *
   * When a sample fails the driver writes a standalone failure report to
-  * `target/scheduler-failures/<spec>-<sample>-<timestamp>.log` containing the spec, the diff between submitted and
-  * delivered events, and - if tracing is on - the trace-id from the scheduler debug log.
+  * `target/scheduler-failures/<spec>-<sample>-<timestamp>.log` containing the spec and the diff between submitted and
+  * delivered events.
   */
 trait SchedulerTestRunner[F[_]] extends IntegrationSpec[F] {
 
@@ -61,7 +61,6 @@ trait SchedulerTestRunner[F[_]] extends IntegrationSpec[F] {
         "workload"                   -> spec.workload.name,
         "work_distribution_strategy" -> spec.wds.name,
         "dev_mode"                   -> spec.devMode,
-        "tracing_enabled"            -> spec.tracingEnabled,
         "event_log_enabled"          -> spec.eventLogEnabled
       )
 
@@ -76,7 +75,6 @@ trait SchedulerTestRunner[F[_]] extends IntegrationSpec[F] {
         processBufferSize = -1,
         schedulerConfig = spec.config,
         devMode = spec.devMode,
-        tracingEnabled = spec.tracingEnabled,
         eventLogEnabled = spec.eventLogEnabled
       )
 
@@ -157,7 +155,7 @@ object SchedulerTestRunner {
     sb.append(s"blockingRatio: ${spec.blockingRatio}\n")
     sb.append(s"wds: ${spec.wds.name}\n")
     sb.append(
-      s"devMode: ${spec.devMode}  tracingEnabled: ${spec.tracingEnabled}  eventLogEnabled: ${spec.eventLogEnabled}\n"
+      s"devMode: ${spec.devMode}  eventLogEnabled: ${spec.eventLogEnabled}\n"
     )
     cause.foreach { t =>
       sb.append(s"\n=== error ===\n")

@@ -87,7 +87,6 @@ class SchedulerRegressionSpec extends AnyFunSuite:
       processBufferSize = -1,
       schedulerConfig = SchedulerConfig(numberOfWorkers = 2),
       devMode = true,
-      tracingEnabled = true,
       eventLogEnabled = true
     )
 
