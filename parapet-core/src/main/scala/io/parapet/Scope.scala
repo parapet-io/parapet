@@ -22,6 +22,10 @@ object Scope:
   case object Causation extends Key[String]:
     val name: String = "io.parapet.causation"
 
+  /** Runtime causal id. */
+  case object Cause extends Key[Long]:
+    val name: String = "io.parapet.cause"
+
   extension (scope: Scope)
     /** Value associated with `key`, or `None` if absent. */
     def get[A](key: Key[A]): Option[A] =

@@ -18,8 +18,6 @@ object Parapet extends StrictLogging:
     *   [[Scheduler]] tuning (worker thread count, etc.).
     * @param devMode
     *   when `true` enables verbose runtime logging useful while developing.
-    * @param tracingEnabled
-    *   when `true` propagates [[ExecutionTrace]] ids through envelopes for cross-process causal tracing.
     * @param eventLogEnabled
     *   when `true` records every delivered envelope to an in-memory [[EventLog]]; primarily for replay/debugging.
     */
@@ -27,7 +25,6 @@ object Parapet extends StrictLogging:
       processBufferSize: Int,
       schedulerConfig: SchedulerConfig,
       devMode: Boolean = false,
-      tracingEnabled: Boolean = false,
       eventLogEnabled: Boolean = false
   ):
     /** Sets the default per-process mailbox capacity. */
@@ -38,10 +35,6 @@ object Parapet extends StrictLogging:
     def withWorkerCount(value: Int): ParConfig =
       copy(schedulerConfig = schedulerConfig.copy(numberOfWorkers = value))
 
-    /** Enables [[ExecutionTrace]] propagation. */
-    def enableTracing: ParConfig =
-      copy(tracingEnabled = true)
-
     /** Enables verbose dev-mode logging. */
     def withDevMode: ParConfig =
       copy(devMode = true)
@@ -51,7 +44,7 @@ object Parapet extends StrictLogging:
       copy(eventLogEnabled = true)
 
   object ParConfig:
-    /** Sensible defaults: unbounded process queues, one worker per CPU, no tracing. */
+    /** Sensible defaults: unbounded process queues, one worker per CPU. */
     val default: ParConfig =
       ParConfig(
         processBufferSize = -1,

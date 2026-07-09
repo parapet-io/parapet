@@ -1,6 +1,6 @@
 package io.parapet.tests.intg.scheduler
 
-import io.parapet.core.{ExecutionTrace, Process}
+import io.parapet.core.Process
 import io.parapet.core.Scheduler.Deliver
 import io.parapet.{Envelope, Event, ProcessRef}
 
@@ -32,8 +32,7 @@ object WorkDistributionStrategy {
         val submitterId = (i - 1) % submitters // round-robin
         val process     = processes((i - 1) % processes.length) // cycle evenly across all receivers
         Deliver[F](
-          Envelope(ProcessRef.SystemRef, TestEvent(submitterId, i), process.ref),
-          ExecutionTrace.Dummy
+          Envelope(ProcessRef.SystemRef, TestEvent(submitterId, i), process.ref)
         )
       }
     }
@@ -56,8 +55,7 @@ object WorkDistributionStrategy {
         val submitterId = (i - 1) % submitters // round-robin
         val process     = processes(rnd.nextInt(processes.length)) // independently sample a receiver for each event
         Deliver[F](
-          Envelope(ProcessRef.SystemRef, TestEvent(submitterId, i), process.ref),
-          ExecutionTrace.Dummy
+          Envelope(ProcessRef.SystemRef, TestEvent(submitterId, i), process.ref)
         )
       }
     }
@@ -92,8 +90,7 @@ object WorkDistributionStrategy {
               ProcessRef.SystemRef,
               TestEvent(submitterId, seqNumber),
               process.ref
-            ),
-            ExecutionTrace.Dummy
+            )
           )
         }
       }
