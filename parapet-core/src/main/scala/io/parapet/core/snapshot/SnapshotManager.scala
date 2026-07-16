@@ -6,9 +6,7 @@ import io.parapet.core.Clock
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
-/** Runtime side of snapshot creation.
-  *
-  * Ids are **per process**: a snapshot is globally identified by `(processRef, id)`.
+/** Manages snapshot creation and restoring processes state.
   *
   * Thread-safe; snapshots of different processes may be created concurrently.
   *
