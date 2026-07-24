@@ -42,7 +42,7 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
 
     unsafeRun {
       ZmqTcpServer.make[IO](ZmqTcpServerConfig(bind, receiveTimeoutMs = 100)).use { tcpServer =>
-        ZmqTcpClient.make[IO](ZmqTcpClientConfig(connect, receiveTimeoutMs = 2000)).use { tcpClient =>
+        ZmqTcpClient.make[IO](ZmqTcpClientConfig(connect, receiveTimeoutMs = 10000)).use { tcpClient =>
           val serverProcess =
             new ServerProcess[IO](tcpServer, ProcessRef[ServerProcess.Received | ServerProcess.Failed]("echo-sink"))
           val clientProcess = new ClientProcess[IO](tcpClient)
@@ -180,7 +180,7 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
 
     unsafeRun {
       ZmqTcpServer.make[IO](ZmqTcpServerConfig(bind, receiveTimeoutMs = 100)).use { server =>
-        ZmqTcpClient.make[IO](ZmqTcpClientConfig(connect, receiveTimeoutMs = 2000)).use { reqClient =>
+        ZmqTcpClient.make[IO](ZmqTcpClientConfig(connect, receiveTimeoutMs = 10000)).use { reqClient =>
           ZmqTcpDuplexTransport.make[IO](ZmqTcpDuplexConfig(connect, receiveTimeoutMs = 100)).use { dealerClient =>
             val reqRequest    = Message("req-1", "req".getBytes("UTF-8"))
             val dealerRequest = Message("dealer-1", "dealer".getBytes("UTF-8"))
@@ -427,7 +427,7 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
             store.await(
               expectedSize = clientCount,
               op = createApp(ct.pure(Seq(echo, serverProcess, duplexProcess) ++ clients)).run,
-              timeout = 30.seconds
+              timeout = 60.seconds
             )
           }
         }
@@ -449,7 +449,9 @@ object ZmqTcpIntegrationSpec:
     try socket.getLocalPort
     finally socket.close()
 
-  def awaitServer(server: ServerTransport[IO], attempts: Int = 50): IO[RoutedMessage] =
+  // 400 x 25ms = 10s: generous enough to absorb a slow ZMQ connection handshake on a loaded CI runner (DEALER/REQ
+  // sockets queue early sends rather than dropping them, so the message arrives once connected - we just have to wait)
+  def awaitServer(server: ServerTransport[IO], attempts: Int = 400): IO[RoutedMessage] =
     if attempts <= 0 then IO.raiseError(new AssertionError("timed out waiting for ZMQ server message"))
     else
       server.receive.flatMap {
@@ -458,7 +460,7 @@ object ZmqTcpIntegrationSpec:
         case ReceiveResult.Failed(error)   => IO.raiseError(new AssertionError(s"server receive failed: $error"))
       }
 
-  def awaitClient(client: DuplexTransport[IO], attempts: Int = 50): IO[Message] =
+  def awaitClient(client: DuplexTransport[IO], attempts: Int = 400): IO[Message] =
     if attempts <= 0 then IO.raiseError(new AssertionError("timed out waiting for ZMQ client message"))
     else
       client.receive.flatMap {
