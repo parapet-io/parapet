@@ -17,7 +17,9 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong}
   *   - [[createAsync]] serializes synchronously then hands the snapshot to a single background worker that stores it.
   *
   * Ids continue across restarts: the first snapshot of a ref in a run is numbered after the newest one already in
-  * storage. Thread-safe; snapshots of different processes may be created concurrently.
+  * storage. Snapshots of *different* processes may be created concurrently; for a *single* process, [[create]] /
+  * [[createAsync]] must be called serially. A call whose `seq` is not strictly greater than that process's previous
+  * snapshot fails - it signals a concurrent/out-of-orde call, and therefore a torn read of the mutating state.
   */
 final class SnapshotManager[F[_]] private (
     storage: SnapshotStorage[F],
@@ -30,6 +32,7 @@ final class SnapshotManager[F[_]] private (
   private val logger             = Logger(LoggerFactory.getLogger(classOf[SnapshotManager[?]]))
   private val snapshotIdCounters = new ConcurrentHashMap[ProcessRef.Unknown, AtomicLong]()
   private val lineage            = new ConcurrentHashMap[ProcessRef.Unknown, Long]()
+  private val lastSeq            = new ConcurrentHashMap[ProcessRef.Unknown, java.lang.Long]()
 
   @volatile private var worker: Option[EffectFiber[F, Unit]] = None
   private val closed                                         = new AtomicBoolean(false)
@@ -87,6 +90,7 @@ final class SnapshotManager[F[_]] private (
 
   private def build(ref: ProcessRef.Unknown, process: Snapshotable, seq: Long): F[Snapshot] =
     seededCounter(ref).map { counter =>
+      requireIncreasingSeq(ref, seq)
       val id       = counter.incrementAndGet()
       val parentId = Option(lineage.get(ref)).map(_.longValue()).getOrElse(0L)
       val snapshot = Snapshot(
@@ -103,6 +107,24 @@ final class SnapshotManager[F[_]] private (
       lineage.put(ref, id)
       snapshot
     }
+
+  /** Advances the ref's last snapshot seq to `seq`, requiring it to be strictly greater than the previous one.
+    *
+    * Guards the per-process serialization contract: successive snapshots of a ref must have a strictly greater seq. A
+    * violation means [[create]] was called concurrently or out of order for the same process.
+    */
+  private def requireIncreasingSeq(ref: ProcessRef.Unknown, seq: Long): Unit =
+    lastSeq.compute(
+      ref,
+      (_, previous) =>
+        if previous == null || seq > previous.longValue() then seq
+        else
+          throw new IllegalStateException(
+            s"out-of-order snapshot for $ref: seq $seq is not greater than the previous snapshot's seq $previous; " +
+              s"create/createAsync must be called serially per process"
+          )
+    )
+    ()
 
   /** The ref's id counter, advanced to the newest id in storage on first use in this run. */
   private def seededCounter(ref: ProcessRef.Unknown): F[AtomicLong] =
