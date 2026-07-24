@@ -18,9 +18,6 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong}
   *
   * Ids continue across restarts: the first snapshot of a ref in a run is numbered after the newest one already in
   * storage. Thread-safe; snapshots of different processes may be created concurrently.
-  *
-  * Construct with [[SnapshotManager.start]] (async worker running) or [[SnapshotManager.apply]] (no worker; the
-  * synchronous [[create]] / [[restore]] only).
   */
 final class SnapshotManager[F[_]] private (
     storage: SnapshotStorage[F],
@@ -147,23 +144,12 @@ object SnapshotManager:
     final case class Store[F[_]](snapshot: Snapshot)        extends Item[F]
     final case class Flush[F[_]](signal: Deferred[F, Unit]) extends Item[F]
 
-  /** A manager with **no** background worker: only the synchronous [[SnapshotManager.create]] / [[restore]] are usable.
-    * [[createAsync]] would enqueue with nothing to drain it. Intended for callers that store synchronously, and for
-    * unit tests.
-    */
   def apply[F[_]](
       storage: SnapshotStorage[F],
       clock: Clock = Clock(),
       queueCapacity: Int = DefaultQueueCapacity
   )(using effect: Effect[F]): F[SnapshotManager[F]] =
-    Queue.bounded[F, Item[F]](queueCapacity, Queue.ChannelType.MPSC).map(new SnapshotManager[F](storage, clock, _))
-
-  /** A manager with the background writer running: [[createAsync]] stores off-thread, [[flush]] / [[close]] drain and
-    * stop it.
-    */
-  def start[F[_]](
-      storage: SnapshotStorage[F],
-      clock: Clock = Clock(),
-      queueCapacity: Int = DefaultQueueCapacity
-  )(using effect: Effect[F]): F[SnapshotManager[F]] =
-    apply(storage, clock, queueCapacity).flatMap(manager => manager.startWorker().as(manager))
+    Queue.bounded[F, Item[F]](queueCapacity, Queue.ChannelType.MPSC).flatMap { queue =>
+      val manager = new SnapshotManager[F](storage, clock, queue)
+      manager.startWorker().as(manager)
+    }
