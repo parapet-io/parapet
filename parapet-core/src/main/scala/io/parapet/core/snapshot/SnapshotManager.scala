@@ -82,6 +82,9 @@ final class SnapshotManager[F[_]] private (
     */
   def restore(process: Snapshotable, snapshot: Snapshot): F[Unit] =
     val ref = snapshot.metadata.processRef
+    effect.delay {
+      logger.debug("restore snapshot=" + snapshot.metadata)
+    } >>
     seededCounter(ref).map { _ =>
       process.restore(snapshot)
       lineage.put(ref, snapshot.metadata.id)

@@ -2,6 +2,7 @@ package io.parapet.core.snapshot
 
 import io.parapet.ProcessRef.Unknown
 import io.parapet.effect.Effect
+import org.slf4j.LoggerFactory
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path, StandardCopyOption}
@@ -21,8 +22,11 @@ class SnapshotStorageLocal[F[_]](config: SnapshotStorageLocal.Config)(using effe
 
   import SnapshotStorageLocal.*
 
+  private val logger = LoggerFactory.getLogger(SnapshotStorageLocal.getClass)
+
   override def store(snapshot: Snapshot): F[Unit] =
     effect.delay {
+      logger.debug(s"store snapshot=${snapshot.metadata}")
       val dir = refDir(snapshot.metadata.processRef)
       Files.createDirectories(dir)
       val target = dir.resolve(fileName(snapshot.metadata.id))

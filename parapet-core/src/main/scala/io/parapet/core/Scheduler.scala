@@ -9,6 +9,7 @@ import io.parapet.core.Events.*
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.*
 import io.parapet.core.exceptions.*
+import io.parapet.core.snapshot.Snapshotable
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
 import io.parapet.{Envelope, Event, ProcessRef, Scope}
@@ -208,7 +209,7 @@ object Scheduler:
           scope = Scope.empty,
           logger = logger,
           onError = (processRef, error) => logger.error(s"An error occurred while stopping process $processRef", error)
-        ) >> context.saveEventLog >> logger.info("scheduler has been shut down")
+        ) >> context.stopSnapshotting >> context.saveEventLog >> logger.info("scheduler has been shut down")
       }
 
     private def submit(processState: ProcessState[F], task: Deliver[F]): F[SubmissionResult] =
@@ -438,17 +439,44 @@ object Scheduler:
               case Some(task: Deliver[F]) =>
                 if task.envelope.event.isInstanceOf[Scheduler.Inbox.type] then step(remaining)
                 else
-                  deliver(processState, task) >> processState.hasOffloads.flatMap {
+                  deliver(processState, task) >> onDelivered(processState) >> processState.hasOffloads.flatMap {
                     case true  => waitForCompletion(task, processState)
-                    case false => step(remaining - 1)
+                    case false => maybeSnapshot(processState, drained = false) >> step(remaining - 1)
                   }
               case Some(task) =>
                 effect.raiseError(new UnsupportedOperationException(s"unsupported task type: $task"))
               case None =>
-                releaseWithOptNotify(processState)
+                maybeSnapshot(processState, drained = true) >> releaseWithOptNotify(processState)
             }
 
         logger.debug(s"worker[$name]::run(${processState.process}) slice=$mailboxSlice") >> step(mailboxSlice)
+
+      private def onDelivered(processState: ProcessState[F]): F[Unit] =
+        if !snapshotting(processState) then effect.pure(())
+        else effect.delay(processState.checkpoints.onDelivered(context.nextSeq()))
+
+      /** Snapshots the process when a trigger is due: the every-N ceiling mid-burst (`drained = false`), or any dirty
+        * state at the mailbox-drain boundary (`drained = true`). Runs while the worker holds the process lock, at a
+        * mid-event-free point, so [[Snapshotable.serialize]] reads stable state.
+        */
+      private def maybeSnapshot(processState: ProcessState[F], drained: Boolean): F[Unit] =
+        if !snapshotting(processState) then effect.pure(())
+        else
+          val tracker = processState.checkpoints
+          val due     = if drained then tracker.dirty else tracker.due(context.maxEventsPerSnapshot)
+          if !due then effect.pure(())
+          else
+            context.snapshotManager match
+              case Some(manager) =>
+                manager.createAsync(
+                  processState.process.ref,
+                  processState.process.asInstanceOf[Snapshotable],
+                  tracker.lastDeliveredSeq
+                ) >> effect.delay(tracker.onSnapshot())
+              case None => effect.pure(())
+
+      private def snapshotting(processState: ProcessState[F]): Boolean =
+        context.snapshotEnabled && processState.snapshotable
 
       private def deliver(processState: ProcessState[F], task: Deliver[F]): F[Unit] =
         val envelope      = task.envelope

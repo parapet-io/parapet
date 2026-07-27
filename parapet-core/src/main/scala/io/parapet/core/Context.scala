@@ -6,9 +6,12 @@ import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.{Noop, SystemProcess}
+import io.parapet.core.snapshot.{SnapshotManager, SnapshotStorageLocal}
 import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
 import io.parapet.effect.Monad.*
 import io.parapet.{Envelope, ProcessRef}
+
+import java.nio.file.Path
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
 import scala.collection.mutable.ListBuffer
@@ -34,12 +37,23 @@ import scala.jdk.CollectionConverters.*
 class Context[F[_]](
     config: Parapet.ParConfig,
     val eventStore: EventStore[F],
-    val eventTransformers: EventTransformers
+    val eventTransformers: EventTransformers,
+    val snapshotManager: Option[SnapshotManager[F]]
 )(using effect: Effect[F]):
   self =>
 
   /** Convenience accessor for [[Parapet.ParConfig.devMode]]. */
   val devMode: Boolean = config.devMode
+
+  /** Enables/Disables snapshotting. */
+  val snapshotEnabled: Boolean = snapshotManager.isDefined
+
+  /** Trigger snapshot every-N. */
+  val maxEventsPerSnapshot: Int = config.snapshot.maxEventsPerSnapshot
+
+  /** Stops snapshotting. No-op when snapshotting is off. */
+  def stopSnapshotting: F[Unit] =
+    snapshotManager.fold(effect.pure(()))(_.close)
 
   private val processes = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessState[F]]()
   private val graph     = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ListBuffer[ProcessRef.Unknown]]()
@@ -173,13 +187,19 @@ class Context[F[_]](
 
 /** Factory and inner types supporting [[Context]]. */
 object Context:
-  /** Allocates a new [[Context]] in `F`. */
+  /** Allocates a new [[Context]] in `F`, starting the snapshot writer when snapshotting is enabled. */
   def apply[F[_]](
       config: Parapet.ParConfig,
       eventStore: EventStore[F],
       eventTransformers: EventTransformers
   )(using effect: Effect[F]): F[Context[F]] =
-    effect.delay(new Context[F](config, eventStore, eventTransformers))
+    snapshotManager(config).map(new Context[F](config, eventStore, eventTransformers, _))
+
+  private def snapshotManager[F[_]](config: Parapet.ParConfig)(using effect: Effect[F]): F[Option[SnapshotManager[F]]] =
+    if !config.snapshot.enabled then effect.pure(None)
+    else
+      val storage = new SnapshotStorageLocal[F](SnapshotStorageLocal.Config(Path.of(config.snapshot.dataDir)))
+      SnapshotManager[F](storage, Clock(), config.snapshot.queueCapacity).map(Some(_))
 
   /** Pairs an offloaded operation with the [[Deferred]] that records how it completed.
     */
@@ -256,6 +276,13 @@ object Context:
     private val offloadTracker = new OffloadTracker[F]
     private val processLock    = new ProcessState.ProcessLock[F]
 
+    /** Snapshot-cadence bookkeeping.
+      */
+    val checkpoints: CheckpointTracker = new CheckpointTracker
+
+    /** Whether this process opts into snapshotting. */
+    val snapshotable: Boolean = process.isInstanceOf[snapshot.Snapshotable]
+
     /** Bookkeeping for offloaded operations spawned by this process. */
     def offloads: OffloadTracker[F] =
       offloadTracker
@@ -326,6 +353,35 @@ object Context:
           throw new IllegalStateException(s"process[${process.ref}] is not suspended")
         ()
       }
+
+  /** Per-process snapshot-cadence counters that drive snapshots creation speed.
+    *
+    * Not thread-safe.
+    */
+  final class CheckpointTracker:
+    private var eventsSinceSnapshot = 0
+    private var lastSeq             = 0L
+
+    /** Records that the delivery at `seq` was consumed. */
+    def onDelivered(seq: Long): Unit =
+      eventsSinceSnapshot += 1
+      lastSeq = seq
+
+    /** Resets the stats after a snapshot was taken. */
+    def onSnapshot(): Unit =
+      eventsSinceSnapshot = 0
+
+    /** True when at least one delivery has been consumed since the last snapshot. */
+    def dirty: Boolean =
+      eventsSinceSnapshot > 0
+
+    /** True when the cadence ceiling of `maxEvents` deliveries has been reached. */
+    def due(maxEvents: Int): Boolean =
+      eventsSinceSnapshot >= maxEvents
+
+    /** Position of the most recent consumed delivery - the seq a snapshot taken now corresponds to. */
+    def lastDeliveredSeq: Long =
+      lastSeq
 
   /** Helpers and the lock primitive used by [[ProcessState]]. */
   object ProcessState:

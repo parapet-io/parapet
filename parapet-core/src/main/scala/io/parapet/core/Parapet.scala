@@ -10,6 +10,29 @@ import io.parapet.core.Scheduler.SchedulerConfig
   */
 object Parapet extends StrictLogging:
 
+  /** Snapshotting / recovery configuration (see `dev-docs/snapshot.md`).
+    *
+    * @param enabled
+    *   master switch. When on, the runtime periodically snapshots [[io.parapet.core.snapshot.Snapshotable]] processes
+    *   to `dataDir` as they run.
+    * @param dataDir
+    *   directory holding the per-process snapshot files; must survive restarts for recovery to be useful.
+    * @param maxEventsPerSnapshot
+    *   cadence ceiling: a process that keeps receiving events without draining its mailbox is snapshotted at least
+    *   every this many deliveries. Bounds how many events a restore/replay has to re-fold.
+    * @param queueCapacity
+    *   capacity of the background snapshot-writer queue; a snapshot enqueued when it is full is dropped (best-effort).
+    */
+  final case class SnapshotConfig(
+      enabled: Boolean = false,
+      dataDir: String = "parapet-snapshots",
+      maxEventsPerSnapshot: Int = 1000,
+      queueCapacity: Int = 1024
+  )
+
+  object SnapshotConfig:
+    val disabled: SnapshotConfig = SnapshotConfig()
+
   /** Bundle of runtime configuration values supplied to [[io.parapet.ParApp]].
     *
     * @param processBufferSize
@@ -20,12 +43,15 @@ object Parapet extends StrictLogging:
     *   when `true` enables verbose runtime logging useful while developing.
     * @param eventLogEnabled
     *   when `true` records every delivered envelope to an in-memory [[EventLog]]; primarily for replay/debugging.
+    * @param snapshot
+    *   snapshotting / recovery configuration; disabled by default.
     */
   final case class ParConfig(
       processBufferSize: Int,
       schedulerConfig: SchedulerConfig,
       devMode: Boolean = false,
-      eventLogEnabled: Boolean = false
+      eventLogEnabled: Boolean = false,
+      snapshot: SnapshotConfig = SnapshotConfig.disabled
   ):
     /** Sets the default per-process mailbox capacity. */
     def withProcessBufferSize(value: Int): ParConfig =
@@ -42,6 +68,10 @@ object Parapet extends StrictLogging:
     /** Enables the in-memory event log. */
     def enableEventLog: ParConfig =
       copy(eventLogEnabled = true)
+
+    /** Enables snapshotting with data under `dataDir`. */
+    def withSnapshots(dataDir: String): ParConfig =
+      copy(snapshot = snapshot.copy(enabled = true, dataDir = dataDir))
 
   object ParConfig:
     /** Sensible defaults: unbounded process queues, one worker per CPU. */
