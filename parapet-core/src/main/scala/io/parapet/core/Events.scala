@@ -17,6 +17,10 @@ object Events {
     */
   case object Start extends SystemEvent
 
+  /** Delivered instead of [[Start]] when a process was restored from a snapshot at boot.
+    */
+  case object Restored extends SystemEvent
+
   /** Sent during graceful shutdown. The process should wrap up in-flight work and release resources; child processes
     * are stopped first by the runtime.
     */

@@ -14,8 +14,8 @@ import scala.util.Try
 /** Local filesystem [[SnapshotStorage]]: a directory per process, one file per snapshot named by zero-padded id so
   * lexicographic order equals id order. Snapshot bytes are produced/consumed by [[SnapshotBinaryFormat]].
   *
-  * The directory name is `sha256(ref)` in hex - a fixed-length. Writes are atomic (temp file + rename): a crash
-  * mid-write never leaves a partial snapshot behind.
+  * The directory name is a 128-bit prefix of `sha256(ref)` in hex - a fixed-length, fs-safe key. Writes are atomic
+  * (temp file + rename): a crash mid-write never leaves a partial snapshot behind.
   */
 class SnapshotStorageLocal[F[_]](config: SnapshotStorageLocal.Config)(using effect: Effect[F])
     extends SnapshotStorage[F] {
@@ -72,7 +72,7 @@ class SnapshotStorageLocal[F[_]](config: SnapshotStorageLocal.Config)(using effe
       .nextOption()
 
   private def refDir(ref: Unknown): Path =
-    config.dataDir.resolve(sha256Hex(ref.value))
+    config.dataDir.resolve(refDirName(ref.value))
 
   /** Snapshot files of `dir` in ascending id order; empty when the directory doesn't exist. */
   private def snapshotFiles(dir: Path): Vector[Path] =
@@ -94,17 +94,18 @@ object SnapshotStorageLocal {
 
   case class Config(dataDir: Path)
 
-  private val Suffix  = ".snap"
-  private val IdWidth = 20 // decimal digits of Long.MaxValue
+  private val Suffix      = ".snap"
+  private val IdWidth     = 20 // decimal digits of Long.MaxValue
+  private val DirKeyBytes = 16
 
   private def fileName(id: Long): String =
     String.format(s"%0${IdWidth}d%s", id, Suffix)
 
-  private def sha256Hex(value: String): String =
+  private def refDirName(value: String): String =
     require(value.nonEmpty)
     val digest =
       MessageDigest
         .getInstance("SHA-256")
         .digest(value.getBytes(UTF_8))
-    HexFormat.of().formatHex(digest)
+    HexFormat.of().formatHex(digest, 0, DirKeyBytes)
 }

@@ -83,12 +83,20 @@ final class SnapshotManager[F[_]] private (
   def restore(process: Snapshotable, snapshot: Snapshot): F[Unit] =
     val ref = snapshot.metadata.processRef
     effect.delay {
-      logger.debug("restore snapshot=" + snapshot.metadata)
+      logger.debug("restoring snapshot=" + snapshot.metadata)
     } >>
-    seededCounter(ref).map { _ =>
-      process.restore(snapshot)
-      lineage.put(ref, snapshot.metadata.id)
-      ()
+      seededCounter(ref).map { _ =>
+        process.restore(snapshot)
+        lineage.put(ref, snapshot.metadata.id)
+        ()
+      }
+
+  /** Restores `process` from its newest stored snapshot, if any, and returns that snapshot.
+    */
+  def restoreLatest(ref: ProcessRef.Unknown, process: Snapshotable): F[Option[Snapshot]] =
+    storage.latest(ref).flatMap {
+      case Some(snapshot) => restore(process, snapshot).as(Some(snapshot))
+      case None           => effect.pure(None)
     }
 
   private def build(ref: ProcessRef.Unknown, process: Snapshotable, seq: Long): F[Snapshot] =

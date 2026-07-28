@@ -66,6 +66,10 @@ class Context[F[_]](
   /** Returns the next global delivery sequence number. */
   def nextSeq(): Long = seqCounter.incrementAndGet()
 
+  private[core] def continueSeqAfter(seq: Long): Unit =
+    seqCounter.updateAndGet(current => math.max(current, seq))
+    ()
+
   private var scheduler: Scheduler[F] = _
 
   /** Binds this context to a [[Scheduler]], creates the built-in system processes, and sends the initial
@@ -130,20 +134,42 @@ class Context[F[_]](
     register(parent, process) >> sendStartEvent(process.ref)
 
   private def sendStartEvent(processRef: ProcessRef.Unknown): F[SubmissionResult] =
-    val envelope = Envelope(ProcessRef.SystemRef, Start, processRef)
-    scheduler.submit(Deliver(envelope))
+    sendLifecycleEvent(processRef, Start)
+
+  private def sendLifecycleEvent(processRef: ProcessRef.Unknown, event: Events.SystemEvent): F[SubmissionResult] =
+    scheduler.submit(Deliver(Envelope(ProcessRef.SystemRef, event, processRef)))
 
   /** Registers a batch of root processes (parented to [[ProcessRef.SystemRef]]) and starts each.
     */
   def registerAll(processes0: List[Process[F, ?, ?]]): F[List[ProcessRef.Unknown]] =
     registerAll(ProcessRef.SystemRef, processes0)
 
-  /** Registers and starts each of `processes0` under `parent`. */
+  /** Registers a batch of processes under `parent`, then boots each: a [[Snapshotable]] process with a stored snapshot
+    * is restored and gets [[Events.Restored]]; everyone else gets [[Events.Start]].
+    *
+    * Restoring happens between register and the lifecycle event so a process's state is in place before it sees any
+    * event, and its `Start` initialization never runs over restored state.
+    */
   def registerAll(parent: ProcessRef.Unknown, processes0: List[Process[F, ?, ?]]): F[List[ProcessRef.Unknown]] =
     for
-      refs   <- Monad.sequence(processes0.map(register(parent, _)))
-      result <- Monad.sequence(refs.map(ref => sendStartEvent(ref).as(ref)))
+      _      <- Monad.sequence(processes0.map(register(parent, _)))
+      result <- Monad.sequence(processes0.map(boot))
     yield result
+
+  /** Restores `process` from its latest snapshot when applicable, advances the delivery sequence past it, and delivers
+    * the matching lifecycle event ([[Events.Restored]] if restored, else [[Events.Start]]).
+    */
+  private def boot(process: Process[F, ?, ?]): F[ProcessRef.Unknown] =
+    val ref: ProcessRef.Unknown = process.ref
+    (snapshotManager, process) match
+      case (Some(manager), snapshotable: snapshot.Snapshotable) =>
+        manager.restoreLatest(ref, snapshotable).flatMap {
+          case Some(restored) =>
+            continueSeqAfter(restored.metadata.seq)
+            sendLifecycleEvent(ref, Events.Restored).as(ref)
+          case None => sendStartEvent(ref).as(ref)
+        }
+      case _ => sendStartEvent(ref).as(ref)
 
   /** Snapshot of every [[Process]] currently registered (system + user). */
   def getProcesses: List[Process[F, ?, ?]] =
