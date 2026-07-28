@@ -463,7 +463,9 @@ object Scheduler:
         if !snapshotting(processState) then effect.pure(())
         else
           val tracker = processState.checkpoints
-          val due     = if drained then tracker.dirty else tracker.due(context.maxEventsPerSnapshot)
+          val due     =
+            if drained then tracker.dirty
+            else tracker.due(context.maxEventsPerSnapshot, context.maxSnapshotIntervalMillis)
           if !due then effect.pure(())
           else
             context.snapshotAsync(

@@ -63,7 +63,7 @@ final class SnapshotManager[F[_]] private (
       }
 
   /** Stops accepting new snapshots, drains everything already enqueued, then stops the background worker; the returned
-    * effect completes once all pending snapshots are on disk. Idempotent; a no-op when no worker is running.
+    * effect completes once all pending snapshots are on disk.
     *
     * A terminal marker is enqueued behind the pending snapshots. The worker stores each one in FIFO order, reaches the
     * marker, completes it, and exits - so completion means the backlog is flushed and the worker has stopped.
