@@ -72,7 +72,7 @@ class SnapshotStorageLocalSpec extends AnyFunSuite:
     second.latest(ref).unsafeRun().map(_.metadata.id) shouldBe Some(7L)
   }
 
-  test("read fails on a corrupt entry; latest skips it and returns the newest intact one") {
+  test("read fails on a corrupt entry; latest skips it and returns the latest intact one") {
     val (dir, storage) = newStorage()
     storage.store(snapshot(id = 1L, state = "good")).unsafeRun()
     storage.store(snapshot(id = 2L, state = "to-corrupt")).unsafeRun()

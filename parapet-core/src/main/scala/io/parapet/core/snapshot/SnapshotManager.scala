@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong}
   *   - [[create]] serializes and stores synchronously (returns the stored snapshot).
   *   - [[createAsync]] serializes synchronously then hands the snapshot to a single background worker that stores it.
   *
-  * Ids continue across restarts: the first snapshot of a ref in a run is numbered after the newest one already in
+  * Ids continue across restarts: the first snapshot of a ref in a run is numbered after the latest one already in
   * storage. Snapshots of *different* processes may be created concurrently; for a *single* process, [[create]] /
   * [[createAsync]] must be called serially. A call whose `seq` is not strictly greater than that process's previous
   * snapshot fails - it signals a concurrent/out-of-order call, and therefore a torn read of the mutating state.
@@ -88,7 +88,7 @@ final class SnapshotManager[F[_]] private (
         ()
       }
 
-  /** Restores `process` from its newest stored snapshot, if any, and returns that snapshot.
+  /** Restores `process` from its latest stored snapshot, if any, and returns that snapshot.
     */
   def restoreLatest(ref: ProcessRef.Unknown, process: Snapshotable): F[Option[Snapshot]] =
     storage.latest(ref).flatMap {
@@ -134,13 +134,13 @@ final class SnapshotManager[F[_]] private (
     )
     ()
 
-  /** The ref's id counter, advanced to the newest id in storage on first use in this run. */
+  /** The ref's id counter, advanced to the latest id in storage on first use in this run. */
   private def seededCounter(ref: ProcessRef.Unknown): F[AtomicLong] =
     val counter = snapshotIdCounters.computeIfAbsent(ref, _ => new AtomicLong(0L))
     if counter.get() != 0L then effect.pure(counter)
     else
-      storage.latest(ref).map { newest =>
-        newest.foreach(snapshot => counter.updateAndGet(current => math.max(current, snapshot.metadata.id)))
+      storage.latest(ref).map { latest =>
+        latest.foreach(snapshot => counter.updateAndGet(current => math.max(current, snapshot.metadata.id)))
         counter
       }
 

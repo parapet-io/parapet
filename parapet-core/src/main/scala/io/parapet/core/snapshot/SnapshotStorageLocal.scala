@@ -60,7 +60,7 @@ class SnapshotStorageLocal[F[_]](config: SnapshotStorageLocal.Config)(using effe
   override def latestBefore(ref: Unknown, atMillis: Long): F[Option[Snapshot]] =
     effect.delay(find(ref, _.metadata.createdAt <= atMillis))
 
-  /** Newest snapshot satisfying `matches`, scanning newest-first and skipping corrupt entries. */
+  /** Latest snapshot satisfying `matches`, scanning latest-first and skipping corrupt entries. */
   private def find(ref: Unknown, matches: Snapshot => Boolean): Option[Snapshot] =
     snapshotFiles(refDir(ref)).reverseIterator
       .flatMap { file =>
