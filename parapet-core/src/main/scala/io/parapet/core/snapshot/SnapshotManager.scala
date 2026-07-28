@@ -34,8 +34,8 @@ final class SnapshotManager[F[_]] private (
   private val lineage            = new ConcurrentHashMap[ProcessRef.Unknown, Long]()
   private val lastSeq            = new ConcurrentHashMap[ProcessRef.Unknown, java.lang.Long]()
 
-  @volatile private var worker: Option[EffectFiber[F, Unit]] = None
-  private val closed                                         = new AtomicBoolean(false)
+  private var worker: Option[EffectFiber[F, Unit]] = None
+  private val closed                               = new AtomicBoolean(false)
 
   /** Captures `process`'s current state as a new snapshot of `ref` and stores it synchronously.
     *
@@ -69,11 +69,8 @@ final class SnapshotManager[F[_]] private (
     * marker, completes it, and exits - so completion means the backlog is flushed and the worker has stopped.
     */
   def close: F[Unit] =
-    if worker.isEmpty || !closed.compareAndSet(false, true) then effect.pure(())
-    else
-      Deferred[F, Unit]().flatMap { signal =>
-        queue.enqueue(Item.Flush(signal)).flatMap(_ => signal.get)
-      }
+    if !closed.compareAndSet(false, true) then effect.pure(())
+    else Deferred[F, Unit]().flatMap(signal => queue.enqueue(Item.Flush(signal)).flatMap(_ => signal.get))
 
   /** Restores `process` from `snapshot`.
     *
