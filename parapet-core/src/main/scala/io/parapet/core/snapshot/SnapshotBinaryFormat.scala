@@ -31,7 +31,7 @@ object SnapshotBinaryFormat:
 
   private val MagicSize          = java.lang.Integer.BYTES
   private val VersionSize        = java.lang.Short.BYTES
-  private val LengthSize         = java.lang.Integer.BYTES
+  private val IntSize            = java.lang.Integer.BYTES
   private val ChecksumSize       = java.lang.Integer.BYTES
   private val LongSize           = java.lang.Long.BYTES
   private val HeaderSize         = MagicSize + VersionSize
@@ -68,19 +68,29 @@ object SnapshotBinaryFormat:
     check(!buf.hasRemaining, "trailing bytes after data section")
     Snapshot(decodeMetadata(meta), data)
 
-  /** Reads one `[length][bytes][crc32]` section, verifying the checksum. */
+  /** Reads one `[length][bytes][crc32]` section. */
   private def readSection(buf: ByteBuffer, name: String): Array[Byte] =
-    check(buf.remaining() >= LengthSize, s"truncated $name length")
-    val length = buf.getInt()
-    check(length >= 0 && buf.remaining() >= length + ChecksumSize, s"truncated $name section")
+    val bytes = readBytes(buf, s"$name section")
+    check(crc32(bytes) == readInt(buf, s"$name checksum"), s"$name checksum mismatch")
+    bytes
+
+  /** Reads a `[length: Int][bytes]` chunk. */
+  private def readBytes(buf: ByteBuffer, name: String): Array[Byte] =
+    val length = readInt(buf, s"$name length")
+    check(length >= 0 && length <= buf.remaining(), s"truncated $name")
     val bytes = new Array[Byte](length)
     buf.get(bytes)
-    check(crc32(bytes) == buf.getInt(), s"$name checksum mismatch")
     bytes
+
+  /** Reads a single `Int`, failing if fewer than 4 bytes remain. Self-guarding so callers never underflow the buffer.
+    */
+  private def readInt(buf: ByteBuffer, name: String): Int =
+    check(buf.remaining() >= IntSize, s"truncated $name")
+    buf.getInt()
 
   private def encodeMetadata(metadata: Snapshot.Metadata): Array[Byte] =
     val refBytes = metadata.processRef.value.getBytes(UTF_8)
-    val buf      = ByteBuffer.allocate(LengthSize + refBytes.length + MetadataLongFields * LongSize)
+    val buf      = ByteBuffer.allocate(IntSize + refBytes.length + MetadataLongFields * LongSize)
     buf.putInt(refBytes.length)
     buf.put(refBytes)
     buf.putLong(metadata.id)
@@ -91,12 +101,10 @@ object SnapshotBinaryFormat:
     buf.array()
 
   private def decodeMetadata(bytes: Array[Byte]): Snapshot.Metadata =
-    val buf = ByteBuffer.wrap(bytes)
-    check(buf.remaining() >= LengthSize, "truncated metadata")
-    val refLength = buf.getInt()
-    check(refLength > 0 && buf.remaining() >= refLength + MetadataLongFields * LongSize, "truncated metadata")
-    val refBytes = new Array[Byte](refLength)
-    buf.get(refBytes)
+    val buf      = ByteBuffer.wrap(bytes)
+    val refBytes = readBytes(buf, "process ref")
+    check(refBytes.nonEmpty, "empty process ref")
+    check(buf.remaining() >= MetadataLongFields * LongSize, "truncated metadata fields")
     Snapshot.Metadata(
       processRef = ProcessRef[Event](new String(refBytes, UTF_8)),
       id = buf.getLong(),
@@ -108,7 +116,7 @@ object SnapshotBinaryFormat:
 
   /** On-disk size of one `[length][payload][crc32]` section. */
   private def sectionSize(payloadLength: Int): Int =
-    LengthSize + payloadLength + ChecksumSize
+    IntSize + payloadLength + ChecksumSize
 
   // getValue returns Long only because Java lacks an unsigned int; the checksum itself is 32 bits
   private def crc32(bytes: Array[Byte]): Int =
