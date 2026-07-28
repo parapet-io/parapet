@@ -466,14 +466,11 @@ object Scheduler:
           val due     = if drained then tracker.dirty else tracker.due(context.maxEventsPerSnapshot)
           if !due then effect.pure(())
           else
-            context.snapshotManager match
-              case Some(manager) =>
-                manager.createAsync(
-                  processState.process.ref,
-                  processState.process.asInstanceOf[Snapshotable],
-                  tracker.lastDeliveredSeq
-                ) >> effect.delay(tracker.onSnapshot())
-              case None => effect.pure(())
+            context.snapshotAsync(
+              processState.process.ref,
+              processState.process.asInstanceOf[Snapshotable],
+              tracker.lastDeliveredSeq
+            ) >> effect.delay(tracker.onSnapshot())
 
       private def snapshotting(processState: ProcessState[F]): Boolean =
         context.snapshotEnabled && processState.snapshotable

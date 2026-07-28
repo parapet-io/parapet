@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong}
   * Ids continue across restarts: the first snapshot of a ref in a run is numbered after the newest one already in
   * storage. Snapshots of *different* processes may be created concurrently; for a *single* process, [[create]] /
   * [[createAsync]] must be called serially. A call whose `seq` is not strictly greater than that process's previous
-  * snapshot fails - it signals a concurrent/out-of-orde call, and therefore a torn read of the mutating state.
+  * snapshot fails - it signals a concurrent/out-of-order call, and therefore a torn read of the mutating state.
   */
 final class SnapshotManager[F[_]] private (
     storage: SnapshotStorage[F],

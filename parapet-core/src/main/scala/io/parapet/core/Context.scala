@@ -38,7 +38,7 @@ class Context[F[_]](
     config: Parapet.ParConfig,
     val eventStore: EventStore[F],
     val eventTransformers: EventTransformers,
-    val snapshotManager: Option[SnapshotManager[F]]
+    private val snapshotManager: Option[SnapshotManager[F]]
 )(using effect: Effect[F]):
   self =>
 
@@ -54,6 +54,10 @@ class Context[F[_]](
   /** Stops snapshotting. No-op when snapshotting is off. */
   def stopSnapshotting: F[Unit] =
     snapshotManager.fold(effect.pure(()))(_.close)
+
+  /** Enqueues an asynchronous snapshot of `process` as of delivery `seq`. No-op when snapshotting is off. */
+  def snapshotAsync(ref: ProcessRef.Unknown, process: snapshot.Snapshotable, seq: Long): F[Unit] =
+    snapshotManager.fold(effect.pure(()))(_.createAsync(ref, process, seq))
 
   private val processes = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessState[F]]()
   private val graph     = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ListBuffer[ProcessRef.Unknown]]()

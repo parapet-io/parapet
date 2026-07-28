@@ -22,7 +22,7 @@ class SnapshotStorageLocal[F[_]](config: SnapshotStorageLocal.Config)(using effe
 
   import SnapshotStorageLocal.*
 
-  private val logger = LoggerFactory.getLogger(SnapshotStorageLocal.getClass)
+  private val logger = LoggerFactory.getLogger(classOf[SnapshotStorageLocal[?]])
 
   override def store(snapshot: Snapshot): F[Unit] =
     effect.delay {
