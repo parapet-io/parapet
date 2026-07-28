@@ -94,9 +94,9 @@ object SnapshotStorageLocal {
 
   case class Config(dataDir: Path)
 
-  private val Suffix      = ".snap"
-  private val IdWidth     = 20 // decimal digits of Long.MaxValue
-  private val DirKeyBytes = 16
+  private val Suffix                = ".snap"
+  private val IdWidth               = 20 // decimal digits of Long.MaxValue
+  private[snapshot] val DirKeyBytes = 16
 
   private def fileName(id: Long): String =
     String.format(s"%0${IdWidth}d%s", id, Suffix)

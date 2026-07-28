@@ -1,6 +1,7 @@
 package io.parapet.core.snapshot
 
-import io.parapet.core.TestUtils.{given, *}
+import io.parapet.core.TestUtils.{*, given}
+import io.parapet.core.snapshot.SnapshotStorageLocal.DirKeyBytes
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
@@ -8,6 +9,7 @@ import org.scalatest.matchers.should.Matchers.*
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 import java.security.MessageDigest
+import java.util.HexFormat
 
 class SnapshotStorageLocalSpec extends AnyFunSuite:
 
@@ -22,11 +24,12 @@ class SnapshotStorageLocalSpec extends AnyFunSuite:
   private def newStorage(dir: Path = Files.createTempDirectory("storage-spec")) =
     (dir, new SnapshotStorageLocal[TestIO](SnapshotStorageLocal.Config(dir)))
 
-  /** The on-disk directory the storage uses for `ref` (sha256 hex of the ref value). */
   private def refDir(dataDir: Path): Path =
-    val digest: Array[Byte] = MessageDigest.getInstance("SHA-256").digest(ref.value.getBytes(UTF_8))
-    val hex                 = digest.iterator.map(b => String.format("%02x", Byte.box(b))).mkString
-    dataDir.resolve(hex)
+    val digest =
+      MessageDigest
+        .getInstance("SHA-256")
+        .digest(ref.value.getBytes(UTF_8))
+    dataDir.resolve(HexFormat.of().formatHex(digest, 0, DirKeyBytes))
 
   test("store/read round-trip preserves metadata and data") {
     val (_, storage) = newStorage()
