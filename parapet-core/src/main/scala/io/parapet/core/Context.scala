@@ -81,14 +81,19 @@ class Context[F[_]](
     seqCounter.updateAndGet(current => math.max(current, seq))
     ()
 
-  private var scheduler: Scheduler[F] = _
+  private var _scheduler: Scheduler[F] = _
 
-  /** Binds this context to a [[Scheduler]], creates the built-in system processes, and sends the initial
-    * [[Events.Start]] event. Called once during application boot.
+  /** The scheduler bound to this context via [[bind]]; `null` until then.
     */
-  def start(scheduler0: Scheduler[F]): F[Unit] =
+  private[core] def scheduler: Scheduler[F] = _scheduler
+
+  /** Binds `scheduler` to this context, creates the built-in system processes, and sends their initial [[Events.Start]]
+    * event. Must run before [[Scheduler.start]] - the scheduler refuses to start until it is bound. Called once during
+    * application boot.
+    */
+  def bind(scheduler: Scheduler[F]): F[Unit] =
     effect.delay {
-      scheduler = scheduler0
+      _scheduler = scheduler
     } >> createSysProcesses >> sendStartEvent(ProcessRef.SystemRef).void
 
   private[core] def createSysProcesses: F[Unit] =

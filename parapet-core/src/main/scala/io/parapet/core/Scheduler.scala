@@ -197,6 +197,18 @@ object Scheduler:
       else signalQueues(Math.floorMod(submitCounter.getAndIncrement(), numberOfQueues))
 
     override def start: F[Unit] =
+      // TEMP FIX:
+      // Refuse to go live unless this scheduler is the one bound into its context (Context.bind must have run). This
+      // makes bind-before-start a checked precondition rather than a convention, so submits from Context reach us.
+      effect.suspend {
+        if context.scheduler ne this then
+          effect.raiseError(
+            new IllegalStateException("Scheduler.start called before Context.bind(scheduler); bind the scheduler first")
+          )
+        else startWorkers
+      }
+
+    private def startWorkers: F[Unit] =
       val runWorkers =
         effect.delay(createWorkers).flatMap(workers => schedulerRuntime.runSchedulerWorkers(workers.map(_.run)))
 

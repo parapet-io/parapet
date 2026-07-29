@@ -85,8 +85,8 @@ trait SchedulerTestRunner[F[_]] extends IntegrationSpec[F] {
           EventTransformers.empty
         )
         scheduler <- Scheduler[F](spec.config, context, interpreter(context))
+        _         <- context.bind(scheduler)
         fiber     <- ct.start(scheduler.start)
-        _         <- context.start(scheduler)
         _         <- context.registerAll(ProcessRef.SystemRef, processes.toList)
         _         <- submitAll(scheduler, tasks, spec.numberOfSubmitters)
         _         <- eventStore.await0(tasks.size, fiber)
