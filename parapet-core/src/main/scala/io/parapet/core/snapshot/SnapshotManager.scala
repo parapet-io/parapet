@@ -4,7 +4,7 @@ import com.typesafe.scalalogging.Logger
 import io.parapet.ProcessRef
 import io.parapet.core.{Clock, Queue}
 import io.parapet.effect.Monad.*
-import io.parapet.effect.{Deferred, Effect, EffectFiber}
+import io.parapet.effect.{Deferred, Effect}
 import org.slf4j.LoggerFactory
 
 import java.util.concurrent.ConcurrentHashMap
@@ -34,8 +34,7 @@ final class SnapshotManager[F[_]] private (
   private val lineage            = new ConcurrentHashMap[ProcessRef.Unknown, Long]()
   private val lastSeq            = new ConcurrentHashMap[ProcessRef.Unknown, java.lang.Long]()
 
-  private var worker: Option[EffectFiber[F, Unit]] = None
-  private val closed                               = new AtomicBoolean(false)
+  private val closed = new AtomicBoolean(false)
 
   /** Captures `process`'s current state as a new snapshot of `ref` and stores it synchronously.
     *
@@ -166,7 +165,7 @@ final class SnapshotManager[F[_]] private (
     }
 
   private def startWorker(): F[Unit] =
-    effect.start(drainLoop).map(fiber => worker = Some(fiber))
+    effect.start(drainLoop).void
 
 object SnapshotManager:
 
