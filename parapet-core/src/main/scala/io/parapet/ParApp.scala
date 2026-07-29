@@ -152,10 +152,12 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
         else effect.pure(())
       context           <- Context(config, eventLog, eventTransformers.build)
       scheduler         <- Scheduler(config.schedulerConfig, context, interpreter(context))
-      _                 <- context.start(scheduler)
+      _                 <- context.bind(scheduler)
       deadLetterProcess <- deadLetter
       _                 <- context.registerAll(ps.toList :+ deadLetterProcess)
-      _                 <- scheduler.start
+      // Start the workers last: registerAll has restored every snapshotable process and advanced the delivery
+      // sequence past their snapshots, so the first delivery a worker makes already sees the correct seq high-water.
+      _ <- scheduler.start
     yield ()
 
   /** Standard JVM entry point; runs [[run]] under [[unsafeRun]]. Subclasses normally do not need to override this.

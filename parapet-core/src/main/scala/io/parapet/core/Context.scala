@@ -6,9 +6,12 @@ import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.{Noop, SystemProcess}
+import io.parapet.core.snapshot.{SnapshotManager, SnapshotStorageLocal}
 import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
 import io.parapet.effect.Monad.*
 import io.parapet.{Envelope, ProcessRef}
+
+import java.nio.file.Path
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
 import scala.collection.mutable.ListBuffer
@@ -34,12 +37,34 @@ import scala.jdk.CollectionConverters.*
 class Context[F[_]](
     config: Parapet.ParConfig,
     val eventStore: EventStore[F],
-    val eventTransformers: EventTransformers
+    val eventTransformers: EventTransformers,
+    private val snapshotManager: Option[SnapshotManager[F]]
 )(using effect: Effect[F]):
   self =>
 
   /** Convenience accessor for [[Parapet.ParConfig.devMode]]. */
   val devMode: Boolean = config.devMode
+
+  /** Enables/Disables snapshotting. */
+  val snapshotEnabled: Boolean = snapshotManager.isDefined
+
+  /** Trigger snapshot every-N. */
+  val maxEventsPerSnapshot: Int = config.snapshot.maxEventsPerSnapshot
+
+  /** Wall-clock cadence in millis. `0` disables the time trigger. */
+  val maxSnapshotIntervalMillis: Long = config.snapshot.maxSnapshotIntervalMillis
+
+  private val clock: Clock = Clock()
+
+  /** Stops snapshotting. No-op when snapshotting is off. */
+  def stopSnapshotting: F[Unit] =
+    snapshotManager.fold(effect.pure(()))(_.close)
+
+  /** Enqueues an asynchronous snapshot of `process` as of delivery `seq`. Returns `true` if it was enqueued, otherwise -
+    * `false`.
+    */
+  def snapshotAsync(ref: ProcessRef.Unknown, process: snapshot.Snapshotable, seq: Long): F[Boolean] =
+    snapshotManager.fold(effect.pure(false))(_.createAsync(ref, process, seq))
 
   private val processes = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessState[F]]()
   private val graph     = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ListBuffer[ProcessRef.Unknown]]()
@@ -52,20 +77,29 @@ class Context[F[_]](
   /** Returns the next global delivery sequence number. */
   def nextSeq(): Long = seqCounter.incrementAndGet()
 
-  private var scheduler: Scheduler[F] = _
+  private[core] def continueSeqAfter(seq: Long): Unit =
+    seqCounter.updateAndGet(current => math.max(current, seq))
+    ()
 
-  /** Binds this context to a [[Scheduler]], creates the built-in system processes, and sends the initial
-    * [[Events.Start]] event. Called once during application boot.
+  private var _scheduler: Scheduler[F] = _
+
+  /** The scheduler bound to this context via [[bind]]; `null` until then.
     */
-  def start(scheduler0: Scheduler[F]): F[Unit] =
+  private[core] def scheduler: Scheduler[F] = _scheduler
+
+  /** Binds `scheduler` to this context, creates the built-in system processes, and sends their initial [[Events.Start]]
+    * event. Must run before [[Scheduler.start]] - the scheduler refuses to start until it is bound. Called once during
+    * application boot.
+    */
+  def bind(scheduler: Scheduler[F]): F[Unit] =
     effect.delay {
-      scheduler = scheduler0
+      _scheduler = scheduler
     } >> createSysProcesses >> sendStartEvent(ProcessRef.SystemRef).void
 
   private[core] def createSysProcesses: F[Unit] =
     for
       sysProcesses <- effect.delay(List(new SystemProcess[F], new Noop[F]))
-      states       <- Monad.sequence(sysProcesses.map(ProcessState(_, config)))
+      states       <- Monad.sequence(sysProcesses.map(ProcessState(_, config, clock)))
       _            <- effect.delay(states.foreach(state => processes.put(state.process.ref, state)))
     yield ()
 
@@ -94,7 +128,7 @@ class Context[F[_]](
         )
       else
         child.init(self)
-        ProcessState(child, config).flatMap { state =>
+        ProcessState(child, config, clock).flatMap { state =>
           effect.delay {
             if processes.putIfAbsent(child.ref, state) != null then
               throw new RuntimeException(s"duplicated process. ref = ${child.ref}")
@@ -116,20 +150,42 @@ class Context[F[_]](
     register(parent, process) >> sendStartEvent(process.ref)
 
   private def sendStartEvent(processRef: ProcessRef.Unknown): F[SubmissionResult] =
-    val envelope = Envelope(ProcessRef.SystemRef, Start, processRef)
-    scheduler.submit(Deliver(envelope))
+    sendLifecycleEvent(processRef, Start)
+
+  private def sendLifecycleEvent(processRef: ProcessRef.Unknown, event: Events.SystemEvent): F[SubmissionResult] =
+    scheduler.submit(Deliver(Envelope(ProcessRef.SystemRef, event, processRef)))
 
   /** Registers a batch of root processes (parented to [[ProcessRef.SystemRef]]) and starts each.
     */
   def registerAll(processes0: List[Process[F, ?, ?]]): F[List[ProcessRef.Unknown]] =
     registerAll(ProcessRef.SystemRef, processes0)
 
-  /** Registers and starts each of `processes0` under `parent`. */
+  /** Registers a batch of processes under `parent`, then boots each: a [[Snapshotable]] process with a stored snapshot
+    * is restored and gets [[Events.Restored]]; everyone else gets [[Events.Start]].
+    *
+    * Restoring happens between register and the lifecycle event so a process's state is in place before it sees any
+    * event, and its `Start` initialization never runs over restored state.
+    */
   def registerAll(parent: ProcessRef.Unknown, processes0: List[Process[F, ?, ?]]): F[List[ProcessRef.Unknown]] =
     for
-      refs   <- Monad.sequence(processes0.map(register(parent, _)))
-      result <- Monad.sequence(refs.map(ref => sendStartEvent(ref).as(ref)))
+      _      <- Monad.sequence(processes0.map(register(parent, _)))
+      result <- Monad.sequence(processes0.map(boot))
     yield result
+
+  /** Restores `process` from its latest snapshot when applicable, advances the delivery sequence past it, and delivers
+    * the matching lifecycle event ([[Events.Restored]] if restored, else [[Events.Start]]).
+    */
+  private def boot(process: Process[F, ?, ?]): F[ProcessRef.Unknown] =
+    val ref: ProcessRef.Unknown = process.ref
+    (snapshotManager, process) match
+      case (Some(manager), snapshotable: snapshot.Snapshotable) =>
+        manager.restoreLatest(ref, snapshotable).flatMap {
+          case Some(restored) =>
+            continueSeqAfter(restored.metadata.seq)
+            sendLifecycleEvent(ref, Events.Restored).as(ref)
+          case None => sendStartEvent(ref).as(ref)
+        }
+      case _ => sendStartEvent(ref).as(ref)
 
   /** Snapshot of every [[Process]] currently registered (system + user). */
   def getProcesses: List[Process[F, ?, ?]] =
@@ -173,13 +229,21 @@ class Context[F[_]](
 
 /** Factory and inner types supporting [[Context]]. */
 object Context:
-  /** Allocates a new [[Context]] in `F`. */
+  private val NanosPerMilli = 1_000_000L
+
+  /** Allocates a new [[Context]] in `F`, starting the snapshot writer when snapshotting is enabled. */
   def apply[F[_]](
       config: Parapet.ParConfig,
       eventStore: EventStore[F],
       eventTransformers: EventTransformers
   )(using effect: Effect[F]): F[Context[F]] =
-    effect.delay(new Context[F](config, eventStore, eventTransformers))
+    snapshotManager(config).map(new Context[F](config, eventStore, eventTransformers, _))
+
+  private def snapshotManager[F[_]](config: Parapet.ParConfig)(using effect: Effect[F]): F[Option[SnapshotManager[F]]] =
+    if !config.snapshot.enabled then effect.pure(None)
+    else
+      val storage = new SnapshotStorageLocal[F](SnapshotStorageLocal.Config(Path.of(config.snapshot.dataDir)))
+      SnapshotManager[F](storage, Clock(), config.snapshot.queueCapacity).map(Some(_))
 
   /** Pairs an offloaded operation with the [[Deferred]] that records how it completed.
     */
@@ -247,7 +311,8 @@ object Context:
   final class ProcessState[F[_]](
       queue: TaskQueue[F],
       val process: Process[F, ?, ?],
-      val terminationSignal: Deferred[F, Unit]
+      val terminationSignal: Deferred[F, Unit],
+      clock: Clock
   )(using effect: Effect[F]):
 
     private val terminatedRef  = new AtomicBoolean(false)
@@ -255,6 +320,13 @@ object Context:
     private val suspendedRef   = new AtomicBoolean(false)
     private val offloadTracker = new OffloadTracker[F]
     private val processLock    = new ProcessState.ProcessLock[F]
+
+    /** Snapshot-cadence bookkeeping.
+      */
+    val checkpoints: CheckpointTracker = new CheckpointTracker(clock)
+
+    /** Whether this process opts into snapshotting. */
+    val snapshotable: Boolean = process.isInstanceOf[snapshot.Snapshotable]
 
     /** Bookkeeping for offloaded operations spawned by this process. */
     def offloads: OffloadTracker[F] =
@@ -327,6 +399,43 @@ object Context:
         ()
       }
 
+  /** Per-process snapshot-cadence counters that drive snapshots creation speed.
+    *
+    * Not thread-safe.
+    */
+  final class CheckpointTracker(clock: Clock):
+    private var eventsSinceSnapshot = 0
+    private var lastSeq             = 0L
+    private var lastSnapshotNanos   = Long.MinValue
+
+    /** Records that the delivery at `seq` was consumed. The first delivery anchors the time-cadence window, so the
+      * earliest time-triggered snapshot is one interval after the process first did work.
+      */
+    def onDelivered(seq: Long): Unit =
+      eventsSinceSnapshot += 1
+      lastSeq = seq
+      if lastSnapshotNanos == Long.MinValue then lastSnapshotNanos = clock.nanoTime
+
+    /** Resets the cadence stats after a snapshot was taken. */
+    def onSnapshot(): Unit =
+      eventsSinceSnapshot = 0
+      lastSnapshotNanos = clock.nanoTime
+
+    /** True when at least one delivery has been consumed since the last snapshot. */
+    def dirty: Boolean =
+      eventsSinceSnapshot > 0
+
+    /** True when a snapshot is due: either the `maxEvents` ceiling is reached, or - when `maxIntervalMillis > 0` - that
+      * much wall-clock time has elapsed since the last snapshot while state is dirty.
+      */
+    def due(maxEvents: Int, maxIntervalMillis: Long): Boolean =
+      eventsSinceSnapshot >= maxEvents ||
+        (maxIntervalMillis > 0 && dirty && clock.nanoTime - lastSnapshotNanos >= maxIntervalMillis * NanosPerMilli)
+
+    /** Position of the most recent consumed delivery - the seq a snapshot taken now corresponds to. */
+    def lastDeliveredSeq: Long =
+      lastSeq
+
   /** Helpers and the lock primitive used by [[ProcessState]]. */
   object ProcessState:
     /** Cooperative lock guarding "exactly one worker handling at a time" for a process.
@@ -364,7 +473,9 @@ object Context:
     /** Builds a fresh [[ProcessState]], honoring the process's overridden mailbox size or falling back to the global
       * default.
       */
-    def apply[F[_]](process: Process[F, ?, ?], config: Parapet.ParConfig)(using effect: Effect[F]): F[ProcessState[F]] =
+    def apply[F[_]](process: Process[F, ?, ?], config: Parapet.ParConfig, clock: Clock)(using
+        effect: Effect[F]
+    ): F[ProcessState[F]] =
       val processBufferSize =
         if process.bufferSize != -1 then process.bufferSize else config.processBufferSize
 
@@ -373,4 +484,4 @@ object Context:
           if processBufferSize == -1 then Queue.unbounded[F, Task[F]]()
           else Queue.bounded[F, Task[F]](processBufferSize, ChannelType.SPSC)
         terminationSignal <- Deferred[F, Unit]()
-      yield new ProcessState[F](queue, process, terminationSignal)
+      yield new ProcessState[F](queue, process, terminationSignal, clock)

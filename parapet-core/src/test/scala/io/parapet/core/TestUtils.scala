@@ -118,7 +118,7 @@ object TestUtils:
     val context: Context[TestIO] =
       Context[TestIO](ParConfig.default, EventStore.stub[TestIO], EventTransformers.empty).unsafeRun()
 
-    context.start(scheduler).unsafeRun()
+    context.bind(scheduler).unsafeRun()
 
     private val noop: Noop[TestIO] = new Noop[TestIO]
     context.register(ProcessRef.SystemRef, noop).unsafeRun()

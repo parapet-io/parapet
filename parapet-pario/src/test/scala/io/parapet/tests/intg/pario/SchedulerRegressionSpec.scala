@@ -94,8 +94,8 @@ class SchedulerRegressionSpec extends AnyFunSuite:
       for
         context   <- Context[ParIO](config, io.parapet.core.EventStore.stub, EventTransformers.empty)
         scheduler <- Scheduler[ParIO](config.schedulerConfig, context, DslInterpreter(context))
+        _         <- context.bind(scheduler)
         fiber     <- summon[Effect[ParIO]].start(scheduler.start)
-        _         <- context.start(scheduler)
         _         <- context.registerAll(ProcessRef.SystemRef, processes.toList)
         _         <- TaskSubmitter.submitAll(scheduler, tasks, numberOfSubmitters = 2)
         _         <- eventStore.await0(tasks.size, fiber, delay = 10.millis, timeout = 3.seconds)

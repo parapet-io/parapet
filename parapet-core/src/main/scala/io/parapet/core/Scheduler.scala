@@ -9,6 +9,7 @@ import io.parapet.core.Events.*
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.*
 import io.parapet.core.exceptions.*
+import io.parapet.core.snapshot.Snapshotable
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
 import io.parapet.{Envelope, Event, ProcessRef, Scope}
@@ -196,6 +197,18 @@ object Scheduler:
       else signalQueues(Math.floorMod(submitCounter.getAndIncrement(), numberOfQueues))
 
     override def start: F[Unit] =
+      // TEMP FIX:
+      // Refuse to go live unless this scheduler is the one bound into its context (Context.bind must have run). This
+      // makes bind-before-start a checked precondition rather than a convention, so submits from Context reach us.
+      effect.suspend {
+        if context.scheduler ne this then
+          effect.raiseError(
+            new IllegalStateException("Scheduler.start called before Context.bind(scheduler); bind the scheduler first")
+          )
+        else startWorkers
+      }
+
+    private def startWorkers: F[Unit] =
       val runWorkers =
         effect.delay(createWorkers).flatMap(workers => schedulerRuntime.runSchedulerWorkers(workers.map(_.run)))
 
@@ -208,7 +221,7 @@ object Scheduler:
           scope = Scope.empty,
           logger = logger,
           onError = (processRef, error) => logger.error(s"An error occurred while stopping process $processRef", error)
-        ) >> context.saveEventLog >> logger.info("scheduler has been shut down")
+        ) >> context.stopSnapshotting >> context.saveEventLog >> logger.info("scheduler has been shut down")
       }
 
     private def submit(processState: ProcessState[F], task: Deliver[F]): F[SubmissionResult] =
@@ -438,17 +451,48 @@ object Scheduler:
               case Some(task: Deliver[F]) =>
                 if task.envelope.event.isInstanceOf[Scheduler.Inbox.type] then step(remaining)
                 else
-                  deliver(processState, task) >> processState.hasOffloads.flatMap {
+                  deliver(processState, task) >> onDelivered(processState) >> processState.hasOffloads.flatMap {
                     case true  => waitForCompletion(task, processState)
-                    case false => step(remaining - 1)
+                    case false => maybeSnapshot(processState, drained = false) >> step(remaining - 1)
                   }
               case Some(task) =>
                 effect.raiseError(new UnsupportedOperationException(s"unsupported task type: $task"))
               case None =>
-                releaseWithOptNotify(processState)
+                maybeSnapshot(processState, drained = true) >> releaseWithOptNotify(processState)
             }
 
         logger.debug(s"worker[$name]::run(${processState.process}) slice=$mailboxSlice") >> step(mailboxSlice)
+
+      private def onDelivered(processState: ProcessState[F]): F[Unit] =
+        if !snapshotting(processState) then effect.pure(())
+        else effect.delay(processState.checkpoints.onDelivered(context.nextSeq()))
+
+      /** Snapshots the process when a trigger is due: the every-N ceiling mid-burst (`drained = false`), or any dirty
+        * state at the mailbox-drain boundary (`drained = true`). Runs while the worker holds the process lock, at a
+        * mid-event-free point, so [[Snapshotable.serialize]] reads stable state.
+        */
+      private def maybeSnapshot(processState: ProcessState[F], drained: Boolean): F[Unit] =
+        if !snapshotting(processState) then effect.pure(())
+        else
+          val tracker = processState.checkpoints
+          val due     =
+            if drained then tracker.dirty
+            else tracker.due(context.maxEventsPerSnapshot, context.maxSnapshotIntervalMillis)
+          if !due then effect.pure(())
+          else
+            context
+              .snapshotAsync(
+                processState.process.ref,
+                processState.process.asInstanceOf[Snapshotable],
+                tracker.lastDeliveredSeq
+              )
+              .flatMap {
+                case true  => effect.delay(tracker.onSnapshot())
+                case false => effect.pure(()) // dropped: stay due and retry on a later delivery
+              }
+
+      private def snapshotting(processState: ProcessState[F]): Boolean =
+        context.snapshotEnabled && processState.snapshotable
 
       private def deliver(processState: ProcessState[F], task: Deliver[F]): F[Unit] =
         val envelope      = task.envelope
