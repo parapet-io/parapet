@@ -46,19 +46,24 @@ final class SnapshotManager[F[_]] private (
     build(ref, process, seq).flatMap(snapshot => storage.store(snapshot).as(snapshot))
 
   /** Captures `process`'s current state and enqueues it for the background worker to store. Returns as soon as it is
-    * enqueued. A no-op once [[close]] has run.
+    * enqueued.
     *
     * Snapshots are best-effort: if the queue is full (the writer is falling behind), the snapshot is dropped with a
     * warning rather than blocking the caller.
+    *
+    * @return
+    *   `true` if the snapshot was enqueued, `false` if it was dropped (queue full) or [[close]] has already run.
     */
-  def createAsync(ref: ProcessRef.Unknown, process: Snapshotable, seq: Long): F[Unit] =
-    if closed.get() then effect.pure(())
+  def createAsync(ref: ProcessRef.Unknown, process: Snapshotable, seq: Long): F[Boolean] =
+    if closed.get() then effect.pure(false)
     else
       build(ref, process, seq).flatMap { snapshot =>
         queue.tryEnqueue(Item.Store(snapshot)).flatMap {
-          case true  => effect.pure(())
+          case true  => effect.pure(true)
           case false =>
-            effect.delay(logger.warn(s"snapshot queue full; dropping snapshot ${snapshot.metadata.id} of $ref"))
+            effect
+              .delay(logger.warn(s"snapshot queue full; dropping snapshot ${snapshot.metadata.id} of $ref"))
+              .as(false)
         }
       }
 

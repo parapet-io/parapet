@@ -468,11 +468,16 @@ object Scheduler:
             else tracker.due(context.maxEventsPerSnapshot, context.maxSnapshotIntervalMillis)
           if !due then effect.pure(())
           else
-            context.snapshotAsync(
-              processState.process.ref,
-              processState.process.asInstanceOf[Snapshotable],
-              tracker.lastDeliveredSeq
-            ) >> effect.delay(tracker.onSnapshot())
+            context
+              .snapshotAsync(
+                processState.process.ref,
+                processState.process.asInstanceOf[Snapshotable],
+                tracker.lastDeliveredSeq
+              )
+              .flatMap {
+                case true  => effect.delay(tracker.onSnapshot())
+                case false => effect.pure(()) // dropped: stay due and retry on a later delivery
+              }
 
       private def snapshotting(processState: ProcessState[F]): Boolean =
         context.snapshotEnabled && processState.snapshotable

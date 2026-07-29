@@ -60,9 +60,11 @@ class Context[F[_]](
   def stopSnapshotting: F[Unit] =
     snapshotManager.fold(effect.pure(()))(_.close)
 
-  /** Enqueues an asynchronous snapshot of `process` as of delivery `seq`. No-op when snapshotting is off. */
-  def snapshotAsync(ref: ProcessRef.Unknown, process: snapshot.Snapshotable, seq: Long): F[Unit] =
-    snapshotManager.fold(effect.pure(()))(_.createAsync(ref, process, seq))
+  /** Enqueues an asynchronous snapshot of `process` as of delivery `seq`. Returns `true` if it was enqueued, otherwise -
+    * `false`.
+    */
+  def snapshotAsync(ref: ProcessRef.Unknown, process: snapshot.Snapshotable, seq: Long): F[Boolean] =
+    snapshotManager.fold(effect.pure(false))(_.createAsync(ref, process, seq))
 
   private val processes = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessState[F]]()
   private val graph     = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ListBuffer[ProcessRef.Unknown]]()
