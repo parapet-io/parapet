@@ -2,9 +2,6 @@ package io.parapet.core.journal
 
 /** Durable store for the delivery journal: an ordered sequence of [[JournalEntry]]s written in batches and read back by
   * seq range. Entry bytes are produced/consumed by [[JournalEntryBinaryFormat]].
-  *
-  * Implementations persist a batch as one immutable unit (e.g. a segment file), which is what lets [[truncate]] drop a
-  * whole batch at once and keeps writes atomic.
   */
 trait JournalStore[F[_]]:
 

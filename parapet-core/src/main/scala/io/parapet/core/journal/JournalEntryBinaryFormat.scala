@@ -82,7 +82,7 @@ object JournalEntryBinaryFormat:
   private def encodePayload(entry: JournalEntry): Array[Byte] =
     val sender   = entry.sender.value.getBytes(UTF_8)
     val receiver = entry.receiver.value.getBytes(UTF_8)
-    val buf = ByteBuffer.allocate(
+    val buf      = ByteBuffer.allocate(
       LongSize + (IntSize + sender.length) + (IntSize + receiver.length) + LongSize + (IntSize + entry.event.length)
     )
     buf.putLong(entry.seq)
