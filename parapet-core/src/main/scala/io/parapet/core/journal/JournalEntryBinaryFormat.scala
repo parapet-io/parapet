@@ -54,16 +54,14 @@ object JournalEntryBinaryFormat:
     parts.foreach(out.put)
     out.array()
 
-  /** Decodes exactly one entry; fails if `bytes` is not a single well-formed blob. */
+  /** Decodes a single-entry blob. */
   def decode(bytes: Array[Byte]): JournalEntry =
     val buf   = ByteBuffer.wrap(bytes)
     val entry = readEntry(buf)
     check(!buf.hasRemaining, "trailing bytes after entry")
     entry
 
-  /** Decodes every entry in a batch blob, in stored order. Strict: any corrupt or partial entry fails (batch files are
-    * written atomically, so a partial batch never reaches disk).
-    */
+  /** Decodes every entry in a batch blob, in stored order. */
   def decodeBatch(bytes: Array[Byte]): Vector[JournalEntry] =
     val buf     = ByteBuffer.wrap(bytes)
     val entries = Vector.newBuilder[JournalEntry]
