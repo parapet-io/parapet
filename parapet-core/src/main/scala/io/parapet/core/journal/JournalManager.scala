@@ -3,20 +3,17 @@ package io.parapet.core.journal
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.Queue
 import io.parapet.effect.Monad.*
-import io.parapet.effect.{Backoff, Deferred, Effect, Retry}
+import io.parapet.effect.{Deferred, Effect, Retry}
 import org.slf4j.LoggerFactory
 
 import java.util.PriorityQueue
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
-import scala.concurrent.duration.*
 
 /** Buffers journal entries and writes them to [[JournalStore]] in seq-sorted batches on a background worker. */
 final class JournalManager[F[_]] private (
     store: JournalStore[F],
     queue: Queue[F, JournalManager.Item[F]],
-    batchSize: Int,
-    maxRetries: Int,
-    backoff: Backoff
+    config: JournalConfig
 )(using effect: Effect[F]):
 
   import JournalManager.*
@@ -49,7 +46,7 @@ final class JournalManager[F[_]] private (
         effect
           .delay {
             buffer.add(entry)
-            buffer.size() >= batchSize
+            buffer.size() >= config.batchSize
           }
           .flatMap(full => (if full then flush(buffer) else effect.pure(())) >> drainLoop(buffer))
       case Item.Flush(signal) =>
@@ -67,14 +64,14 @@ final class JournalManager[F[_]] private (
 
   private def store0(batch: Vector[JournalEntry]): F[Unit] =
     Retry(
-      maxRetries,
-      backoff,
+      config.maxRetries,
+      config.backoff,
       (retry, error) => logger.error(s"failed to store journal batch of ${batch.size} entries (retry $retry)", error)
     )(store.append(batch))
       .handleErrorWith { error =>
         effect.delay {
           failureRef.compareAndSet(null, error)
-          logger.error(s"journal writer failed permanently after $maxRetries retries; failing fast", error)
+          logger.error(s"journal writer failed permanently after ${config.maxRetries} retries; failing fast", error)
         } >> effect.raiseError(error)
       }
 
@@ -82,18 +79,6 @@ final class JournalManager[F[_]] private (
     effect.start(drainLoop(newBuffer())).void
 
 object JournalManager:
-
-  /** Default number of entries buffered before a batch is flushed. */
-  val DefaultBatchSize: Int = 1024
-
-  /** Default background-writer queue capacity. */
-  val DefaultQueueCapacity: Int = 4096
-
-  /** Default number of store retries before the write fails. */
-  val DefaultMaxRetries: Int = 8
-
-  /** Default backoff between store retries. */
-  val DefaultBackoff: Backoff = Backoff.Exp(base = 50.millis, max = 5.seconds)
 
   private def newBuffer(): PriorityQueue[JournalEntry] =
     new PriorityQueue[JournalEntry](java.util.Comparator.comparingLong[JournalEntry](_.seq))
@@ -104,14 +89,10 @@ object JournalManager:
     final case class Store[F[_]](entry: JournalEntry)       extends Item[F]
     final case class Flush[F[_]](signal: Deferred[F, Unit]) extends Item[F]
 
-  def apply[F[_]](
-      store: JournalStore[F],
-      batchSize: Int = DefaultBatchSize,
-      queueCapacity: Int = DefaultQueueCapacity,
-      maxRetries: Int = DefaultMaxRetries,
-      backoff: Backoff = DefaultBackoff
-  )(using effect: Effect[F]): F[JournalManager[F]] =
-    Queue.bounded[F, Item[F]](queueCapacity, Queue.ChannelType.MPSC).flatMap { queue =>
-      val manager = new JournalManager[F](store, queue, batchSize, maxRetries, backoff)
+  def apply[F[_]](store: JournalStore[F], config: JournalConfig = JournalConfig.default)(using
+      effect: Effect[F]
+  ): F[JournalManager[F]] =
+    Queue.bounded[F, Item[F]](config.queueCapacity, Queue.ChannelType.MPSC).flatMap { queue =>
+      val manager = new JournalManager[F](store, queue, config)
       manager.startWorker().as(manager)
     }
