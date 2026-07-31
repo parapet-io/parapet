@@ -4,11 +4,11 @@ import io.parapet.Event
 
 import scala.util.Try
 
-/** Encodes and decodes the events a process receives.
+/** Encodes and decodes events.
   */
 trait EventCodec:
 
-  /** Serializes an inbound event to bytes. */
+  /** Serializes an event to bytes. */
   def encode(event: Event): Try[Array[Byte]]
 
   /** Reconstructs an event from bytes produced by [[encode]]. */

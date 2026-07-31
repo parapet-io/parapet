@@ -9,8 +9,7 @@ import org.slf4j.LoggerFactory
 import java.util.PriorityQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Buffers journal entries and flushes them to [[JournalStore]] as seq-sorted batches on a single background worker -
-  * the sibling of `SnapshotManager`.
+/** Buffers journal entries and flushes them to [[JournalStore]].
   *
   * [[append]] hands an entry to the worker and blocks if the writer is falling behind (backpressure); entries are
   * **never dropped** - losing one would make a delivery unrecoverable, unlike a dropped snapshot which only lengthens
@@ -28,12 +27,11 @@ final class JournalManager[F[_]] private (
   private val logger = Logger(LoggerFactory.getLogger(classOf[JournalManager[?]]))
   private val closed = new AtomicBoolean(false)
 
-  /** Enqueues `entry` for the background writer, blocking if its queue is full. A no-op once [[close]] has run. */
+  /** Appends `entry` to the journal. A no-op once [[close]] has run. */
   def append(entry: JournalEntry): F[Unit] =
     if closed.get() then effect.pure(())
     else queue.enqueue(Item.Store(entry))
 
-  /** Flushes the pending buffer, then stops the worker; completes once the backlog is on disk. Idempotent. */
   def close: F[Unit] =
     if !closed.compareAndSet(false, true) then effect.pure(())
     else Deferred[F, Unit]().flatMap(signal => queue.enqueue(Item.Flush(signal)).flatMap(_ => signal.get))

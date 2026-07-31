@@ -11,7 +11,7 @@ import io.parapet.ProcessRef
   * @param receiver
   *   the addressed process
   * @param cause
-  *   id of the envelope that caused this delivery (`0` for none), preserving lineage.
+  *   id of the envelope that caused this delivery (`0` for none), preserving runtime lineage.
   * @param event
   *   the encoded event payload.
   */
