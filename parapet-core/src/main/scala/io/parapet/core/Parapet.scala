@@ -56,7 +56,8 @@ object Parapet extends StrictLogging:
       schedulerConfig: SchedulerConfig,
       devMode: Boolean = false,
       eventLogEnabled: Boolean = false,
-      snapshot: SnapshotConfig = SnapshotConfig.disabled
+      snapshot: SnapshotConfig = SnapshotConfig.disabled,
+      journal: io.parapet.core.journal.JournalConfig = io.parapet.core.journal.JournalConfig()
   ):
     /** Sets the default per-process mailbox capacity. */
     def withProcessBufferSize(value: Int): ParConfig =
@@ -77,6 +78,10 @@ object Parapet extends StrictLogging:
     /** Enables snapshotting with data under `dataDir`. */
     def withSnapshots(dataDir: String): ParConfig =
       copy(snapshot = snapshot.copy(enabled = true, dataDir = dataDir))
+
+    /** Enables the delivery journal with data under `dataDir`. */
+    def withJournal(dataDir: String): ParConfig =
+      copy(journal = journal.copy(enabled = true, dataDir = dataDir))
 
   object ParConfig:
     /** Sensible defaults: unbounded process queues, one worker per CPU. */

@@ -78,7 +78,7 @@ object JournalStoreLocal:
 
   case class Config(dataDir: Path)
 
-  private final case class Segment(path: Path, minSeq: Long, maxSeq: Long)
+  final private case class Segment(path: Path, minSeq: Long, maxSeq: Long)
 
   private val Suffix   = ".jrnl"
   private val SeqWidth = 20 // decimal digits of Long.MaxValue

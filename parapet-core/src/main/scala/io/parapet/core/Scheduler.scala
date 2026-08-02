@@ -9,6 +9,7 @@ import io.parapet.core.Events.*
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.*
 import io.parapet.core.exceptions.*
+import io.parapet.core.journal.JournalEntry
 import io.parapet.core.snapshot.Snapshotable
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
@@ -221,7 +222,8 @@ object Scheduler:
           scope = Scope.empty,
           logger = logger,
           onError = (processRef, error) => logger.error(s"An error occurred while stopping process $processRef", error)
-        ) >> context.stopSnapshotting >> context.saveEventLog >> logger.info("scheduler has been shut down")
+        ) >> context.stopSnapshotting >> context.stopJournal >> context.saveEventLog >>
+          logger.info("scheduler has been shut down")
       }
 
     private def submit(processState: ProcessState[F], task: Deliver[F]): F[SubmissionResult] =
@@ -451,10 +453,11 @@ object Scheduler:
               case Some(task: Deliver[F]) =>
                 if task.envelope.event.isInstanceOf[Scheduler.Inbox.type] then step(remaining)
                 else
-                  deliver(processState, task) >> onDelivered(processState) >> processState.hasOffloads.flatMap {
-                    case true  => waitForCompletion(task, processState)
-                    case false => maybeSnapshot(processState, drained = false) >> step(remaining - 1)
-                  }
+                  onConsume(processState, task.envelope) >> deliver(processState, task) >>
+                    processState.hasOffloads.flatMap {
+                      case true  => waitForCompletion(task, processState)
+                      case false => maybeSnapshot(processState, drained = false) >> step(remaining - 1)
+                    }
               case Some(task) =>
                 effect.raiseError(new UnsupportedOperationException(s"unsupported task type: $task"))
               case None =>
@@ -463,9 +466,36 @@ object Scheduler:
 
         logger.debug(s"worker[$name]::run(${processState.process}) slice=$mailboxSlice") >> step(mailboxSlice)
 
-      private def onDelivered(processState: ProcessState[F]): F[Unit] =
-        if !snapshotting(processState) then effect.pure(())
-        else effect.delay(processState.checkpoints.onDelivered(context.nextSeq()))
+      /** Runs at the consume point, before the handler: assigns the delivery `seq` once, records the journal entry
+        * write-ahead (recoverable process, business event), and stamps the snapshot cadence tracker.
+        */
+      private def onConsume(processState: ProcessState[F], envelope: Envelope): F[Unit] =
+        val snap    = snapshotting(processState)
+        val mayJrnl = context.journalEnabled && processState.recoverable && journaled(envelope.event)
+        if !snap && !mayJrnl then effect.pure(())
+        else
+          effect.suspend {
+            val jrnl = mayJrnl && processState.process.canHandle(envelope.event)
+            if !snap && !jrnl then effect.pure(())
+            else
+              val seq         = context.nextSeq()
+              val journalStep = if jrnl then journalAppend(processState, envelope, seq) else effect.pure(())
+              val trackStep = if snap then effect.delay(processState.checkpoints.onDelivered(seq)) else effect.pure(())
+              journalStep >> trackStep
+          }
+
+      private def journalAppend(processState: ProcessState[F], envelope: Envelope, seq: Long): F[Unit] =
+        processState.eventCodec match
+          case None        => effect.pure(())
+          case Some(codec) =>
+            codec.encode(envelope.event) match
+              case scala.util.Success(bytes) =>
+                context.journal(JournalEntry(seq, envelope.sender, envelope.receiver, envelope.cause, bytes))
+              case scala.util.Failure(error) => effect.raiseError(error)
+
+      /** True for everything except runtime lifecycle events, which are re-synthesized at boot rather than replayed. */
+      private def journaled(event: Event): Boolean =
+        !event.isInstanceOf[SystemEvent]
 
       /** Snapshots the process when a trigger is due: the every-N ceiling mid-burst (`drained = false`), or any dirty
         * state at the mailbox-drain boundary (`drained = true`). Runs while the worker holds the process lock, at a

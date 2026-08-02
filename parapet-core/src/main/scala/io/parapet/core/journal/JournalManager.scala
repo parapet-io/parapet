@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory
 
 import java.util.PriorityQueue
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
+import scala.concurrent.duration.*
 
 /** Buffers journal entries and writes them to [[JournalStore]] in seq-sorted batches on a background worker. */
 final class JournalManager[F[_]] private (
@@ -37,7 +38,7 @@ final class JournalManager[F[_]] private (
   def close: F[Unit] =
     effect.suspend {
       if !closed.compareAndSet(false, true) || failureRef.get() != null then effect.pure(())
-      else Deferred[F, Unit]().flatMap(signal => queue.enqueue(Item.Flush(signal)).flatMap(_ => signal.get))
+      else Deferred[F, Unit]().flatMap(signal => queue.enqueue(Item.Stop(signal)).flatMap(_ => signal.get))
     }
 
   private def drainLoop(buffer: PriorityQueue[JournalEntry]): F[Unit] =
@@ -49,8 +50,16 @@ final class JournalManager[F[_]] private (
             buffer.size() >= config.batchSize
           }
           .flatMap(full => (if full then flush(buffer) else effect.pure(())) >> drainLoop(buffer))
-      case Item.Flush(signal) =>
+      case Item.Flush() =>
+        flush(buffer) >> drainLoop(buffer)
+      case Item.Stop(signal) =>
         effect.guarantee(flush(buffer))(signal.complete(()).void)
+    }
+
+  private def timerLoop: F[Unit] =
+    effect.sleep(config.flushInterval).flatMap { _ =>
+      if closed.get() then effect.pure(())
+      else queue.tryEnqueue(Item.Flush()) >> timerLoop
     }
 
   private def flush(buffer: PriorityQueue[JournalEntry]): F[Unit] =
@@ -76,7 +85,8 @@ final class JournalManager[F[_]] private (
       }
 
   private def startWorker(): F[Unit] =
-    effect.start(drainLoop(newBuffer())).void
+    effect.start(drainLoop(newBuffer())).void >>
+      (if config.flushInterval > Duration.Zero then effect.start(timerLoop).void else effect.pure(()))
 
 object JournalManager:
 
@@ -86,8 +96,9 @@ object JournalManager:
   /** An entry on the background writer's queue. */
   sealed private trait Item[F[_]]
   private object Item:
-    final case class Store[F[_]](entry: JournalEntry)       extends Item[F]
-    final case class Flush[F[_]](signal: Deferred[F, Unit]) extends Item[F]
+    final case class Store[F[_]](entry: JournalEntry)     extends Item[F]
+    final case class Flush[F[_]]()                        extends Item[F]
+    final case class Stop[F[_]](signal: Deferred[F, Unit]) extends Item[F]
 
   def apply[F[_]](store: JournalStore[F], config: JournalConfig = JournalConfig.default)(using
       effect: Effect[F]
