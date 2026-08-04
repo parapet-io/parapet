@@ -358,8 +358,8 @@ object Context:
       case codec: journal.EventCodec => Some(codec)
       case _                         => None
 
-    /** Whether this process's deliveries are journalled (snapshotable and codec-providing). */
-    val recoverable: Boolean = snapshotable && eventCodec.isDefined
+    /** Whether this process opts into journalling. */
+    val journalable: Boolean = eventCodec.isDefined
 
     /** Bookkeeping for offloaded operations spawned by this process. */
     def offloads: OffloadTracker[F] =

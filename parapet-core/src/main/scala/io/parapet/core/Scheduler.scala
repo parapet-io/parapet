@@ -467,20 +467,20 @@ object Scheduler:
         logger.debug(s"worker[$name]::run(${processState.process}) slice=$mailboxSlice") >> step(mailboxSlice)
 
       /** Runs at the consume point, before the handler: assigns the delivery `seq` once, records the journal entry
-        * write-ahead (recoverable process, business event), and stamps the snapshot cadence tracker.
+        * write-ahead (journalling process, business event), and stamps the snapshot cadence tracker.
         */
       private def onConsume(processState: ProcessState[F], envelope: Envelope): F[Unit] =
-        val snap    = snapshotting(processState)
-        val mayJrnl = context.journalEnabled && processState.recoverable && journaled(envelope.event)
-        if !snap && !mayJrnl then effect.pure(())
+        val snapEnabled = snapshotting(processState)
+        val jrnlEnabled = isJournable(processState, envelope)
+        if !snapEnabled && !jrnlEnabled then effect.pure(())
         else
           effect.suspend {
-            val jrnl = mayJrnl && processState.process.canHandle(envelope.event)
-            if !snap && !jrnl then effect.pure(())
+            if !snapEnabled && !jrnlEnabled then effect.pure(())
             else
               val seq         = context.nextSeq()
-              val journalStep = if jrnl then journalAppend(processState, envelope, seq) else effect.pure(())
-              val trackStep = if snap then effect.delay(processState.checkpoints.onDelivered(seq)) else effect.pure(())
+              val journalStep = if jrnlEnabled then journalAppend(processState, envelope, seq) else effect.pure(())
+              val trackStep   =
+                if snapEnabled then effect.delay(processState.checkpoints.onDelivered(seq)) else effect.pure(())
               journalStep >> trackStep
           }
 
@@ -492,6 +492,10 @@ object Scheduler:
               case scala.util.Success(bytes) =>
                 context.journal(JournalEntry(seq, envelope.sender, envelope.receiver, envelope.cause, bytes))
               case scala.util.Failure(error) => effect.raiseError(error)
+
+      private def isJournable(processState: ProcessState[?], envelope: Envelope): Boolean =
+        context.journalEnabled && processState.journalable && journaled(envelope.event) &&
+          processState.process.canHandle(envelope.event)
 
       /** True for everything except runtime lifecycle events, which are re-synthesized at boot rather than replayed. */
       private def journaled(event: Event): Boolean =

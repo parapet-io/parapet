@@ -96,8 +96,8 @@ object JournalManager:
   /** An entry on the background writer's queue. */
   sealed private trait Item[F[_]]
   private object Item:
-    final case class Store[F[_]](entry: JournalEntry)     extends Item[F]
-    final case class Flush[F[_]]()                        extends Item[F]
+    final case class Store[F[_]](entry: JournalEntry)      extends Item[F]
+    final case class Flush[F[_]]()                         extends Item[F]
     final case class Stop[F[_]](signal: Deferred[F, Unit]) extends Item[F]
 
   def apply[F[_]](store: JournalStore[F], config: JournalConfig = JournalConfig.default)(using
