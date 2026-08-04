@@ -180,8 +180,17 @@ class Context[F[_]](
   def registerAll(parent: ProcessRef.Unknown, processes0: List[Process[F, ?, ?]]): F[List[ProcessRef.Unknown]] =
     for
       _      <- Monad.sequence(processes0.map(register(parent, _)))
+      _      <- seedSeqFromJournal
       result <- Monad.sequence(processes0.map(boot))
     yield result
+
+  /** Advances the delivery sequence past the highest seq already in the journal, so a restart never reuses a seq that
+    * would overwrite recorded history. Snapshots advance the same counter (see [[boot]]); the seed is their maximum.
+    */
+  private def seedSeqFromJournal: F[Unit] =
+    journalManager match
+      case None          => effect.pure(())
+      case Some(manager) => manager.maxSeq.flatMap(seq => effect.delay(seq.foreach(continueSeqAfter)))
 
   /** Restores `process` from its latest snapshot when applicable, advances the delivery sequence past it, and delivers
     * the matching lifecycle event ([[Events.Restored]] if restored, else [[Events.Start]]).

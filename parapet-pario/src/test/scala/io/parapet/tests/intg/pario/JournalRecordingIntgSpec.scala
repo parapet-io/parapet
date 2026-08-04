@@ -41,6 +41,25 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
     entries.map(_.seq) shouldBe entries.map(_.seq).sorted        // ascending
   }
 
+  test("a restart continues the delivery seq past the journal instead of overwriting recorded history") {
+    val dir        = Files.createTempDirectory("journal-restart")
+    val counterRef = ProcessRef[Event]("jrnl-counter")
+    // Journal only, no snapshots: nothing but the journal seed can stop the seq from restarting at 1 on the second boot.
+    val config = ParConfig.default.copy(journal = JournalConfig(enabled = true, dataDir = dir.toString, batchSize = 1))
+
+    def runOnce(): Unit =
+      val store   = new EventStore[ParIO, Event]
+      val counter = new Counter(counterRef, store)
+      val driver  = onStart(((1 to 3).map(i => Add(i) ~> counterRef) :+ (Probe ~> counterRef)).reduce(_ ++ _))
+      unsafeRun(store.await(4, createApp(ct.pure(Seq(counter, driver)), config0 = config).run))
+
+    runOnce() // records seqs 1..4
+    runOnce() // must continue at 5..8, not reuse 1..4 and overwrite the segments
+
+    val entries = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
+    entries.map(_.seq) shouldBe (1L to 8L).toVector
+  }
+
 object JournalRecordingIntgSpec:
 
   final case class Add(n: Int)        extends Event

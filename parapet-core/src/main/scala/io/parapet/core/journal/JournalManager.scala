@@ -26,6 +26,9 @@ final class JournalManager[F[_]] private (
   /** The error that permanently failed the writer, if any. */
   def failure: Option[Throwable] = Option(failureRef.get())
 
+  /** The highest seq durably recorded, or `None` when the journal is empty. */
+  def maxSeq: F[Option[Long]] = store.maxSeq
+
   /** Appends `entry` to the journal. */
   def append(entry: JournalEntry): F[Unit] =
     effect.suspend {
