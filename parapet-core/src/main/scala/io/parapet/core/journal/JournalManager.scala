@@ -49,12 +49,17 @@ final class JournalManager[F[_]] private (
     effect.suspend {
       val firstClose = closed.compareAndSet(false, true)
       val stopTimer  = Option(timerRef.get()).fold(effect.pure(()))(_.cancel)
-      // Enqueue the final flush only on the first, still-healthy close; a failed writer has stopped draining, so joining
-      // its fiber surfaces the error without risking a blocking enqueue on a queue nobody consumes.
-      val stopDrain =
-        if firstClose && failureRef.get() == null then queue.enqueue(Item.Stop())
-        else effect.pure(())
+      val stopDrain  = if firstClose then signalStop else effect.pure(())
       stopTimer >> stopDrain >> joinWorker
+    }
+
+  /** Wakes the worker so it performs a final flush and exits. A live worker is draining and will free a slot, so we
+    * retry; a failed worker never will, so we stop once its error is recorded and let [[joinWorker]] surface it.
+    */
+  private def signalStop: F[Unit] =
+    queue.tryEnqueue(Item.Stop()).flatMap {
+      case true  => effect.pure(())
+      case false => if failureRef.get() != null then effect.pure(()) else effect.sleep(1.millis) >> signalStop
     }
 
   private def joinWorker: F[Unit] =
