@@ -3,7 +3,7 @@ package io.parapet.core.journal
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.Queue
 import io.parapet.effect.Monad.*
-import io.parapet.effect.{Deferred, Effect, Retry}
+import io.parapet.effect.{Effect, EffectFiber, Retry}
 import org.slf4j.LoggerFactory
 
 import java.util.PriorityQueue
@@ -22,12 +22,17 @@ final class JournalManager[F[_]] private (
   private val logger     = Logger(LoggerFactory.getLogger(classOf[JournalManager[?]]))
   private val closed     = new AtomicBoolean(false)
   private val failureRef = new AtomicReference[Throwable]()
+  private val workerRef  = new AtomicReference[EffectFiber[F, Unit]]()
+  private val timerRef   = new AtomicReference[EffectFiber[F, Unit]]()
 
   /** The error that permanently failed the writer, if any. */
   def failure: Option[Throwable] = Option(failureRef.get())
 
   /** The highest seq durably recorded, or `None` when the journal is empty. */
   def maxSeq: F[Option[Long]] = store.maxSeq
+
+  /** Completes when the writer stops: succeeds on a clean stop, fails with the error that stopped it. */
+  def terminated: F[Unit] = joinWorker
 
   /** Appends `entry` to the journal. */
   def append(entry: JournalEntry): F[Unit] =
@@ -37,11 +42,26 @@ final class JournalManager[F[_]] private (
         case error => effect.raiseError(error)
     }
 
-  /** Flushes pending entries and stops the writer. */
+  /** Flushes pending entries and stops the writer. Fails with the writer's error if the final flush - or an earlier
+    * write - did not succeed, so a lost journal tail cannot be mistaken for a clean shutdown.
+    */
   def close: F[Unit] =
     effect.suspend {
-      if !closed.compareAndSet(false, true) || failureRef.get() != null then effect.pure(())
-      else Deferred[F, Unit]().flatMap(signal => queue.enqueue(Item.Stop(signal)).flatMap(_ => signal.get))
+      val firstClose = closed.compareAndSet(false, true)
+      val stopTimer  = Option(timerRef.get()).fold(effect.pure(()))(_.cancel)
+      // Enqueue the final flush only on the first, still-healthy close; a failed writer has stopped draining, so joining
+      // its fiber surfaces the error without risking a blocking enqueue on a queue nobody consumes.
+      val stopDrain =
+        if firstClose && failureRef.get() == null then queue.enqueue(Item.Stop())
+        else effect.pure(())
+      stopTimer >> stopDrain >> joinWorker
+    }
+
+  private def joinWorker: F[Unit] =
+    effect.suspend {
+      workerRef.get() match
+        case null   => effect.pure(())
+        case worker => worker.join
     }
 
   private def drainLoop(buffer: PriorityQueue[JournalEntry]): F[Unit] =
@@ -55,8 +75,8 @@ final class JournalManager[F[_]] private (
           .flatMap(full => (if full then flush(buffer) else effect.pure(())) >> drainLoop(buffer))
       case Item.Flush() =>
         flush(buffer) >> drainLoop(buffer)
-      case Item.Stop(signal) =>
-        effect.guarantee(flush(buffer))(signal.complete(()).void)
+      case Item.Stop() =>
+        flush(buffer) // final flush; does not recurse, so the worker fiber completes here (or fails on flush error)
     }
 
   private def timerLoop: F[Unit] =
@@ -88,8 +108,12 @@ final class JournalManager[F[_]] private (
       }
 
   private def startWorker(): F[Unit] =
-    effect.start(drainLoop(newBuffer())).void >>
-      (if config.flushInterval > Duration.Zero then effect.start(timerLoop).void else effect.pure(()))
+    effect.start(drainLoop(newBuffer())).flatMap { worker =>
+      effect.delay(workerRef.set(worker)) >>
+        (if config.flushInterval > Duration.Zero then
+           effect.start(timerLoop).flatMap(timer => effect.delay(timerRef.set(timer)))
+         else effect.pure(()))
+    }
 
 object JournalManager:
 
@@ -99,9 +123,9 @@ object JournalManager:
   /** An entry on the background writer's queue. */
   sealed private trait Item[F[_]]
   private object Item:
-    final case class Store[F[_]](entry: JournalEntry)      extends Item[F]
-    final case class Flush[F[_]]()                         extends Item[F]
-    final case class Stop[F[_]](signal: Deferred[F, Unit]) extends Item[F]
+    final case class Store[F[_]](entry: JournalEntry) extends Item[F]
+    final case class Flush[F[_]]()                    extends Item[F]
+    final case class Stop[F[_]]()                     extends Item[F]
 
   def apply[F[_]](store: JournalStore[F], config: JournalConfig = JournalConfig.default)(using
       effect: Effect[F]

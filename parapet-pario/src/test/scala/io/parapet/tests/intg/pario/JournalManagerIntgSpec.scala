@@ -21,6 +21,13 @@ class JournalManagerIntgSpec extends AnyFunSuite:
 
   private def storeAt(dir: Path) = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
 
+  /** A store whose writes always fail, to exercise the writer's permanent-failure path. */
+  private val failingStore = new JournalStore[ParIO]:
+    def append(batch: Seq[JournalEntry]): ParIO[Unit]     = ParIO.raiseError(new RuntimeException("disk full"))
+    def read(afterSeq: Long): ParIO[Vector[JournalEntry]] = ParIO.pure(Vector.empty)
+    def maxSeq: ParIO[Option[Long]]                       = ParIO.pure(None)
+    def truncate(upToSeq: Long): ParIO[Unit]              = ParIO.pure(())
+
   private def seqsOnDisk(dir: Path): Vector[Long] = storeAt(dir).read(0L).run().map(_.seq)
 
   test("the time trigger flushes buffered entries below batchSize, without close") {
@@ -49,4 +56,20 @@ class JournalManagerIntgSpec extends AnyFunSuite:
     (1 to 2).foreach(i => manager.append(entry(i.toLong)).run())
     manager.close.run()
     seqsOnDisk(dir) shouldBe Vector(1, 2)
+  }
+
+  test("close fails when the writer permanently failed, instead of reporting a clean shutdown") {
+    val manager =
+      JournalManager[ParIO](failingStore, JournalConfig(batchSize = 1, maxRetries = 0, flushInterval = 1.hour)).run()
+    manager.append(entry(1)).run() // triggers an immediate flush that fails permanently
+    Thread.sleep(200)              // let the async writer exhaust retries and record the failure
+    manager.failure shouldBe defined
+    a[RuntimeException] should be thrownBy manager.close.run()
+  }
+
+  test("terminated fails with the writer's error") {
+    val manager =
+      JournalManager[ParIO](failingStore, JournalConfig(batchSize = 1, maxRetries = 0, flushInterval = 1.hour)).run()
+    manager.append(entry(1)).run()
+    a[RuntimeException] should be thrownBy manager.terminated.run()
   }
