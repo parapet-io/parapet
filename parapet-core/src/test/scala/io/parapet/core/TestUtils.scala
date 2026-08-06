@@ -7,7 +7,6 @@ import io.parapet.core.processes.Noop
 import io.parapet.effect.{Effect, EffectFiber, Monad}
 import io.parapet.{Envelope, ProcessRef, Scope}
 
-import java.util.concurrent.CancellationException
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.FiniteDuration
 
@@ -116,7 +115,7 @@ object TestUtils:
         case _            => TestIO.pure(Scheduler.Ok)
 
     val context: Context[TestIO] =
-      Context[TestIO](ParConfig.default, EventStore.stub[TestIO], EventTransformers.empty).unsafeRun()
+      Context[TestIO](ParConfig.default, EventTransformers.empty).unsafeRun()
 
     context.bind(scheduler).unsafeRun()
 

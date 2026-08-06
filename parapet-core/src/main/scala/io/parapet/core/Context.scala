@@ -28,14 +28,11 @@ import scala.jdk.CollectionConverters.*
   *
   * @param config
   *   runtime configuration in effect for this context.
-  * @param eventStore
-  *   sink for envelopes when [[Parapet.ParConfig.eventLogEnabled]] is on.
   * @param eventTransformers
   *   per-process pipeline of [[EventTransformer]]s registered before startup.
   */
 class Context[F[_]](
     config: Parapet.ParConfig,
-    val eventStore: EventStore[F],
     val eventTransformers: EventTransformers,
     private val snapshotManager: Option[SnapshotManager[F]],
     private val journalManager: Option[JournalManager[F]]
@@ -80,7 +77,6 @@ class Context[F[_]](
   private val processes = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessState[F]]()
   private val graph     = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ListBuffer[ProcessRef.Unknown]]()
   private val parents   = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessRef.Unknown]()
-  private val eventLog  = EventLog()
 
   /** Global monotonic delivery sequence. */
   private val seqCounter = new AtomicLong(0L)
@@ -241,17 +237,6 @@ class Context[F[_]](
       processes.remove(ref) != null
     }
 
-  /** Appends `envelope` to the in-memory [[EventLog]] when event logging is enabled; otherwise no-op.
-    */
-  def addToEventLog(envelope: Envelope): F[Unit] =
-    if config.eventLogEnabled then effect.delay(eventLog.add(envelope)) else effect.pure(())
-
-  /** Hook invoked at runtime shutdown to flush the event log. The current implementation is a placeholder; future
-    * versions may persist to disk.
-    */
-  def saveEventLog: F[Unit] =
-    if config.eventLogEnabled then effect.delay(()) else effect.pure(())
-
 /** Factory and inner types supporting [[Context]]. */
 object Context:
   private val NanosPerMilli = 1_000_000L
@@ -261,7 +246,6 @@ object Context:
     */
   def apply[F[_]](
       config: Parapet.ParConfig,
-      eventStore: EventStore[F],
       eventTransformers: EventTransformers,
       snapshotStorage: Option[SnapshotStorage[F]] = None,
       journalStorage: Option[JournalStore[F]] = None
@@ -273,7 +257,7 @@ object Context:
       journal <- buildManager(config.journal.enabled, journalStorage, "journal")(
         JournalManager[F](_, config.journal)
       )
-    yield new Context[F](config, eventStore, eventTransformers, snapshots, journal)
+    yield new Context[F](config, eventTransformers, snapshots, journal)
 
   private def buildManager[F[_], S, M](enabled: Boolean, storage: Option[S], name: String)(
       build: S => F[M]

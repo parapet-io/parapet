@@ -33,9 +33,6 @@ import io.parapet.core.Scheduler.SchedulerConfig
   * @param devMode
   *   enables verbose DEBUG-level scheduler logging. Routed to the file appender configured in `logback-test.xml` so the
   *   console stays quiet. Default off to keep `sbt test` fast.
-  * @param eventLogEnabled
-  *   records every delivered envelope into an in-memory [[io.parapet.core.EventLog]] graph. The runtime does not
-  *   currently persist this to disk, but it can be inspected in-process on failure.
   * @param enabled
   *   when false, the runner skips this spec. Useful for quickly disabling a scenario during investigation without
   *   deleting its definition.
@@ -51,7 +48,6 @@ final case class StabilitySpec(
     numberOfSubmitters: Int = 1,
     blockingRatio: Double = 0.0,
     devMode: Boolean = false,
-    eventLogEnabled: Boolean = false,
     enabled: Boolean = true
 ) {
 
@@ -61,7 +57,7 @@ final case class StabilitySpec(
   /** Enables all diagnostic.
     */
   def withDiagnostics: StabilitySpec =
-    copy(devMode = true, eventLogEnabled = true)
+    copy(devMode = true)
 }
 
 object StabilitySpec {

@@ -9,7 +9,6 @@ import io.parapet.core.snapshot.{SnapshotStorage, SnapshotStorageLocal}
 import io.parapet.core.{
   Context,
   DslInterpreter,
-  EventStore,
   EventTransformer,
   EventTransformers,
   FaultInjector,
@@ -75,11 +74,6 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
   val config: ParConfig = ParConfig.default
 
   private val eventTransformers = EventTransformers.builder
-
-  /** Append-only journal of all events delivered through the runtime. The default is a no-op stub; production
-    * deployments may override with a persistent or in-memory store for replay/debugging.
-    */
-  val eventLog: EventStore[F] = EventStore.stub
 
   /** Returns the set of [[Process]] instances that make up the application.
     *
@@ -166,7 +160,6 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
         else effect.pure(())
       context <- Context(
         config,
-        eventLog,
         eventTransformers.build,
         snapshotStorage = Option.when(config.snapshot.enabled)(snapshotStorage),
         journalStorage = Option.when(config.journal.enabled)(journalStorage)

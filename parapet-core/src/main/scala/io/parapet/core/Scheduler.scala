@@ -222,7 +222,7 @@ object Scheduler:
           scope = Scope.empty,
           logger = logger,
           onError = (processRef, error) => logger.error(s"An error occurred while stopping process $processRef", error)
-        ) >> context.stopSnapshotting >> context.stopJournal >> context.saveEventLog >>
+        ) >> context.stopSnapshotting >> context.stopJournal >>
           logger.info("scheduler has been shut down")
       }
 

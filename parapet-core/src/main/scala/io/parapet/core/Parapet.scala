@@ -20,8 +20,6 @@ object Parapet extends StrictLogging:
     *   [[Scheduler]] tuning (worker thread count, etc.).
     * @param devMode
     *   when `true` enables verbose runtime logging useful while developing.
-    * @param eventLogEnabled
-    *   when `true` records every delivered envelope to an in-memory [[EventLog]]; primarily for replay/debugging.
     * @param snapshot
     *   snapshotting / recovery configuration; disabled by default.
     */
@@ -29,7 +27,6 @@ object Parapet extends StrictLogging:
       processBufferSize: Int,
       schedulerConfig: SchedulerConfig,
       devMode: Boolean = false,
-      eventLogEnabled: Boolean = false,
       snapshot: SnapshotConfig = SnapshotConfig.disabled,
       journal: JournalConfig = JournalConfig()
   ):
@@ -44,10 +41,6 @@ object Parapet extends StrictLogging:
     /** Enables verbose dev-mode logging. */
     def withDevMode: ParConfig =
       copy(devMode = true)
-
-    /** Enables the in-memory event log. */
-    def enableEventLog: ParConfig =
-      copy(eventLogEnabled = true)
 
     /** Enables snapshotting with data under `dataDir`. */
     def withSnapshots(dataDir: String): ParConfig =
