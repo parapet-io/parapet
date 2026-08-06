@@ -31,6 +31,9 @@ final class JournalManager[F[_]] private (
   /** The highest seq durably recorded, or `None` when the journal is empty. */
   def maxSeq: F[Option[Long]] = store.maxSeq
 
+  /** The highest envelope id the journal refers to, or `None` when the journal is empty. */
+  def maxEnvelopeId: F[Option[Long]] = store.maxEnvelopeId
+
   /** Completes when the writer stops: succeeds on a clean stop, fails with the error that stopped it. */
   def terminated: F[Unit] = joinWorker
 

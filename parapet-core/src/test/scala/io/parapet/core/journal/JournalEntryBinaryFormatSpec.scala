@@ -11,26 +11,28 @@ class JournalEntryBinaryFormatSpec extends AnyFunSuite:
   private val sender   = ProcessRef[Event]("journal-spec/sender a") // fs/UTF-8-exercising refs
   private val receiver = ProcessRef[Event]("journal-spec/receiver b")
 
-  private def entry(seq: Long, cause: Long = 0L, event: String = "event") =
-    JournalEntry(seq, sender, receiver, cause, event.getBytes(UTF_8))
+  private def entry(seq: Long, id: Long = 0L, cause: Long = 0L, event: String = "event") =
+    JournalEntry(seq, id, sender, receiver, cause, event.getBytes(UTF_8))
 
   private def sameAs(a: JournalEntry, b: JournalEntry): Unit =
     a.seq shouldBe b.seq
+    a.id shouldBe b.id
     a.sender shouldBe b.sender
     a.receiver shouldBe b.receiver
     a.cause shouldBe b.cause
     a.event.toVector shouldBe b.event.toVector
 
   test("encode/decode round-trips one entry") {
-    val original = entry(seq = 42L, cause = 7L, event = "hello")
+    val original = entry(seq = 42L, id = 99L, cause = 7L, event = "hello")
     sameAs(JournalEntryBinaryFormat.decode(JournalEntryBinaryFormat.encode(original)), original)
   }
 
   test("round-trips an empty event payload") {
-    val original = JournalEntry(1L, sender, receiver, 0L, Array.emptyByteArray)
+    val original = JournalEntry(1L, 5L, sender, receiver, 0L, Array.emptyByteArray)
     val decoded  = JournalEntryBinaryFormat.decode(JournalEntryBinaryFormat.encode(original))
     decoded.event shouldBe empty
     decoded.seq shouldBe 1L
+    decoded.id shouldBe 5L
   }
 
   test("encodeBatch/decodeBatch round-trips every entry in order") {

@@ -490,7 +490,9 @@ object Scheduler:
           case Some(codec) =>
             codec.encode(envelope.event) match
               case scala.util.Success(bytes) =>
-                context.journal(JournalEntry(seq, envelope.sender, envelope.receiver, envelope.cause, bytes))
+                context.journal(
+                  JournalEntry(seq, envelope.id, envelope.sender, envelope.receiver, envelope.cause, bytes.clone())
+                )
               case scala.util.Failure(error) => effect.raiseError(error)
 
       private def isJournable(processState: ProcessState[?], envelope: Envelope): Boolean =

@@ -171,6 +171,9 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
         snapshotStorage = Option.when(config.snapshot.enabled)(snapshotStorage),
         journalStorage = Option.when(config.journal.enabled)(journalStorage)
       )
+      // Seed the sequencers before any envelope is created (bind creates the system processes' Start envelopes), so a
+      // restart continues past the delivery seq and envelope ids already in the journal.
+      _                 <- context.seedSequencersFromJournal
       scheduler         <- Scheduler(config.schedulerConfig, context, interpreter(context))
       _                 <- context.bind(scheduler)
       deadLetterProcess <- deadLetter

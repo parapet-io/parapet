@@ -15,6 +15,7 @@ import java.util.zip.CRC32
   * [payload length: Int][payload][crc32(payload): Int]
   *
   * payload = [seq: Long]
+  *           [id: Long]
   *           [sender length: Int][sender bytes]
   *           [receiver length: Int][receiver bytes]
   *           [cause: Long]
@@ -27,7 +28,7 @@ object JournalEntryBinaryFormat:
   final class CorruptEntryException(message: String) extends RuntimeException(message)
 
   private val Magic: Int           = 0x504a524e // "PJRN"
-  private val FormatVersion: Short = 1
+  private val FormatVersion: Short = 2
 
   private val MagicSize    = java.lang.Integer.BYTES
   private val VersionSize  = java.lang.Short.BYTES
@@ -81,9 +82,11 @@ object JournalEntryBinaryFormat:
     val sender   = entry.sender.value.getBytes(UTF_8)
     val receiver = entry.receiver.value.getBytes(UTF_8)
     val buf      = ByteBuffer.allocate(
-      LongSize + (IntSize + sender.length) + (IntSize + receiver.length) + LongSize + (IntSize + entry.event.length)
+      LongSize + LongSize + (IntSize + sender.length) + (IntSize + receiver.length) + LongSize +
+        (IntSize + entry.event.length)
     )
     buf.putLong(entry.seq)
+    buf.putLong(entry.id)
     buf.putInt(sender.length)
     buf.put(sender)
     buf.putInt(receiver.length)
@@ -96,11 +99,12 @@ object JournalEntryBinaryFormat:
   private def decodePayload(bytes: Array[Byte]): JournalEntry =
     val buf      = ByteBuffer.wrap(bytes)
     val seq      = readLong(buf, "seq")
+    val id       = readLong(buf, "id")
     val sender   = readRef(readBytes(buf, "sender"), "sender")
     val receiver = readRef(readBytes(buf, "receiver"), "receiver")
     val cause    = readLong(buf, "cause")
     val event    = readBytes(buf, "event")
-    JournalEntry(seq, sender, receiver, cause, event)
+    JournalEntry(seq, id, sender, receiver, cause, event)
 
   private def readRef(bytes: Array[Byte], name: String): ProcessRef.Unknown =
     check(bytes.nonEmpty, s"empty $name ref")

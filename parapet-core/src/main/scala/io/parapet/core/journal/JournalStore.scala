@@ -16,6 +16,11 @@ trait JournalStore[F[_]]:
   /** The highest `seq` stored, if any - the delivery-sequence high-water for resuming after recovery. */
   def maxSeq: F[Option[Long]]
 
+  /** The highest envelope id the journal refers to - the greater of any entry's own `id` and any entry's `cause` - if
+    * any.
+    */
+  def maxEnvelopeId: F[Option[Long]]
+
   /** Drops every segment whose entries are all `<= upToSeq` (dead once covered by snapshots). Segments straddling
     * `upToSeq` are kept whole.
     */

@@ -17,7 +17,7 @@ class JournalManagerIntgSpec extends AnyFunSuite:
 
   extension [A](fa: ParIO[A]) private def run(): A = fa.unsafeRunSync()
 
-  private def entry(seq: Long) = JournalEntry(seq, ref, ref, 0L, s"e$seq".getBytes(UTF_8))
+  private def entry(seq: Long) = JournalEntry(seq, seq, ref, ref, 0L, s"e$seq".getBytes(UTF_8))
 
   private def storeAt(dir: Path) = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
 
@@ -26,6 +26,7 @@ class JournalManagerIntgSpec extends AnyFunSuite:
     def append(batch: Seq[JournalEntry]): ParIO[Unit]     = ParIO.raiseError(new RuntimeException("disk full"))
     def read(afterSeq: Long): ParIO[Vector[JournalEntry]] = ParIO.pure(Vector.empty)
     def maxSeq: ParIO[Option[Long]]                       = ParIO.pure(None)
+    def maxEnvelopeId: ParIO[Option[Long]]                = ParIO.pure(None)
     def truncate(upToSeq: Long): ParIO[Unit]              = ParIO.pure(())
 
   private def seqsOnDisk(dir: Path): Vector[Long] = storeAt(dir).read(0L).run().map(_.seq)

@@ -58,6 +58,7 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
 
     val entries = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
     entries.map(_.seq) shouldBe (1L to 8L).toVector
+    entries.map(_.id).distinct.size shouldBe 8 // envelope ids continue across the restart, so none collide
   }
 
 object JournalRecordingIntgSpec:

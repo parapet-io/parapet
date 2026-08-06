@@ -6,6 +6,9 @@ import io.parapet.ProcessRef
   *
   * @param seq
   *   global delivery position
+  * @param id
+  *   identity of the delivered envelope, so the delivery can be re-created with its original id and lineage referring
+  *   to it (via [[cause]]) stays resolvable across a restart.
   * @param sender
   *   the originating process, so the re-delivered envelope carries its true sender.
   * @param receiver
@@ -17,6 +20,7 @@ import io.parapet.ProcessRef
   */
 final case class JournalEntry(
     seq: Long,
+    id: Long,
     sender: ProcessRef.Unknown,
     receiver: ProcessRef.Unknown,
     cause: Long,

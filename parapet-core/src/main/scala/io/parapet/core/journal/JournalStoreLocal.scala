@@ -44,6 +44,15 @@ class JournalStoreLocal[F[_]](config: JournalStoreLocal.Config)(using effect: Ef
   override def maxSeq: F[Option[Long]] =
     effect.delay(segments.map(_.maxSeq).maxOption)
 
+  override def maxEnvelopeId: F[Option[Long]] =
+    effect.delay {
+      // id isn't encoded in the filename (and isn't monotonic with seq), so this decodes every segment.
+      segments
+        .flatMap(segment => JournalEntryBinaryFormat.decodeBatch(Files.readAllBytes(segment.path)))
+        .flatMap(entry => Vector(entry.id, entry.cause))
+        .maxOption
+    }
+
   override def truncate(upToSeq: Long): F[Unit] =
     effect.delay {
       segments.filter(_.maxSeq <= upToSeq).foreach { segment =>

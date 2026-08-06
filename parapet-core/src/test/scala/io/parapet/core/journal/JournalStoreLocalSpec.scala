@@ -13,8 +13,8 @@ class JournalStoreLocalSpec extends AnyFunSuite:
   private val a = ProcessRef[Event]("a")
   private val b = ProcessRef[Event]("b")
 
-  private def entry(seq: Long, receiver: ProcessRef.Unknown = a) =
-    JournalEntry(seq, a, receiver, 0L, s"e$seq".getBytes(UTF_8))
+  private def entry(seq: Long, receiver: ProcessRef.Unknown = a, id: Long = 0L, cause: Long = 0L) =
+    JournalEntry(seq, id, a, receiver, cause, s"e$seq".getBytes(UTF_8))
 
   private def newStore(dir: Path = Files.createTempDirectory("journal-spec")) =
     (dir, new JournalStoreLocal[TestIO](JournalStoreLocal.Config(dir)))
@@ -43,6 +43,14 @@ class JournalStoreLocalSpec extends AnyFunSuite:
     store.append(Vector(entry(2), entry(9))).unsafeRun()
     store.append(Vector(entry(4))).unsafeRun()
     store.maxSeq.unsafeRun() shouldBe Some(9L)
+  }
+
+  test("maxEnvelopeId reflects the highest id or cause stored") {
+    val (_, store) = newStore()
+    store.maxEnvelopeId.unsafeRun() shouldBe None
+    store.append(Vector(entry(1, id = 3L, cause = 1L), entry(2, id = 5L, cause = 9L))).unsafeRun() // cause 9 is highest
+    store.append(Vector(entry(3, id = 7L, cause = 2L))).unsafeRun()
+    store.maxEnvelopeId.unsafeRun() shouldBe Some(9L)
   }
 
   test("truncate drops segments fully at or below upToSeq, keeps the rest") {
