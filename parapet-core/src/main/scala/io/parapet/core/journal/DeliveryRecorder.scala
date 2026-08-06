@@ -25,7 +25,8 @@ import scala.concurrent.duration.*
   */
 final class DeliveryRecorder[F[_]] private (
     store: JournalStore[F],
-    config: JournalConfig
+    config: JournalConfig,
+    startSeq: Long
 )(using effect: Effect[F]):
 
   import DeliveryRecorder.*
@@ -36,7 +37,7 @@ final class DeliveryRecorder[F[_]] private (
   // Everything below is guarded by `lock`.
   private val lock              = new Object
   private var phase: Phase      = Phase.Open
-  private var seq: Long         = 0L
+  private var seq: Long         = startSeq
   private val active            = new Array[JournalEntry](config.batchSize)
   private var activeSize: Int   = 0
   private val ready             = new ArrayDeque[SealedBatch[F]]()
@@ -255,7 +256,13 @@ object DeliveryRecorder:
 
   private val closedError = new IllegalStateException("delivery recorder is closed")
 
-  def apply[F[_]](store: JournalStore[F], config: JournalConfig = JournalConfig.default)(using
+  /** @param startSeq
+    *   the delivery-sequence high-water to continue past, so a reopened journal neither reuses a `seq` nor overwrites a
+    *   segment. The caller computes it as the maximum of the restored snapshot high-water, the journal's `maxSeq`, and
+    *   (once it exists) the durable manifest - retained segments alone are not enough, since the journal may be fully
+    *   truncated or the newest position may live only in a snapshot.
+    */
+  def apply[F[_]](store: JournalStore[F], config: JournalConfig = JournalConfig.default, startSeq: Long = 0L)(using
       Effect[F]
   ): DeliveryRecorder[F] =
-    new DeliveryRecorder(store, config)
+    new DeliveryRecorder(store, config, startSeq)
