@@ -9,26 +9,19 @@ import java.util.ArrayDeque
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
-/** Records deliveries to [[JournalStore]] with **sequenced admission and inline ordered publication** (v1).
+/** Records deliveries to a [[JournalStore]], assigning each a global delivery `seq`.
   *
-  * Sequence allocation and buffer insertion happen under one short lock, so admission order equals `seq` order and
-  * every sealed batch is a consecutive `seq` slice - segment ranges are therefore strictly increasing and never
-  * overlap. The lock never covers encoding, retries, sleeping, or filesystem IO.
+  * Admission is totally ordered: `seq` is assigned in the same step that buffers the entry, so admission order equals
+  * `seq` order and every batch written to the store is a consecutive `seq` slice. Segment ranges are therefore strictly
+  * increasing and never overlap.
   *
-  * Publication is **inline**: an operation seals its batch and conditionally claims drain ownership under one lock, and
-  * if it wins drives the store writes itself, one batch at a time in FIFO order; otherwise it awaits its batch. A
-  * permanent write failure escapes through the operation and fails the application through the scheduler's own
-  * supervision - there is no background writer whose failure must be polled.
+  * An [[admit]] that fills a batch, and [[flush]] and [[close]], return only once the affected batch is durable, so a
+  * caller waiting on a batch backpressures on the store's write rate. A permanent write failure is terminal: it fails
+  * the recorder, so every in-flight and subsequent operation raises. A publication interrupted by cancellation is also
+  * terminal.
   *
-  * Each operation installs its [[Effect.guarantee]] finalizer *before* the locked seal-and-claim, so the finalizer
-  * covers the state transition itself, not just the drain. If that finalizer still holds the ownership token, the owner
-  * exited without settling publication (cancellation or an unexpected exit): the recorder **fails closed** - it
-  * transitions to `Failed` and completes every pending batch - so no waiter is stranded, no phantom owner remains, and
-  * no sealed-but-undrained batch is left behind a healthy `owner == null`. Interrupted publication is therefore
-  * terminal in v1; recoverable cancellation would need an explicit owner-handoff protocol.
-  *
-  * v1 scope: count-, flush-, and close-triggered publication only - a count-bounded tail, no wall-clock timer, no byte
-  * cap, no manifest.
+  * v1 scope: batches are published on reaching `batchSize`, on [[flush]], and on [[close]] - there is no wall-clock
+  * timer, so the un-published tail is bounded by count, not time; no byte cap and no durable manifest yet.
   */
 final class DeliveryRecorder[F[_]] private (
     store: JournalStore[F],
@@ -41,6 +34,24 @@ final class DeliveryRecorder[F[_]] private (
   private val logger       = Logger(LoggerFactory.getLogger(classOf[DeliveryRecorder[?]]))
   private val pollInterval = 1.milli
 
+  // Implementation:
+  //
+  // Sequence allocation and buffer insertion happen under `lock` in one step (so admission order == seq order); the lock
+  // never covers encoding, retries, sleeping, or filesystem IO. Publication is inline: a sealing operation conditionally
+  // claims drain ownership - an identity token stored in `owner` - and if it wins drives the store writes itself, one
+  // batch at a time in FIFO order; a non-owner instead awaits its batch's completion.
+  //
+  // Ownership is claimed *inside* an `effect.guarantee` scope whose finalizer (`settleOwnerExit`) releases it, so a
+  // cancelled or otherwise abnormally-exited owner cannot leave the FIFO owned-but-idle. If that finalizer still holds
+  // the token, the drain did not settle, so `fail` runs - transition to Failed and complete every pending batch - which
+  // is why interrupted publication is terminal. The identity token (rather than a boolean) prevents a stale finalizer
+  // from releasing a newer owner.
+  //
+  // Owner fairness (v1 compromise, not addressed): the owner drains until the FIFO is empty, not just until its own
+  // batch is durable, so under continuous traffic one caller can remain the de-facto writer, and an owning `flush` can
+  // end up waiting for batches admitted after it. Acceptable for v1; revisit with a bounded drain quantum or an
+  // ownership handoff if it shows up as latency unfairness.
+  //
   // Everything below is guarded by `lock`. `owner` is the current drain-owner token, or null when no one is draining.
   private val lock            = new Object
   private var phase: Phase    = Phase.Open
