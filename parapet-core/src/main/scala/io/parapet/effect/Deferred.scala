@@ -20,4 +20,10 @@ final class Deferred[F[_], A] private (future: CompletableFuture[A])(using effec
 object Deferred:
   /** Allocates a fresh, empty [[Deferred]] in `F`. */
   def apply[F[_], A]()(using effect: Effect[F]): F[Deferred[F, A]] =
-    effect.delay(new Deferred[F, A](CompletableFuture[A]()))
+    effect.delay(unsafe())
+
+  /** Allocates a fresh, empty [[Deferred]] synchronously - for use where the cell must be created inside a critical
+    * section. Only the allocation is unsafe; [[get]] / [[complete]] remain effectful.
+    */
+  def unsafe[F[_], A]()(using effect: Effect[F]): Deferred[F, A] =
+    new Deferred[F, A](CompletableFuture[A]())

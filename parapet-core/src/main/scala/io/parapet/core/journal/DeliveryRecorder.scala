@@ -11,9 +11,9 @@ import scala.jdk.CollectionConverters.*
 
 /** Records deliveries to [[JournalStore]] with **sequenced admission and inline ordered publication** (v1).
   *
-  * Sequence allocation and buffer insertion happen under one short lock, so admission order equals `seq` order and every
-  * sealed batch is a consecutive `seq` slice - segment ranges are therefore strictly increasing and never overlap. The
-  * lock never covers encoding, retries, sleeping, or filesystem IO.
+  * Sequence allocation and buffer insertion happen under one short lock, so admission order equals `seq` order and
+  * every sealed batch is a consecutive `seq` slice - segment ranges are therefore strictly increasing and never
+  * overlap. The lock never covers encoding, retries, sleeping, or filesystem IO.
   *
   * Publication is **inline**: an operation seals its batch and conditionally claims drain ownership under one lock, and
   * if it wins drives the store writes itself, one batch at a time in FIFO order; otherwise it awaits its batch. A
@@ -23,9 +23,9 @@ import scala.jdk.CollectionConverters.*
   * Each operation installs its [[Effect.guarantee]] finalizer *before* the locked seal-and-claim, so the finalizer
   * covers the state transition itself, not just the drain. If that finalizer still holds the ownership token, the owner
   * exited without settling publication (cancellation or an unexpected exit): the recorder **fails closed** - it
-  * transitions to `Failed` and completes every pending batch - so no waiter is stranded, no phantom owner remains, and no
-  * sealed-but-undrained batch is left behind a healthy `owner == null`. Interrupted publication is therefore terminal in
-  * v1; recoverable cancellation would need an explicit owner-handoff protocol.
+  * transitions to `Failed` and completes every pending batch - so no waiter is stranded, no phantom owner remains, and
+  * no sealed-but-undrained batch is left behind a healthy `owner == null`. Interrupted publication is therefore
+  * terminal in v1; recoverable cancellation would need an explicit owner-handoff protocol.
   *
   * v1 scope: count-, flush-, and close-triggered publication only - a count-bounded tail, no wall-clock timer, no byte
   * cap, no manifest.
@@ -54,10 +54,10 @@ final class DeliveryRecorder[F[_]] private (
     * suspends until its batch is durable (bounded backpressure); it raises if the recorder has failed.
     */
   def admit(draft: JournalDraft): F[Long] =
-    newSlot.flatMap { slot =>
+    effect.suspend {
       val token = new Object
       effect.guarantee(
-        effect.delay(admitLocked(draft, slot, token)).flatMap {
+        effect.delay(admitLocked(draft, token)).flatMap {
           case AdmitOutcome.Rejected(error)           => effect.raiseError(error)
           case AdmitOutcome.Buffered(s)               => effect.pure(s)
           case AdmitOutcome.Sealed(s, batch, claimed) => driveThen(claimed, awaitBatch(batch)).as(s)
@@ -74,7 +74,7 @@ final class DeliveryRecorder[F[_]] private (
         phase match
           case Phase.Failed(error)          => effect.raiseError(error)
           case Phase.Closing | Phase.Closed => effect.raiseError(closedError)
-          case Phase.Open =>
+          case Phase.Open                   =>
             if seq == Long.MaxValue then effect.raiseError(seqExhausted)
             else
               seq += 1
@@ -86,12 +86,12 @@ final class DeliveryRecorder[F[_]] private (
     * before this call is durable - including batches an earlier cancelled admit left in the FIFO.
     */
   def flush(): F[Unit] =
-    newSlot.flatMap { slot =>
+    effect.suspend {
       val token = new Object
       effect.guarantee(
-        effect.delay(flushLocked(slot, token)).flatMap {
-          case FlushOutcome.Rejected(error)    => effect.raiseError(error)
-          case FlushOutcome.Empty()            => effect.pure(())
+        effect.delay(flushLocked(token)).flatMap {
+          case FlushOutcome.Rejected(error)      => effect.raiseError(error)
+          case FlushOutcome.Empty()              => effect.pure(())
           case FlushOutcome.Tail(batch, claimed) => driveThen(claimed, awaitBatch(batch))
         }
       )(settleOwnerExit(token))
@@ -101,13 +101,13 @@ final class DeliveryRecorder[F[_]] private (
     * recorder's error if a write did not succeed, so a lost tail cannot be mistaken for a clean shutdown.
     */
   def close(): F[Unit] =
-    newSlot.flatMap { slot =>
+    effect.suspend {
       val token = new Object
       effect.guarantee(
-        effect.delay(closeLocked(slot, token)).flatMap {
-          case CloseOutcome.AlreadyClosed     => effect.pure(())
-          case CloseOutcome.Failed(error)     => effect.raiseError(error)
-          case CloseOutcome.Proceed(claimed)  => driveThen(claimed, awaitDrained()) >> finishClose()
+        effect.delay(closeLocked(token)).flatMap {
+          case CloseOutcome.AlreadyClosed    => effect.pure(())
+          case CloseOutcome.Failed(error)    => effect.raiseError(error)
+          case CloseOutcome.Proceed(claimed) => driveThen(claimed, awaitDrained()) >> finishClose()
         }
       )(settleOwnerExit(token))
     }
@@ -118,55 +118,53 @@ final class DeliveryRecorder[F[_]] private (
   /** The highest envelope id the journal refers to, or `None` when the journal is empty. */
   def maxEnvelopeId: F[Option[Long]] = store.maxEnvelopeId
 
-  private def newSlot: F[SealedSlot[F]] = Deferred[F, Either[Throwable, Unit]]()
-
   /** Drive the FIFO if this operation claimed ownership, then run its wait. */
   private def driveThen(claimed: Boolean, wait: F[Unit]): F[Unit] =
     (if claimed then drainLoop() else effect.pure(())) >> wait
 
   // ---- locked decisions (synchronous, executed inside effect.delay) ----
 
-  private def admitLocked(draft: JournalDraft, slot: SealedSlot[F], token: AnyRef): AdmitOutcome[F] =
+  private def admitLocked(draft: JournalDraft, token: AnyRef): AdmitOutcome[F] =
     lock.synchronized {
       phase match
         case Phase.Failed(error)          => AdmitOutcome.Rejected(error)
         case Phase.Closing | Phase.Closed => AdmitOutcome.Rejected(closedError)
-        case Phase.Open =>
+        case Phase.Open                   =>
           if seq == Long.MaxValue then AdmitOutcome.Rejected(seqExhausted)
           else
             seq += 1
             val s = seq
             active(activeSize) = draft.withSeq(s)
             activeSize += 1
-            if activeSize >= config.batchSize then AdmitOutcome.Sealed(s, sealLocked(slot), claimLocked(token))
+            if activeSize >= config.batchSize then AdmitOutcome.Sealed(s, sealLocked(), claimLocked(token))
             else AdmitOutcome.Buffered(s)
     }
 
-  private def flushLocked(slot: SealedSlot[F], token: AnyRef): FlushOutcome[F] =
+  private def flushLocked(token: AnyRef): FlushOutcome[F] =
     lock.synchronized {
       phase match
         case Phase.Failed(error) => FlushOutcome.Rejected(error)
         case Phase.Closed        => FlushOutcome.Rejected(closedError)
-        case _ =>
-          if activeSize > 0 then sealLocked(slot)
+        case _                   =>
+          if activeSize > 0 then sealLocked()
           if ready.isEmpty then FlushOutcome.Empty()
           else FlushOutcome.Tail(ready.peekLast(), claimLocked(token))
     }
 
-  private def closeLocked(slot: SealedSlot[F], token: AnyRef): CloseOutcome =
+  private def closeLocked(token: AnyRef): CloseOutcome =
     lock.synchronized {
       phase match
         case Phase.Closed        => CloseOutcome.AlreadyClosed
         case Phase.Failed(error) => CloseOutcome.Failed(error)
-        case _ =>
+        case _                   =>
           phase = Phase.Closing
-          if activeSize > 0 then sealLocked(slot)
+          if activeSize > 0 then sealLocked()
           CloseOutcome.Proceed(if ready.isEmpty then false else claimLocked(token))
     }
 
-  /** Seals `active` into the FIFO. Caller must hold `lock`. */
-  private def sealLocked(slot: SealedSlot[F]): SealedBatch[F] =
-    val batch = SealedBatch(Vector.tabulate(activeSize)(active(_)), slot)
+  /** Seals `active` into the FIFO, allocating this batch's completion cell. Caller must hold `lock`. */
+  private def sealLocked(): SealedBatch[F] =
+    val batch = SealedBatch(Vector.tabulate(activeSize)(active(_)), Deferred.unsafe[F, Either[Throwable, Unit]]())
     activeSize = 0
     ready.addLast(batch)
     batch
@@ -197,7 +195,7 @@ final class DeliveryRecorder[F[_]] private (
 
   private def drainBatches(): F[Unit] =
     effect.delay(nextBatch()).flatMap {
-      case None => effect.pure(())
+      case None        => effect.pure(())
       case Some(batch) =>
         store0(batch.entries).flatMap { _ =>
           // Complete the waiter BEFORE removing the head. A batch's waiter is always signalled exactly one way: here
@@ -286,28 +284,28 @@ object DeliveryRecorder:
 
   private type SealedSlot[F[_]] = Deferred[F, Either[Throwable, Unit]]
 
-  private final case class SealedBatch[F[_]](entries: Vector[JournalEntry], completion: SealedSlot[F])
+  final private case class SealedBatch[F[_]](entries: Vector[JournalEntry], completion: SealedSlot[F])
 
-  private sealed trait Phase
+  sealed private trait Phase
   private object Phase:
     case object Open                          extends Phase
     case object Closing                       extends Phase
     case object Closed                        extends Phase
     final case class Failed(error: Throwable) extends Phase
 
-  private sealed trait AdmitOutcome[F[_]]
+  sealed private trait AdmitOutcome[F[_]]
   private object AdmitOutcome:
-    final case class Rejected[F[_]](error: Throwable)                                    extends AdmitOutcome[F]
-    final case class Buffered[F[_]](seq: Long)                                           extends AdmitOutcome[F]
-    final case class Sealed[F[_]](seq: Long, batch: SealedBatch[F], claimed: Boolean)    extends AdmitOutcome[F]
+    final case class Rejected[F[_]](error: Throwable)                                 extends AdmitOutcome[F]
+    final case class Buffered[F[_]](seq: Long)                                        extends AdmitOutcome[F]
+    final case class Sealed[F[_]](seq: Long, batch: SealedBatch[F], claimed: Boolean) extends AdmitOutcome[F]
 
-  private sealed trait FlushOutcome[F[_]]
+  sealed private trait FlushOutcome[F[_]]
   private object FlushOutcome:
-    final case class Rejected[F[_]](error: Throwable)                     extends FlushOutcome[F]
-    final case class Empty[F[_]]()                                        extends FlushOutcome[F]
-    final case class Tail[F[_]](batch: SealedBatch[F], claimed: Boolean)  extends FlushOutcome[F]
+    final case class Rejected[F[_]](error: Throwable)                    extends FlushOutcome[F]
+    final case class Empty[F[_]]()                                       extends FlushOutcome[F]
+    final case class Tail[F[_]](batch: SealedBatch[F], claimed: Boolean) extends FlushOutcome[F]
 
-  private sealed trait CloseOutcome
+  sealed private trait CloseOutcome
   private object CloseOutcome:
     case object AlreadyClosed                  extends CloseOutcome
     final case class Failed(error: Throwable)  extends CloseOutcome
