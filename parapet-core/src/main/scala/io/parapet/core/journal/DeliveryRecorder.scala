@@ -72,8 +72,13 @@ final class DeliveryRecorder[F[_]] private (
     effect.suspend {
       lock.synchronized {
         phase match
-          case Phase.Failed(error) => effect.raiseError(error)
-          case _                   => seq += 1; effect.pure(seq)
+          case Phase.Failed(error)          => effect.raiseError(error)
+          case Phase.Closing | Phase.Closed => effect.raiseError(closedError)
+          case Phase.Open =>
+            if seq == Long.MaxValue then effect.raiseError(seqExhausted)
+            else
+              seq += 1
+              effect.pure(seq)
       }
     }
 
@@ -127,12 +132,14 @@ final class DeliveryRecorder[F[_]] private (
         case Phase.Failed(error)          => AdmitOutcome.Rejected(error)
         case Phase.Closing | Phase.Closed => AdmitOutcome.Rejected(closedError)
         case Phase.Open =>
-          seq += 1
-          val s = seq
-          active(activeSize) = draft.withSeq(s)
-          activeSize += 1
-          if activeSize >= config.batchSize then AdmitOutcome.Sealed(s, sealLocked(slot), claimLocked(token))
-          else AdmitOutcome.Buffered(s)
+          if seq == Long.MaxValue then AdmitOutcome.Rejected(seqExhausted)
+          else
+            seq += 1
+            val s = seq
+            active(activeSize) = draft.withSeq(s)
+            activeSize += 1
+            if activeSize >= config.batchSize then AdmitOutcome.Sealed(s, sealLocked(slot), claimLocked(token))
+            else AdmitOutcome.Buffered(s)
     }
 
   private def flushLocked(slot: SealedSlot[F], token: AnyRef): FlushOutcome[F] =
@@ -306,7 +313,8 @@ object DeliveryRecorder:
     final case class Failed(error: Throwable)  extends CloseOutcome
     final case class Proceed(claimed: Boolean) extends CloseOutcome
 
-  private val closedError = new IllegalStateException("delivery recorder is closed")
+  private val closedError  = new IllegalStateException("delivery recorder is closed")
+  private val seqExhausted = new IllegalStateException("journal delivery sequence exhausted at Long.MaxValue")
 
   /** @param startSeq
     *   the delivery-sequence high-water to continue past, so a reopened journal neither reuses a `seq` nor overwrites a
@@ -317,4 +325,7 @@ object DeliveryRecorder:
   def apply[F[_]](store: JournalStore[F], config: JournalConfig = JournalConfig.default, startSeq: Long = 0L)(using
       Effect[F]
   ): DeliveryRecorder[F] =
+    require(config.batchSize > 0, s"journal batchSize must be > 0, got ${config.batchSize}")
+    require(config.maxRetries >= 0, s"journal maxRetries must be >= 0, got ${config.maxRetries}")
+    require(startSeq >= 0, s"journal startSeq must be >= 0, got $startSeq")
     new DeliveryRecorder(store, config, startSeq)
