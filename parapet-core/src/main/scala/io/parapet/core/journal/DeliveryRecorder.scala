@@ -12,16 +12,18 @@ import scala.jdk.CollectionConverters.*
 /** Records deliveries to a [[JournalStore]], assigning each a global delivery `seq`.
   *
   * Admission is totally ordered: `seq` is assigned in the same step that buffers the entry, so admission order equals
-  * `seq` order and every batch written to the store is a consecutive `seq` slice. Segment ranges are therefore strictly
-  * increasing and never overlap.
+  * `seq` order. Entries within a batch and batches within the journal are therefore strictly increasing, and batch
+  * ranges never overlap. Calls to [[sequenceOnly]] may leave gaps between journaled positions.
   *
   * An [[admit]] that fills a batch, and [[flush]] and [[close]], return only once the affected batch is durable, so a
   * caller waiting on a batch backpressures on the store's write rate. A permanent write failure is terminal: it fails
   * the recorder, so every in-flight and subsequent operation raises. A publication interrupted by cancellation is also
   * terminal.
   *
-  * v1 scope: batches are published on reaching `batchSize`, on [[flush]], and on [[close]] - there is no wall-clock
-  * timer, so the un-published tail is bounded by count, not time; no byte cap and no durable manifest yet.
+  * A publication owner drains the FIFO before returning. Under continuous concurrent admission this can delay that
+  * caller beyond the durability of its own batch; a finite workload drains, and [[close]] fences admission before it
+  * waits. Batches are published on reaching `batchSize`, on [[flush]], and on [[close]]. There is no wall-clock trigger
+  * or byte limit, so an unpublished tail is bounded by entry count rather than age or encoded size.
   */
 final class DeliveryRecorder[F[_]] private (
     store: JournalStore[F],
@@ -173,9 +175,8 @@ final class DeliveryRecorder[F[_]] private (
           CloseOutcome.Proceed(if ready.isEmpty then false else claimLocked(token))
     }
 
-  /** Seals `active` by swapping in a fresh buffer in O(1) and handing the filled one (plus its length) to the batch;
-    * the copy into the durable form happens outside the lock in [[store0]]. Caller must hold `lock`.
-    */
+  // Hands the sealed buffer (plus its length) to the batch and installs a fresh active buffer. Conversion to the
+  // durable Vector happens outside the lock in store0. Caller must hold `lock`.
   private def sealLocked(): SealedBatch[F] =
     val batch = SealedBatch(active, activeSize, Deferred.unsafe[F, Either[Throwable, Unit]]())
     active = new Array[JournalEntry](config.batchSize)
@@ -343,16 +344,28 @@ object DeliveryRecorder:
   private val closedError  = new IllegalStateException("delivery recorder is closed")
   private val seqExhausted = new IllegalStateException("journal delivery sequence exhausted at Long.MaxValue")
 
-  /** @param startSeq
-    *   the delivery-sequence high-water to continue past, so a reopened journal neither reuses a `seq` nor overwrites a
-    *   segment. The caller computes it as the maximum of the restored snapshot high-water, the journal's `maxSeq`, and
-    *   (once it exists) the durable manifest - retained segments alone are not enough, since the journal may be fully
-    *   truncated or the newest position may live only in a snapshot.
+  /** Creates a recorder for a journal with no previously assigned delivery positions. */
+  def fresh[F[_]](store: JournalStore[F], config: JournalConfig = JournalConfig.default)(using
+      Effect[F]
+  ): DeliveryRecorder[F] =
+    create(store, config, 0L)
+
+  /** Creates a recorder that continues after `highWater`.
+    *
+    * @param highWater
+    *   the highest delivery position already represented by recovered durable state.
     */
-  def apply[F[_]](store: JournalStore[F], config: JournalConfig = JournalConfig.default, startSeq: Long = 0L)(using
+  def resume[F[_]](
+      store: JournalStore[F],
+      highWater: Long,
+      config: JournalConfig = JournalConfig.default
+  )(using Effect[F]): DeliveryRecorder[F] =
+    create(store, config, highWater)
+
+  private def create[F[_]](store: JournalStore[F], config: JournalConfig, highWater: Long)(using
       Effect[F]
   ): DeliveryRecorder[F] =
     require(config.batchSize > 0, s"journal batchSize must be > 0, got ${config.batchSize}")
     require(config.maxRetries >= 0, s"journal maxRetries must be >= 0, got ${config.maxRetries}")
-    require(startSeq >= 0, s"journal startSeq must be >= 0, got $startSeq")
-    new DeliveryRecorder(store, config, startSeq)
+    require(highWater >= 0, s"journal highWater must be >= 0, got $highWater")
+    new DeliveryRecorder(store, config, highWater)

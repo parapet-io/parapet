@@ -5,8 +5,10 @@ package io.parapet.core.journal
   */
 trait JournalStore[F[_]]:
 
-  /** Persists `batch` as one segment. Entries are expected in ascending `seq` order; a batch is stored atomically -
-    * either all of it is durable or none of it is.
+  /** Persists `batch` as one segment. Entries are expected in ascending `seq` order. Each attempt is atomic: it leaves
+    * either none or the complete batch durable; an error may be ambiguous between those two outcomes. Because a caller
+    * may retry after such an error, appending the same batch again must be idempotent and must not create duplicate
+    * logical entries.
     */
   def append(batch: Seq[JournalEntry]): F[Unit]
 
