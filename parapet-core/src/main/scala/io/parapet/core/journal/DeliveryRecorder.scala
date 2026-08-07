@@ -13,7 +13,7 @@ import scala.jdk.CollectionConverters.*
   *
   * Admission is totally ordered: `seq` is assigned in the same step that buffers the entry, so admission order equals
   * `seq` order. Entries within a batch and batches within the journal are therefore strictly increasing, and batch
-  * ranges never overlap. Calls to [[sequenceOnly]] may leave gaps between journaled positions.
+  * ranges never overlap. Calls to [[advanceSequence]] may leave gaps between journaled positions.
   *
   * An [[admit]] that fills a batch, and [[flush]] and [[close]], return only once the affected batch is durable, so a
   * caller waiting on a batch backpressures on the store's write rate. A permanent write failure is terminal: it fails
@@ -78,10 +78,7 @@ final class DeliveryRecorder[F[_]] private (
       )(settleOwnerExit(token))
     }
 
-  /** Assigns a global position to a snapshot-tracked but unjournaled delivery. Shares the counter, so such deliveries
-    * leave gaps in the journal's `seq` ranges but never cause overlap.
-    */
-  def sequenceOnly(): F[Long] =
+  def advanceSequence(): F[Long] =
     effect.suspend {
       lock.synchronized {
         phase match
@@ -134,8 +131,6 @@ final class DeliveryRecorder[F[_]] private (
   /** Drive the FIFO if this operation claimed ownership, then run its wait. */
   private def driveThen(claimed: Boolean, wait: F[Unit]): F[Unit] =
     (if claimed then drainLoop() else effect.pure(())) >> wait
-
-  // ---- locked decisions (synchronous, executed inside effect.delay) ----
 
   private def admitLocked(draft: JournalDraft, token: AnyRef): AdmitOutcome[F] =
     lock.synchronized {

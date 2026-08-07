@@ -379,7 +379,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
       store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L, 2L))
       assertSameFailure(boom)(recorder.admit(draft(10L)).run())
-      assertSameFailure(boom)(recorder.sequenceOnly().run())
+      assertSameFailure(boom)(recorder.advanceSequence().run())
       assertSameFailure(boom)(recorder.flush().run())
       assertSameFailure(boom)(recorder.close().run())
     finally
@@ -412,7 +412,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
       store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L))
       an[IllegalStateException] should be thrownBy recorder.admit(draft(2L)).run()
-      an[IllegalStateException] should be thrownBy recorder.sequenceOnly().run()
+      an[IllegalStateException] should be thrownBy recorder.advanceSequence().run()
       an[IllegalStateException] should be thrownBy recorder.flush().run()
     finally
       store.release()
@@ -424,7 +424,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val recorder = DeliveryRecorder.fresh[ParIO](store, JournalConfig(batchSize = 2, maxRetries = 0))
 
     recorder.admit(draft(1L)).run() shouldBe 1L
-    recorder.sequenceOnly().run() shouldBe 2L
+    recorder.advanceSequence().run() shouldBe 2L
     recorder.admit(draft(2L)).run() shouldBe 3L
     recorder.close().run()
 
@@ -441,7 +441,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
     recorder.admit(draft(1L)).run() shouldBe Long.MaxValue
     an[IllegalStateException] should be thrownBy recorder.admit(draft(2L)).run()
-    an[IllegalStateException] should be thrownBy recorder.sequenceOnly().run()
+    an[IllegalStateException] should be thrownBy recorder.advanceSequence().run()
     store.appendAttempts shouldBe empty
 
     recorder.flush().run()
