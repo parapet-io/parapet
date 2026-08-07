@@ -183,6 +183,14 @@ final class DeliveryRecorder[F[_]] private (
     ready.addLast(batch)
     batch
 
+  /** Releases the buffered (not-yet-sealed) entries so a terminal recorder doesn't pin them. Caller must hold `lock`. */
+  private def clearActiveLocked(): Unit =
+    var i = 0
+    while i < activeSize do
+      active(i) = null
+      i += 1
+    activeSize = 0
+
   /** Claims drain ownership for `token` if unowned. Caller must hold `lock`. */
   private def claimLocked(token: AnyRef): Boolean =
     if owner == null then
@@ -259,7 +267,10 @@ final class DeliveryRecorder[F[_]] private (
       val (effectiveError, pending) = lock.synchronized {
         val eff = phase match
           case Phase.Failed(existing) => existing
-          case _                      => phase = Phase.Failed(error); error
+          case _ =>
+            phase = Phase.Failed(error)
+            clearActiveLocked() // the buffered partial batch will never be sealed now; release it (no waiter awaits it)
+            error
         (eff, ready.iterator().asScala.toVector)
       }
       logger.error("journal recorder failed; failing every pending batch", effectiveError)
