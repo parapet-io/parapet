@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory
 
 import java.util.ArrayDeque
 import scala.concurrent.duration.*
+import scala.jdk.CollectionConverters.*
 
 /** Records deliveries to [[JournalStore]] with **sequenced admission and inline ordered publication** (v1).
   *
@@ -218,22 +219,29 @@ final class DeliveryRecorder[F[_]] private (
         logger.error(s"failed to store journal batch [${entries.head.seq}, ${entries.last.seq}] (retry $retry)", error)
     )(store.append(entries))
 
-  /** Transitions to `Failed`, releases ownership, and fails every waiting batch so their operations raise. */
+  /** Transitions to `Failed` (first error wins) and completes every pending batch with that error so their operations
+    * raise. Ownership and the FIFO are held until every completion finishes, so a cancellation mid-notification is
+    * recoverable: the owner token stays installed, so [[settleOwnerExit]] re-runs this idempotent pass - preserving the
+    * original error rather than replacing it - and only then clears the queue and ownership.
+    */
   private def fail(error: Throwable): F[Unit] =
-    effect
-      .delay {
-        lock.synchronized {
-          phase = Phase.Failed(error)
+    effect.suspend {
+      // Mark Failed and snapshot the waiting batches, but keep `ready` and `owner` intact: if the notification pass
+      // below is cancelled part-way, the token is still installed, so settleOwnerExit re-enters and finishes it instead
+      // of stranding the not-yet-completed waiters.
+      val (effectiveError, pending) = lock.synchronized {
+        val eff = phase match
+          case Phase.Failed(existing) => existing
+          case _                      => phase = Phase.Failed(error); error
+        (eff, ready.iterator().asScala.toVector)
+      }
+      logger.error("journal recorder failed; failing every pending batch", effectiveError)
+      pending.foldLeft(effect.pure(()))((acc, b) => acc >> b.completion.complete(Left(effectiveError)).void) >>
+        effect.delay(lock.synchronized {
+          ready.clear()
           owner = null
-          val pending = Vector.newBuilder[SealedBatch[F]]
-          while !ready.isEmpty do pending += ready.removeFirst()
-          pending.result()
-        }
-      }
-      .flatMap { pending =>
-        logger.error("journal recorder failed; failing every pending batch", error)
-        pending.foldLeft(effect.pure(()))((acc, b) => acc >> b.completion.complete(Left(error)).void)
-      }
+        })
+    }
 
   private def awaitBatch(batch: SealedBatch[F]): F[Unit] =
     batch.completion.get.flatMap {
