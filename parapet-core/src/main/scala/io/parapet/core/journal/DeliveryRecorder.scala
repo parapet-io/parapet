@@ -182,19 +182,23 @@ final class DeliveryRecorder[F[_]] private (
       else effect.pure(())
     }
 
+  /** Drives the FIFO to empty (or to the first failure). One error handler wraps the whole drain, so a failure invokes
+    * [[fail]] once - not once per already-drained batch - and no per-batch handler frame accumulates as the loop runs.
+    */
   private def drainLoop(): F[Unit] =
+    drainBatches().handleErrorWith(error => fail(error) >> effect.raiseError(error))
+
+  private def drainBatches(): F[Unit] =
     effect.delay(nextBatch()).flatMap {
       case None => effect.pure(())
       case Some(batch) =>
-        store0(batch.entries)
-          .flatMap { _ =>
-            // Complete the waiter BEFORE removing the head. A batch's waiter is always signalled exactly one way: here
-            // with Right (the store call above made it durable), or - if this drain is cut short first - by fail()
-            // completing it with Left, which only reaches batches still in `ready`. Removing the head first would open a
-            // cancellation window where the batch is neither completed nor still in `ready`, stranding its waiter.
-            batch.completion.complete(Right(())).void >> effect.delay(completeHead()) >> drainLoop()
-          }
-          .handleErrorWith(error => fail(error) >> effect.raiseError(error))
+        store0(batch.entries).flatMap { _ =>
+          // Complete the waiter BEFORE removing the head. A batch's waiter is always signalled exactly one way: here
+          // with Right (the store call above made it durable), or - if this drain is cut short first - by fail()
+          // completing it with Left, which only reaches batches still in `ready`. Removing the head first would open a
+          // cancellation window where the batch is neither completed nor still in `ready`, stranding its waiter.
+          batch.completion.complete(Right(())).void >> effect.delay(completeHead()) >> drainBatches()
+        }
     }
 
   private def nextBatch(): Option[SealedBatch[F]] =
