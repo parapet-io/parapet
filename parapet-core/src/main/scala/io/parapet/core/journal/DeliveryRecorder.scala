@@ -45,7 +45,7 @@ final class DeliveryRecorder[F[_]] private (
   private val lock            = new Object
   private var phase: Phase    = Phase.Open
   private var seq: Long       = startSeq
-  private val active          = new Array[JournalEntry](config.batchSize)
+  private var active          = new Array[JournalEntry](config.batchSize)
   private var activeSize: Int = 0
   private val ready           = new ArrayDeque[SealedBatch[F]]()
   private var owner: AnyRef   = null
@@ -162,9 +162,12 @@ final class DeliveryRecorder[F[_]] private (
           CloseOutcome.Proceed(if ready.isEmpty then false else claimLocked(token))
     }
 
-  /** Seals `active` into the FIFO, allocating this batch's completion cell. Caller must hold `lock`. */
+  /** Seals `active` by swapping in a fresh buffer in O(1) and handing the filled one (plus its length) to the batch;
+    * the copy into the durable form happens outside the lock in [[store0]]. Caller must hold `lock`.
+    */
   private def sealLocked(): SealedBatch[F] =
-    val batch = SealedBatch(Vector.tabulate(activeSize)(active(_)), Deferred.unsafe[F, Either[Throwable, Unit]]())
+    val batch = SealedBatch(active, activeSize, Deferred.unsafe[F, Either[Throwable, Unit]]())
+    active = new Array[JournalEntry](config.batchSize)
     activeSize = 0
     ready.addLast(batch)
     batch
@@ -197,7 +200,7 @@ final class DeliveryRecorder[F[_]] private (
     effect.delay(nextBatch()).flatMap {
       case None        => effect.pure(())
       case Some(batch) =>
-        store0(batch.entries).flatMap { _ =>
+        store0(batch).flatMap { _ =>
           // Complete the waiter BEFORE removing the head. A batch's waiter is always signalled exactly one way: here
           // with Right (the store call above made it durable), or - if this drain is cut short first - by fail()
           // completing it with Left, which only reaches batches still in `ready`. Removing the head first would open a
@@ -220,13 +223,17 @@ final class DeliveryRecorder[F[_]] private (
       ()
     }
 
-  private def store0(entries: Vector[JournalEntry]): F[Unit] =
-    Retry(
-      config.maxRetries,
-      config.backoff,
-      (retry, error) =>
-        logger.error(s"failed to store journal batch [${entries.head.seq}, ${entries.last.seq}] (retry $retry)", error)
-    )(store.append(entries))
+  private def store0(batch: SealedBatch[F]): F[Unit] =
+    // Copy the sealed buffer into its durable form here, off the admission lock. The buffer is never mutated after
+    // sealing (admits write the fresh `active`), so this read is safe without holding the lock.
+    effect.delay(Vector.tabulate(batch.size)(batch.entries(_))).flatMap { entries =>
+      Retry(
+        config.maxRetries,
+        config.backoff,
+        (retry, error) =>
+          logger.error(s"failed to store journal batch [${entries.head.seq}, ${entries.last.seq}] (retry $retry)", error)
+      )(store.append(entries))
+    }
 
   /** Transitions to `Failed` (first error wins) and completes every pending batch with that error so their operations
     * raise. Ownership and the FIFO are held until every completion finishes, so a cancellation mid-notification is
@@ -284,7 +291,7 @@ object DeliveryRecorder:
 
   private type SealedSlot[F[_]] = Deferred[F, Either[Throwable, Unit]]
 
-  final private case class SealedBatch[F[_]](entries: Vector[JournalEntry], completion: SealedSlot[F])
+  final private case class SealedBatch[F[_]](entries: Array[JournalEntry], size: Int, completion: SealedSlot[F])
 
   sealed private trait Phase
   private object Phase:
