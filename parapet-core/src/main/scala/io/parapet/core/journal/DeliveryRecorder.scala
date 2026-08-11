@@ -73,7 +73,7 @@ final class DeliveryRecorder[F[_]] private (
         effect.delay(admitLocked(draft, token)).flatMap {
           case AdmitOutcome.Rejected(error)           => effect.raiseError(error)
           case AdmitOutcome.Buffered(s)               => effect.pure(s)
-          case AdmitOutcome.Sealed(s, batch, claimed) => driveThen(claimed, awaitBatch(batch)).as(s)
+          case AdmitOutcome.Sealed(s, batch, claimed) => (drainIfOwner(claimed) >> awaitBatch(batch)).as(s)
         }
       )(settleOwnerExit(token))
     }
@@ -102,7 +102,7 @@ final class DeliveryRecorder[F[_]] private (
         effect.delay(flushLocked(token)).flatMap {
           case FlushOutcome.Rejected(error)      => effect.raiseError(error)
           case FlushOutcome.Empty()              => effect.pure(())
-          case FlushOutcome.Tail(batch, claimed) => driveThen(claimed, awaitBatch(batch))
+          case FlushOutcome.Tail(batch, claimed) => drainIfOwner(claimed) >> awaitBatch(batch)
         }
       )(settleOwnerExit(token))
     }
@@ -117,7 +117,7 @@ final class DeliveryRecorder[F[_]] private (
         effect.delay(closeLocked(token)).flatMap {
           case CloseOutcome.AlreadyClosed    => effect.pure(())
           case CloseOutcome.Failed(error)    => effect.raiseError(error)
-          case CloseOutcome.Proceed(claimed) => driveThen(claimed, awaitDrained()) >> finishClose()
+          case CloseOutcome.Proceed(claimed) => drainIfOwner(claimed) >> awaitDrained() >> finishClose()
         }
       )(settleOwnerExit(token))
     }
@@ -133,9 +133,9 @@ final class DeliveryRecorder[F[_]] private (
   /** The highest envelope id the journal refers to, or `None` when the journal is empty. */
   def maxEnvelopeId: F[Option[Long]] = store.maxEnvelopeId
 
-  /** Drive the FIFO if this operation claimed ownership, then run its wait. */
-  private def driveThen(claimed: Boolean, wait: F[Unit]): F[Unit] =
-    (if claimed then drainLoop() else effect.pure(())) >> wait
+  /** Drives the FIFO if this operation claimed ownership; a no-op otherwise. */
+  private def drainIfOwner(claimed: Boolean): F[Unit] =
+    if claimed then drainLoop() else effect.pure(())
 
   private def admitLocked(draft: JournalDraft, token: AnyRef): AdmitOutcome[F] =
     lock.synchronized {
