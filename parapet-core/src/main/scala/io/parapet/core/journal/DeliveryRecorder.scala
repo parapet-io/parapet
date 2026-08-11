@@ -184,7 +184,8 @@ final class DeliveryRecorder[F[_]] private (
     ready.addLast(batch)
     batch
 
-  /** Releases the buffered (not-yet-sealed) entries so a terminal recorder doesn't pin them. Caller must hold `lock`. */
+  /** Releases the buffered (not-yet-sealed) entries so a terminal recorder doesn't pin them. Caller must hold `lock`.
+    */
   private def clearActiveLocked(): Unit =
     var i = 0
     while i < activeSize do
@@ -219,14 +220,7 @@ final class DeliveryRecorder[F[_]] private (
   private def drainBatches(): F[Unit] =
     effect.delay(nextBatch()).flatMap {
       case None        => effect.pure(())
-      case Some(batch) =>
-        store0(batch).flatMap { _ =>
-          // Complete the waiter BEFORE removing the head. A batch's waiter is always signalled exactly one way: here
-          // with Right (the store call above made it durable), or - if this drain is cut short first - by fail()
-          // completing it with Left, which only reaches batches still in `ready`. Removing the head first would open a
-          // cancellation window where the batch is neither completed nor still in `ready`, stranding its waiter.
-          batch.completion.complete(Right(())).void >> effect.delay(completeHead()) >> drainBatches()
-        }
+      case Some(batch) => store0(batch) >> completeHead(batch) >> drainBatches()
     }
 
   private def nextBatch(): Option[SealedBatch[F]] =
@@ -237,10 +231,17 @@ final class DeliveryRecorder[F[_]] private (
       else Some(ready.peekFirst()) // leave the head in place until the store acknowledges it
     }
 
-  private def completeHead(): Unit =
-    lock.synchronized {
-      ready.removeFirst()
-      ()
+  /** Settles the head after its store call succeeded: completes its waiter with success and drops it from the FIFO in
+    * one atomic step. Atomicity is what keeps cancellation safe - a batch is either fully settled (completed and gone)
+    * or still pending in `ready` (so `fail` can complete it with the error); it is never one without the other.
+    */
+  private def completeHead(batch: SealedBatch[F]): F[Unit] =
+    effect.delay {
+      lock.synchronized {
+        batch.completion.unsafeComplete(Right(()))
+        ready.removeFirst()
+        ()
+      }
     }
 
   private def store0(batch: SealedBatch[F]): F[Unit] =
@@ -251,7 +252,8 @@ final class DeliveryRecorder[F[_]] private (
         config.maxRetries,
         config.backoff,
         (retry, error) =>
-          logger.error(s"failed to store journal batch [${entries.head.seq}, ${entries.last.seq}] (retry $retry)", error)
+          logger
+            .error(s"failed to store journal batch [${entries.head.seq}, ${entries.last.seq}] (retry $retry)", error)
       )(store.append(entries))
     }
 
@@ -268,7 +270,7 @@ final class DeliveryRecorder[F[_]] private (
       val (effectiveError, pending) = lock.synchronized {
         val eff = phase match
           case Phase.Failed(existing) => existing
-          case _ =>
+          case _                      =>
             phase = Phase.Failed(error)
             clearActiveLocked() // the buffered partial batch will never be sealed now; release it (no waiter awaits it)
             error
