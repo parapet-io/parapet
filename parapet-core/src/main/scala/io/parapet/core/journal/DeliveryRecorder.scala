@@ -122,6 +122,11 @@ final class DeliveryRecorder[F[_]] private (
       )(settleOwnerExit(token))
     }
 
+  /** Advances the delivery sequence past `after`. For boot seeding only - must be called before any admission.
+    */
+  def continueAfter(after: Long): Unit =
+    lock.synchronized { if after > seq then seq = after }
+
   /** The highest `seq` durably recorded, or `None` when the journal is empty. */
   def maxSeq: F[Option[Long]] = store.maxSeq
 

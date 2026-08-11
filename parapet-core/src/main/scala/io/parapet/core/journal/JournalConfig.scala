@@ -4,7 +4,7 @@ import io.parapet.effect.Backoff
 
 import scala.concurrent.duration.*
 
-/** Tuning for [[JournalManager]].
+/** Tuning for [[DeliveryRecorder]].
   *
   * @param enabled
   *   master switch for recording the delivery journal.
