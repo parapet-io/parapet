@@ -1,6 +1,7 @@
 package io.parapet.core.journal
 
 import com.typesafe.scalalogging.Logger
+import io.parapet.core.Clock
 import io.parapet.effect.Monad.*
 import io.parapet.effect.{Deferred, Effect, Retry}
 import org.slf4j.LoggerFactory
@@ -28,7 +29,8 @@ import scala.jdk.CollectionConverters.*
 final class DeliveryRecorder[F[_]] private (
     store: JournalStore[F],
     config: JournalConfig,
-    startSeq: Long
+    startSeq: Long,
+    clock: Clock
 )(using effect: Effect[F]):
 
   import DeliveryRecorder.*
@@ -245,17 +247,22 @@ final class DeliveryRecorder[F[_]] private (
     }
 
   private def store0(batch: SealedBatch[F]): F[Unit] =
-    // Copy the sealed buffer into its durable form here, off the admission lock. The buffer is never mutated after
-    // sealing (admits write the fresh `active`), so this read is safe without holding the lock.
-    effect.delay(Vector.tabulate(batch.size)(batch.entries(_))).flatMap { entries =>
-      Retry(
-        config.maxRetries,
-        config.backoff,
-        (retry, error) =>
-          logger
-            .error(s"failed to store journal batch [${entries.head.seq}, ${entries.last.seq}] (retry $retry)", error)
-      )(store.append(entries))
-    }
+    // Build the durable segment here, off the admission lock. The buffer is never mutated after sealing (admits write
+    // the fresh `active`), so this read is safe without holding the lock.
+    effect
+      .delay {
+        val entries = Vector.tabulate(batch.size)(batch.entries(_))
+        JournalSegment(JournalMetadata.of(entries, clock.currentTimeMillis), entries)
+      }
+      .flatMap { segment =>
+        val m = segment.metadata
+        Retry(
+          config.maxRetries,
+          config.backoff,
+          (retry, error) =>
+            logger.error(s"failed to store journal segment [${m.minSeq}, ${m.maxSeq}] (retry $retry)", error)
+        )(store.append(segment))
+      }
 
   /** Transitions to `Failed` (first error wins) and completes every pending batch with that error so their operations
     * raise. Ownership and the FIFO are held until every completion finishes, so a cancellation mid-notification is
@@ -347,10 +354,10 @@ object DeliveryRecorder:
   private val seqExhausted = new IllegalStateException("journal delivery sequence exhausted at Long.MaxValue")
 
   /** Creates a recorder for a journal with no previously assigned delivery positions. */
-  def fresh[F[_]](store: JournalStore[F], config: JournalConfig = JournalConfig.default)(using
+  def fresh[F[_]](store: JournalStore[F], config: JournalConfig = JournalConfig.default, clock: Clock = Clock())(using
       Effect[F]
   ): DeliveryRecorder[F] =
-    create(store, config, 0L)
+    create(store, config, 0L, clock)
 
   /** Creates a recorder that continues after `highWater`.
     *
@@ -360,14 +367,15 @@ object DeliveryRecorder:
   def resume[F[_]](
       store: JournalStore[F],
       highWater: Long,
-      config: JournalConfig = JournalConfig.default
+      config: JournalConfig = JournalConfig.default,
+      clock: Clock = Clock()
   )(using Effect[F]): DeliveryRecorder[F] =
-    create(store, config, highWater)
+    create(store, config, highWater, clock)
 
-  private def create[F[_]](store: JournalStore[F], config: JournalConfig, highWater: Long)(using
+  private def create[F[_]](store: JournalStore[F], config: JournalConfig, highWater: Long, clock: Clock)(using
       Effect[F]
   ): DeliveryRecorder[F] =
     require(config.batchSize > 0, s"journal batchSize must be > 0, got ${config.batchSize}")
     require(config.maxRetries >= 0, s"journal maxRetries must be >= 0, got ${config.maxRetries}")
     require(highWater >= 0, s"journal highWater must be >= 0, got $highWater")
-    new DeliveryRecorder(store, config, highWater)
+    new DeliveryRecorder(store, config, highWater, clock)

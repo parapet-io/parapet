@@ -186,7 +186,7 @@ class Context[F[_]](
   /** Advances the delivery-sequence and envelope-id counters past what the journal already holds. */
   private[parapet] def seedSequencersFromJournal: F[Unit] =
     recorder match
-      case None          => effect.pure(())
+      case None      => effect.pure(())
       case Some(rec) =>
         for
           maxSeq <- rec.maxSeq

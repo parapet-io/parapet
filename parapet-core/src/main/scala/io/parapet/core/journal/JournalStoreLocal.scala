@@ -14,17 +14,16 @@ class JournalStoreLocal[F[_]](config: JournalStoreLocal.Config)(using effect: Ef
 
   private val logger = LoggerFactory.getLogger(classOf[JournalStoreLocal[?]])
 
-  override def append(batch: Seq[JournalEntry]): F[Unit] =
+  override def append(segment: JournalSegment): F[Unit] =
     effect.delay {
-      if batch.nonEmpty then
-        val minSeq = batch.iterator.map(_.seq).min
-        val maxSeq = batch.iterator.map(_.seq).max
-        logger.debug(s"append journal batch [$minSeq, $maxSeq] of ${batch.size} entries")
+      if segment.entries.nonEmpty then
+        val m = segment.metadata
+        logger.debug(s"append journal segment [${m.minSeq}, ${m.maxSeq}] of ${m.entryCount} entries")
         Files.createDirectories(config.dataDir)
-        val target = config.dataDir.resolve(fileName(minSeq, maxSeq))
+        val target = config.dataDir.resolve(fileName(m.minSeq, m.maxSeq))
         val temp   = Files.createTempFile(config.dataDir, "pjrn-", ".tmp")
         try
-          Files.write(temp, JournalEntryBinaryFormat.encodeBatch(batch))
+          Files.write(temp, JournalSegmentBinaryFormat.encode(segment))
           Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
           ()
         finally
@@ -36,7 +35,7 @@ class JournalStoreLocal[F[_]](config: JournalStoreLocal.Config)(using effect: Ef
     effect.delay {
       segments
         .filter(_.maxSeq > afterSeq)
-        .flatMap(segment => JournalEntryBinaryFormat.decodeBatch(Files.readAllBytes(segment.path)))
+        .flatMap(segment => JournalSegmentBinaryFormat.decode(Files.readAllBytes(segment.path)).entries)
         .filter(_.seq > afterSeq)
         .sortBy(_.seq)
     }
@@ -45,13 +44,14 @@ class JournalStoreLocal[F[_]](config: JournalStoreLocal.Config)(using effect: Ef
     effect.delay(segments.map(_.maxSeq).maxOption)
 
   override def maxEnvelopeId: F[Option[Long]] =
-    effect.delay {
-      // id isn't encoded in the filename (and isn't monotonic with seq), so this decodes every segment.
-      segments
-        .flatMap(segment => JournalEntryBinaryFormat.decodeBatch(Files.readAllBytes(segment.path)))
-        .flatMap(entry => Vector(entry.id, entry.cause))
-        .maxOption
-    }
+    // Read only each segment's fixed-size header, not its entries.
+    effect.delay(segments.map(segment => readMetadata(segment.path).maxEnvelopeId).maxOption)
+
+  /** Reads only the leading fixed-size header of a segment file (not its entries). */
+  private def readMetadata(path: Path): JournalMetadata =
+    val in = Files.newInputStream(path)
+    try JournalSegmentBinaryFormat.readMetadata(in.readNBytes(JournalSegmentBinaryFormat.MetadataBytes))
+    finally in.close()
 
   override def truncate(upToSeq: Long): F[Unit] =
     effect.delay {

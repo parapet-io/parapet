@@ -28,7 +28,7 @@ object JournalEntryBinaryFormat:
   final class CorruptEntryException(message: String) extends RuntimeException(message)
 
   private val Magic: Int           = 0x504a524e // "PJRN"
-  private val FormatVersion: Short = 2
+  private val FormatVersion: Short = 1
 
   private val MagicSize    = java.lang.Integer.BYTES
   private val VersionSize  = java.lang.Short.BYTES

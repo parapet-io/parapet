@@ -128,9 +128,9 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     private val attempts       = new CopyOnWriteArrayList[Vector[JournalEntry]]()
     private val durableBatches = new CopyOnWriteArrayList[Vector[JournalEntry]]()
 
-    override def append(batch: Seq[JournalEntry]): ParIO[Unit] =
+    override def append(segment: JournalSegment): ParIO[Unit] =
       ParIO.blocking {
-        val entries = batch.toVector
+        val entries = segment.entries
         val call    = calls.getAndIncrement()
         attempts.add(entries)
         if call == 0 && gateFirst then
