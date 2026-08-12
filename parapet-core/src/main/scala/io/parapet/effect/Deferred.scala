@@ -14,7 +14,11 @@ final class Deferred[F[_], A] private (future: CompletableFuture[A])(using effec
 
   /** Tries to set the cell to `value`. Returns `true` on the first successful set. */
   def complete(value: A): F[Boolean] =
-    effect.delay(future.complete(value))
+    effect.delay(unsafeComplete(value))
+
+  /** Sets the cell synchronously, returning `true` on the first successful set. */
+  def unsafeComplete(value: A): Boolean =
+    future.complete(value)
 
 /** [[Deferred]] factory. */
 object Deferred:
