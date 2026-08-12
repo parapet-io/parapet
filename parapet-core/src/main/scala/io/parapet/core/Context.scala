@@ -5,7 +5,7 @@ import io.parapet.core.Events.Start
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
-import io.parapet.core.journal.{JournalEntry, JournalManager, JournalStore}
+import io.parapet.core.journal.{DeliveryRecorder, JournalDraft, JournalStore}
 import io.parapet.core.processes.{Noop, SystemProcess}
 import io.parapet.core.snapshot.{SnapshotManager, SnapshotStorage}
 import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
@@ -35,7 +35,7 @@ class Context[F[_]](
     config: Parapet.ParConfig,
     val eventTransformers: EventTransformers,
     private val snapshotManager: Option[SnapshotManager[F]],
-    private val journalManager: Option[JournalManager[F]]
+    private val recorder: Option[DeliveryRecorder[F]]
 )(using effect: Effect[F]):
   self =>
 
@@ -64,29 +64,33 @@ class Context[F[_]](
     snapshotManager.fold(effect.pure(false))(_.createAsync(ref, process, seq))
 
   /** Whether the delivery journal is recording. */
-  val journalEnabled: Boolean = journalManager.isDefined
+  val journalEnabled: Boolean = recorder.isDefined
 
-  /** Records `entry` in the delivery journal. No-op when the journal is off. */
-  def journal(entry: JournalEntry): F[Unit] =
-    journalManager.fold(effect.pure(()))(_.append(entry))
+  /** Records `draft` in the delivery journal and returns its assigned delivery `seq`. Only valid when journalling is on
+    * (the caller reaches this only for a journalable delivery).
+    */
+  def admit(draft: JournalDraft): F[Long] =
+    recorder.fold(effect.raiseError[Long](new IllegalStateException("journal is not enabled")))(_.admit(draft))
 
-  /** Stops the journal writer. No-op when the journal is off. */
+  /** Stops the journal, publishing any buffered tail. No-op when the journal is off. */
   def stopJournal: F[Unit] =
-    journalManager.fold(effect.pure(()))(_.close)
+    recorder.fold(effect.pure(()))(_.close())
 
   private val processes = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessState[F]]()
   private val graph     = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ListBuffer[ProcessRef.Unknown]]()
   private val parents   = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessRef.Unknown]()
 
-  /** Global monotonic delivery sequence. */
+  // Global monotonic delivery sequence. When the journal is on, the recorder owns it
   private val seqCounter = new AtomicLong(0L)
 
-  /** Returns the next global delivery sequence number. */
-  def nextSeq(): Long = seqCounter.incrementAndGet()
+  /** Returns the next global delivery position for a snapshot-tracked but unjournalled delivery. */
+  def nextSeq(): F[Long] =
+    recorder.fold(effect.delay(seqCounter.incrementAndGet()))(_.advanceSequence())
 
   private[core] def continueSeqAfter(seq: Long): Unit =
-    seqCounter.updateAndGet(current => math.max(current, seq))
-    ()
+    recorder match
+      case Some(r) => r.continueAfter(seq)
+      case None    => seqCounter.updateAndGet(current => math.max(current, seq)); ()
 
   private var _scheduler: Scheduler[F] = _
 
@@ -181,12 +185,12 @@ class Context[F[_]](
 
   /** Advances the delivery-sequence and envelope-id counters past what the journal already holds. */
   private[parapet] def seedSequencersFromJournal: F[Unit] =
-    journalManager match
+    recorder match
       case None          => effect.pure(())
-      case Some(manager) =>
+      case Some(rec) =>
         for
-          maxSeq <- manager.maxSeq
-          maxId  <- manager.maxEnvelopeId
+          maxSeq <- rec.maxSeq
+          maxId  <- rec.maxEnvelopeId
           _      <- effect.delay {
             maxSeq.foreach(continueSeqAfter)
             maxId.foreach(Envelope.continueIdAfter)
@@ -251,15 +255,15 @@ object Context:
       journalStorage: Option[JournalStore[F]] = None
   )(using effect: Effect[F]): F[Context[F]] =
     for
-      snapshots <- buildManager(config.snapshot.enabled, snapshotStorage, "snapshotting")(
+      snapshots <- buildWithStorage(config.snapshot.enabled, snapshotStorage, "snapshotting")(
         SnapshotManager[F](_, Clock(), config.snapshot.queueCapacity)
       )
-      journal <- buildManager(config.journal.enabled, journalStorage, "journal")(
-        JournalManager[F](_, config.journal)
+      recorder <- buildWithStorage(config.journal.enabled, journalStorage, "journal")(store =>
+        effect.pure(DeliveryRecorder.fresh(store, config.journal))
       )
-    yield new Context[F](config, eventTransformers, snapshots, journal)
+    yield new Context[F](config, eventTransformers, snapshots, recorder)
 
-  private def buildManager[F[_], S, M](enabled: Boolean, storage: Option[S], name: String)(
+  private def buildWithStorage[F[_], S, M](enabled: Boolean, storage: Option[S], name: String)(
       build: S => F[M]
   )(using effect: Effect[F]): F[Option[M]] =
     if !enabled then effect.pure(None)

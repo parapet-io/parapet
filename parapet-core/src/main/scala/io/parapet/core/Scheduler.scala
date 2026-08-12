@@ -9,7 +9,7 @@ import io.parapet.core.Events.*
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.*
 import io.parapet.core.exceptions.*
-import io.parapet.core.journal.JournalEntry
+import io.parapet.core.journal.JournalDraft
 import io.parapet.core.snapshot.Snapshotable
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
@@ -466,34 +466,32 @@ object Scheduler:
 
         logger.debug(s"worker[$name]::run(${processState.process}) slice=$mailboxSlice") >> step(mailboxSlice)
 
-      /** Runs at the consume point, before the handler: assigns the delivery `seq` once, records the journal entry
-        * write-ahead (journalling process, business event), and stamps the snapshot cadence tracker.
+      /** Runs at the consume point, before the handler. For a journalled delivery it admits the record write-ahead (the
+        * recorder assigns the delivery `seq`); a snapshot-tracked but unjournalled delivery instead draws a position.
+        * The resulting `seq` stamps the snapshot cadence tracker.
         */
       private def onConsume(processState: ProcessState[F], envelope: Envelope): F[Unit] =
         val snapEnabled = snapshotting(processState)
         val jrnlEnabled = isJournable(processState, envelope)
         if !snapEnabled && !jrnlEnabled then effect.pure(())
-        else
-          effect.suspend {
-            if !snapEnabled && !jrnlEnabled then effect.pure(())
-            else
-              val seq         = context.nextSeq()
-              val journalStep = if jrnlEnabled then journalAppend(processState, envelope, seq) else effect.pure(())
-              val trackStep   =
-                if snapEnabled then effect.delay(processState.checkpoints.onDelivered(seq)) else effect.pure(())
-              journalStep >> trackStep
+        else if jrnlEnabled then
+          journalAdmit(processState, envelope).flatMap { seq =>
+            if snapEnabled then effect.delay(processState.checkpoints.onDelivered(seq)) else effect.pure(())
           }
+        else context.nextSeq().flatMap(seq => effect.delay(processState.checkpoints.onDelivered(seq)))
 
-      private def journalAppend(processState: ProcessState[F], envelope: Envelope, seq: Long): F[Unit] =
-        processState.eventCodec match
-          case None        => effect.pure(())
-          case Some(codec) =>
-            codec.encode(envelope.event) match
-              case scala.util.Success(bytes) =>
-                context.journal(
-                  JournalEntry(seq, envelope.id, envelope.sender, envelope.receiver, envelope.cause, bytes.clone())
-                )
-              case scala.util.Failure(error) => effect.raiseError(error)
+      private def journalAdmit(processState: ProcessState[F], envelope: Envelope): F[Long] =
+        effect.suspend {
+          processState.eventCodec match
+            case None => effect.raiseError(new IllegalStateException("journalable process without an event codec"))
+            case Some(codec) =>
+              codec.encode(envelope.event) match
+                case scala.util.Success(bytes) =>
+                  context.admit(
+                    JournalDraft(envelope.id, envelope.sender, envelope.receiver, envelope.cause, bytes.clone())
+                  )
+                case scala.util.Failure(error) => effect.raiseError(error)
+        }
 
       private def isJournable(processState: ProcessState[?], envelope: Envelope): Boolean =
         context.journalEnabled && processState.journalable && journaled(envelope.event) &&

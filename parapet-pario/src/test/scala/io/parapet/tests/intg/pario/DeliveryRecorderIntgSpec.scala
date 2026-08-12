@@ -71,7 +71,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       case _                      => ()
     }
 
-  private final case class Running[A](thread: Thread, result: AtomicReference[Try[A]])
+  final private case class Running[A](thread: Thread, result: AtomicReference[Try[A]])
 
   private def startThread[A](name: String)(body: => A): Running[A] =
     val result = new AtomicReference[Try[A]]()
@@ -117,7 +117,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     }
 
   // In-memory store with a controllable first append and a trace captured in actual append-call order.
-  private final class ControlledStore(
+  final private class ControlledStore(
       firstResult: Either[Throwable, Unit] = Right(()),
       gateFirst: Boolean = true
   ) extends JournalStore[ParIO]:
@@ -162,7 +162,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     def appendAttempts: Vector[Vector[JournalEntry]] = attempts.asScala.toVector
 
   // Observes recorder-owned blocking and sleeping without observing the fake store, which uses ParIO directly.
-  private final class ProbeEffect(
+  final private class ProbeEffect(
       delegate: Effect[ParIO],
       deferredWaitEntered: CountDownLatch = new CountDownLatch(0),
       drainPollEntered: CountDownLatch = new CountDownLatch(0)
@@ -171,9 +171,9 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     override def pure[A](value: A): ParIO[A] = delegate.pure(value)
 
     extension [A](fa: ParIO[A])
-      def flatMap[B](f: A => ParIO[B]): ParIO[B]                  = fa.flatMap(f)
-      override def map[B](f: A => B): ParIO[B]                    = fa.map(f)
-      def handleErrorWith(f: Throwable => ParIO[A]): ParIO[A]     = fa.handleErrorWith(f)
+      def flatMap[B](f: A => ParIO[B]): ParIO[B]              = fa.flatMap(f)
+      override def map[B](f: A => B): ParIO[B]                = fa.map(f)
+      def handleErrorWith(f: Throwable => ParIO[A]): ParIO[A] = fa.handleErrorWith(f)
 
     override def delay[A](thunk: => A): ParIO[A] = delegate.delay(thunk)
 
@@ -198,7 +198,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
     override def guarantee[A](fa: ParIO[A])(finalizer: ParIO[Unit]): ParIO[A] = delegate.guarantee(fa)(finalizer)
 
-  private final case class AdmissionScenario(
+  final private case class AdmissionScenario(
       name: String,
       workers: Int,
       perWorker: Int,
@@ -231,9 +231,9 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
           store,
           JournalConfig(batchSize = scenario.batchSize, maxRetries = 0)
         )
-        val barrier  = new CyclicBarrier(scenario.workers)
-        val nextId   = new AtomicLong(0L)
-        val workers  = (1 to scenario.workers).map { worker =>
+        val barrier = new CyclicBarrier(scenario.workers)
+        val nextId  = new AtomicLong(0L)
+        val workers = (1 to scenario.workers).map { worker =>
           startThread(s"${scenario.name}-$sample-worker-$worker") {
             barrier.await(awaitSeconds, TimeUnit.SECONDS)
             Vector.fill(scenario.perWorker) {
@@ -246,10 +246,10 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
         val returned = awaitAll(workers, s"${scenario.name} sample $sample").flatMap(_.get)
         recorder.close().run()
 
-        val total        = scenario.workers * scenario.perWorker
-        val actual       = store.appendAttempts
-        val expectedSeqs = (1L to total.toLong).toVector
-        val remainder    = total % scenario.batchSize
+        val total         = scenario.workers * scenario.perWorker
+        val actual        = store.appendAttempts
+        val expectedSeqs  = (1L to total.toLong).toVector
+        val remainder     = total % scenario.batchSize
         val expectedSizes =
           Vector.fill(total / scenario.batchSize)(scenario.batchSize) ++
             Option.when(remainder > 0)(remainder)
@@ -275,7 +275,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
     try
       recorder.admit(draft(1L)).run() shouldBe 1L
-      val owner = startThread("fifo-owner") { recorder.admit(draft(2L)).run() }
+      val owner = startThread("fifo-owner")(recorder.admit(draft(2L)).run())
       running :+= owner
       await(store.firstEntered, "the first batch never reached the store")
 
@@ -317,11 +317,11 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     var threads     = Vector.empty[Thread]
 
     try
-      val owner = startThread("flush-owner") { recorder.admit(draft(1L)).run() }
+      val owner = startThread("flush-owner")(recorder.admit(draft(1L)).run())
       threads :+= owner.thread
       await(store.firstEntered, "the owner never entered append")
 
-      val flush = startThread("flush-waiter") { recorder.flush().run() }
+      val flush = startThread("flush-waiter")(recorder.flush().run())
       threads :+= flush.thread
       await(waiterProbe, "flush did not wait for the unresolved FIFO tail")
       flush.thread.isAlive shouldBe true
@@ -348,7 +348,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
     try
       recorder.admit(draft(1L)).run() shouldBe 1L
-      val owner = startThread("failure-owner") { recorder.admit(draft(2L)).run() }
+      val owner = startThread("failure-owner")(recorder.admit(draft(2L)).run())
       running :+= owner
       await(store.firstEntered, "the failing append was not entered")
 
@@ -361,7 +361,8 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       }.toVector
       running ++= later
 
-      Vector.fill(4)(take(completed, "four buffered admits did not return before failure"))
+      Vector
+        .fill(4)(take(completed, "four buffered admits did not return before failure"))
         .foreach(outcome => outcome.isSuccess shouldBe true)
       await(waiterProbe, "three sealed batches were not awaiting the failing owner")
 
@@ -396,11 +397,11 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
     try
       recorder.admit(draft(1L)).run() shouldBe 1L
-      val first = startThread("first-close") { recorder.close().run() }
+      val first = startThread("first-close")(recorder.close().run())
       running :+= first
       await(store.firstEntered, "close did not publish the partial tail")
 
-      val second = startThread("second-close") { recorder.close().run() }
+      val second = startThread("second-close")(recorder.close().run())
       running :+= second
       await(closeProbe, "the concurrent close did not join the active drain")
       first.thread.isAlive shouldBe true
@@ -432,7 +433,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   }
 
   test("sequence exhaustion rejects overflow without losing the final valid position") {
-    val store = new ControlledStore(gateFirst = false)
+    val store    = new ControlledStore(gateFirst = false)
     val recorder = DeliveryRecorder.resume[ParIO](
       store,
       highWater = Long.MaxValue - 1L,
@@ -457,7 +458,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     first.close().run()
 
     val highWater = storeAt(dir).maxSeq.run().getOrElse(0L)
-    val second = DeliveryRecorder.resume[ParIO](
+    val second    = DeliveryRecorder.resume[ParIO](
       storeAt(dir),
       highWater,
       JournalConfig(batchSize = 4)
