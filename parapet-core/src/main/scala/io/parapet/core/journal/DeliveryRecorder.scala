@@ -231,10 +231,6 @@ final class DeliveryRecorder[F[_]] private (
       else Some(ready.peekFirst()) // leave the head in place until the store acknowledges it
     }
 
-  /** Settles the head after its store call succeeded: completes its waiter with success and drops it from the FIFO in
-    * one atomic step. Atomicity is what keeps cancellation safe - a batch is either fully settled (completed and gone)
-    * or still pending in `ready` (so `fail` can complete it with the error); it is never one without the other.
-    */
   private def completeHead(batch: SealedBatch[F]): F[Unit] =
     effect.delay {
       lock.synchronized {
