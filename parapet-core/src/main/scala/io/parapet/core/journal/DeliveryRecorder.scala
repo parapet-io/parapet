@@ -225,6 +225,10 @@ final class DeliveryRecorder[F[_]] private (
 
   private def nextBatch(): Option[SealedBatch[F]] =
     lock.synchronized {
+      // advances the drain: the FIFO head to write next, or - atomically with observing the empty FIFO - releases
+      // ownership and returns `None`. An empty FIFO *is* the end of the drain, so the check and the release must be one
+      // lock acquisition: split them and a concurrent `admit` could enqueue a batch (seeing ownership still held, so not
+      // claiming) in the gap, then this releases - leaving a batch in `ready` with no owner to drain it.
       if ready.isEmpty then
         owner = null
         None
