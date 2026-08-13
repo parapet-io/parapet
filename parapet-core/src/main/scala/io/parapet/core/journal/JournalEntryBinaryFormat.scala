@@ -6,10 +6,9 @@ import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets.UTF_8
 import java.util.zip.CRC32
 
-/** The on-disk byte layout of a [[JournalEntry]] and of a batch of them.
+/** The on-disk byte layout of a [[JournalEntry]].
   *
-  * A batch file is simply the concatenation of self-contained per-entry blobs, so entries are read back one after
-  * another. Each blob is CRC-guarded (big-endian):
+  * Layout:
   * {{{
   * [magic "PJRN": Int][format version: Short]
   * [payload length: Int][payload][crc32(payload): Int]
