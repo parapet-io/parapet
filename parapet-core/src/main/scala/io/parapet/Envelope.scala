@@ -46,6 +46,11 @@ object Envelope:
   /** Monotonically increasing envelope id (starts at 1; `0L` denotes "none"/root). */
   def nextId(): Long = idCounter.incrementAndGet()
 
+  /** Advances the counter so ids minted from now on exceed `id`. */
+  def continueIdAfter(id: Long): Unit =
+    idCounter.updateAndGet(current => math.max(current, id))
+    ()
+
   /** Extractor over an envelope's core routing fields `(sender, event, receiver)`.
     *
     * {{{

@@ -3,11 +3,12 @@ package io.parapet
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Parapet.ParConfig
+import io.parapet.core.journal.{JournalStore, JournalStoreLocal}
 import io.parapet.core.processes.DeadLetterProcess
+import io.parapet.core.snapshot.{SnapshotStorage, SnapshotStorageLocal}
 import io.parapet.core.{
   Context,
   DslInterpreter,
-  EventStore,
   EventTransformer,
   EventTransformers,
   FaultInjector,
@@ -20,6 +21,8 @@ import io.parapet.core.{
 import io.parapet.effect.Effect
 import io.parapet.syntax.FlowSyntax
 import org.slf4j.LoggerFactory
+
+import java.nio.file.Path
 
 /** Bootstraps a parapet application on top of an arbitrary effect type `F[_]`.
   *
@@ -72,11 +75,6 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
 
   private val eventTransformers = EventTransformers.builder
 
-  /** Append-only journal of all events delivered through the runtime. The default is a no-op stub; production
-    * deployments may override with a persistent or in-memory store for replay/debugging.
-    */
-  val eventLog: EventStore[F] = EventStore.stub
-
   /** Returns the set of [[Process]] instances that make up the application.
     *
     * Called once at startup. The runtime wraps each process in a mailbox, registers it with the [[Context]], and begins
@@ -92,6 +90,16 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
     */
   def deadLetter: F[DeadLetterProcess[F]] =
     summon[Effect[F]].pure(DeadLetterProcess.logging)
+
+  /** The snapshot backend. Override to plug in a custom store; defaults to local files under `config.snapshot.dataDir`.
+    */
+  def snapshotStorage: SnapshotStorage[F] =
+    new SnapshotStorageLocal[F](SnapshotStorageLocal.Config(Path.of(config.snapshot.dataDir)))
+
+  /** The journal backend. Override to plug in a custom store; defaults to local files under `config.journal.dataDir`.
+    */
+  def journalStorage: JournalStore[F] =
+    new JournalStoreLocal[F](JournalStoreLocal.Config(Path.of(config.journal.dataDir)))
 
   /** When true, the runtime wraps the interpreter with a [[io.parapet.core.FaultInjector]] that injects the faults
     * described by [[faultPolicy]]. Defaults to false, so production runs are unaffected. Override - e.g. from a system
@@ -150,7 +158,15 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
         if ps.isEmpty then
           effect.raiseError[Unit](new RuntimeException("Initialization error: at least one process must be provided"))
         else effect.pure(())
-      context           <- Context(config, eventLog, eventTransformers.build)
+      context <- Context(
+        config,
+        eventTransformers.build,
+        snapshotStorage = Option.when(config.snapshot.enabled)(snapshotStorage),
+        journalStorage = Option.when(config.journal.enabled)(journalStorage)
+      )
+      // Seed the sequencers before any envelope is created (bind creates the system processes' Start envelopes), so a
+      // restart continues past the delivery seq and envelope ids already in the journal.
+      _                 <- context.seedSequencersFromJournal
       scheduler         <- Scheduler(config.schedulerConfig, context, interpreter(context))
       _                 <- context.bind(scheduler)
       deadLetterProcess <- deadLetter

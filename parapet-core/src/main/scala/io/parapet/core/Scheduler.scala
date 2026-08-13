@@ -9,6 +9,7 @@ import io.parapet.core.Events.*
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.*
 import io.parapet.core.exceptions.*
+import io.parapet.core.journal.JournalDraft
 import io.parapet.core.snapshot.Snapshotable
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
@@ -221,7 +222,8 @@ object Scheduler:
           scope = Scope.empty,
           logger = logger,
           onError = (processRef, error) => logger.error(s"An error occurred while stopping process $processRef", error)
-        ) >> context.stopSnapshotting >> context.saveEventLog >> logger.info("scheduler has been shut down")
+        ) >> context.stopSnapshotting >> context.stopJournal >>
+          logger.info("scheduler has been shut down")
       }
 
     private def submit(processState: ProcessState[F], task: Deliver[F]): F[SubmissionResult] =
@@ -451,10 +453,11 @@ object Scheduler:
               case Some(task: Deliver[F]) =>
                 if task.envelope.event.isInstanceOf[Scheduler.Inbox.type] then step(remaining)
                 else
-                  deliver(processState, task) >> onDelivered(processState) >> processState.hasOffloads.flatMap {
-                    case true  => waitForCompletion(task, processState)
-                    case false => maybeSnapshot(processState, drained = false) >> step(remaining - 1)
-                  }
+                  onConsume(processState, task.envelope) >> deliver(processState, task) >>
+                    processState.hasOffloads.flatMap {
+                      case true  => waitForCompletion(task, processState)
+                      case false => maybeSnapshot(processState, drained = false) >> step(remaining - 1)
+                    }
               case Some(task) =>
                 effect.raiseError(new UnsupportedOperationException(s"unsupported task type: $task"))
               case None =>
@@ -463,9 +466,40 @@ object Scheduler:
 
         logger.debug(s"worker[$name]::run(${processState.process}) slice=$mailboxSlice") >> step(mailboxSlice)
 
-      private def onDelivered(processState: ProcessState[F]): F[Unit] =
-        if !snapshotting(processState) then effect.pure(())
-        else effect.delay(processState.checkpoints.onDelivered(context.nextSeq()))
+      /** Runs at the consume point, before the handler. For a journalled delivery it admits the record write-ahead (the
+        * recorder assigns the delivery `seq`); a snapshot-tracked but unjournalled delivery instead draws a position.
+        * The resulting `seq` stamps the snapshot cadence tracker.
+        */
+      private def onConsume(processState: ProcessState[F], envelope: Envelope): F[Unit] =
+        val snapEnabled = snapshotting(processState)
+        val jrnlEnabled = isJournable(processState, envelope)
+        if !snapEnabled && !jrnlEnabled then effect.pure(())
+        else if jrnlEnabled then
+          journalAdmit(processState, envelope).flatMap { seq =>
+            if snapEnabled then effect.delay(processState.checkpoints.onDelivered(seq)) else effect.pure(())
+          }
+        else context.nextSeq().flatMap(seq => effect.delay(processState.checkpoints.onDelivered(seq)))
+
+      private def journalAdmit(processState: ProcessState[F], envelope: Envelope): F[Long] =
+        effect.suspend {
+          processState.eventCodec match
+            case None => effect.raiseError(new IllegalStateException("journalable process without an event codec"))
+            case Some(codec) =>
+              codec.encode(envelope.event) match
+                case scala.util.Success(bytes) =>
+                  context.admit(
+                    JournalDraft(envelope.id, envelope.sender, envelope.receiver, envelope.cause, bytes.clone())
+                  )
+                case scala.util.Failure(error) => effect.raiseError(error)
+        }
+
+      private def isJournable(processState: ProcessState[?], envelope: Envelope): Boolean =
+        context.journalEnabled && processState.journalable && journaled(envelope.event) &&
+          processState.process.canHandle(envelope.event)
+
+      /** True for everything except runtime lifecycle events, which are re-synthesized at boot rather than replayed. */
+      private def journaled(event: Event): Boolean =
+        !event.isInstanceOf[SystemEvent]
 
       /** Snapshots the process when a trigger is due: the every-N ceiling mid-burst (`drained = false`), or any dirty
         * state at the mailbox-drain boundary (`drained = true`). Runs while the worker holds the process lock, at a

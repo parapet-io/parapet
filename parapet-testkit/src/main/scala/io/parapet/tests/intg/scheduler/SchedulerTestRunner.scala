@@ -60,8 +60,7 @@ trait SchedulerTestRunner[F[_]] extends IntegrationSpec[F] {
         "blocking_ratio"             -> spec.blockingRatio,
         "workload"                   -> spec.workload.name,
         "work_distribution_strategy" -> spec.wds.name,
-        "dev_mode"                   -> spec.devMode,
-        "event_log_enabled"          -> spec.eventLogEnabled
+        "dev_mode"                   -> spec.devMode
       )
 
       val eventStore = new EventStore[F, TestEvent]
@@ -74,14 +73,12 @@ trait SchedulerTestRunner[F[_]] extends IntegrationSpec[F] {
       val parConfig = Parapet.ParConfig(
         processBufferSize = -1,
         schedulerConfig = spec.config,
-        devMode = spec.devMode,
-        eventLogEnabled = spec.eventLogEnabled
+        devMode = spec.devMode
       )
 
       val program = for {
         context <- Context[F](
           parConfig,
-          io.parapet.core.EventStore.stub,
           EventTransformers.empty
         )
         scheduler <- Scheduler[F](spec.config, context, interpreter(context))
@@ -154,9 +151,7 @@ object SchedulerTestRunner {
     sb.append(s"workload: ${spec.workload.name}\n")
     sb.append(s"blockingRatio: ${spec.blockingRatio}\n")
     sb.append(s"wds: ${spec.wds.name}\n")
-    sb.append(
-      s"devMode: ${spec.devMode}  eventLogEnabled: ${spec.eventLogEnabled}\n"
-    )
+    sb.append(s"devMode: ${spec.devMode}\n")
     cause.foreach { t =>
       sb.append(s"\n=== error ===\n")
       sb.append(s"${t.getClass.getName}: ${t.getMessage}\n")

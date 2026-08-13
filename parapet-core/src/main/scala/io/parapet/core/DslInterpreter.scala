@@ -48,7 +48,9 @@ object DslInterpreter:
   /** Default [[Interpreter]] implementation. Delegates routing to [[Context.schedule]] and applies any registered
     * [[EventTransformer]] before enqueueing.
     */
-  final class Impl[F[_]](context: Context[F])(using effect: Effect[F]) extends Interpreter[F]:
+  final class Impl[F[_]](context: Context[F])(using effect: Effect[F])
+      extends Interpreter[F]
+      with com.typesafe.scalalogging.StrictLogging:
     def interpret(sender: ProcessRef.Unknown, target: ProcessRef.Unknown): ([x] =>> FlowOp[F, x]) ~> F =
       interpret(sender, target, Scope.empty)
 
@@ -204,9 +206,8 @@ object DslInterpreter:
           case Some(transformer) => transformer.transform(eventThunk())
           case None              => eventThunk()
         val envelope = Envelope(sender, event, receiver, scope)
-        context.addToEventLog(envelope) >>
-          context.schedule(Deliver(envelope)).flatMap {
-            case ProcessQueueIsFull => context.eventStore.write(envelope)
-            case _                  => effect.pure(())
-          }
+        context.schedule(Deliver(envelope)).flatMap {
+          case ProcessQueueIsFull => effect.delay(logger.debug(s"mailbox full for $receiver; dropping $envelope"))
+          case _                  => effect.pure(())
+        }
       }

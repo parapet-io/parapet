@@ -5,13 +5,12 @@ import io.parapet.core.Events.Start
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
+import io.parapet.core.journal.{DeliveryRecorder, JournalDraft, JournalStore}
 import io.parapet.core.processes.{Noop, SystemProcess}
-import io.parapet.core.snapshot.{SnapshotManager, SnapshotStorageLocal}
+import io.parapet.core.snapshot.{SnapshotManager, SnapshotStorage}
 import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
 import io.parapet.effect.Monad.*
 import io.parapet.{Envelope, ProcessRef}
-
-import java.nio.file.Path
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
 import scala.collection.mutable.ListBuffer
@@ -29,16 +28,14 @@ import scala.jdk.CollectionConverters.*
   *
   * @param config
   *   runtime configuration in effect for this context.
-  * @param eventStore
-  *   sink for envelopes when [[Parapet.ParConfig.eventLogEnabled]] is on.
   * @param eventTransformers
   *   per-process pipeline of [[EventTransformer]]s registered before startup.
   */
 class Context[F[_]](
     config: Parapet.ParConfig,
-    val eventStore: EventStore[F],
     val eventTransformers: EventTransformers,
-    private val snapshotManager: Option[SnapshotManager[F]]
+    private val snapshotManager: Option[SnapshotManager[F]],
+    private val recorder: Option[DeliveryRecorder[F]]
 )(using effect: Effect[F]):
   self =>
 
@@ -66,20 +63,34 @@ class Context[F[_]](
   def snapshotAsync(ref: ProcessRef.Unknown, process: snapshot.Snapshotable, seq: Long): F[Boolean] =
     snapshotManager.fold(effect.pure(false))(_.createAsync(ref, process, seq))
 
+  /** Whether the delivery journal is recording. */
+  val journalEnabled: Boolean = recorder.isDefined
+
+  /** Records `draft` in the delivery journal and returns its assigned delivery `seq`. Only valid when journalling is on
+    * (the caller reaches this only for a journalable delivery).
+    */
+  def admit(draft: JournalDraft): F[Long] =
+    recorder.fold(effect.raiseError[Long](new IllegalStateException("journal is not enabled")))(_.admit(draft))
+
+  /** Stops the journal, publishing any buffered tail. No-op when the journal is off. */
+  def stopJournal: F[Unit] =
+    recorder.fold(effect.pure(()))(_.close())
+
   private val processes = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessState[F]]()
   private val graph     = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ListBuffer[ProcessRef.Unknown]]()
   private val parents   = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessRef.Unknown]()
-  private val eventLog  = EventLog()
 
-  /** Global monotonic delivery sequence. */
+  // Global monotonic delivery sequence. When the journal is on, the recorder owns it
   private val seqCounter = new AtomicLong(0L)
 
-  /** Returns the next global delivery sequence number. */
-  def nextSeq(): Long = seqCounter.incrementAndGet()
+  /** Returns the next global delivery position for a snapshot-tracked but unjournalled delivery. */
+  def nextSeq(): F[Long] =
+    recorder.fold(effect.delay(seqCounter.incrementAndGet()))(_.advanceSequence())
 
   private[core] def continueSeqAfter(seq: Long): Unit =
-    seqCounter.updateAndGet(current => math.max(current, seq))
-    ()
+    recorder match
+      case Some(r) => r.continueAfter(seq)
+      case None    => seqCounter.updateAndGet(current => math.max(current, seq)); ()
 
   private var _scheduler: Scheduler[F] = _
 
@@ -172,6 +183,20 @@ class Context[F[_]](
       result <- Monad.sequence(processes0.map(boot))
     yield result
 
+  /** Advances the delivery-sequence and envelope-id counters past what the journal already holds. */
+  private[parapet] def seedSequencersFromJournal: F[Unit] =
+    recorder match
+      case None      => effect.pure(())
+      case Some(rec) =>
+        for
+          maxSeq <- rec.maxSeq
+          maxId  <- rec.maxEnvelopeId
+          _      <- effect.delay {
+            maxSeq.foreach(continueSeqAfter)
+            maxId.foreach(Envelope.continueIdAfter)
+          }
+        yield ()
+
   /** Restores `process` from its latest snapshot when applicable, advances the delivery sequence past it, and delivers
     * the matching lifecycle event ([[Events.Restored]] if restored, else [[Events.Start]]).
     */
@@ -216,34 +241,36 @@ class Context[F[_]](
       processes.remove(ref) != null
     }
 
-  /** Appends `envelope` to the in-memory [[EventLog]] when event logging is enabled; otherwise no-op.
-    */
-  def addToEventLog(envelope: Envelope): F[Unit] =
-    if config.eventLogEnabled then effect.delay(eventLog.add(envelope)) else effect.pure(())
-
-  /** Hook invoked at runtime shutdown to flush the event log. The current implementation is a placeholder; future
-    * versions may persist to disk.
-    */
-  def saveEventLog: F[Unit] =
-    if config.eventLogEnabled then effect.delay(()) else effect.pure(())
-
 /** Factory and inner types supporting [[Context]]. */
 object Context:
   private val NanosPerMilli = 1_000_000L
 
-  /** Allocates a new [[Context]] in `F`, starting the snapshot writer when snapshotting is enabled. */
+  /** Allocates a new [[Context]] in `F`. `config.snapshot.enabled` / `config.journal.enabled` are the switches: when a
+    * feature is on its storage must be provided, when off the storage is ignored.
+    */
   def apply[F[_]](
       config: Parapet.ParConfig,
-      eventStore: EventStore[F],
-      eventTransformers: EventTransformers
+      eventTransformers: EventTransformers,
+      snapshotStorage: Option[SnapshotStorage[F]] = None,
+      journalStorage: Option[JournalStore[F]] = None
   )(using effect: Effect[F]): F[Context[F]] =
-    snapshotManager(config).map(new Context[F](config, eventStore, eventTransformers, _))
+    for
+      snapshots <- buildWithStorage(config.snapshot.enabled, snapshotStorage, "snapshotting")(
+        SnapshotManager[F](_, Clock(), config.snapshot.queueCapacity)
+      )
+      recorder <- buildWithStorage(config.journal.enabled, journalStorage, "journal")(store =>
+        effect.pure(DeliveryRecorder.fresh(store, config.journal))
+      )
+    yield new Context[F](config, eventTransformers, snapshots, recorder)
 
-  private def snapshotManager[F[_]](config: Parapet.ParConfig)(using effect: Effect[F]): F[Option[SnapshotManager[F]]] =
-    if !config.snapshot.enabled then effect.pure(None)
+  private def buildWithStorage[F[_], S, M](enabled: Boolean, storage: Option[S], name: String)(
+      build: S => F[M]
+  )(using effect: Effect[F]): F[Option[M]] =
+    if !enabled then effect.pure(None)
     else
-      val storage = new SnapshotStorageLocal[F](SnapshotStorageLocal.Config(Path.of(config.snapshot.dataDir)))
-      SnapshotManager[F](storage, Clock(), config.snapshot.queueCapacity).map(Some(_))
+      storage match
+        case Some(s) => build(s).map(Some(_))
+        case None    => effect.raiseError(new IllegalStateException(s"$name is enabled but no storage was provided"))
 
   /** Pairs an offloaded operation with the [[Deferred]] that records how it completed.
     */
@@ -327,6 +354,14 @@ object Context:
 
     /** Whether this process opts into snapshotting. */
     val snapshotable: Boolean = process.isInstanceOf[snapshot.Snapshotable]
+
+    /** The process's event codec, if it provides one. */
+    val eventCodec: Option[journal.EventCodec] = process match
+      case codec: journal.EventCodec => Some(codec)
+      case _                         => None
+
+    /** Whether this process opts into journalling. */
+    val journalable: Boolean = eventCodec.isDefined
 
     /** Bookkeeping for offloaded operations spawned by this process. */
     def offloads: OffloadTracker[F] =

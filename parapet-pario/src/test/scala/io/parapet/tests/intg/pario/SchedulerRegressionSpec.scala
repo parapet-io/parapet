@@ -86,13 +86,12 @@ class SchedulerRegressionSpec extends AnyFunSuite:
     val config     = Parapet.ParConfig(
       processBufferSize = -1,
       schedulerConfig = SchedulerConfig(numberOfWorkers = 2),
-      devMode = true,
-      eventLogEnabled = true
+      devMode = true
     )
 
     val program =
       for
-        context   <- Context[ParIO](config, io.parapet.core.EventStore.stub, EventTransformers.empty)
+        context   <- Context[ParIO](config, EventTransformers.empty)
         scheduler <- Scheduler[ParIO](config.schedulerConfig, context, DslInterpreter(context))
         _         <- context.bind(scheduler)
         fiber     <- summon[Effect[ParIO]].start(scheduler.start)
