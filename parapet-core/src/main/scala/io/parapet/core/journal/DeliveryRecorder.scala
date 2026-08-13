@@ -149,7 +149,7 @@ final class DeliveryRecorder[F[_]] private (
           else
             seq += 1
             val s = seq
-            active(activeSize) = draft.withSeq(s)
+            active(activeSize) = JournalEntry(s, draft.id, draft.sender, draft.receiver, draft.cause, draft.event)
             activeSize += 1
             if activeSize >= config.batchSize then AdmitOutcome.Sealed(s, sealLocked(), claimLocked(token))
             else AdmitOutcome.Buffered(s)

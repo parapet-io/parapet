@@ -2,8 +2,7 @@ package io.parapet.core.journal
 
 import io.parapet.ProcessRef
 
-/** An encoded delivery that has not yet been assigned a global position. The recorder stamps the `seq` at admission, so
-  * that sequence allocation and journal insertion share one linearization point.
+/** A delivery to record.
   *
   * @param id
   *   identity of the source envelope
@@ -14,7 +13,7 @@ import io.parapet.ProcessRef
   * @param cause
   *   id of the envelope that caused this delivery (`0` for none)
   * @param event
-  *   the encoded event payload (already defensively copied by the caller)
+  *   the encoded event payload
   */
 final case class JournalDraft(
     id: Long,
@@ -22,5 +21,4 @@ final case class JournalDraft(
     receiver: ProcessRef.Unknown,
     cause: Long,
     event: Array[Byte]
-):
-  def withSeq(seq: Long): JournalEntry = JournalEntry(seq, id, sender, receiver, cause, event)
+)

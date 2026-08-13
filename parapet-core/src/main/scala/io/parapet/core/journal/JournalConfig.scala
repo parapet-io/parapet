@@ -7,7 +7,7 @@ import scala.concurrent.duration.*
 /** Tuning for [[DeliveryRecorder]].
   *
   * @param enabled
-  *   master switch for recording the delivery journal.
+  *   whether deliveries are recorded to the journal; off by default.
   * @param dataDir
   *   directory holding the journal segment files.
   * @param batchSize
