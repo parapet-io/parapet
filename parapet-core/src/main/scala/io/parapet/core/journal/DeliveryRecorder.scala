@@ -72,7 +72,7 @@ final class DeliveryRecorder[F[_]] private (
     effect.suspend {
       val token = new Object
       effect.guarantee(
-        effect.delay(admitLocked(draft, token)).flatMap {
+        effect.delay(admit(draft, token)).flatMap {
           case AdmitOutcome.Rejected(error)           => effect.raiseError(error)
           case AdmitOutcome.Buffered(s)               => effect.pure(s)
           case AdmitOutcome.Sealed(s, batch, claimed) => (drainIfOwner(claimed) >> awaitBatch(batch)).as(s)
@@ -101,7 +101,7 @@ final class DeliveryRecorder[F[_]] private (
     effect.suspend {
       val token = new Object
       effect.guarantee(
-        effect.delay(flushLocked(token)).flatMap {
+        effect.delay(flush(token)).flatMap {
           case FlushOutcome.Rejected(error)      => effect.raiseError(error)
           case FlushOutcome.Empty()              => effect.pure(())
           case FlushOutcome.Tail(batch, claimed) => drainIfOwner(claimed) >> awaitBatch(batch)
@@ -116,7 +116,7 @@ final class DeliveryRecorder[F[_]] private (
     effect.suspend {
       val token = new Object
       effect.guarantee(
-        effect.delay(closeLocked(token)).flatMap {
+        effect.delay(close(token)).flatMap {
           case CloseOutcome.AlreadyClosed    => effect.pure(())
           case CloseOutcome.Failed(error)    => effect.raiseError(error)
           case CloseOutcome.Proceed(claimed) => drainIfOwner(claimed) >> awaitDrained() >> finishClose()
@@ -139,7 +139,7 @@ final class DeliveryRecorder[F[_]] private (
   private def drainIfOwner(claimed: Boolean): F[Unit] =
     if claimed then drainLoop() else effect.pure(())
 
-  private def admitLocked(draft: JournalDraft, token: AnyRef): AdmitOutcome[F] =
+  private def admit(draft: JournalDraft, token: AnyRef): AdmitOutcome[F] =
     lock.synchronized {
       phase match
         case Phase.Failed(error)          => AdmitOutcome.Rejected(error)
@@ -155,7 +155,7 @@ final class DeliveryRecorder[F[_]] private (
             else AdmitOutcome.Buffered(s)
     }
 
-  private def flushLocked(token: AnyRef): FlushOutcome[F] =
+  private def flush(token: AnyRef): FlushOutcome[F] =
     lock.synchronized {
       phase match
         case Phase.Failed(error) => FlushOutcome.Rejected(error)
@@ -166,7 +166,7 @@ final class DeliveryRecorder[F[_]] private (
           else FlushOutcome.Tail(ready.peekLast(), claimLocked(token))
     }
 
-  private def closeLocked(token: AnyRef): CloseOutcome =
+  private def close(token: AnyRef): CloseOutcome =
     lock.synchronized {
       phase match
         case Phase.Closed        => CloseOutcome.AlreadyClosed
