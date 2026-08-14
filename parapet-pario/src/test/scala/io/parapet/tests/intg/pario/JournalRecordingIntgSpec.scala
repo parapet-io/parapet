@@ -3,7 +3,7 @@ package io.parapet.tests.intg.pario
 import io.parapet.core.Events.Start
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Process
-import io.parapet.core.journal.{EventCodec, JournalConfig, JournalStoreLocal}
+import io.parapet.core.journal.{EventCodec, EventCodecRegistry, JournalConfig, JournalStoreLocal}
 import io.parapet.core.snapshot.{Snapshot, Snapshotable}
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
@@ -31,12 +31,13 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
     val counter = new Counter(counterRef, store)
     val driver  = onStart(((1 to 3).map(i => Add(i) ~> counterRef) :+ (Probe ~> counterRef)).reduce(_ ++ _))
 
-    unsafeRun(store.await(4, createApp(ct.pure(Seq(counter, driver)), config0 = config).run))
+    unsafeRun(store.await(4, createApp(ct.pure(Seq(counter, driver)), config0 = config, eventCodecs0 = codecs).run))
     counter.count shouldBe 6L
 
     val entries = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
 
-    entries.map(e => counter.decode(e.event).get) shouldBe Vector(Add(1), Add(2), Add(3), Probe)
+    entries.map(e => codecs.codecForTag(e.tag).get.decode(e.schemaVersion, e.event).get) shouldBe
+      Vector(Add(1), Add(2), Add(3), Probe)
     entries.map(_.receiver).distinct shouldBe Vector(counterRef) // driver is not recoverable; Start is not journalled
     entries.map(_.seq) shouldBe entries.map(_.seq).sorted        // ascending
   }
@@ -51,7 +52,7 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
       val store   = new EventStore[ParIO, Event]
       val counter = new Counter(counterRef, store)
       val driver  = onStart(((1 to 3).map(i => Add(i) ~> counterRef) :+ (Probe ~> counterRef)).reduce(_ ++ _))
-      unsafeRun(store.await(4, createApp(ct.pure(Seq(counter, driver)), config0 = config).run))
+      unsafeRun(store.await(4, createApp(ct.pure(Seq(counter, driver)), config0 = config, eventCodecs0 = codecs).run))
 
     runOnce() // records seqs 1..4
     runOnce() // must continue at 5..8, not reuse 1..4 and overwrite the segments
@@ -67,14 +68,31 @@ object JournalRecordingIntgSpec:
   case object Probe                   extends Event
   final case class Acked(count: Long) extends Event
 
+  object AddCodec extends EventCodec:
+    val tag: String                            = "add"
+    val version: Int                           = 1
+    def encode(event: Event): Try[Array[Byte]] = event match
+      case Add(n) => Success(ByteBuffer.allocate(4).putInt(n).array())
+      case other  => Failure(new IllegalArgumentException(s"cannot encode $other"))
+    def decode(version: Int, bytes: Array[Byte]): Try[Event] = Success(Add(ByteBuffer.wrap(bytes).getInt))
+
+  object ProbeCodec extends EventCodec:
+    val tag: String                            = "probe"
+    val version: Int                           = 1
+    def encode(event: Event): Try[Array[Byte]] = event match
+      case Probe => Success(Array.emptyByteArray)
+      case other => Failure(new IllegalArgumentException(s"cannot encode $other"))
+    def decode(version: Int, bytes: Array[Byte]): Try[Event] = Success(Probe)
+
+  val codecs: EventCodecRegistry = EventCodecRegistry(classOf[Add] -> AddCodec, classOf[Probe.type] -> ProbeCodec)
+
   private def encodeCount(count: Long): Array[Byte] = ByteBuffer.allocate(8).putLong(count).array()
   private def decodeCount(bytes: Array[Byte]): Long = ByteBuffer.wrap(bytes).getLong
 
-  /** A recoverable counter: snapshots its running count and codes its inbound events. */
+  /** A recoverable counter: snapshots its running count. */
   final class Counter(override val ref: ProcessRef[Event], store: EventStore[ParIO, Event])
       extends Process[ParIO, Event, Event]
-      with Snapshotable
-      with EventCodec:
+      with Snapshotable:
 
     import dsl.*
 
@@ -82,18 +100,6 @@ object JournalRecordingIntgSpec:
 
     def serialize(): Array[Byte]          = encodeCount(count)
     def restore(snapshot: Snapshot): Unit = count = decodeCount(snapshot.data)
-
-    def encode(event: Event): Try[Array[Byte]] = event match
-      case Add(n) => Success(ByteBuffer.allocate(5).put(0.toByte).putInt(n).array())
-      case Probe  => Success(Array(1.toByte))
-      case other  => Failure(new IllegalArgumentException(s"cannot encode $other"))
-
-    def decode(bytes: Array[Byte]): Try[Event] =
-      val buf = ByteBuffer.wrap(bytes)
-      buf.get() match
-        case 0   => Success(Add(buf.getInt))
-        case 1   => Success(Probe)
-        case tag => Failure(new IllegalArgumentException(s"unknown tag $tag"))
 
     def handle: Receive =
       case Start  => unit

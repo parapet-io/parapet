@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory
 import java.util.ArrayDeque
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
+import scala.util.{Failure, Success}
 
 /** Records deliveries to a [[JournalStore]], assigning each a global delivery `seq`.
   *
@@ -30,6 +31,7 @@ final class DeliveryRecorder[F[_]] private (
     store: JournalStore[F],
     config: JournalConfig,
     startSeq: Long,
+    registry: EventCodecRegistry,
     clock: Clock
 )(using effect: Effect[F]):
 
@@ -72,12 +74,28 @@ final class DeliveryRecorder[F[_]] private (
     effect.suspend {
       val token = new Object
       effect.guarantee(
-        effect.delay(admit(draft, token)).flatMap {
-          case AdmitOutcome.Rejected(error)           => effect.raiseError(error)
-          case AdmitOutcome.Buffered(s)               => effect.pure(s)
-          case AdmitOutcome.Sealed(s, batch, claimed) => (drainIfOwner(claimed) >> awaitBatch(batch)).as(s)
+        encode(draft).flatMap { encoded =>
+          effect.delay(admit(encoded, draft, token)).flatMap {
+            case AdmitOutcome.Rejected(error)           => effect.raiseError(error)
+            case AdmitOutcome.Buffered(s)               => effect.pure(s)
+            case AdmitOutcome.Sealed(s, batch, claimed) => (drainIfOwner(claimed) >> awaitBatch(batch)).as(s)
+          }
         }
       )(settleOwnerExit(token))
+    }
+
+  /** Encodes the draft's event off the admission lock. The codec is expected present (the caller admits only
+    * journalable events); a missing codec or an encode failure is a fault and raises.
+    */
+  private def encode(draft: JournalDraft): F[Encoded] =
+    effect.suspend {
+      registry.codecFor(draft.event) match
+        case None =>
+          effect.raiseError(new IllegalStateException(s"no journal codec for event ${draft.event.getClass.getName}"))
+        case Some(codec) =>
+          codec.encode(draft.event) match
+            case Success(bytes) => effect.pure(Encoded(bytes.clone(), codec.tag, codec.version))
+            case Failure(error) => effect.raiseError(error)
     }
 
   def advanceSequence(): F[Long] =
@@ -139,7 +157,7 @@ final class DeliveryRecorder[F[_]] private (
   private def drainIfOwner(claimed: Boolean): F[Unit] =
     if claimed then drainLoop() else effect.pure(())
 
-  private def admit(draft: JournalDraft, token: AnyRef): AdmitOutcome[F] =
+  private def admit(encoded: Encoded, draft: JournalDraft, token: AnyRef): AdmitOutcome[F] =
     lock.synchronized {
       phase match
         case Phase.Failed(error)          => AdmitOutcome.Rejected(error)
@@ -149,7 +167,16 @@ final class DeliveryRecorder[F[_]] private (
           else
             seq += 1
             val s = seq
-            active(activeSize) = JournalEntry(s, draft.id, draft.sender, draft.receiver, draft.cause, draft.event)
+            active(activeSize) = JournalEntry(
+              s,
+              draft.id,
+              draft.sender,
+              draft.receiver,
+              draft.cause,
+              encoded.bytes,
+              encoded.tag,
+              encoded.version
+            )
             activeSize += 1
             if activeSize >= config.batchSize then AdmitOutcome.Sealed(s, sealLocked(), claimLocked(token))
             else AdmitOutcome.Buffered(s)
@@ -353,11 +380,17 @@ object DeliveryRecorder:
   private val closedError  = new IllegalStateException("delivery recorder is closed")
   private val seqExhausted = new IllegalStateException("journal delivery sequence exhausted at Long.MaxValue")
 
+  /** An event encoded for the journal: its payload bytes plus the codec identity that produced them. */
+  final private case class Encoded(bytes: Array[Byte], tag: String, version: Int)
+
   /** Creates a recorder for a journal with no previously assigned delivery positions. */
-  def fresh[F[_]](store: JournalStore[F], config: JournalConfig = JournalConfig.default, clock: Clock = Clock())(using
-      Effect[F]
-  ): DeliveryRecorder[F] =
-    create(store, config, 0L, clock)
+  def fresh[F[_]](
+      store: JournalStore[F],
+      registry: EventCodecRegistry = EventCodecRegistry.empty,
+      config: JournalConfig = JournalConfig.default,
+      clock: Clock = Clock()
+  )(using Effect[F]): DeliveryRecorder[F] =
+    create(store, config, 0L, registry, clock)
 
   /** Creates a recorder that continues after `highWater`.
     *
@@ -367,15 +400,20 @@ object DeliveryRecorder:
   def resume[F[_]](
       store: JournalStore[F],
       highWater: Long,
+      registry: EventCodecRegistry = EventCodecRegistry.empty,
       config: JournalConfig = JournalConfig.default,
       clock: Clock = Clock()
   )(using Effect[F]): DeliveryRecorder[F] =
-    create(store, config, highWater, clock)
+    create(store, config, highWater, registry, clock)
 
-  private def create[F[_]](store: JournalStore[F], config: JournalConfig, highWater: Long, clock: Clock)(using
-      Effect[F]
-  ): DeliveryRecorder[F] =
+  private def create[F[_]](
+      store: JournalStore[F],
+      config: JournalConfig,
+      highWater: Long,
+      registry: EventCodecRegistry,
+      clock: Clock
+  )(using Effect[F]): DeliveryRecorder[F] =
     require(config.batchSize > 0, s"journal batchSize must be > 0, got ${config.batchSize}")
     require(config.maxRetries >= 0, s"journal maxRetries must be >= 0, got ${config.maxRetries}")
     require(highWater >= 0, s"journal highWater must be >= 0, got $highWater")
-    new DeliveryRecorder(store, config, highWater, clock)
+    new DeliveryRecorder(store, config, highWater, registry, clock)

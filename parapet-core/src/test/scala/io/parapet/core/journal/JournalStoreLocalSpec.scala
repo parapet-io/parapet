@@ -14,7 +14,7 @@ class JournalStoreLocalSpec extends AnyFunSuite:
   private val b = ProcessRef[Event]("b")
 
   private def entry(seq: Long, receiver: ProcessRef.Unknown = a, id: Long = 0L, cause: Long = 0L) =
-    JournalEntry(seq, id, a, receiver, cause, s"e$seq".getBytes(UTF_8))
+    JournalEntry(seq, id, a, receiver, cause, s"e$seq".getBytes(UTF_8), tag = "e", schemaVersion = 1)
 
   private def seg(entries: JournalEntry*): JournalSegment =
     val v = entries.toVector
