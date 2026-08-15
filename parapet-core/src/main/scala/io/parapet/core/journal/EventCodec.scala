@@ -9,8 +9,10 @@ import scala.util.Try
 trait EventCodec {
   import EventCodec._
 
+  /** Unique codec id. */
   def tag: Tag
 
+  /**  Schema version. */
   def version: Int
 
   /** Serializes an event to bytes. Always writes the current [[version]]. */
@@ -21,7 +23,7 @@ trait EventCodec {
     */
   def decode(version: Int, bytes: Array[Byte]): Try[Event]
 
-  /** Convenience: decodes bytes produced at the current [[version]]. Not for journal entries, whose version may trail.
+  /** Convenience: decodes bytes produced at the current [[version]].
     */
   def decode(bytes: Array[Byte]): Try[Event] = decode(version, bytes)
 }

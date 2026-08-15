@@ -3,12 +3,7 @@ package io.parapet.core.journal
 import io.parapet.Event
 import io.parapet.core.journal.EventCodec.Tag
 
-/** Resolves the [[EventCodec]] for an event in each direction:
-  *
-  *   - encoding keys on the event's runtime class - the codec writes under its own [[EventCodec.tag]] and
-  *     [[EventCodec.version]];
-  *   - decoding keys on the `tag` read back from the encoded bytes - the codec decodes whichever version those bytes
-  *     hold.
+/** Resolves the [[EventCodec]].
   *
   * There is one codec per event type, bound to exactly one class and one tag.
   */
