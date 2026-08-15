@@ -471,31 +471,21 @@ object Scheduler:
         * The resulting `seq` stamps the snapshot cadence tracker.
         */
       private def onConsume(processState: ProcessState[F], envelope: Envelope): F[Unit] =
-        val snapEnabled = snapshotting(processState)
-        val jrnlEnabled = isJournable(processState, envelope)
-        if !snapEnabled && !jrnlEnabled then effect.pure(())
-        else if jrnlEnabled then
-          journalAdmit(processState, envelope).flatMap { seq =>
-            if snapEnabled then effect.delay(processState.checkpoints.onDelivered(seq)) else effect.pure(())
-          }
-        else context.nextSeq().flatMap(seq => effect.delay(processState.checkpoints.onDelivered(seq)))
+        val event            = envelope.event
+        val snapEnabled      = snapshotting(processState)
+        val journalCandidate =
+          context.journalEnabled && journaled(event) && processState.process.canHandle(event)
+        val onDelivered = (seq: Long) =>
+          if snapEnabled then effect.delay(processState.checkpoints.onDelivered(seq)) else effect.pure(())
 
-      private def journalAdmit(processState: ProcessState[F], envelope: Envelope): F[Long] =
-        effect.suspend {
-          processState.eventCodec match
-            case None => effect.raiseError(new IllegalStateException("journalable process without an event codec"))
-            case Some(codec) =>
-              codec.encode(envelope.event) match
-                case scala.util.Success(bytes) =>
-                  context.admit(
-                    JournalDraft(envelope.id, envelope.sender, envelope.receiver, envelope.cause, bytes.clone())
-                  )
-                case scala.util.Failure(error) => effect.raiseError(error)
-        }
+        if journalCandidate && context.codecFor(event).isDefined then journalAdmit(envelope).flatMap(onDelivered)
+        else if journalCandidate && context.requireEventCodec then
+          effect.raiseError(new IllegalStateException(s"journal requires a codec for event ${event.getClass.getName}"))
+        else if snapEnabled then context.nextSeq().flatMap(onDelivered)
+        else effect.pure(())
 
-      private def isJournable(processState: ProcessState[?], envelope: Envelope): Boolean =
-        context.journalEnabled && processState.journalable && journaled(envelope.event) &&
-          processState.process.canHandle(envelope.event)
+      private def journalAdmit(envelope: Envelope): F[Long] =
+        context.admit(JournalDraft(envelope.id, envelope.sender, envelope.receiver, envelope.cause, envelope.event))
 
       /** True for everything except runtime lifecycle events, which are re-synthesized at boot rather than replayed. */
       private def journaled(event: Event): Boolean =

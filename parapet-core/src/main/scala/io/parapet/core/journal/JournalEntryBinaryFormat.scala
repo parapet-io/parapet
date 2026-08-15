@@ -18,6 +18,8 @@ import java.util.zip.CRC32
   *           [sender length: Int][sender bytes]
   *           [receiver length: Int][receiver bytes]
   *           [cause: Long]
+  *           [tag length: Int][tag bytes]
+  *           [schema version: Int]
   *           [event length: Int][event bytes]
   * }}}
   */
@@ -80,9 +82,10 @@ object JournalEntryBinaryFormat:
   private def encodePayload(entry: JournalEntry): Array[Byte] =
     val sender   = entry.sender.value.getBytes(UTF_8)
     val receiver = entry.receiver.value.getBytes(UTF_8)
+    val tag      = entry.tag.getBytes(UTF_8)
     val buf      = ByteBuffer.allocate(
       LongSize + LongSize + (IntSize + sender.length) + (IntSize + receiver.length) + LongSize +
-        (IntSize + entry.event.length)
+        (IntSize + tag.length) + IntSize + (IntSize + entry.event.length)
     )
     buf.putLong(entry.seq)
     buf.putLong(entry.id)
@@ -91,19 +94,24 @@ object JournalEntryBinaryFormat:
     buf.putInt(receiver.length)
     buf.put(receiver)
     buf.putLong(entry.cause)
+    buf.putInt(tag.length)
+    buf.put(tag)
+    buf.putInt(entry.schemaVersion)
     buf.putInt(entry.event.length)
     buf.put(entry.event)
     buf.array()
 
   private def decodePayload(bytes: Array[Byte]): JournalEntry =
-    val buf      = ByteBuffer.wrap(bytes)
-    val seq      = readLong(buf, "seq")
-    val id       = readLong(buf, "id")
-    val sender   = readRef(readBytes(buf, "sender"), "sender")
-    val receiver = readRef(readBytes(buf, "receiver"), "receiver")
-    val cause    = readLong(buf, "cause")
-    val event    = readBytes(buf, "event")
-    JournalEntry(seq, id, sender, receiver, cause, event)
+    val buf           = ByteBuffer.wrap(bytes)
+    val seq           = readLong(buf, "seq")
+    val id            = readLong(buf, "id")
+    val sender        = readRef(readBytes(buf, "sender"), "sender")
+    val receiver      = readRef(readBytes(buf, "receiver"), "receiver")
+    val cause         = readLong(buf, "cause")
+    val tag           = new String(readBytes(buf, "tag"), UTF_8)
+    val schemaVersion = readInt(buf, "schemaVersion")
+    val event         = readBytes(buf, "event")
+    JournalEntry(seq, id, sender, receiver, cause, event, tag, schemaVersion)
 
   private def readRef(bytes: Array[Byte], name: String): ProcessRef.Unknown =
     check(bytes.nonEmpty, s"empty $name ref")

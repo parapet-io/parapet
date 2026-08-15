@@ -4,6 +4,7 @@ import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.Events.Start
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Process
+import io.parapet.core.journal.EventCodecRegistry
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.effect.{Effect, EffectFiber}
 import io.parapet.effect.Monad.*
@@ -45,7 +46,8 @@ trait IntegrationSpec[F[_]] extends WithDsl[F] with FlowSyntax[F] with ParApp[F]
   def createApp(
       processes0: F[Seq[Process[F, ?, ?]]],
       deadLetter0: Option[F[DeadLetterProcess[F]]] = None,
-      config0: ParConfig = ParConfig.default
+      config0: ParConfig = ParConfig.default,
+      eventCodecs0: EventCodecRegistry = EventCodecRegistry.empty
   ): ParApp[F]
 
   def onStart(program: DslF[F, Unit]): Process[F, Event, Event] =

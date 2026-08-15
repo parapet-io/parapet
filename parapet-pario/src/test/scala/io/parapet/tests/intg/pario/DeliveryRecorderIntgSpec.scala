@@ -28,9 +28,22 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   private val ref          = ProcessRef[Event]("a")
   private val awaitSeconds = 10L
 
+  private case class E(id: Long) extends Event
+
+  private object ECodec extends EventCodec:
+    val tag: String                            = "e"
+    val version: Int                           = 1
+    def encode(event: Event): Try[Array[Byte]] = event match
+      case E(id) => Success(java.nio.ByteBuffer.allocate(8).putLong(id).array())
+      case other => Failure(new IllegalArgumentException(s"cannot encode $other"))
+    def decode(version: Int, bytes: Array[Byte]): Try[Event] =
+      Success(E(java.nio.ByteBuffer.wrap(bytes).getLong))
+
+  private val registry = EventCodecRegistry(classOf[E] -> ECodec)
+
   extension [A](fa: ParIO[A]) private def run(): A = fa.unsafeRunSync()
 
-  private def draft(id: Long) = JournalDraft(id, ref, ref, 0L, s"e$id".getBytes(UTF_8))
+  private def draft(id: Long) = JournalDraft(id, ref, ref, 0L, E(id))
 
   private def storeAt(dir: Path) = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
 
@@ -215,7 +228,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
   test("single-writer admits produce contiguous, non-overlapping local segments") {
     val dir      = Files.createTempDirectory("recorder-single")
-    val recorder = DeliveryRecorder.fresh[ParIO](storeAt(dir), JournalConfig(batchSize = 4))
+    val recorder = DeliveryRecorder.fresh[ParIO](storeAt(dir), registry, JournalConfig(batchSize = 4))
     (1L to 10L).foreach(i => recorder.admit(draft(i)).run())
     recorder.close().run()
 
@@ -229,6 +242,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
         val store    = new ControlledStore(gateFirst = false)
         val recorder = DeliveryRecorder.fresh[ParIO](
           store,
+          registry,
           JournalConfig(batchSize = scenario.batchSize, maxRetries = 0)
         )
         val barrier = new CyclicBarrier(scenario.workers)
@@ -269,9 +283,10 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val store       = new ControlledStore()
     val waiterProbe = new CountDownLatch(3)
     val probe       = new ProbeEffect(summon[Effect[ParIO]], deferredWaitEntered = waiterProbe)
-    val recorder    = DeliveryRecorder.fresh[ParIO](store, JournalConfig(batchSize = 2, maxRetries = 0))(using probe)
-    val completed   = new LinkedBlockingQueue[Try[Long]]()
-    var running     = Vector.empty[Running[Long]]
+    val recorder    =
+      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 2, maxRetries = 0))(using probe)
+    val completed = new LinkedBlockingQueue[Try[Long]]()
+    var running   = Vector.empty[Running[Long]]
 
     try
       recorder.admit(draft(1L)).run() shouldBe 1L
@@ -313,8 +328,9 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val store       = new ControlledStore()
     val waiterProbe = new CountDownLatch(1)
     val probe       = new ProbeEffect(summon[Effect[ParIO]], deferredWaitEntered = waiterProbe)
-    val recorder    = DeliveryRecorder.fresh[ParIO](store, JournalConfig(batchSize = 1, maxRetries = 0))(using probe)
-    var threads     = Vector.empty[Thread]
+    val recorder    =
+      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 1, maxRetries = 0))(using probe)
+    var threads = Vector.empty[Thread]
 
     try
       val owner = startThread("flush-owner")(recorder.admit(draft(1L)).run())
@@ -342,9 +358,10 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val store       = new ControlledStore(firstResult = Left(boom))
     val waiterProbe = new CountDownLatch(3)
     val probe       = new ProbeEffect(summon[Effect[ParIO]], deferredWaitEntered = waiterProbe)
-    val recorder    = DeliveryRecorder.fresh[ParIO](store, JournalConfig(batchSize = 2, maxRetries = 0))(using probe)
-    val completed   = new LinkedBlockingQueue[Try[Long]]()
-    var running     = Vector.empty[Running[Long]]
+    val recorder    =
+      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 2, maxRetries = 0))(using probe)
+    val completed = new LinkedBlockingQueue[Try[Long]]()
+    var running   = Vector.empty[Running[Long]]
 
     try
       recorder.admit(draft(1L)).run() shouldBe 1L
@@ -392,8 +409,9 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val store      = new ControlledStore()
     val closeProbe = new CountDownLatch(1)
     val probe      = new ProbeEffect(summon[Effect[ParIO]], drainPollEntered = closeProbe)
-    val recorder   = DeliveryRecorder.fresh[ParIO](store, JournalConfig(batchSize = 4, maxRetries = 0))(using probe)
-    var running    = Vector.empty[Running[Unit]]
+    val recorder   =
+      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 4, maxRetries = 0))(using probe)
+    var running = Vector.empty[Running[Unit]]
 
     try
       recorder.admit(draft(1L)).run() shouldBe 1L
@@ -422,7 +440,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
   test("sequenceOnly creates gaps without overlapping publication ranges") {
     val store    = new ControlledStore(gateFirst = false)
-    val recorder = DeliveryRecorder.fresh[ParIO](store, JournalConfig(batchSize = 2, maxRetries = 0))
+    val recorder = DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 2, maxRetries = 0))
 
     recorder.admit(draft(1L)).run() shouldBe 1L
     recorder.advanceSequence().run() shouldBe 2L
@@ -437,6 +455,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val recorder = DeliveryRecorder.resume[ParIO](
       store,
       highWater = Long.MaxValue - 1L,
+      registry = registry,
       config = JournalConfig(batchSize = 4, maxRetries = 0)
     )
 
@@ -453,7 +472,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   test("reopening continues past the supplied high-water instead of overwriting segments") {
     val dir = Files.createTempDirectory("recorder-reopen")
 
-    val first = DeliveryRecorder.fresh[ParIO](storeAt(dir), JournalConfig(batchSize = 4))
+    val first = DeliveryRecorder.fresh[ParIO](storeAt(dir), registry, JournalConfig(batchSize = 4))
     (1L to 6L).foreach(i => first.admit(draft(i)).run())
     first.close().run()
 
@@ -461,6 +480,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val second    = DeliveryRecorder.resume[ParIO](
       storeAt(dir),
       highWater,
+      registry,
       JournalConfig(batchSize = 4)
     )
     (1L to 5L).foreach(i => second.admit(draft(i)).run())
@@ -473,10 +493,12 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   test("construction rejects invalid parameters") {
     an[IllegalArgumentException] should be thrownBy DeliveryRecorder.fresh[ParIO](
       storeAt(Files.createTempDirectory("r")),
+      registry,
       JournalConfig(batchSize = 0)
     )
     an[IllegalArgumentException] should be thrownBy DeliveryRecorder.fresh[ParIO](
       storeAt(Files.createTempDirectory("r")),
+      registry,
       JournalConfig(maxRetries = -1)
     )
     an[IllegalArgumentException] should be thrownBy DeliveryRecorder.resume[ParIO](

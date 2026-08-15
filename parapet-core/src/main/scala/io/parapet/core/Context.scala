@@ -5,12 +5,12 @@ import io.parapet.core.Events.Start
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
-import io.parapet.core.journal.{DeliveryRecorder, JournalDraft, JournalStore}
+import io.parapet.core.journal.{DeliveryRecorder, EventCodec, EventCodecRegistry, JournalDraft, JournalStore}
 import io.parapet.core.processes.{Noop, SystemProcess}
 import io.parapet.core.snapshot.{SnapshotManager, SnapshotStorage}
 import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
 import io.parapet.effect.Monad.*
-import io.parapet.{Envelope, ProcessRef}
+import io.parapet.{Envelope, Event, ProcessRef}
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
 import scala.collection.mutable.ListBuffer
@@ -35,7 +35,8 @@ class Context[F[_]](
     config: Parapet.ParConfig,
     val eventTransformers: EventTransformers,
     private val snapshotManager: Option[SnapshotManager[F]],
-    private val recorder: Option[DeliveryRecorder[F]]
+    private val recorder: Option[DeliveryRecorder[F]],
+    private val codecRegistry: EventCodecRegistry
 )(using effect: Effect[F]):
   self =>
 
@@ -65,6 +66,12 @@ class Context[F[_]](
 
   /** Whether the delivery journal is recording. */
   val journalEnabled: Boolean = recorder.isDefined
+
+  /** When true, a delivery whose event has no codec fails loud instead of being skipped. */
+  val requireEventCodec: Boolean = config.journal.requireCodec
+
+  /** The codec for `event`, or `None` when its type is not registered */
+  def codecFor(event: Event): Option[EventCodec] = codecRegistry.codecFor(event)
 
   /** Records `draft` in the delivery journal and returns its assigned delivery `seq`. Only valid when journalling is on
     * (the caller reaches this only for a journalable delivery).
@@ -252,16 +259,17 @@ object Context:
       config: Parapet.ParConfig,
       eventTransformers: EventTransformers,
       snapshotStorage: Option[SnapshotStorage[F]] = None,
-      journalStorage: Option[JournalStore[F]] = None
+      journalStorage: Option[JournalStore[F]] = None,
+      codecRegistry: EventCodecRegistry = EventCodecRegistry.empty
   )(using effect: Effect[F]): F[Context[F]] =
     for
       snapshots <- buildWithStorage(config.snapshot.enabled, snapshotStorage, "snapshotting")(
         SnapshotManager[F](_, Clock(), config.snapshot.queueCapacity)
       )
       recorder <- buildWithStorage(config.journal.enabled, journalStorage, "journal")(store =>
-        effect.pure(DeliveryRecorder.fresh(store, config.journal))
+        effect.pure(DeliveryRecorder.fresh(store, codecRegistry, config.journal))
       )
-    yield new Context[F](config, eventTransformers, snapshots, recorder)
+    yield new Context[F](config, eventTransformers, snapshots, recorder, codecRegistry)
 
   private def buildWithStorage[F[_], S, M](enabled: Boolean, storage: Option[S], name: String)(
       build: S => F[M]
@@ -354,14 +362,6 @@ object Context:
 
     /** Whether this process opts into snapshotting. */
     val snapshotable: Boolean = process.isInstanceOf[snapshot.Snapshotable]
-
-    /** The process's event codec, if it provides one. */
-    val eventCodec: Option[journal.EventCodec] = process match
-      case codec: journal.EventCodec => Some(codec)
-      case _                         => None
-
-    /** Whether this process opts into journalling. */
-    val journalable: Boolean = eventCodec.isDefined
 
     /** Bookkeeping for offloaded operations spawned by this process. */
     def offloads: OffloadTracker[F] =

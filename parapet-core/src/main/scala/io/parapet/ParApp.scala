@@ -3,7 +3,7 @@ package io.parapet
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Parapet.ParConfig
-import io.parapet.core.journal.{JournalStore, JournalStoreLocal}
+import io.parapet.core.journal.{EventCodecRegistry, JournalStore, JournalStoreLocal}
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.snapshot.{SnapshotStorage, SnapshotStorageLocal}
 import io.parapet.core.{
@@ -101,6 +101,11 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
   def journalStorage: JournalStore[F] =
     new JournalStoreLocal[F](JournalStoreLocal.Config(Path.of(config.journal.dataDir)))
 
+  /** Codecs for events that may be journaled, keyed by event class and tag. Override to register application events;
+    * defaults to empty (nothing is journalable).
+    */
+  def eventCodecs: EventCodecRegistry = EventCodecRegistry.empty
+
   /** When true, the runtime wraps the interpreter with a [[io.parapet.core.FaultInjector]] that injects the faults
     * described by [[faultPolicy]]. Defaults to false, so production runs are unaffected. Override - e.g. from a system
     * property - to enable fault injection for tests or simulations.
@@ -162,7 +167,8 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
         config,
         eventTransformers.build,
         snapshotStorage = Option.when(config.snapshot.enabled)(snapshotStorage),
-        journalStorage = Option.when(config.journal.enabled)(journalStorage)
+        journalStorage = Option.when(config.journal.enabled)(journalStorage),
+        codecRegistry = eventCodecs
       )
       // Seed the sequencers before any envelope is created (bind creates the system processes' Start envelopes), so a
       // restart continues past the delivery seq and envelope ids already in the journal.
