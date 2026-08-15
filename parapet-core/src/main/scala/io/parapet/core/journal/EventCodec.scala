@@ -12,7 +12,7 @@ trait EventCodec {
   /** Unique codec id. */
   def tag: Tag
 
-  /**  Schema version. */
+  /** Schema version. */
   def version: Int
 
   /** Serializes an event to bytes. Always writes the current [[version]]. */
