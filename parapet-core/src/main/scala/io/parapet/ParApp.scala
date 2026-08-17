@@ -170,15 +170,19 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
         journalStorage = Option.when(config.journal.enabled)(journalStorage),
         codecRegistry = eventCodecs
       )
+      interp   = interpreter(context)
+      recovery = new core.Recovery(context, interp)
       // Seed the sequencers before any envelope is created (bind creates the system processes' Start envelopes), so a
       // restart continues past the delivery seq and envelope ids already in the journal.
-      _                 <- context.seedSequencersFromJournal
-      scheduler         <- Scheduler(config.schedulerConfig, context, interpreter(context))
+      _                 <- recovery.seedSequencers()
+      scheduler         <- Scheduler(config.schedulerConfig, context, interp)
       _                 <- context.bind(scheduler)
       deadLetterProcess <- deadLetter
-      _                 <- context.registerAll(ps.toList :+ deadLetterProcess)
-      // Start the workers last: registerAll has restored every snapshotable process and advanced the delivery
-      // sequence past their snapshots, so the first delivery a worker makes already sees the correct seq high-water.
+      // Recovery owns boot: register + restore the processes, then re-fold the recorded journal onto them so each
+      // catches up from its snapshot boundary to the last recorded delivery. No-op re-fold when the journal is empty.
+      _ <- recovery.boot(ps.toList :+ deadLetterProcess)
+      // Start the workers last, so the first live delivery already sees the reconstructed state and the correct seq
+      // high-water.
       _ <- scheduler.start
     yield ()
 

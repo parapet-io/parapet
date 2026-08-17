@@ -147,6 +147,9 @@ final class DeliveryRecorder[F[_]] private (
   def continueAfter(after: Long): Unit =
     lock.synchronized { if after > seq then seq = after }
 
+  /** All durably recorded entries with `seq > afterSeq`, in ascending `seq` order. For replay. */
+  def read(afterSeq: Long): F[Vector[JournalEntry]] = store.read(afterSeq)
+
   /** The highest `seq` durably recorded, or `None` when the journal is empty. */
   def maxSeq: F[Option[Long]] = store.maxSeq
 

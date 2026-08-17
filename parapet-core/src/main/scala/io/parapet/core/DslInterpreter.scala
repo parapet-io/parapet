@@ -76,13 +76,17 @@ object DslInterpreter:
               effect.pure(())
 
             case Send(event, senderOverride, receiver, receivers) =>
-              val source = senderOverride.getOrElse(processState.process.ref)
-              val first  = send(source, event, receiver, scope)
-              if receivers.nonEmpty then
-                first >> receivers.foldLeft(effect.pure(())) { (acc, next) =>
-                  acc >> send(source, event, next, scope)
-                }
-              else first
+              // While replaying, outward sends are suppressed: their recorded deliveries are re-injected by the driver,
+              // so re-emitting them here would double-deliver.
+              if context.replaying then effect.pure(())
+              else
+                val source = senderOverride.getOrElse(processState.process.ref)
+                val first  = send(source, event, receiver, scope)
+                if receivers.nonEmpty then
+                  first >> receivers.foldLeft(effect.pure(())) { (acc, next) =>
+                    acc >> send(source, event, next, scope)
+                  }
+                else first
 
             case WithSender(runWithSender) =>
               runWithSender
@@ -111,7 +115,8 @@ object DslInterpreter:
                 .map(fiber => Fiber.RuntimeFiber(fiber).asInstanceOf[A])
 
             case delay: Delay[F] =>
-              effect.sleep(delay.duration)
+              // Logical time: while replaying, a delay is zero-duration - the timeout it gates is re-injected at its seq.
+              if context.replaying then effect.pure(()) else effect.sleep(delay.duration)
 
             case Eval(thunk) =>
               effect.delay(thunk())
@@ -132,6 +137,10 @@ object DslInterpreter:
               val second0 = second.asInstanceOf[DslF[F, Any]].foldMap(interpret(sender, processState, scope))
               effect.race(first0, second0).asInstanceOf[F[A]]
 
+            case Offload(_) if context.replaying =>
+              // Replay does not re-run offloaded work; its effects (emitted events) are already in the journal.
+              effect.pure(().asInstanceOf[A])
+
             case Offload(body) =>
               for
                 done  <- Deferred[F, Either[Throwable, Unit]]()
@@ -147,7 +156,10 @@ object DslInterpreter:
               yield ().asInstanceOf[A]
 
             case Register(parent, process: Process[F, ?, ?] @unchecked) =>
-              context.registerAndStart(parent, process).void
+              // While replaying, register structurally only - Recovery drives restore + Restored for re-spawned
+              // children. A live spawn registers and starts.
+              if context.replaying then context.register(parent, process).void
+              else context.registerAndStart(parent, process).void
 
             case RaiseError(error) =>
               effect.raiseError(error)
