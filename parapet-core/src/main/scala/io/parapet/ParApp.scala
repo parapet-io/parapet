@@ -170,20 +170,12 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
         journalStorage = Option.when(config.journal.enabled)(journalStorage),
         codecRegistry = eventCodecs
       )
-      interp   = interpreter(context)
-      recovery = new core.Recovery(context, interp)
-      // Seed the sequencers before any envelope is created (bind creates the system processes' Start envelopes), so a
-      // restart continues past the delivery seq and envelope ids already in the journal.
-      _                 <- recovery.seedSequencers()
+      interp = interpreter(context)
       scheduler         <- Scheduler(config.schedulerConfig, context, interp)
       _                 <- context.bind(scheduler)
       deadLetterProcess <- deadLetter
-      // Recovery owns boot: register + restore the processes, then re-fold the recorded journal onto them so each
-      // catches up from its snapshot boundary to the last recorded delivery. No-op re-fold when the journal is empty.
-      _ <- recovery.boot(ps.toList :+ deadLetterProcess)
-      // Start the workers last, so the first live delivery already sees the reconstructed state and the correct seq
-      // high-water.
-      _ <- scheduler.start
+      _                 <- context.boot(ps.toList :+ deadLetterProcess, interp)
+      _                 <- scheduler.start
     yield ()
 
   /** Standard JVM entry point; runs [[run]] under [[unsafeRun]]. Subclasses normally do not need to override this.

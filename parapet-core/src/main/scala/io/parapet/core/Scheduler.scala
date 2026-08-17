@@ -487,7 +487,7 @@ object Scheduler:
       private def journalAdmit(envelope: Envelope): F[Long] =
         context.admit(JournalDraft(envelope.id, envelope.sender, envelope.receiver, envelope.cause, envelope.event))
 
-      /** True for everything except runtime lifecycle events, which are re-synthesized at boot rather than replayed. */
+      /** Runtime events are not recorded at the delivery seam. */
       private def journaled(event: Event): Boolean =
         !event.isInstanceOf[SystemEvent]
 
@@ -577,7 +577,7 @@ object Scheduler:
                       val whenUndefined: F[Unit] = event match
                         case failure: Failure =>
                           sendToDeadLetter(DeadLetter(failure), context, interpreter, deliveryScope)
-                        case Start =>
+                        case Initialize | Restored | Start =>
                           effect.pure(())
                         case _ =>
                           send(
@@ -589,8 +589,8 @@ object Scheduler:
                           )
 
                       val logMessage = event match
-                        case Start | Stop => effect.pure(())
-                        case _            => logger.warn(errorMessage)
+                        case Initialize | Restored | Start | Stop => effect.pure(())
+                        case _                                    => logger.warn(errorMessage)
 
                       logMessage >> whenUndefined
 

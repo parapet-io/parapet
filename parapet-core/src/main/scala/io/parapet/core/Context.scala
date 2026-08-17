@@ -1,7 +1,8 @@
 package io.parapet.core
 
 import io.parapet.core.Context.*
-import io.parapet.core.Events.Start
+import io.parapet.core.DslInterpreter.Interpreter
+import io.parapet.core.Events.{Initialize, Registered, Start}
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
@@ -122,14 +123,12 @@ class Context[F[_]](
     */
   private[core] def scheduler: Scheduler[F] = _scheduler
 
-  /** Binds `scheduler` to this context, creates the built-in system processes, and sends their initial [[Events.Start]]
-    * event. Must run before [[Scheduler.start]] - the scheduler refuses to start until it is bound. Called once during
-    * application boot.
+  /** Binds `scheduler` to this context and creates the built-in system processes. Must run before [[Scheduler.start]].
     */
   def bind(scheduler: Scheduler[F]): F[Unit] =
     effect.delay {
       _scheduler = scheduler
-    } >> createSysProcesses >> sendStartEvent(ProcessRef.SystemRef).void
+    } >> createSysProcesses
 
   private[core] def createSysProcesses: F[Unit] =
     for
@@ -145,8 +144,8 @@ class Context[F[_]](
     scheduler.submit(task)
 
   /** Registers `child` under `parent` in the supervision graph. The child receives a fresh [[ProcessState]] (mailbox,
-    * locks) and is wired into the [[Context]] but does not automatically receive a [[Events.Start]] - see
-    * [[registerAndStart]] for that.
+    * locks) and is wired into the [[Context]] but does not automatically receive lifecycle events - see
+    * [[registerAndStart]].
     *
     * @return
     *   the child's [[ProcessRef]], which equals `child.ref`.
@@ -164,7 +163,7 @@ class Context[F[_]](
       else
         child.init(self)
         ProcessState(child, config, clock).flatMap { state =>
-          effect.delay {
+          recordRegistration(parent, child.ref) >> effect.delay {
             if processes.putIfAbsent(child.ref, state) != null then
               throw new RuntimeException(s"duplicated process. ref = ${child.ref}")
 
@@ -176,15 +175,23 @@ class Context[F[_]](
         }
     }
 
+  private def recordRegistration(parent: ProcessRef.Unknown, child: ProcessRef.Unknown): F[Unit] =
+    if replaying then effect.pure(())
+    else
+      recorder match
+        case None    => effect.pure(())
+        case Some(_) =>
+          effect.delay(Envelope(ProcessRef.SystemRef, Registered(child), parent)).flatMap { envelope =>
+            admit(JournalDraft(envelope.id, envelope.sender, envelope.receiver, envelope.cause, envelope.event)).void
+          }
+
   /** Direct children of `parent` in the supervision graph. */
   def child(parent: ProcessRef.Unknown): Vector[ProcessRef.Unknown] =
     graph.getOrDefault(parent, ListBuffer.empty).toVector
 
-  /** Combination of [[register]] and dispatch of the initial [[Events.Start]] event. Snapshot restore is applied by
-    * [[io.parapet.core.Recovery]] at boot, not here.
-    */
+  /** Registers a live child and schedules [[Events.Initialize]] followed by [[Events.Start]]. */
   def registerAndStart(parent: ProcessRef.Unknown, process: Process[F, ?, ?]): F[SubmissionResult] =
-    register(parent, process) >> sendStartEvent(process.ref)
+    register(parent, process) >> sendLifecycleEvent(process.ref, Initialize) >> sendStartEvent(process.ref)
 
   private[parapet] def sendStartEvent(processRef: ProcessRef.Unknown): F[SubmissionResult] =
     sendLifecycleEvent(processRef, Start)
@@ -195,18 +202,26 @@ class Context[F[_]](
   ): F[SubmissionResult] =
     scheduler.submit(Deliver(Envelope(ProcessRef.SystemRef, event, processRef)))
 
-  /** Registers a batch of root processes (parented to [[ProcessRef.SystemRef]]) and starts each. */
+  /** Registers a batch of root processes and schedules [[Events.Initialize]] followed by [[Events.Start]]. */
   def registerAll(processes0: List[Process[F, ?, ?]]): F[List[ProcessRef.Unknown]] =
     registerAll(ProcessRef.SystemRef, processes0)
 
-  /** Registers a batch of processes under `parent`, then sends each an [[Events.Start]]. Snapshot restore and journal
-    * re-fold are applied by [[io.parapet.core.Recovery]] at boot, not here.
-    */
+  /** Registers and activates a batch of processes under `parent`. */
   def registerAll(parent: ProcessRef.Unknown, processes0: List[Process[F, ?, ?]]): F[List[ProcessRef.Unknown]] =
     for
       refs <- Monad.sequence(processes0.map(register(parent, _)))
-      _    <- Monad.sequence(processes0.map(p => sendStartEvent(p.ref)))
+      _    <- Monad.sequence(processes0.map(p => sendLifecycleEvent(p.ref, Initialize) >> sendStartEvent(p.ref)))
     yield refs
+
+  /** Restores and replays the application, then schedules [[Events.Start]] for the live phase. */
+  private[parapet] def boot(processes0: List[Process[F, ?, ?]], interpreter: Interpreter[F]): F[Unit] =
+    val recovery = new Recovery(self, interpreter)
+
+    effect.delay { bootMode = BootMode.Replaying } >>
+      recovery.seedSequencers() >>
+      recovery.boot(processes0) >>
+      effect.delay { bootMode = BootMode.Live } >>
+      Monad.sequence(getProcesses.map(process => sendStartEvent(process.ref))).void
 
   /** The snapshot manager, if snapshotting is enabled; used by [[io.parapet.core.Recovery]] to restore at boot. */
   private[parapet] def snapshots: Option[SnapshotManager[F]] = snapshotManager
@@ -261,14 +276,15 @@ object Context:
       journalStorage: Option[JournalStore[F]] = None,
       codecRegistry: EventCodecRegistry = EventCodecRegistry.empty
   )(using effect: Effect[F]): F[Context[F]] =
+    val codecs = EventCodecRegistry.withSystemCodecs(codecRegistry)
     for
       snapshots <- buildWithStorage(config.snapshot.enabled, snapshotStorage, "snapshotting")(
         SnapshotManager[F](_, Clock(), config.snapshot.queueCapacity)
       )
       recorder <- buildWithStorage(config.journal.enabled, journalStorage, "journal")(store =>
-        effect.pure(DeliveryRecorder.fresh(store, codecRegistry, config.journal))
+        effect.pure(DeliveryRecorder.fresh(store, codecs, config.journal))
       )
-    yield new Context[F](config, eventTransformers, snapshots, recorder, codecRegistry)
+    yield new Context[F](config, eventTransformers, snapshots, recorder, codecs)
 
   private def buildWithStorage[F[_], S, M](enabled: Boolean, storage: Option[S], name: String)(
       build: S => F[M]

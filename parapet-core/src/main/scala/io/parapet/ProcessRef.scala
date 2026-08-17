@@ -55,6 +55,8 @@ object ProcessRef:
   /** Reference to the no-op process which silently swallows any events sent to it. */
   val NoopRef: ProcessRef[Event] = ProcessRef(s"$ParapetPrefix-noop")
 
+  private[parapet] val RuntimeProcessRefs: Set[Unknown] = Set(SystemRef, NoopRef)
+
   /** Allocates a fresh, globally unique reference backed by a JDK [[UUID]]. */
   def apply[I <: Event](): ProcessRef[I] =
     jdkUUIDRef[I]

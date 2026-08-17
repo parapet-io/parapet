@@ -95,10 +95,12 @@ object DslInterpreter:
                 .foldMap(interpret(sender, processState, scope))
 
             case Forward(event, receivers) =>
-              receivers
-                .foldLeft(effect.pure(())) { (acc, receiver) =>
-                  acc >> send(sender, event, receiver, scope)
-                }
+              if context.replaying then effect.pure(())
+              else
+                receivers
+                  .foldLeft(effect.pure(())) { (acc, receiver) =>
+                    acc >> send(sender, event, receiver, scope)
+                  }
 
             case Par(flow) =>
               flow
@@ -156,8 +158,8 @@ object DslInterpreter:
               yield ().asInstanceOf[A]
 
             case Register(parent, process: Process[F, ?, ?] @unchecked) =>
-              // While replaying, register structurally only - Recovery drives restore + Restored for re-spawned
-              // children. A live spawn registers and starts.
+              // Recovery prepares structurally registered children at their registration marker. Live registration
+              // schedules Initialize followed by Start.
               if context.replaying then context.register(parent, process).void
               else context.registerAndStart(parent, process).void
 

@@ -41,9 +41,14 @@ class ChildRecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     // restores that child to its snapshot (count=5), which its own Restored handler reports.
     val store2  = new EventStore[ParIO, Event]
     val driver2 = onStart(unit)
-    unsafeRun(store2.await(1, createApp(ct.pure(Seq(new Manager(managerRef, store2), driver2)), config0 = config).run))
+    unsafeRun(
+      store2.await(
+        2,
+        createApp(ct.pure(Seq(new Manager(managerRef, store2, recordChildStart = true), driver2)), config0 = config).run
+      )
+    )
 
-    store2.get(workerRef) should contain(RestoredWith(5L))
+    store2.get(workerRef) shouldBe Seq(RestoredWith(5L), StartedWith(5L))
   }
 
 object ChildRecoveryIntgSpec:
@@ -53,13 +58,17 @@ object ChildRecoveryIntgSpec:
   final case class WAdd(n: Int)              extends Event
   final case class Acked(count: Long)        extends Event
   final case class RestoredWith(count: Long) extends Event
+  final case class StartedWith(count: Long)  extends Event
 
   private def encodeCount(c: Long): Array[Byte] = ByteBuffer.allocate(8).putLong(c).array()
   private def decodeCount(b: Array[Byte]): Long = ByteBuffer.wrap(b).getLong
 
   /** A dynamic, snapshotable child: its state is a running count. */
-  final class Worker(override val ref: ProcessRef[Event], store: EventStore[ParIO, Event])
-      extends Process[ParIO, Event, Event]
+  final class Worker(
+      override val ref: ProcessRef[Event],
+      store: EventStore[ParIO, Event],
+      recordStart: Boolean = false
+  ) extends Process[ParIO, Event, Event]
       with Snapshotable:
 
     import dsl.*
@@ -70,13 +79,16 @@ object ChildRecoveryIntgSpec:
     def restore(snapshot: Snapshot): Unit = count = decodeCount(snapshot.data)
 
     def handle: Receive =
-      case Start    => unit
+      case Start    => if recordStart then eval(store.add(ref, StartedWith(count))) else unit
       case Restored => eval(store.add(ref, RestoredWith(count)))
       case WAdd(n)  => eval { count += n; store.add(ref, Acked(count)) }
 
   /** A static, snapshotable parent: remembers its worker refs and re-spawns them on Restored. */
-  final class Manager(override val ref: ProcessRef[Event], store: EventStore[ParIO, Event])
-      extends Process[ParIO, Event, Event]
+  final class Manager(
+      override val ref: ProcessRef[Event],
+      store: EventStore[ParIO, Event],
+      recordChildStart: Boolean = false
+  ) extends Process[ParIO, Event, Event]
       with Snapshotable:
 
     import dsl.*
@@ -94,8 +106,10 @@ object ChildRecoveryIntgSpec:
     def handle: Receive =
       case Start    => unit
       case Restored =>
-        workers.values.toList.foldLeft(unit)((acc, wref) => acc ++ register(ref, new Worker(wref, store)).map(_ => ()))
+        workers.values.toList.foldLeft(unit)((acc, wref) =>
+          acc ++ register(ref, new Worker(wref, store, recordChildStart)).map(_ => ())
+        )
       case CreateWorker(id) =>
         val wref = ProcessRef[Event](s"worker-$id")
-        eval(workers += id -> wref) ++ register(ref, new Worker(wref, store)).map(_ => ())
+        eval(workers += id -> wref) ++ register(ref, new Worker(wref, store, recordChildStart)).map(_ => ())
       case AddTo(id, n) => WAdd(n) ~> workers(id)

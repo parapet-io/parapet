@@ -50,7 +50,7 @@ class SnapshotIntegrationSpec extends AnyFunSuite with BasicParIOSpec:
     latest.metadata.processRef shouldBe counterRef
   }
 
-  test("a restarted app restores the process from its snapshot, delivers Restored, and continues the seq") {
+  test("a restarted app restores the process, delivers Restored then Start, and continues the seq") {
     val dir        = Files.createTempDirectory("snapshot-restart")
     val counterRef = ProcessRef[Event]("snap-restart-counter")
     val config     = ParConfig.default.copy(
@@ -66,13 +66,12 @@ class SnapshotIntegrationSpec extends AnyFunSuite with BasicParIOSpec:
 
     // --- run 2: restart over the same data dir ---
     val store2   = new EventStore[ParIO, Event]
-    val counter2 = new Counter(counterRef, store2) // fresh instance, count starts at 0
+    val counter2 = new Counter(counterRef, store2, recordStart = true) // fresh instance, count starts at 0
     val driver2  = onStart(Probe ~> counterRef)
-    unsafeRun(store2.await(2, createApp(ct.pure(Seq(counter2, driver2)), config0 = config).run))
+    unsafeRun(store2.await(3, createApp(ct.pure(Seq(counter2, driver2)), config0 = config).run))
 
-    counter2.count shouldBe 15L                                        // state came back from disk
-    store2.get(counterRef).headOption shouldBe Some(RestoredWith(15L)) // Restored delivered, not Start
-    store2.get(counterRef) should contain(Acked(15L))                  // then handled the live Probe
+    counter2.count shouldBe 15L // state came back from disk
+    store2.get(counterRef) shouldBe Seq(RestoredWith(15L), StartedWith(15L), Acked(15L))
 
     val run2Seq = storage.latest(counterRef).unsafeRunSync().getOrElse(fail("no snapshot")).metadata.seq
     run2Seq should be > run1Seq // seq continued past the previous run
@@ -84,13 +83,17 @@ object SnapshotIntegrationSpec:
   case object Probe                          extends Event
   final case class Acked(count: Long)        extends Event
   final case class RestoredWith(count: Long) extends Event
+  final case class StartedWith(count: Long)  extends Event
 
   private def encodeCount(count: Long): Array[Byte] = ByteBuffer.allocate(8).putLong(count).array()
   private def decodeCount(bytes: Array[Byte]): Long = ByteBuffer.wrap(bytes).getLong
 
   /** A counting process that opts into snapshotting; its serialized state is just the running count. */
-  final class Counter(override val ref: ProcessRef[Event], store: EventStore[ParIO, Event])
-      extends Process[ParIO, Event, Event]
+  final class Counter(
+      override val ref: ProcessRef[Event],
+      store: EventStore[ParIO, Event],
+      recordStart: Boolean = false
+  ) extends Process[ParIO, Event, Event]
       with Snapshotable:
 
     import dsl.*
@@ -101,7 +104,7 @@ object SnapshotIntegrationSpec:
     def restore(snapshot: Snapshot): Unit = count = decodeCount(snapshot.data)
 
     def handle: Receive =
-      case Start    => unit
+      case Start    => if recordStart then eval(store.add(ref, StartedWith(count))) else unit
       case Restored => eval(store.add(ref, RestoredWith(count)))
       case Add(n)   => eval { count += n; store.add(ref, Acked(count)) }
       case Probe    => eval(store.add(ref, Acked(count)))

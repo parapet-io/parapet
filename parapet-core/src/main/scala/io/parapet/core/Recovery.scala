@@ -1,32 +1,21 @@
 package io.parapet.core
 
-import com.typesafe.scalalogging.Logger
 import io.parapet.core.DslInterpreter.Interpreter
+import io.parapet.core.Events.{Initialize, Registered, Restored}
 import io.parapet.core.journal.JournalEntry
 import io.parapet.core.snapshot.{Snapshot, Snapshotable}
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
 import io.parapet.{Envelope, Event, ProcessRef, Scope}
-import org.slf4j.LoggerFactory
 
 import scala.util.{Failure, Success}
 
-/** Owns application boot: registers the initial processes, restores each from its latest snapshot, then re-folds the
-  * recorded journal onto them so every process catches up from its snapshot boundary to the last recorded delivery.
-  *
-  * The re-fold runs with the runtime in [[BootMode.Replaying]], so the interpreter suppresses sends and effects. Unlike
-  * live delivery it drives the handler directly - it does not record the delivery, stamp a new `seq`, or fire snapshot
-  * triggers, so it never re-enters the recording seam. Restore uses the [[Context]] registration hook (shared with
-  * dynamic re-spawn); [[Recovery]] owns the ordering.
-  */
+/** Restores process state and replays recorded deliveries during application boot. */
 final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(using effect: Effect[F]):
 
-  private val logger = Logger(LoggerFactory.getLogger(classOf[Recovery[?]]))
+  private val recovered = scala.collection.mutable.Set.empty[ProcessRef.Unknown]
 
-  /** Advances the delivery-sequence and envelope-id counters past what the journal already holds, so a restart
-    * continues rather than reissuing positions. Call before any envelope is created (i.e. before binding the
-    * scheduler).
-    */
+  /** Advances the delivery-sequence and envelope-id counters past what the journal already holds. */
   def seedSequencers(): F[Unit] =
     for
       maxSeq <- context.journalMaxSeq
@@ -37,38 +26,26 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
       }
     yield ()
 
-  private val recovered = scala.collection.mutable.Set.empty[ProcessRef.Unknown]
-
-  /** Boots `processes`: register and recover each - restore + [[io.parapet.core.Events.Restored]], recursing into the
-    * children each `Restored` handler re-spawns - then re-fold the recorded journal onto the whole tree. Runs under
-    * [[BootMode.Replaying]] throughout and returns to [[BootMode.Live]] before the caller starts the scheduler.
-    */
+  /** Registers and recovers the initial processes, then replays the journal. */
   def boot(processes: List[Process[F, ?, ?]]): F[Unit] =
-    effect.delay { context.bootMode = BootMode.Replaying } >>
-      processes.foldLeft(effect.pure(()))((acc, p) => acc >> context.register(ProcessRef.SystemRef, p).void) >>
-      processes.foldLeft(effect.pure(()))((acc, p) => acc >> recover(p)) >>
-      reFold() >>
-      effect.delay { context.bootMode = BootMode.Live }
+    processes.foldLeft(effect.pure(()))((acc, process) =>
+      acc >> context.register(ProcessRef.SystemRef, process).void
+    ) >>
+      processes.foldLeft(effect.pure(()))((acc, process) => acc >> recover(process)) >>
+      replay() >>
+      recoverPending()
 
-  /** Recovers one process and, when it was restored, the subtree it re-spawns.
-    *
-    * Restores state from the latest snapshot; a restored process is delivered [[io.parapet.core.Events.Restored]]
-    * synchronously so its handler re-spawns children *before* the re-fold, then each child registered under it is
-    * recovered in turn. A process with no snapshot is queued an [[io.parapet.core.Events.Start]] instead, delivered
-    * live once the scheduler starts so its initial work is not suppressed. `recovered` guards against re-processing.
-    */
+  /** Restores or initializes one process, then recovers the children it registered. */
   private def recover(process: Process[F, ?, ?]): F[Unit] =
     if recovered.contains(process.ref) then effect.pure(())
     else
       recovered.add(process.ref)
       restoreState(process).flatMap {
-        case true  => deliverLifecycle(process.ref, Events.Restored) >> recoverChildren(process.ref)
-        case false => context.sendStartEvent(process.ref).void
-      }
+        case true  => deliverLifecycle(process.ref, Restored)
+        case false => deliverLifecycle(process.ref, Initialize)
+      } >> recoverChildren(process.ref)
 
-  /** Restores `process` from its latest snapshot and records its restored `seq`, without any lifecycle event. Returns
-    * `true` if a snapshot was found and applied, `false` if the process started fresh.
-    */
+  /** Restores `process` from its latest snapshot and records its replay boundary. */
   private def restoreState(process: Process[F, ?, ?]): F[Boolean] =
     val ref: ProcessRef.Unknown = process.ref
     process match
@@ -85,68 +62,80 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
         }
       case _ => effect.pure(false)
 
-  /** Restores `process`'s state once, if it hasn't already been recovered - for a child that first appears mid-re-fold
-    * (created by a parent's replayed handler) so the `seq <= restoredSeq` filter can skip what its snapshot already
-    * holds.
-    */
-  private def ensureRestored(process: Process[F, ?, ?]): F[Unit] =
-    if recovered.contains(process.ref) then effect.pure(())
-    else
-      recovered.add(process.ref)
-      restoreState(process).void
-
-  /** Recovers every child the just-restored `parent` registered while handling [[io.parapet.core.Events.Restored]]. */
   private def recoverChildren(parent: ProcessRef.Unknown): F[Unit] =
     context.child(parent).foldLeft(effect.pure(())) { (acc, childRef) =>
-      acc >> context.getProcessState(childRef).fold(effect.pure(()))(ps => recover(ps.process))
+      acc >> context.getProcessState(childRef).fold(effect.pure(()))(state => recover(state.process))
     }
 
-  /** Delivers a lifecycle event to `ref` synchronously through the interpreter (not via the scheduler), so its handler
-    * runs now. Under [[BootMode.Replaying]] its sends are suppressed, but `register` (child re-spawn) still runs.
-    */
+  private def recoverPending(): F[Unit] =
+    val pending = context.getProcesses.filterNot(process => recoveredOrRuntime(process.ref))
+    if pending.isEmpty then effect.pure(())
+    else
+      pending.foldLeft(effect.pure(()))((acc, process) => acc >> recover(process)) >>
+        recoverPending()
+
+  private def recoveredOrRuntime(ref: ProcessRef.Unknown): Boolean =
+    recovered.contains(ref) || ProcessRef.RuntimeProcessRefs.contains(ref)
+
   private def deliverLifecycle(ref: ProcessRef.Unknown, event: Event): F[Unit] =
     context.getProcessState(ref) match
-      case None     => effect.raiseError[Unit](new IllegalStateException(s"recovery: no process for $ref"))
-      case Some(ps) =>
-        effect.suspend(ps.process(event).foldMap(interpreter.interpret(ProcessRef.SystemRef, ps, Scope.empty)).void)
+      case None        => effect.raiseError(new IllegalStateException(s"recovery: no process for $ref"))
+      case Some(state) =>
+        effect.delay(state.process.canHandle(event)).flatMap {
+          case false => effect.pure(())
+          case true  =>
+            effect.suspend(
+              state.process(event).foldMap(interpreter.interpret(ProcessRef.SystemRef, state, Scope.empty)).void
+            )
+        }
 
-  /** Re-folds the recorded history onto the registered processes: each entry replayed to its receiver in `seq` order,
-    * skipped when already in the receiver's snapshot (`seq <= restoredSeq`) or the receiver does not exist.
-    */
-  private def reFold(): F[Unit] =
+  private def replay(): F[Unit] =
     context.readJournal(0L).flatMap { entries =>
-      entries.foldLeft(effect.pure(()))((acc, entry) => acc >> reFoldEntry(entry))
+      entries.foldLeft(effect.pure(()))((acc, entry) => acc >> replay(entry))
     }
 
-  private def reFoldEntry(entry: JournalEntry): F[Unit] =
+  private def replay(entry: JournalEntry): F[Unit] =
     context.getProcessState(entry.receiver) match
-      case Some(ps) =>
-        // A child first seen here (created by a parent's replayed handler) is restored from its snapshot before the
-        // filter, so entries already folded into that snapshot are skipped rather than re-applied from scratch.
-        ensureRestored(ps.process).flatMap { _ =>
-          if entry.seq > ps.restoredSeq then replayDeliver(entry) else effect.pure(())
-        }
-      case None =>
-        effect.delay(logger.warn(s"replay: no process for receiver ${entry.receiver} at seq ${entry.seq}; skipping"))
+      case Some(_) if !recoveredOrRuntime(entry.receiver) =>
+        effect.raiseError(
+          new IllegalStateException(
+            s"replay: process ${entry.receiver} received entry ${entry.seq} before recovery"
+          )
+        )
+      case Some(state) => if entry.seq > state.restoredSeq then replayDeliver(entry) else effect.pure(())
+      case None        =>
+        effect.raiseError(
+          new IllegalStateException(s"replay: no process for receiver ${entry.receiver} at seq ${entry.seq}")
+        )
 
-  /** Re-delivers one recorded entry to its receiver: decode the event, then run the receiver's handler through the
-    * interpreter under the entry's causal scope. Fails loud if the receiver does not exist or its codec is unknown.
-    */
-  def replayDeliver(entry: JournalEntry): F[Unit] =
+  /** Re-delivers one recorded entry without applying snapshot-boundary filtering. */
+  private def replayDeliver(entry: JournalEntry): F[Unit] =
     context.getProcessState(entry.receiver) match
-      case None =>
-        effect.raiseError[Unit](new IllegalStateException(s"replay: no process for receiver ${entry.receiver}"))
-      case Some(ps) =>
+      case None => effect.raiseError(new IllegalStateException(s"replay: no process for receiver ${entry.receiver}"))
+      case Some(state) =>
         context.codecForTag(entry.tag) match
-          case None =>
-            effect.raiseError[Unit](new IllegalStateException(s"replay: no codec for tag '${entry.tag}'"))
+          case None        => effect.raiseError(new IllegalStateException(s"replay: no codec for tag '${entry.tag}'"))
           case Some(codec) =>
             codec.decode(entry.schemaVersion, entry.event) match
-              case Failure(error) => effect.raiseError[Unit](error)
-              case Success(event) =>
+              case Failure(error)             => effect.raiseError(error)
+              case Success(Registered(child)) => recoverRegistered(entry, child)
+              case Success(event)             =>
                 val scope = Scope.empty.put(Scope.Cause, entry.id)
-                effect.suspend(ps.process(event).foldMap(interpreter.interpret(entry.sender, ps, scope)).void)
+                effect.suspend(state.process(event).foldMap(interpreter.interpret(entry.sender, state, scope)).void)
 
-  /** Folds a receiver's recorded deliveries in `seq` order (parallelism across receivers is added later). */
-  def replay(entries: Vector[JournalEntry]): F[Unit] =
-    entries.foldLeft(effect.pure(()))((acc, entry) => acc >> replayDeliver(entry))
+  private def recoverRegistered(entry: JournalEntry, child: ProcessRef.Unknown): F[Unit] =
+    if entry.sender != ProcessRef.SystemRef then
+      effect.raiseError(
+        new IllegalStateException(s"replay: registration marker at seq ${entry.seq} has sender ${entry.sender}")
+      )
+    else if !context.child(entry.receiver).contains(child) then
+      effect.raiseError(
+        new IllegalStateException(
+          s"replay: parent ${entry.receiver} did not recreate child $child before registration marker ${entry.seq}"
+        )
+      )
+    else
+      context.getProcessState(child) match
+        case Some(state) => recover(state.process)
+        case None        =>
+          effect.raiseError(new IllegalStateException(s"replay: registered child $child does not exist"))
