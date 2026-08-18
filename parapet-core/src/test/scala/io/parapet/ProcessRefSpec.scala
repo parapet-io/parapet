@@ -6,7 +6,7 @@ import org.scalatest.matchers.should.Matchers.*
 class ProcessRefSpec extends AnyFunSuite:
 
   test("child references are stable and scoped by their parent") {
-    val orders = ProcessRef.root[Event]("orders")
+    val orders  = ProcessRef.root[Event]("orders")
     val billing = ProcessRef.root[Event]("billing")
 
     orders.child[Event]("worker") shouldBe ProcessRef[Event]("orders/worker")

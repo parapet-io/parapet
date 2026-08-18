@@ -274,9 +274,9 @@ object RecoveryIntgSpec:
     def handle: Receive =
       case Initialize if recreateChild =>
         register(ref, new Counter(childRef, store, recordStart = true, recordInitialize = true))
-      case Initialize                  => unit
-      case Start                       => unit
-      case Store(n)                    =>
+      case Initialize => unit
+      case Start      => unit
+      case Store(n)   =>
         register(ref, new Counter(childRef, store)) ++
           suspend(ParIO.delay(ioCalls.incrementAndGet())).void ++
           (Add(n) ~> childRef)
