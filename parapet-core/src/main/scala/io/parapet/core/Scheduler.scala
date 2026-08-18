@@ -661,7 +661,10 @@ object Scheduler:
           processState: ProcessState[F],
           errorHandler: Throwable => F[Unit]
       ): F[Unit] =
-        logger.debug(s"worker[$name]::runEffect. envelope: $envelope") >> effect0.handleErrorWith(errorHandler)
+        logger.debug(s"worker[$name]::runEffect. envelope: $envelope") >> effect0.handleErrorWith {
+          case violation: RecoveryContractViolation => effect.raiseError(violation)
+          case error                                => errorHandler(error)
+        }
 
       private def createNotifySignal(ref: ProcessRef.Unknown): Signal =
         Signal(Envelope(ProcessRef.SchedulerRef, NotifyEvent, ref))

@@ -3,6 +3,7 @@ package io.parapet.core
 import io.parapet.core.Context.ProcessState
 import io.parapet.core.Dsl.*
 import io.parapet.core.Scheduler.{Deliver, ProcessQueueIsFull}
+import io.parapet.core.exceptions.RecoveryContractViolation
 import io.parapet.effect.{Deferred, Effect}
 import io.parapet.effect.Monad.*
 import io.parapet.free.{FunctionK, ~>}
@@ -107,6 +108,9 @@ object DslInterpreter:
                 .asInstanceOf[DslF[F, Unit]]
                 .foldMap(interpret(sender, processState, scope))
 
+            case Fork(_) if recoveryRestricted(processState) =>
+              effect.raiseError(RecoveryContractViolation(processState.process.ref, "Fork"))
+
             case Fork(flow) =>
               effect
                 .start(
@@ -123,6 +127,9 @@ object DslInterpreter:
             case Eval(thunk) =>
               effect.delay(thunk())
 
+            case Suspend(_) if recoveryRestricted(processState) =>
+              effect.raiseError(RecoveryContractViolation(processState.process.ref, "Suspend"))
+
             case Suspend(thunk) =>
               effect.suspend(thunk())
 
@@ -133,6 +140,9 @@ object DslInterpreter:
                     .asInstanceOf[DslF[F, A]]
                     .foldMap(interpret(sender, processState, scope))
                 )
+
+            case Race(_, _) if recoveryRestricted(processState) =>
+              effect.raiseError(RecoveryContractViolation(processState.process.ref, "Race"))
 
             case Race(first, second) =>
               val first0  = first.asInstanceOf[DslF[F, Any]].foldMap(interpret(sender, processState, scope))
@@ -171,7 +181,9 @@ object DslInterpreter:
                 .asInstanceOf[DslF[F, A]]
                 .foldMap(interpret(sender, processState, scope))
                 .handleErrorWith { error =>
-                  onError(error).asInstanceOf[DslF[F, A]].foldMap(interpret(sender, processState, scope))
+                  error match
+                    case violation: RecoveryContractViolation => effect.raiseError(violation)
+                    case _ => onError(error).asInstanceOf[DslF[F, A]].foldMap(interpret(sender, processState, scope))
                 }
 
             case Halt(ref) =>
@@ -208,6 +220,9 @@ object DslInterpreter:
               body
                 .asInstanceOf[DslF[F, A]]
                 .foldMap(interpret(sender, processState, f(scope)))
+
+    private def recoveryRestricted(processState: ProcessState[F]): Boolean =
+      context.journalEnabled && !processState.process.isInstanceOf[ReplayBoundary]
 
     private def send(
         sender: ProcessRef.Unknown,

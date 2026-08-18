@@ -117,9 +117,10 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
           case None        => effect.raiseError(new IllegalStateException(s"replay: no codec for tag '${entry.tag}'"))
           case Some(codec) =>
             codec.decode(entry.schemaVersion, entry.event) match
-              case Failure(error)             => effect.raiseError(error)
-              case Success(Registered(child)) => recoverRegistered(entry, child)
-              case Success(event)             =>
+              case Failure(error)                                           => effect.raiseError(error)
+              case Success(Registered(child))                               => recoverRegistered(entry, child)
+              case Success(_) if state.process.isInstanceOf[ReplayBoundary] => effect.pure(())
+              case Success(event)                                           =>
                 val scope = Scope.empty.put(Scope.Cause, entry.id)
                 effect.suspend(state.process(event).foldMap(interpreter.interpret(entry.sender, state, scope)).void)
 

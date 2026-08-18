@@ -156,22 +156,25 @@ class Context[F[_]](
     effect.suspend {
       if !processes.containsKey(parent) then
         effect.raiseError(UnknownProcessException(s"process cannot be registered because parent $parent doesn't exist"))
-      else if parents.containsKey(child.ref) then
-        effect.raiseError(
-          new IllegalStateException(s"$child has been already registered. its parent=${parents.get(child.ref)}")
-        )
       else
         child.init(self)
         ProcessState(child, config, clock).flatMap { state =>
-          recordRegistration(parent, child.ref) >> effect.delay {
-            if processes.putIfAbsent(child.ref, state) != null then
-              throw new RuntimeException(s"duplicated process. ref = ${child.ref}")
-
-            parents.put(child.ref, parent)
-            graph.computeIfAbsent(parent, _ => ListBuffer.empty)
-            graph.computeIfPresent(parent, (_, values) => values :+ child.ref)
-            child.ref
-          }
+          effect
+            .delay {
+              if processes.putIfAbsent(child.ref, state) != null then
+                throw new IllegalStateException(s"duplicated process. ref = ${child.ref}")
+            }
+            .flatMap { _ =>
+              recordRegistration(parent, child.ref)
+                .handleErrorWith { error =>
+                  effect.delay(processes.remove(child.ref, state)).flatMap(_ => effect.raiseError(error))
+                } >> effect.delay {
+                parents.put(child.ref, parent)
+                graph.computeIfAbsent(parent, _ => ListBuffer.empty)
+                graph.computeIfPresent(parent, (_, values) => values :+ child.ref)
+                child.ref
+              }
+            }
         }
     }
 
@@ -258,7 +261,8 @@ class Context[F[_]](
     */
   def remove(ref: ProcessRef.Unknown): F[Boolean] =
     effect.delay {
-      graph.computeIfPresent(parents.get(ref), (_, values) => values -= ref)
+      val parent = parents.remove(ref)
+      if parent != null then graph.computeIfPresent(parent, (_, values) => values -= ref)
       processes.remove(ref) != null
     }
 
