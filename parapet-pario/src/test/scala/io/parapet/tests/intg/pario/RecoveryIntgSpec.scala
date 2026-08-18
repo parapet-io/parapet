@@ -2,7 +2,7 @@ package io.parapet.tests.intg.pario
 
 import io.parapet.core.Events.{Initialize, Start}
 import io.parapet.core.Parapet.ParConfig
-import io.parapet.core.Process
+import io.parapet.core.{Process, ReplayBoundary}
 import io.parapet.core.journal.{EventCodec, EventCodecRegistry, JournalConfig, JournalStoreLocal}
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
@@ -14,6 +14,7 @@ import org.scalatest.matchers.should.Matchers.*
 
 import java.nio.ByteBuffer
 import java.nio.file.{Files, Path}
+import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.*
 import scala.util.{Failure, Success, Try}
 
@@ -170,6 +171,54 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     store2.get(childRef) shouldBe Seq(InitializedWith(0L), StartedWith(0L))
   }
 
+  test("a replay boundary skips IO while its replayable child is recovered and replayed") {
+    val dir         = Files.createTempDirectory("recovery-boundary")
+    val boundaryRef = ProcessRef.root[Event]("storage")
+    val childRef    = boundaryRef.child[Event]("state")
+    val ioCalls     = new AtomicInteger(0)
+    val config      = ParConfig.default.copy(
+      journal = JournalConfig(enabled = true, dataDir = dir.toString, batchSize = 1)
+    )
+
+    val store1 = new EventStore[ParIO, Event]
+    unsafeRun(
+      store1.await(
+        1,
+        createApp(
+          ct.pure(
+            Seq(
+              new StorageBoundary(boundaryRef, childRef, store1, ioCalls, recreateChild = false),
+              onStart(Store(9) ~> boundaryRef)
+            )
+          ),
+          config0 = config,
+          eventCodecs0 = boundaryCodecs
+        ).run
+      )
+    )
+    ioCalls.get() shouldBe 1
+
+    val store2 = new EventStore[ParIO, Event]
+    unsafeRun(
+      store2.await(
+        3,
+        createApp(
+          ct.pure(
+            Seq(
+              new StorageBoundary(boundaryRef, childRef, store2, ioCalls, recreateChild = true),
+              onStart(unit)
+            )
+          ),
+          config0 = config,
+          eventCodecs0 = boundaryCodecs
+        ).run
+      )
+    )
+
+    ioCalls.get() shouldBe 1
+    store2.get(childRef) shouldBe Seq(InitializedWith(0L), Acked(9L), StartedWith(9L))
+  }
+
 object RecoveryIntgSpec:
 
   final case class Add(n: Int)                  extends Event
@@ -177,6 +226,7 @@ object RecoveryIntgSpec:
   final case class InitializedWith(count: Long) extends Event
   final case class StartedWith(count: Long)     extends Event
   case object Spawn                             extends Event
+  final case class Store(n: Int)                extends Event
 
   object AddCodec extends EventCodec:
     val tag: String                            = "add"
@@ -194,10 +244,42 @@ object RecoveryIntgSpec:
       case other => Failure(new IllegalArgumentException(s"cannot encode $other"))
     def decode(version: Int, bytes: Array[Byte]): Try[Event] = Success(Spawn)
 
+  object StoreCodec extends EventCodec:
+    val tag: String                            = "store"
+    val version: Int                           = 1
+    def encode(event: Event): Try[Array[Byte]] = event match
+      case Store(n) => Success(ByteBuffer.allocate(4).putInt(n).array())
+      case other    => Failure(new IllegalArgumentException(s"cannot encode $other"))
+    def decode(version: Int, bytes: Array[Byte]): Try[Event] = Success(Store(ByteBuffer.wrap(bytes).getInt))
+
   val codecs: EventCodecRegistry = EventCodecRegistry(classOf[Add] -> AddCodec)
 
   val dynamicCodecs: EventCodecRegistry =
     EventCodecRegistry(classOf[Add] -> AddCodec, classOf[Spawn.type] -> SpawnCodec)
+
+  val boundaryCodecs: EventCodecRegistry =
+    EventCodecRegistry(classOf[Add] -> AddCodec, classOf[Store] -> StoreCodec)
+
+  final class StorageBoundary(
+      override val ref: ProcessRef[Event],
+      childRef: ProcessRef[Event],
+      store: EventStore[ParIO, Event],
+      ioCalls: AtomicInteger,
+      recreateChild: Boolean
+  ) extends Process[ParIO, Event, Event]
+      with ReplayBoundary:
+
+    import dsl.*
+
+    def handle: Receive =
+      case Initialize if recreateChild =>
+        register(ref, new Counter(childRef, store, recordStart = true, recordInitialize = true))
+      case Initialize                  => unit
+      case Start                       => unit
+      case Store(n)                    =>
+        register(ref, new Counter(childRef, store)) ++
+          suspend(ParIO.delay(ioCalls.incrementAndGet())).void ++
+          (Add(n) ~> childRef)
 
   final class Parent(
       override val ref: ProcessRef[Event],
