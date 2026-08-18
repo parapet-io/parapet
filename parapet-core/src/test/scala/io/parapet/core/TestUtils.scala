@@ -117,10 +117,7 @@ object TestUtils:
     val context: Context[TestIO] =
       Context[TestIO](ParConfig.default, EventTransformers.empty).unsafeRun()
 
-    context.bind(scheduler).unsafeRun()
-
-    private val noop: Noop[TestIO] = new Noop[TestIO]
-    context.register(ProcessRef.SystemRef, noop).unsafeRun()
+    context.bind(scheduler).unsafeRun() // creates the built-in Noop under ProcessRef.NoopRef
 
     captured.clear() // drop any boot-time envelopes captured by the stub scheduler
 
@@ -135,7 +132,7 @@ object TestUtils:
         .foldMap(
           impl.interpret(
             sender,
-            context.getProcessState(noop.ref).get,
+            context.getProcessState(ProcessRef.NoopRef).get,
             scope
           )
         )
