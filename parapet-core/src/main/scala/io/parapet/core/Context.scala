@@ -179,8 +179,7 @@ class Context[F[_]](
     }
 
   private def recordRegistration(parent: ProcessRef.Unknown, child: ProcessRef.Unknown): F[Unit] =
-    if replaying then
-      effect.raiseError(new IllegalStateException("registration recording is not allowed during replay"))
+    if replaying then effect.pure(())
     else
       recorder match
         case None    => effect.pure(())
@@ -219,13 +218,15 @@ class Context[F[_]](
 
   /** Restores and replays the application, then schedules [[Events.Start]] for the live phase. */
   private[parapet] def boot(processes0: List[Process[F, ?, ?]], interpreter: Interpreter[F]): F[Unit] =
-    if snapshotEnabled || journalEnabled then
-      val recovery = new Recovery(self, interpreter)
-      effect.delay { bootMode = BootMode.Replaying } >> 
-        recovery.seedSequencers() >>
-        recovery.boot(processes0) >>
-        effect.delay { bootMode = BootMode.Live } 
-    else effect.pure(()) >> Monad.sequence(getProcesses.map(process => sendStartEvent(process.ref))).void
+    val recovery = new Recovery(self, interpreter)
+    effect.delay {
+      bootMode = BootMode.Replaying
+    } >>
+      recovery.seedSequencers() >>
+      recovery.boot(processes0) >>
+      effect.delay {
+        bootMode = BootMode.Live
+      } >> Monad.sequence(getProcesses.map(process => sendStartEvent(process.ref))).void
 
   /** The snapshot manager, if snapshotting is enabled; used by [[io.parapet.core.Recovery]] to restore at boot. */
   private[parapet] def snapshots: Option[SnapshotManager[F]] = snapshotManager
