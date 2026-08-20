@@ -74,7 +74,7 @@ class Context[F[_]](
   /** The codec for `event`, or `None` when its type is not registered */
   def codecFor(event: Event): Option[EventCodec] = codecRegistry.codecFor(event)
 
-  /** The codec that recorded entries under `tag`, or `None` when the tag is unknown - used to decode on replay. */
+  /** The codec that recorded entries under `tag`, or `None` when the tag is unknown */
   def codecForTag(tag: String): Option[EventCodec] = codecRegistry.codecForTag(tag)
 
   private val bootModeRef = new AtomicReference[BootMode](BootMode.Live)
@@ -82,7 +82,7 @@ class Context[F[_]](
   /** Current boot mode; [[BootMode.Replaying]] while recovery re-folds recorded history, else [[BootMode.Live]]. */
   def bootMode: BootMode = bootModeRef.get
 
-  /** True while replaying recorded history - the interpreter suppresses outward effects. */
+  /** True while replaying recorded history */
   def replaying: Boolean = bootMode == BootMode.Replaying
 
   private[parapet] def bootMode_=(mode: BootMode): Unit = bootModeRef.set(mode)
@@ -97,7 +97,7 @@ class Context[F[_]](
   def stopJournal: F[Unit] =
     recorder.fold(effect.pure(()))(_.close())
 
-  /** Recorded deliveries with `seq > afterSeq` in ascending order, or empty when the journal is off. For replay. */
+  /** Recorded deliveries with `seq > afterSeq` in ascending order, or empty when the journal is off. */
   def readJournal(afterSeq: Long): F[Vector[journal.JournalEntry]] =
     recorder.fold(effect.pure(Vector.empty[journal.JournalEntry]))(_.read(afterSeq))
 
@@ -179,7 +179,8 @@ class Context[F[_]](
     }
 
   private def recordRegistration(parent: ProcessRef.Unknown, child: ProcessRef.Unknown): F[Unit] =
-    if replaying then effect.pure(())
+    if replaying then
+      effect.raiseError(new IllegalStateException("registration recording is not allowed during replay"))
     else
       recorder match
         case None    => effect.pure(())
@@ -192,7 +193,7 @@ class Context[F[_]](
   def child(parent: ProcessRef.Unknown): Vector[ProcessRef.Unknown] =
     graph.getOrDefault(parent, ListBuffer.empty).toVector
 
-  /** Registers a live child and schedules [[Events.Initialize]] followed by [[Events.Start]]. */
+  /** Registers a child and schedules [[Events.Initialize]] followed by [[Events.Start]]. */
   def registerAndStart(parent: ProcessRef.Unknown, process: Process[F, ?, ?]): F[SubmissionResult] =
     register(parent, process) >> sendLifecycleEvent(process.ref, Initialize) >> sendStartEvent(process.ref)
 
@@ -232,7 +233,7 @@ class Context[F[_]](
   /** Highest delivery `seq` recorded in the journal, or `None`; seeds the delivery counter at boot. */
   private[parapet] def journalMaxSeq: F[Option[Long]] = recorder.fold(effect.pure(Option.empty[Long]))(_.maxSeq)
 
-  /** Highest envelope id the journal refers to, or `None`; seeds the envelope-id counter at boot. */
+  /** Highest envelope id the journal refers to, or `None` */
   private[parapet] def journalMaxEnvelopeId: F[Option[Long]] =
     recorder.fold(effect.pure(Option.empty[Long]))(_.maxEnvelopeId)
 
@@ -383,7 +384,7 @@ object Context:
     val snapshotable: Boolean = process.isInstanceOf[snapshot.Snapshotable]
 
     /** The delivery `seq` this process was restored to at boot, or `0` if it started fresh. Replay skips entries with
-      * `seq <= restoredSeq` (already folded into the snapshot). Written on the boot thread before workers start.
+      * `seq <= restoredSeq` (already folded into the snapshot).
       */
     var restoredSeq: Long = 0L
 
