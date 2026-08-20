@@ -219,13 +219,13 @@ class Context[F[_]](
 
   /** Restores and replays the application, then schedules [[Events.Start]] for the live phase. */
   private[parapet] def boot(processes0: List[Process[F, ?, ?]], interpreter: Interpreter[F]): F[Unit] =
-    val recovery = new Recovery(self, interpreter)
-
-    effect.delay { bootMode = BootMode.Replaying } >>
-      recovery.seedSequencers() >>
-      recovery.boot(processes0) >>
-      effect.delay { bootMode = BootMode.Live } >>
-      Monad.sequence(getProcesses.map(process => sendStartEvent(process.ref))).void
+    if snapshotEnabled || journalEnabled then
+      val recovery = new Recovery(self, interpreter)
+      effect.delay { bootMode = BootMode.Replaying } >> 
+        recovery.seedSequencers() >>
+        recovery.boot(processes0) >>
+        effect.delay { bootMode = BootMode.Live } 
+    else effect.pure(()) >> Monad.sequence(getProcesses.map(process => sendStartEvent(process.ref))).void
 
   /** The snapshot manager, if snapshotting is enabled; used by [[io.parapet.core.Recovery]] to restore at boot. */
   private[parapet] def snapshots: Option[SnapshotManager[F]] = snapshotManager
@@ -281,15 +281,14 @@ object Context:
       journalStorage: Option[JournalStore[F]] = None,
       codecRegistry: EventCodecRegistry = EventCodecRegistry.empty
   )(using effect: Effect[F]): F[Context[F]] =
-    val codecs = EventCodecRegistry.withSystemCodecs(codecRegistry)
     for
       snapshots <- buildWithStorage(config.snapshot.enabled, snapshotStorage, "snapshotting")(
         SnapshotManager[F](_, Clock(), config.snapshot.queueCapacity)
       )
       recorder <- buildWithStorage(config.journal.enabled, journalStorage, "journal")(store =>
-        effect.pure(DeliveryRecorder.fresh(store, codecs, config.journal))
+        effect.pure(DeliveryRecorder.fresh(store, codecRegistry, config.journal))
       )
-    yield new Context[F](config, eventTransformers, snapshots, recorder, codecs)
+    yield new Context[F](config, eventTransformers, snapshots, recorder, codecRegistry)
 
   private def buildWithStorage[F[_], S, M](enabled: Boolean, storage: Option[S], name: String)(
       build: S => F[M]
@@ -383,11 +382,6 @@ object Context:
     /** Whether this process opts into snapshotting. */
     val snapshotable: Boolean = process.isInstanceOf[snapshot.Snapshotable]
 
-    /** The delivery `seq` this process was restored to at boot, or `0` if it started fresh. Replay skips entries with
-      * `seq <= restoredSeq` (already folded into the snapshot).
-      */
-    var restoredSeq: Long = 0L
-
     /** Bookkeeping for offloaded operations spawned by this process. */
     def offloads: OffloadTracker[F] =
       offloadTracker
@@ -472,6 +466,7 @@ object Context:
       * earliest time-triggered snapshot is one interval after the process first did work.
       */
     def onDelivered(seq: Long): Unit =
+      if seq < lastSeq then throw IllegalStateException(s"seq=$seq < lastSeq=$lastSeq")
       eventsSinceSnapshot += 1
       lastSeq = seq
       if lastSnapshotNanos == Long.MinValue then lastSnapshotNanos = clock.nanoTime

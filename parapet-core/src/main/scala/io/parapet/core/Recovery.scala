@@ -7,13 +7,19 @@ import io.parapet.core.snapshot.{Snapshot, Snapshotable}
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
 import io.parapet.{Envelope, Event, ProcessRef, Scope}
+import org.slf4j.LoggerFactory
 
 import scala.util.{Failure, Success}
 
 /** Restores process state and replays recorded deliveries during application boot. */
 final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(using effect: Effect[F]):
 
+  private val logger = LoggerFactory.getLogger(classOf[Recovery[_]])
+
   private val recovered = scala.collection.mutable.Set.empty[ProcessRef.Unknown]
+
+  // tracks seq per process
+  private val processSeqTracker = scala.collection.mutable.Map.empty[ProcessRef.Unknown, Long]
 
   /** Advances the delivery-sequence and envelope-id counters past what the journal already holds. */
   def seedSequencers(): F[Unit] =
@@ -55,7 +61,7 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
             effect
               .delay {
                 context.continueSeqAfter(restored.metadata.seq)
-                context.getProcessState(ref).foreach(_.restoredSeq = restored.metadata.seq)
+                context.getProcessState(ref).foreach(s => updateProcessSeq(ref, restored.metadata.seq))
               }
               .map(_ => true)
           case None => effect.pure(false)
@@ -102,8 +108,11 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
             s"replay: process ${entry.receiver} received entry ${entry.seq} before recovery"
           )
         )
-      case Some(state) => if entry.seq > state.restoredSeq then replayDeliver(entry) else effect.pure(())
-      case None        =>
+      case Some(state) =>
+        if entry.seq > processSeq(state.process.ref)
+        then replayDeliver(entry)
+        else effect.delay(logger.warn(s"replay ${entry.seq} <= ${processSeq(state.process.ref)}"))
+      case None =>
         effect.raiseError(
           new IllegalStateException(s"replay: no process for receiver ${entry.receiver} at seq ${entry.seq}")
         )
@@ -140,3 +149,11 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
         case Some(state) => recover(state.process)
         case None        =>
           effect.raiseError(new IllegalStateException(s"replay: registered child $child does not exist"))
+
+  private def processSeq(ref: ProcessRef.Unknown): Long = processSeqTracker.getOrElse(ref, 0L)
+
+  private def updateProcessSeq(ref: ProcessRef.Unknown, seq: Long): Unit =
+    processSeqTracker.updateWith(ref) {
+      case Some(value) => if seq < value then throw new IllegalStateException(s"seq=$seq < $value") else Some(seq)
+      case None        => Some(seq)
+    }
