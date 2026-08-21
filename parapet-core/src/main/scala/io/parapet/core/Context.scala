@@ -35,9 +35,9 @@ import scala.jdk.CollectionConverters.*
 class Context[F[_]](
     config: Parapet.ParConfig,
     val eventTransformers: EventTransformers,
-    private val snapshotManager: Option[SnapshotManager[F]],
-    private val recorder: Option[DeliveryRecorder[F]],
-    private val codecRegistry: EventCodecRegistry
+    private[core] val snapshotManager: Option[SnapshotManager[F]],
+    private[core] val recorder: Option[DeliveryRecorder[F]],
+    private[core] val codecRegistry: EventCodecRegistry
 )(using effect: Effect[F]):
   self =>
 
@@ -227,9 +227,6 @@ class Context[F[_]](
       effect.delay {
         bootMode = BootMode.Live
       } >> Monad.sequence(getProcesses.map(process => sendStartEvent(process.ref))).void
-
-  /** The snapshot manager, if snapshotting is enabled; used by [[io.parapet.core.Recovery]] to restore at boot. */
-  private[parapet] def snapshots: Option[SnapshotManager[F]] = snapshotManager
 
   /** Highest delivery `seq` recorded in the journal, or `None`; seeds the delivery counter at boot. */
   private[parapet] def journalMaxSeq: F[Option[Long]] = recorder.fold(effect.pure(Option.empty[Long]))(_.maxSeq)

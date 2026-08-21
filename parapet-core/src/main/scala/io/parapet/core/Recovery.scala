@@ -41,6 +41,8 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
       replay() >>
       recoverPending()
 
+  // ======================= RECOVER =======================  //
+
   /** Restores or initializes one process, then recovers the children it registered. */
   private def recover(process: Process[F, ?, ?]): F[Unit] =
     if recovered.contains(process.ref) then effect.pure(())
@@ -51,15 +53,21 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
         case false => deliverLifecycle(process.ref, Initialize)
       } >> recoverChildren(process.ref)
 
+  private def recover(ref: ProcessRef.Unknown): F[Unit] =
+    context.getProcessState(ref) match
+      case Some(state) => recover(state.process)
+      case None        => effect.raiseError(new IllegalStateException(s"process state doesn't exist. ref=$ref"))
+
   /** Restores `process` from its latest snapshot and records its replay boundary. */
   private def restoreState(process: Process[F, ?, ?]): F[Boolean] =
     val ref: ProcessRef.Unknown = process.ref
     process match
       case snapshotable: Snapshotable =>
-        context.snapshots.fold(effect.pure(Option.empty[Snapshot]))(_.restoreLatest(ref, snapshotable)).flatMap {
+        context.snapshotManager.fold(effect.pure(Option.empty[Snapshot]))(_.restoreLatest(ref, snapshotable)).flatMap {
           case Some(restored) =>
             effect
               .delay {
+                // in case if journal is not enabled, we need to update seq from snap
                 context.continueSeqAfter(restored.metadata.seq)
                 context.getProcessState(ref).foreach(s => updateProcessSeq(ref, restored.metadata.seq))
               }
@@ -70,7 +78,11 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
 
   private def recoverChildren(parent: ProcessRef.Unknown): F[Unit] =
     context.child(parent).foldLeft(effect.pure(())) { (acc, childRef) =>
-      acc >> context.getProcessState(childRef).fold(effect.pure(()))(state => recover(state.process))
+      acc >> context
+        .getProcessState(childRef)
+        .fold(effect.raiseError(new IllegalStateException(s"no state for child=$childRef")))(state =>
+          recover(state.process)
+        )
     }
 
   private def recoverPending(): F[Unit] =
@@ -95,6 +107,8 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
             )
         }
 
+  // ======================= REPLAY ======================= //
+
   private def replay(): F[Unit] =
     context.readJournal(0L).flatMap { entries =>
       entries.foldLeft(effect.pure(()))((acc, entry) => acc >> replay(entry))
@@ -111,7 +125,7 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
       case Some(state) =>
         if entry.seq > processSeq(state.process.ref)
         then replayDeliver(entry)
-        else effect.delay(logger.warn(s"replay ${entry.seq} <= ${processSeq(state.process.ref)}"))
+        else effect.delay(logger.warn(s"replay entry.seq=${entry.seq} <= process.seq${processSeq(state.process.ref)}"))
       case None =>
         effect.raiseError(
           new IllegalStateException(s"replay: no process for receiver ${entry.receiver} at seq ${entry.seq}")
@@ -120,35 +134,18 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
   /** Re-delivers one recorded entry without applying snapshot-boundary filtering. */
   private def replayDeliver(entry: JournalEntry): F[Unit] =
     context.getProcessState(entry.receiver) match
-      case None => effect.raiseError(new IllegalStateException(s"replay: no process for receiver ${entry.receiver}"))
+      case None        => effect.raiseError(new IllegalStateException(s"replay: no process for ref=${entry.receiver}"))
       case Some(state) =>
         context.codecForTag(entry.tag) match
           case None        => effect.raiseError(new IllegalStateException(s"replay: no codec for tag '${entry.tag}'"))
           case Some(codec) =>
             codec.decode(entry.schemaVersion, entry.event) match
               case Failure(error)                                           => effect.raiseError(error)
-              case Success(Registered(child))                               => recoverRegistered(entry, child)
+              case Success(Registered(child))                               => recover(child)
               case Success(_) if state.process.isInstanceOf[ReplayBoundary] => effect.pure(())
               case Success(event)                                           =>
                 val scope = Scope.empty.put(Scope.Cause, entry.id)
                 effect.suspend(state.process(event).foldMap(interpreter.interpret(entry.sender, state, scope)).void)
-
-  private def recoverRegistered(entry: JournalEntry, child: ProcessRef.Unknown): F[Unit] =
-    if entry.sender != ProcessRef.SystemRef then
-      effect.raiseError(
-        new IllegalStateException(s"replay: registration marker at seq ${entry.seq} has sender ${entry.sender}")
-      )
-    else if !context.child(entry.receiver).contains(child) then
-      effect.raiseError(
-        new IllegalStateException(
-          s"replay: parent ${entry.receiver} did not recreate child $child before registration marker ${entry.seq}"
-        )
-      )
-    else
-      context.getProcessState(child) match
-        case Some(state) => recover(state.process)
-        case None        =>
-          effect.raiseError(new IllegalStateException(s"replay: registered child $child does not exist"))
 
   private def processSeq(ref: ProcessRef.Unknown): Long = processSeqTracker.getOrElse(ref, 0L)
 
