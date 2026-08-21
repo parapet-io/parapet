@@ -1,7 +1,8 @@
 package io.parapet.core
 
 import io.parapet.core.Context.*
-import io.parapet.core.Events.Start
+import io.parapet.core.DslInterpreter.Interpreter
+import io.parapet.core.Events.{Initialize, Registered, Start}
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
@@ -34,9 +35,9 @@ import scala.jdk.CollectionConverters.*
 class Context[F[_]](
     config: Parapet.ParConfig,
     val eventTransformers: EventTransformers,
-    private val snapshotManager: Option[SnapshotManager[F]],
-    private val recorder: Option[DeliveryRecorder[F]],
-    private val codecRegistry: EventCodecRegistry
+    private[core] val snapshotManager: Option[SnapshotManager[F]],
+    private[core] val recorder: Option[DeliveryRecorder[F]],
+    private[core] val codecRegistry: EventCodecRegistry
 )(using effect: Effect[F]):
   self =>
 
@@ -73,6 +74,19 @@ class Context[F[_]](
   /** The codec for `event`, or `None` when its type is not registered */
   def codecFor(event: Event): Option[EventCodec] = codecRegistry.codecFor(event)
 
+  /** The codec that recorded entries under `tag`, or `None` when the tag is unknown */
+  def codecForTag(tag: String): Option[EventCodec] = codecRegistry.codecForTag(tag)
+
+  private val bootModeRef = new AtomicReference[BootMode](BootMode.Live)
+
+  /** Current boot mode; [[BootMode.Replaying]] while recovery re-folds recorded history, else [[BootMode.Live]]. */
+  def bootMode: BootMode = bootModeRef.get
+
+  /** True while replaying recorded history */
+  def replaying: Boolean = bootMode == BootMode.Replaying
+
+  private[parapet] def bootMode_=(mode: BootMode): Unit = bootModeRef.set(mode)
+
   /** Records `draft` in the delivery journal and returns its assigned delivery `seq`. Only valid when journalling is on
     * (the caller reaches this only for a journalable delivery).
     */
@@ -82,6 +96,10 @@ class Context[F[_]](
   /** Stops the journal, publishing any buffered tail. No-op when the journal is off. */
   def stopJournal: F[Unit] =
     recorder.fold(effect.pure(()))(_.close())
+
+  /** Recorded deliveries with `seq > afterSeq` in ascending order, or empty when the journal is off. */
+  def readJournal(afterSeq: Long): F[Vector[journal.JournalEntry]] =
+    recorder.fold(effect.pure(Vector.empty[journal.JournalEntry]))(_.read(afterSeq))
 
   private val processes = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessState[F]]()
   private val graph     = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ListBuffer[ProcessRef.Unknown]]()
@@ -105,14 +123,12 @@ class Context[F[_]](
     */
   private[core] def scheduler: Scheduler[F] = _scheduler
 
-  /** Binds `scheduler` to this context, creates the built-in system processes, and sends their initial [[Events.Start]]
-    * event. Must run before [[Scheduler.start]] - the scheduler refuses to start until it is bound. Called once during
-    * application boot.
+  /** Binds `scheduler` to this context and creates the built-in system processes. Must run before [[Scheduler.start]].
     */
   def bind(scheduler: Scheduler[F]): F[Unit] =
     effect.delay {
       _scheduler = scheduler
-    } >> createSysProcesses >> sendStartEvent(ProcessRef.SystemRef).void
+    } >> createSysProcesses
 
   private[core] def createSysProcesses: F[Unit] =
     for
@@ -128,8 +144,8 @@ class Context[F[_]](
     scheduler.submit(task)
 
   /** Registers `child` under `parent` in the supervision graph. The child receives a fresh [[ProcessState]] (mailbox,
-    * locks) and is wired into the [[Context]] but does not automatically receive a [[Events.Start]] - see
-    * [[registerAndStart]] for that.
+    * locks) and is wired into the [[Context]] but does not automatically receive lifecycle events - see
+    * [[registerAndStart]].
     *
     * @return
     *   the child's [[ProcessRef]], which equals `child.ref`.
@@ -140,84 +156,84 @@ class Context[F[_]](
     effect.suspend {
       if !processes.containsKey(parent) then
         effect.raiseError(UnknownProcessException(s"process cannot be registered because parent $parent doesn't exist"))
-      else if parents.containsKey(child.ref) then
-        effect.raiseError(
-          new IllegalStateException(s"$child has been already registered. its parent=${parents.get(child.ref)}")
-        )
       else
         child.init(self)
         ProcessState(child, config, clock).flatMap { state =>
-          effect.delay {
-            if processes.putIfAbsent(child.ref, state) != null then
-              throw new RuntimeException(s"duplicated process. ref = ${child.ref}")
-
-            parents.put(child.ref, parent)
-            graph.computeIfAbsent(parent, _ => ListBuffer.empty)
-            graph.computeIfPresent(parent, (_, values) => values :+ child.ref)
-            child.ref
-          }
+          effect
+            .delay {
+              if processes.putIfAbsent(child.ref, state) != null then
+                throw new IllegalStateException(s"duplicated process. ref = ${child.ref}")
+            }
+            .flatMap { _ =>
+              recordRegistration(parent, child.ref)
+                .handleErrorWith { error =>
+                  effect.delay(processes.remove(child.ref, state)).flatMap(_ => effect.raiseError(error))
+                } >> effect.delay {
+                parents.put(child.ref, parent)
+                graph.computeIfAbsent(parent, _ => ListBuffer.empty)
+                graph.computeIfPresent(parent, (_, values) => values :+ child.ref)
+                child.ref
+              }
+            }
         }
     }
+
+  private def recordRegistration(parent: ProcessRef.Unknown, child: ProcessRef.Unknown): F[Unit] =
+    if replaying then effect.pure(())
+    else
+      recorder match
+        case None    => effect.pure(())
+        case Some(_) =>
+          effect.delay(Envelope(ProcessRef.SystemRef, Registered(child), parent)).flatMap { envelope =>
+            admit(JournalDraft(envelope.id, envelope.sender, envelope.receiver, envelope.cause, envelope.event)).void
+          }
 
   /** Direct children of `parent` in the supervision graph. */
   def child(parent: ProcessRef.Unknown): Vector[ProcessRef.Unknown] =
     graph.getOrDefault(parent, ListBuffer.empty).toVector
 
-  /** Combination of [[register]] and dispatch of the initial [[Events.Start]] event. */
+  /** Registers a child and schedules [[Events.Initialize]] followed by [[Events.Start]]. */
   def registerAndStart(parent: ProcessRef.Unknown, process: Process[F, ?, ?]): F[SubmissionResult] =
-    register(parent, process) >> sendStartEvent(process.ref)
+    register(parent, process) >> sendLifecycleEvent(process.ref, Initialize) >> sendStartEvent(process.ref)
 
-  private def sendStartEvent(processRef: ProcessRef.Unknown): F[SubmissionResult] =
+  private[parapet] def sendStartEvent(processRef: ProcessRef.Unknown): F[SubmissionResult] =
     sendLifecycleEvent(processRef, Start)
 
-  private def sendLifecycleEvent(processRef: ProcessRef.Unknown, event: Events.SystemEvent): F[SubmissionResult] =
+  private[parapet] def sendLifecycleEvent(
+      processRef: ProcessRef.Unknown,
+      event: Events.SystemEvent
+  ): F[SubmissionResult] =
     scheduler.submit(Deliver(Envelope(ProcessRef.SystemRef, event, processRef)))
 
-  /** Registers a batch of root processes (parented to [[ProcessRef.SystemRef]]) and starts each.
-    */
+  /** Registers a batch of root processes and schedules [[Events.Initialize]] followed by [[Events.Start]]. */
   def registerAll(processes0: List[Process[F, ?, ?]]): F[List[ProcessRef.Unknown]] =
     registerAll(ProcessRef.SystemRef, processes0)
 
-  /** Registers a batch of processes under `parent`, then boots each: a [[Snapshotable]] process with a stored snapshot
-    * is restored and gets [[Events.Restored]]; everyone else gets [[Events.Start]].
-    *
-    * Restoring happens between register and the lifecycle event so a process's state is in place before it sees any
-    * event, and its `Start` initialization never runs over restored state.
-    */
+  /** Registers and activates a batch of processes under `parent`. */
   def registerAll(parent: ProcessRef.Unknown, processes0: List[Process[F, ?, ?]]): F[List[ProcessRef.Unknown]] =
     for
-      _      <- Monad.sequence(processes0.map(register(parent, _)))
-      result <- Monad.sequence(processes0.map(boot))
-    yield result
+      refs <- Monad.sequence(processes0.map(register(parent, _)))
+      _    <- Monad.sequence(processes0.map(p => sendLifecycleEvent(p.ref, Initialize) >> sendStartEvent(p.ref)))
+    yield refs
 
-  /** Advances the delivery-sequence and envelope-id counters past what the journal already holds. */
-  private[parapet] def seedSequencersFromJournal: F[Unit] =
-    recorder match
-      case None      => effect.pure(())
-      case Some(rec) =>
-        for
-          maxSeq <- rec.maxSeq
-          maxId  <- rec.maxEnvelopeId
-          _      <- effect.delay {
-            maxSeq.foreach(continueSeqAfter)
-            maxId.foreach(Envelope.continueIdAfter)
-          }
-        yield ()
+  /** Restores and replays the application, then schedules [[Events.Start]] for the live phase. */
+  private[parapet] def boot(processes0: List[Process[F, ?, ?]], interpreter: Interpreter[F]): F[Unit] =
+    val recovery = new Recovery(self, interpreter)
+    effect.delay {
+      bootMode = BootMode.Replaying
+    } >>
+      recovery.seedSequencers() >>
+      recovery.boot(processes0) >>
+      effect.delay {
+        bootMode = BootMode.Live
+      } >> Monad.sequence(getProcesses.map(process => sendStartEvent(process.ref))).void
 
-  /** Restores `process` from its latest snapshot when applicable, advances the delivery sequence past it, and delivers
-    * the matching lifecycle event ([[Events.Restored]] if restored, else [[Events.Start]]).
-    */
-  private def boot(process: Process[F, ?, ?]): F[ProcessRef.Unknown] =
-    val ref: ProcessRef.Unknown = process.ref
-    (snapshotManager, process) match
-      case (Some(manager), snapshotable: snapshot.Snapshotable) =>
-        manager.restoreLatest(ref, snapshotable).flatMap {
-          case Some(restored) =>
-            continueSeqAfter(restored.metadata.seq)
-            sendLifecycleEvent(ref, Events.Restored).as(ref)
-          case None => sendStartEvent(ref).as(ref)
-        }
-      case _ => sendStartEvent(ref).as(ref)
+  /** Highest delivery `seq` recorded in the journal, or `None`; seeds the delivery counter at boot. */
+  private[parapet] def journalMaxSeq: F[Option[Long]] = recorder.fold(effect.pure(Option.empty[Long]))(_.maxSeq)
+
+  /** Highest envelope id the journal refers to, or `None` */
+  private[parapet] def journalMaxEnvelopeId: F[Option[Long]] =
+    recorder.fold(effect.pure(Option.empty[Long]))(_.maxEnvelopeId)
 
   /** Snapshot of every [[Process]] currently registered (system + user). */
   def getProcesses: List[Process[F, ?, ?]] =
@@ -244,7 +260,8 @@ class Context[F[_]](
     */
   def remove(ref: ProcessRef.Unknown): F[Boolean] =
     effect.delay {
-      graph.computeIfPresent(parents.get(ref), (_, values) => values -= ref)
+      val parent = parents.remove(ref)
+      if parent != null then graph.computeIfPresent(parent, (_, values) => values -= ref)
       processes.remove(ref) != null
     }
 
@@ -447,6 +464,7 @@ object Context:
       * earliest time-triggered snapshot is one interval after the process first did work.
       */
     def onDelivered(seq: Long): Unit =
+      if seq < lastSeq then throw IllegalStateException(s"seq=$seq < lastSeq=$lastSeq")
       eventsSinceSnapshot += 1
       lastSeq = seq
       if lastSnapshotNanos == Long.MinValue then lastSnapshotNanos = clock.nanoTime

@@ -170,10 +170,10 @@ abstract class ProcessLifecycleSpec[F[_]] extends AnyFlatSpec with IntegrationSp
     val init   = onStart(Seq(DataEvent(1), DataEvent(2), Stop) ~> process.ref)
     val config = ParConfig.default.withDevMode.withWorkerCount(1)
 
-    unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(init, process)), config0 = config).run))
+    unsafeRun(eventStore.await(5, createApp(ct.pure(Seq(init, process)), config0 = config).run))
 
-    eventStore.size shouldBe 4
-    eventStore.get(process.ref) shouldBe Seq(Start, DataEvent(1), DataEvent(2), Stop)
+    eventStore.size shouldBe 5
+    eventStore.get(process.ref) shouldBe Seq(Initialize, Start, DataEvent(1), DataEvent(2), Stop)
 
   }
 

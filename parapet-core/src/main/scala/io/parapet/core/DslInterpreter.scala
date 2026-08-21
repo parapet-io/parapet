@@ -3,6 +3,7 @@ package io.parapet.core
 import io.parapet.core.Context.ProcessState
 import io.parapet.core.Dsl.*
 import io.parapet.core.Scheduler.{Deliver, ProcessQueueIsFull}
+import io.parapet.core.exceptions.RecoveryContractViolation
 import io.parapet.effect.{Deferred, Effect}
 import io.parapet.effect.Monad.*
 import io.parapet.free.{FunctionK, ~>}
@@ -76,13 +77,15 @@ object DslInterpreter:
               effect.pure(())
 
             case Send(event, senderOverride, receiver, receivers) =>
-              val source = senderOverride.getOrElse(processState.process.ref)
-              val first  = send(source, event, receiver, scope)
-              if receivers.nonEmpty then
-                first >> receivers.foldLeft(effect.pure(())) { (acc, next) =>
-                  acc >> send(source, event, next, scope)
-                }
-              else first
+              if context.replaying then effect.pure(())
+              else
+                val source = senderOverride.getOrElse(processState.process.ref)
+                val first  = send(source, event, receiver, scope)
+                if receivers.nonEmpty then
+                  first >> receivers.foldLeft(effect.pure(())) { (acc, next) =>
+                    acc >> send(source, event, next, scope)
+                  }
+                else first
 
             case WithSender(runWithSender) =>
               runWithSender
@@ -91,15 +94,20 @@ object DslInterpreter:
                 .foldMap(interpret(sender, processState, scope))
 
             case Forward(event, receivers) =>
-              receivers
-                .foldLeft(effect.pure(())) { (acc, receiver) =>
-                  acc >> send(sender, event, receiver, scope)
-                }
+              if context.replaying then effect.pure(())
+              else
+                receivers
+                  .foldLeft(effect.pure(())) { (acc, receiver) =>
+                    acc >> send(sender, event, receiver, scope)
+                  }
 
             case Par(flow) =>
               flow
                 .asInstanceOf[DslF[F, Unit]]
                 .foldMap(interpret(sender, processState, scope))
+
+            case Fork(_) if recoveryRestricted(processState) =>
+              effect.raiseError(RecoveryContractViolation(processState.process.ref, "Fork"))
 
             case Fork(flow) =>
               effect
@@ -111,10 +119,13 @@ object DslInterpreter:
                 .map(fiber => Fiber.RuntimeFiber(fiber).asInstanceOf[A])
 
             case delay: Delay[F] =>
-              effect.sleep(delay.duration)
+              if context.replaying then effect.pure(()) else effect.sleep(delay.duration)
 
             case Eval(thunk) =>
               effect.delay(thunk())
+
+            case Suspend(_) if recoveryRestricted(processState) =>
+              effect.raiseError(RecoveryContractViolation(processState.process.ref, "Suspend"))
 
             case Suspend(thunk) =>
               effect.suspend(thunk())
@@ -127,10 +138,16 @@ object DslInterpreter:
                     .foldMap(interpret(sender, processState, scope))
                 )
 
+            case Race(_, _) if recoveryRestricted(processState) =>
+              effect.raiseError(RecoveryContractViolation(processState.process.ref, "Race"))
+
             case Race(first, second) =>
               val first0  = first.asInstanceOf[DslF[F, Any]].foldMap(interpret(sender, processState, scope))
               val second0 = second.asInstanceOf[DslF[F, Any]].foldMap(interpret(sender, processState, scope))
               effect.race(first0, second0).asInstanceOf[F[A]]
+
+            case Offload(_) if context.replaying =>
+              effect.pure(().asInstanceOf[A])
 
             case Offload(body) =>
               for
@@ -147,7 +164,8 @@ object DslInterpreter:
               yield ().asInstanceOf[A]
 
             case Register(parent, process: Process[F, ?, ?] @unchecked) =>
-              context.registerAndStart(parent, process).void
+              if context.replaying then context.register(parent, process).void
+              else context.registerAndStart(parent, process).void
 
             case RaiseError(error) =>
               effect.raiseError(error)
@@ -156,8 +174,9 @@ object DslInterpreter:
               body()
                 .asInstanceOf[DslF[F, A]]
                 .foldMap(interpret(sender, processState, scope))
-                .handleErrorWith { error =>
-                  onError(error).asInstanceOf[DslF[F, A]].foldMap(interpret(sender, processState, scope))
+                .handleErrorWith {
+                  case violation: RecoveryContractViolation => effect.raiseError(violation)
+                  case error => onError(error).asInstanceOf[DslF[F, A]].foldMap(interpret(sender, processState, scope))
                 }
 
             case Halt(ref) =>
@@ -194,6 +213,9 @@ object DslInterpreter:
               body
                 .asInstanceOf[DslF[F, A]]
                 .foldMap(interpret(sender, processState, f(scope)))
+
+    private def recoveryRestricted(processState: ProcessState[F]): Boolean =
+      context.journalEnabled && !processState.process.isInstanceOf[ReplayBoundary]
 
     private def send(
         sender: ProcessRef.Unknown,

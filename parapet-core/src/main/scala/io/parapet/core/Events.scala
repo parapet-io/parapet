@@ -1,6 +1,6 @@
 package io.parapet.core
 
-import io.parapet.{Envelope, Event}
+import io.parapet.{Envelope, Event, ProcessRef}
 
 /** System-defined [[Event]]s emitted by the parapet runtime.
   *
@@ -12,14 +12,23 @@ object Events {
   /** Marker trait for runtime-issued lifecycle events. Not generally extended by user code. */
   sealed trait SystemEvent extends Event
 
-  /** First event delivered to every process after registration. Use to perform initial setup such as registering child
-    * processes or sending a "ready" notification.
+  /** Prepares a fresh process instance before it receives replayed or live domain events. */
+  case object Initialize extends SystemEvent
+
+  /** Signals that a process may begin live operation. During recovery it is delivered after snapshot restoration and
+    * journal replay have completed.
     */
   case object Start extends SystemEvent
 
-  /** Delivered instead of [[Start]] when a process was restored from a snapshot at boot.
+  /** Delivered after a snapshot has restored a process's state and before journal entries are replayed. [[Start]]
+    * follows after replay completes.
     */
   case object Restored extends SystemEvent
+
+  /** Marks the point at which `child` was registered by the receiving parent. Used by recovery to synchronize replay of
+    * a dynamic process tree.
+    */
+  final case class Registered(child: ProcessRef.Unknown) extends SystemEvent
 
   /** Sent during graceful shutdown. The process should wrap up in-flight work and release resources; child processes
     * are stopped first by the runtime.

@@ -36,6 +36,12 @@ package object exceptions {
   /** Raised when an event arrives at a process whose `handle` is not defined for it. */
   case class EventMatchException(message: String) extends RuntimeException(message)
 
+  /** Raised when a process that participates in recovery executes an operation reserved for a replay boundary. */
+  final case class RecoveryContractViolation(process: ProcessRef.Unknown, operation: String)
+      extends RuntimeException(
+        s"process '$process' cannot execute $operation while recovery is enabled; move it behind ReplayBoundary"
+      )
+
   /** Raised when a process is used before its [[io.parapet.core.Process.init]] hook ran. */
   case class UninitializedProcessException(message: String) extends RuntimeException(message)
 

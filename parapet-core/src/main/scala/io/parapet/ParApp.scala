@@ -170,16 +170,12 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
         journalStorage = Option.when(config.journal.enabled)(journalStorage),
         codecRegistry = eventCodecs
       )
-      // Seed the sequencers before any envelope is created (bind creates the system processes' Start envelopes), so a
-      // restart continues past the delivery seq and envelope ids already in the journal.
-      _                 <- context.seedSequencersFromJournal
-      scheduler         <- Scheduler(config.schedulerConfig, context, interpreter(context))
+      interp = interpreter(context)
+      scheduler         <- Scheduler(config.schedulerConfig, context, interp)
       _                 <- context.bind(scheduler)
       deadLetterProcess <- deadLetter
-      _                 <- context.registerAll(ps.toList :+ deadLetterProcess)
-      // Start the workers last: registerAll has restored every snapshotable process and advanced the delivery
-      // sequence past their snapshots, so the first delivery a worker makes already sees the correct seq high-water.
-      _ <- scheduler.start
+      _                 <- context.boot(ps.toList :+ deadLetterProcess, interp)
+      _                 <- scheduler.start
     yield ()
 
   /** Standard JVM entry point; runs [[run]] under [[unsafeRun]]. Subclasses normally do not need to override this.

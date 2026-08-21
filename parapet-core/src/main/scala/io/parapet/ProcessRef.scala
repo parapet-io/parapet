@@ -18,10 +18,16 @@ import java.util.UUID
   *   companion constants).
   */
 final case class ProcessRef[-I <: Event](private[parapet] val value: String):
+  /** Derives a stable address for a direct child of this process. */
+  def child[ChildIn <: Event](name: String): ProcessRef[ChildIn] =
+    ProcessRef.childOf(this, name)
+
   override def toString: String = value
 
 /** Factory and well-known [[ProcessRef]] constants reserved by the parapet runtime. */
 object ProcessRef:
+
+  private val SegmentPattern = "[A-Za-z0-9][A-Za-z0-9._-]*".r
 
   /** A ref whose accepted event protocol is intentionally unknown.
     *
@@ -55,6 +61,12 @@ object ProcessRef:
   /** Reference to the no-op process which silently swallows any events sent to it. */
   val NoopRef: ProcessRef[Event] = ProcessRef(s"$ParapetPrefix-noop")
 
+  private[parapet] val RuntimeProcessRefs: Set[Unknown] = Set(SystemRef, NoopRef)
+
+  /** Creates a named root reference. */
+  def root[I <: Event](name: String): ProcessRef[I] =
+    new ProcessRef[I](validatedSegment(name))
+
   /** Allocates a fresh, globally unique reference backed by a JDK [[UUID]]. */
   def apply[I <: Event](): ProcessRef[I] =
     jdkUUIDRef[I]
@@ -64,3 +76,14 @@ object ProcessRef:
     */
   def jdkUUIDRef[I <: Event]: ProcessRef[I] =
     new ProcessRef[I](UUID.randomUUID().toString)
+
+  private def childOf[I <: Event](parent: Unknown, name: String): ProcessRef[I] =
+    require(parent.value.nonEmpty, "a child reference requires a non-empty parent reference")
+    new ProcessRef[I](s"${parent.value}/${validatedSegment(name)}")
+
+  private def validatedSegment(value: String): String =
+    require(
+      SegmentPattern.pattern.matcher(value).matches(),
+      s"invalid process reference segment '$value': expected [A-Za-z0-9][A-Za-z0-9._-]*"
+    )
+    value
