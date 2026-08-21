@@ -77,8 +77,6 @@ object DslInterpreter:
               effect.pure(())
 
             case Send(event, senderOverride, receiver, receivers) =>
-              // While replaying, outward sends are suppressed: their recorded deliveries are re-injected by the driver,
-              // so re-emitting them here would double-deliver.
               if context.replaying then effect.pure(())
               else
                 val source = senderOverride.getOrElse(processState.process.ref)
@@ -121,7 +119,6 @@ object DslInterpreter:
                 .map(fiber => Fiber.RuntimeFiber(fiber).asInstanceOf[A])
 
             case delay: Delay[F] =>
-              // Logical time: while replaying, a delay is zero-duration - the timeout it gates is re-injected at its seq.
               if context.replaying then effect.pure(()) else effect.sleep(delay.duration)
 
             case Eval(thunk) =>
@@ -150,7 +147,6 @@ object DslInterpreter:
               effect.race(first0, second0).asInstanceOf[F[A]]
 
             case Offload(_) if context.replaying =>
-              // Replay does not re-run offloaded work; its effects (emitted events) are already in the journal.
               effect.pure(().asInstanceOf[A])
 
             case Offload(body) =>
@@ -168,8 +164,6 @@ object DslInterpreter:
               yield ().asInstanceOf[A]
 
             case Register(parent, process: Process[F, ?, ?] @unchecked) =>
-              // Recovery prepares structurally registered children at their registration marker. Live registration
-              // schedules Initialize followed by Start.
               if context.replaying then context.register(parent, process).void
               else context.registerAndStart(parent, process).void
 
@@ -180,10 +174,9 @@ object DslInterpreter:
               body()
                 .asInstanceOf[DslF[F, A]]
                 .foldMap(interpret(sender, processState, scope))
-                .handleErrorWith { error =>
-                  error match
-                    case violation: RecoveryContractViolation => effect.raiseError(violation)
-                    case _ => onError(error).asInstanceOf[DslF[F, A]].foldMap(interpret(sender, processState, scope))
+                .handleErrorWith {
+                  case violation: RecoveryContractViolation => effect.raiseError(violation)
+                  case error => onError(error).asInstanceOf[DslF[F, A]].foldMap(interpret(sender, processState, scope))
                 }
 
             case Halt(ref) =>
