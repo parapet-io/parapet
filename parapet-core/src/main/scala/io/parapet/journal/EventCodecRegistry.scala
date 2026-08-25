@@ -1,8 +1,8 @@
-package io.parapet.core.journal
+package io.parapet.journal
 
 import io.parapet.Event
 import io.parapet.core.Events
-import io.parapet.core.journal.EventCodec.Tag
+import EventCodec.Tag
 import scala.collection.mutable
 
 /** Resolves the [[EventCodec]].
@@ -24,7 +24,7 @@ final class EventCodecRegistry private (
 
 object EventCodecRegistry:
 
-  private[core] val systemCodecs = Map[Class[?], EventCodec](
+  private[journal] val systemCodecs = Map[Class[?], EventCodec](
     classOf[Events.Registered] -> RegisteredEventCodec
   )
 

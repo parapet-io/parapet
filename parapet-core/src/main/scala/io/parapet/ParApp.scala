@@ -3,7 +3,6 @@ package io.parapet
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Parapet.ParConfig
-import io.parapet.core.journal.{EventCodecRegistry, JournalStore, JournalStoreLocal}
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.core.{
   Context,
@@ -18,6 +17,7 @@ import io.parapet.core.{
   SchedulerRuntime
 }
 import io.parapet.effect.Effect
+import io.parapet.journal.{EventCodecRegistry, JournalStore, JournalStoreLocal}
 import io.parapet.snapshot.{SnapshotStorage, SnapshotStorageLocal}
 import io.parapet.syntax.FlowSyntax
 import org.slf4j.LoggerFactory

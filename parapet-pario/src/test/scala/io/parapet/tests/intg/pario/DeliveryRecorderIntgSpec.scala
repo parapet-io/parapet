@@ -1,9 +1,10 @@
 package io.parapet.tests.intg.pario
 
-import io.parapet.core.journal.*
+import io.parapet.journal.*
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
 import io.parapet.effect.{Effect, EffectFiber}
+import io.parapet.journal.{DeliveryRecorder, EventCodec, EventCodecRegistry, JournalConfig, JournalDraft, JournalEntry, JournalSegment, JournalStore, JournalStoreLocal}
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
@@ -11,14 +12,7 @@ import org.scalatest.matchers.should.Matchers.*
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong, AtomicReference}
-import java.util.concurrent.{
-  CopyOnWriteArrayList,
-  CountDownLatch,
-  CyclicBarrier,
-  LinkedBlockingQueue,
-  TimeUnit,
-  TimeoutException
-}
+import java.util.concurrent.{CopyOnWriteArrayList, CountDownLatch, CyclicBarrier, LinkedBlockingQueue, TimeUnit, TimeoutException}
 import scala.concurrent.duration.FiniteDuration
 import scala.jdk.CollectionConverters.*
 import scala.util.{Failure, Success, Try}

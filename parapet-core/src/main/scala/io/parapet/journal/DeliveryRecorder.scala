@@ -1,4 +1,4 @@
-package io.parapet.core.journal
+package io.parapet.journal
 
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.Clock

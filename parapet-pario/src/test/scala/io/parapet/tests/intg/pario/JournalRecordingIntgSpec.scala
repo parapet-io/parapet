@@ -3,9 +3,9 @@ package io.parapet.tests.intg.pario
 import io.parapet.core.Events.Start
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Process
-import io.parapet.core.journal.{EventCodec, EventCodecRegistry, JournalConfig, JournalStoreLocal}
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
+import io.parapet.journal.{EventCodec, EventCodecRegistry, JournalConfig, JournalStoreLocal}
 import io.parapet.snapshot.{Snapshot, Snapshotable}
 import io.parapet.testutils.EventStore
 import io.parapet.tests.intg.BasicParIOSpec

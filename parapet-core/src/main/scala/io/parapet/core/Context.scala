@@ -6,10 +6,10 @@ import io.parapet.core.Events.{Initialize, Registered, Start}
 import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
-import io.parapet.core.journal.{DeliveryRecorder, EventCodec, EventCodecRegistry, JournalDraft, JournalStore}
 import io.parapet.core.processes.{Noop, SystemProcess}
 import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
 import io.parapet.effect.Monad.*
+import io.parapet.journal.{DeliveryRecorder, EventCodec, EventCodecRegistry, JournalDraft, JournalEntry, JournalStore}
 import io.parapet.snapshot.{SnapshotManager, SnapshotStorage, Snapshotable}
 import io.parapet.{Event, ProcessRef}
 
@@ -98,8 +98,8 @@ class Context[F[_]](
     recorder.fold(effect.pure(()))(_.close())
 
   /** Recorded deliveries with `seq > afterSeq` in ascending order, or empty when the journal is off. */
-  def readJournal(afterSeq: Long): F[Vector[journal.JournalEntry]] =
-    recorder.fold(effect.pure(Vector.empty[journal.JournalEntry]))(_.read(afterSeq))
+  def readJournal(afterSeq: Long): F[Vector[JournalEntry]] =
+    recorder.fold(effect.pure(Vector.empty[JournalEntry]))(_.read(afterSeq))
 
   private val processes = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessState[F]]()
   private val graph     = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ListBuffer[ProcessRef.Unknown]]()

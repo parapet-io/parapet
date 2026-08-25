@@ -1,4 +1,4 @@
-package io.parapet.core.journal
+package io.parapet.journal
 
 /** Durable store for the delivery journal. */
 trait JournalStore[F[_]]:

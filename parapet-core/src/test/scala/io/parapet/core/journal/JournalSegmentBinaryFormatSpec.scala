@@ -1,5 +1,6 @@
 package io.parapet.core.journal
 
+import io.parapet.journal.{JournalEntry, JournalMetadata, JournalSegment, JournalSegmentBinaryFormat}
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
@@ -8,7 +9,7 @@ import java.nio.charset.StandardCharsets.UTF_8
 
 class JournalSegmentBinaryFormatSpec extends AnyFunSuite:
 
-  import JournalSegmentBinaryFormat.CorruptSegmentException
+  import io.parapet.journal.JournalSegmentBinaryFormat.CorruptSegmentException
 
   private val a = ProcessRef[Event]("a")
   private val b = ProcessRef[Event]("b")

@@ -1,4 +1,4 @@
-package io.parapet.core.journal
+package io.parapet.journal
 
 import io.parapet.core.Events.Registered
 import io.parapet.{Event, ProcessRef}
@@ -6,7 +6,7 @@ import io.parapet.{Event, ProcessRef}
 import java.nio.charset.StandardCharsets.UTF_8
 import scala.util.Try
 
-private[core] object RegisteredEventCodec extends EventCodec:
+private[journal] object RegisteredEventCodec extends EventCodec:
   val tag: String  = "parapet.registered"
   val version: Int = 1
 

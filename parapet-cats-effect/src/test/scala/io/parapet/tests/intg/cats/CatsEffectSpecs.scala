@@ -3,8 +3,8 @@ package io.parapet.tests.intg.cats
 import cats.effect.IO
 import io.parapet.cats.CatsEffectParApp
 import io.parapet.core.Parapet
-import io.parapet.core.journal.EventCodecRegistry
 import io.parapet.core.processes.DeadLetterProcess
+import io.parapet.journal.EventCodecRegistry
 import io.parapet.tests.intg.IntegrationSpec
 import io.parapet.{ParApp, core}
 

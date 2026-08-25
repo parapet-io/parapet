@@ -1,6 +1,7 @@
 package io.parapet.core.journal
 
 import io.parapet.core.TestUtils.{*, given}
+import io.parapet.journal.{JournalEntry, JournalMetadata, JournalSegment, JournalStoreLocal}
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*

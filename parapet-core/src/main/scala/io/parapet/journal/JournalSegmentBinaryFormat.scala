@@ -1,4 +1,4 @@
-package io.parapet.core.journal
+package io.parapet.journal
 
 import java.nio.ByteBuffer
 import java.util.zip.CRC32

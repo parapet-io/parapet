@@ -1,4 +1,4 @@
-package io.parapet.core.journal
+package io.parapet.journal
 
 import io.parapet.effect.Effect
 import org.slf4j.LoggerFactory
