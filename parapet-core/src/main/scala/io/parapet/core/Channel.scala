@@ -1,7 +1,7 @@
 package io.parapet.core
 
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Events.{Failure, Stop, SystemEvent}
+import io.parapet.core.Events.{Failure, Initialize, Kill, Restored, Start, Stop}
 import io.parapet.effect.{Deferred, Effect}
 import io.parapet.effect.Monad.*
 import io.parapet.runtime.Scope
@@ -62,9 +62,6 @@ class Channel[F[_], In <: Event, Out <: Event](
         case Some(active) =>
           complete(active, scala.util.Failure(ChannelInterruptedException("channel has been closed")))
         case None => unit
-    // Lifecycle events (Start, Initialize, Restored, and any future ones) are never responses. Ignore them so a
-    // request that begins before the channel has drained its own queued lifecycle events is not failed by one.
-    case _: SystemEvent                  => unit
     case req: Request[F, Out] @unchecked =>
       suspend(
         req.result
@@ -82,7 +79,9 @@ class Channel[F[_], In <: Event, Out <: Event](
       inFlight match
         case Some(active) => completeAndReset(active, scala.util.Failure(error))
         case None         => unit
-    case event =>
+    // A lifecycle event is never a response.
+    case Initialize | Start | Restored | Kill => unit
+    case event                                =>
       dsl.unsafe.withSender { sender =>
         withScope { scope =>
           inFlight match

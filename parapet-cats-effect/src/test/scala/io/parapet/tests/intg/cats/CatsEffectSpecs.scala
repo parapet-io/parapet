@@ -9,10 +9,10 @@ import io.parapet.{ParApp, ParConfig, Process, core}
 
 trait BasicCatsEffectSpec extends IntegrationSpec[IO] with CatsEffectParApp:
   override def createApp(
-                          processes0: IO[Seq[Process[IO, ?, ?]]],
-                          deadLetter0: Option[IO[DeadLetterProcess[IO]]],
-                          config0: ParConfig,
-                          eventCodecs0: EventCodecRegistry
+      processes0: IO[Seq[Process[IO, ?, ?]]],
+      deadLetter0: Option[IO[DeadLetterProcess[IO]]],
+      config0: ParConfig,
+      eventCodecs0: EventCodecRegistry
   ): ParApp[IO] =
     new CatsEffectParApp:
       override val config: ParConfig = config0

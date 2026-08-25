@@ -193,7 +193,9 @@ class Context[F[_]](
   def child(parent: ProcessRef.Unknown): Vector[ProcessRef.Unknown] =
     graph.getOrDefault(parent, ListBuffer.empty).toVector
 
-  /** Registers a child and schedules [[io.parapet.core.Events.Initialize]] followed by [[io.parapet.core.Events.Start]]. */
+  /** Registers a child and schedules [[io.parapet.core.Events.Initialize]] followed by
+    * [[io.parapet.core.Events.Start]].
+    */
   def registerAndStart(parent: ProcessRef.Unknown, process: Process[F, ?, ?]): F[SubmissionResult] =
     register(parent, process) >> sendLifecycleEvent(process.ref, Initialize) >> sendStartEvent(process.ref)
 
@@ -206,7 +208,9 @@ class Context[F[_]](
   ): F[SubmissionResult] =
     scheduler.submit(Deliver(Envelope(ProcessRef.SystemRef, event, processRef)))
 
-  /** Registers a batch of root processes and schedules [[io.parapet.core.Events.Initialize]] followed by [[io.parapet.core.Events.Start]]. */
+  /** Registers a batch of root processes and schedules [[io.parapet.core.Events.Initialize]] followed by
+    * [[io.parapet.core.Events.Start]].
+    */
   def registerAll(processes0: List[Process[F, ?, ?]]): F[List[ProcessRef.Unknown]] =
     registerAll(ProcessRef.SystemRef, processes0)
 

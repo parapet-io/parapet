@@ -9,10 +9,10 @@ trait BasicParIOSpec extends IntegrationSpec[ParIO] with ParIOApp {
   self =>
 
   override def createApp(
-                          processes0: ParIO[Seq[Process[ParIO, ?, ?]]],
-                          deadLetter0: Option[ParIO[DeadLetterProcess[ParIO]]],
-                          config0: ParConfig,
-                          eventCodecs0: EventCodecRegistry
+      processes0: ParIO[Seq[Process[ParIO, ?, ?]]],
+      deadLetter0: Option[ParIO[DeadLetterProcess[ParIO]]],
+      config0: ParConfig,
+      eventCodecs0: EventCodecRegistry
   ): ParApp[ParIO] =
     new ParIOApp {
       override val config: ParConfig = config0

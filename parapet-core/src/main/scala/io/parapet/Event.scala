@@ -7,8 +7,7 @@ package io.parapet
   * safely shared between fibers without defensive copying.
   *
   * Two general-purpose payload events are provided in the companion object. Domain code is expected to define its own
-  * event hierarchies (often as a sealed family) for type-safe pattern matching inside a process's
-  * [[Process.handle]].
+  * event hierarchies (often as a sealed family) for type-safe pattern matching inside a process's [[Process.handle]].
   */
 trait Event
 
