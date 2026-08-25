@@ -13,7 +13,7 @@ import io.parapet.core.journal.JournalDraft
 import io.parapet.core.snapshot.Snapshotable
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
-import io.parapet.{Envelope, Event, ProcessRef, Scope}
+import io.parapet.{Event, ProcessRef, Scope}
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
@@ -251,20 +251,20 @@ object Scheduler:
 
     def sendUnknownProcessError(task: Deliver[F]): F[Unit] =
       val envelope = task.envelope
-      SchedulerImpl.send(
-        SystemRef,
-        Failure(
-          envelope,
-          UnknownProcessException(s"there is no such process with id=${envelope.receiver} registered in the system")
-        ),
-        context.getProcessState(envelope.sender).get,
+      SchedulerImpl.sendErrorToSender(
+        envelope,
+        context,
         interpreter,
-        envelope.causalScope
+        envelope.causalScope,
+        UnknownProcessException(s"there is no such process with id=${envelope.receiver} registered in the system")
       )
 
     def submit(task: Task[F]): F[SubmissionResult] =
       task match
-        case deliverTask @ Deliver(envelope @ Envelope.Routing(sender, event, receiver)) =>
+        case deliverTask @ Deliver(envelope) =>
+          val sender        = envelope.sender
+          val event         = envelope.event
+          val receiver      = envelope.receiver
           val deliveryScope = envelope.causalScope
           effect.suspend(
             context.getProcessState(receiver) match
@@ -580,12 +580,12 @@ object Scheduler:
                         case Initialize | Restored | Start =>
                           effect.pure(())
                         case _ =>
-                          send(
-                            ProcessRef.SystemRef,
-                            Failure(envelope, EventMatchException(errorMessage)),
-                            context.getProcessState(envelope.sender).get,
+                          sendErrorToSender(
+                            envelope,
+                            context,
                             interpreter,
-                            deliveryScope
+                            deliveryScope,
+                            EventMatchException(errorMessage)
                           )
 
                       val logMessage = event match
@@ -693,6 +693,12 @@ object Scheduler:
               EventHandlingException(errorMessage, cause)
             )
 
+    /** Routes a failed delivery to the process awaiting it, or to the dead-letter sink.
+      *
+      * A [[Failure]] is delivered only when the original send was a call: it carries [[Scope.Causation]], its sender is
+      * still registered, and that sender handles [[Failure]]. Everything else - a notification nobody awaits, a sender
+      * that has since stopped - becomes a [[DeadLetter]]. Failures are never escalated past the immediate sender.
+      */
     private def sendErrorToSender[F[_]](
         envelope: Envelope,
         context: Context[F],
@@ -700,13 +706,16 @@ object Scheduler:
         scope: Scope,
         error: Throwable
     )(using effect: Effect[F]): F[Unit] =
-      send(
-        SystemRef,
-        Failure(envelope, error),
-        context.getProcessState(envelope.sender).get,
-        interpreter,
-        scope
-      )
+      val failure = Failure(envelope, error)
+      val waiter  = envelope.scope.get(Scope.Causation).flatMap { _ =>
+        context
+          .getProcessState(envelope.sender)
+          .filter(state => Try(state.process.canHandle(failure)).getOrElse(false))
+      }
+
+      waiter match
+        case Some(state) => send(SystemRef, failure, state, interpreter, scope)
+        case None        => sendToDeadLetter(DeadLetter(envelope, error), context, interpreter, scope)
 
     private def sendToDeadLetter[F[_]](
         deadLetter: DeadLetter,

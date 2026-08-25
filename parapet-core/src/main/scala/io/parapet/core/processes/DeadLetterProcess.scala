@@ -6,7 +6,8 @@ import io.parapet.core.Events.DeadLetter
 import io.parapet.core.Process
 import io.parapet.effect.Effect
 import io.parapet.syntax.logger.*
-import io.parapet.{Envelope, ProcessRef}
+import io.parapet.ProcessRef
+import io.parapet.core.Envelope
 import org.slf4j.LoggerFactory
 
 /** Marker trait for the singleton process that consumes [[io.parapet.core.Events.DeadLetter]] messages.
@@ -32,7 +33,7 @@ object DeadLetterProcess:
     private val logger        = Logger(LoggerFactory.getLogger(getClass.getCanonicalName))
     override val name: String = s"${DeadLetterRef.value}-logging"
 
-    override val handle: Receive = { case DeadLetter(Envelope.Routing(sender, event, receiver), error) =>
+    override val handle: Receive = { case DeadLetter(sender, event, receiver, error) =>
       val mdcFields: MDCFields = Map(
         "processRef"  -> ref,
         "processName" -> name,

@@ -63,7 +63,7 @@ class Channel[F[_], In <: Event, Out <: Event](
         case None => unit
     // Lifecycle events (Start, Initialize, Restored, and any future ones) are never responses. Ignore them so a
     // request that begins before the channel has drained its own queued lifecycle events is not failed by one.
-    case _: SystemEvent => unit
+    case _: SystemEvent                  => unit
     case req: Request[F, Out] @unchecked =>
       suspend(
         req.result

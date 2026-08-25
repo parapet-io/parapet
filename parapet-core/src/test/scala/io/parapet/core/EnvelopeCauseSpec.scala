@@ -5,7 +5,7 @@ import io.parapet.core.EnvelopeCauseSpec.*
 import io.parapet.core.TestUtils.*
 import io.parapet.core.TestUtils.given
 import io.parapet.syntax.FlowSyntax
-import io.parapet.{Envelope, Event, ProcessRef, Scope}
+import io.parapet.{Event, ProcessRef, Scope}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 

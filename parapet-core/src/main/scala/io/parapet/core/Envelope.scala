@@ -1,4 +1,6 @@
-package io.parapet
+package io.parapet.core
+
+import io.parapet.{Event, ProcessRef, Scope}
 
 /** A delivery wrapper that pairs an [[Event]] with its routing metadata.
   *
@@ -50,13 +52,3 @@ object Envelope:
   def continueIdAfter(id: Long): Unit =
     idCounter.updateAndGet(current => math.max(current, id))
     ()
-
-  /** Extractor over an envelope's core routing fields `(sender, event, receiver)`.
-    *
-    * {{{
-    * case DeadLetter(Envelope.Routing(client.ref, Request, server.ref), _) => ...
-    * }}}
-    */
-  object Routing:
-    def unapply(e: Envelope): Some[(ProcessRef.Unknown, Event, ProcessRef.Unknown)] =
-      Some((e.sender, e.event, e.receiver))

@@ -1,6 +1,6 @@
 package io.parapet.core
 
-import io.parapet.{Envelope, Event, ProcessRef}
+import io.parapet.{Event, ProcessRef}
 
 /** System-defined [[Event]]s emitted by the parapet runtime.
   *
@@ -40,25 +40,43 @@ object Events {
     */
   case object Kill extends SystemEvent
 
-  /** Notification routed to the original sender when the receiver's `handle` raised. The sender can intercept this to
-    * retry, escalate, or log; otherwise the runtime forwards to the dead-letter sink.
+  /** Carries a handler error back to a process awaiting a correlated reply.
+    *
+    * Message passing has no call stack, so an error that must reach a waiter travels as an event. Only a delivery that
+    * carries [[io.parapet.Scope.Causation]] - one made as a call rather than a notification - is answered this way;
+    * every other handler error becomes a [[DeadLetter]].
     *
     * @param envelope
     *   the original envelope whose delivery failed.
     * @param error
     *   the throwable raised by the receiver's handler.
     */
-  case class Failure(envelope: Envelope, error: Throwable) extends Event
+  private[parapet] case class Failure(envelope: Envelope, error: Throwable) extends Event
 
-  /** Wraps any envelope that could not be delivered (unknown receiver, terminated process, unhandled [[Failure]], etc.)
-    * and is routed to the configured [[io.parapet.core.processes.DeadLetterProcess]].
+  /** A delivery that could not be completed - unknown or terminated receiver, a handler that raised, or an event no
+    * handler matched - routed to the configured [[io.parapet.core.processes.DeadLetterProcess]].
+    *
+    * @param sender
+    *   the process the undelivered event came from.
+    * @param event
+    *   the undelivered payload.
+    * @param receiver
+    *   the process it was addressed to.
+    * @param error
+    *   why delivery did not complete.
     */
-  case class DeadLetter(envelope: Envelope, error: Throwable) extends Event
+  case class DeadLetter(
+      sender: ProcessRef.Unknown,
+      event: Event,
+      receiver: ProcessRef.Unknown,
+      error: Throwable
+  ) extends Event
 
   object DeadLetter {
 
-    /** Lifts an unhandled [[Failure]] into a [[DeadLetter]] preserving the original envelope and cause.
-      */
-    def apply(f: Failure): DeadLetter = new DeadLetter(f.envelope, f.error)
+    private[parapet] def apply(envelope: Envelope, error: Throwable): DeadLetter =
+      new DeadLetter(envelope.sender, envelope.event, envelope.receiver, error)
+
+    private[parapet] def apply(f: Failure): DeadLetter = apply(f.envelope, f.error)
   }
 }

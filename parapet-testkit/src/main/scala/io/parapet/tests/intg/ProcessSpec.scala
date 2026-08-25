@@ -6,7 +6,8 @@ import io.parapet.core.exceptions.EventMatchException
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.tests.intg.ProcessSpec._
 import io.parapet.testutils.EventStore
-import io.parapet.{Envelope, Event, ProcessRef}
+import io.parapet.{Event, ProcessRef}
+import io.parapet.core.Envelope
 import org.scalatest.OptionValues._
 import org.scalatest.matchers.should.Matchers._
 import org.scalatest.wordspec.AnyWordSpec
@@ -101,7 +102,7 @@ abstract class ProcessSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
         eventStore.size shouldBe 1
 
         eventStore.get(deadLetter.ref).headOption.value should matchPattern {
-          case DeadLetter(Envelope.Routing(TestSystemRef, Result(42), composed.`ref`), _: EventMatchException) =>
+          case DeadLetter(TestSystemRef, Result(42), composed.`ref`, _: EventMatchException) =>
         }
 
       }

@@ -7,7 +7,8 @@ import io.parapet.tests.intg.scheduler.TaskProcessingTime.*
 import io.parapet.tests.intg.scheduler.TaskSubmitter.assertEventsOrder
 import io.parapet.tests.intg.scheduler.{EventDiff, SchedulerCorrectnessSpec, SchedulerStressSpec}
 import io.parapet.testutils.EventStore
-import io.parapet.{Envelope, Event, ProcessRef}
+import io.parapet.{Event, ProcessRef}
+import io.parapet.core.Envelope
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 import scala.util.Using

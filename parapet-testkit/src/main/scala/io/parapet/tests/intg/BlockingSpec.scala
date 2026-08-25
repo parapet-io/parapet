@@ -1,12 +1,13 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Events.{Failure, Kill, Start, Stop}
+import io.parapet.core.Events.{DeadLetter, Kill, Start, Stop}
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Process
 import io.parapet.core.Scheduler.SchedulerConfig
 import io.parapet.core.exceptions.EventHandlingException
+import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.testutils.EventStore
-import io.parapet.{Envelope, Event, ProcessRef}
+import io.parapet.{Event, ProcessRef}
 import org.scalatest.OptionValues._
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers._
@@ -109,23 +110,29 @@ abstract class BlockingSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
       .build
 
     val client = Process
-      .builder[F](ref => {
-        case Start =>
-          Trigger ~> serverRef ++
-            delay(50.millis) ++
-            Ping ~> serverRef
-        case failure: Failure =>
-          eval(eventStore.add(ref, failure))
+      .builder[F](_ => { case Start =>
+        Trigger ~> serverRef ++
+          delay(50.millis) ++
+          Ping ~> serverRef
       })
       .ref(clientRef)
       .build
 
-    unsafeRun(eventStore.await(2, createApp(ct.pure(Seq(client, server))).run))
+    // Trigger is a notification, so the offloaded failure surfaces as a dead letter.
+    val deadLetter = new DeadLetterProcess[F] {
+      def handle: Receive = { case d: DeadLetter =>
+        eval(eventStore.add(ref, d))
+      }
+    }
+
+    unsafeRun(eventStore.await(2, createApp(ct.pure(Seq(client, server)), Some(ct.pure(deadLetter))).run))
 
     eventStore.get(server.ref) shouldBe Seq(Ping)
-    eventStore.get(client.ref).headOption.value should matchPattern {
-      case Failure(
-            Envelope.Routing(client.`ref`, Trigger, server.`ref`),
+    eventStore.get(deadLetter.ref).headOption.value should matchPattern {
+      case DeadLetter(
+            client.`ref`,
+            Trigger,
+            server.`ref`,
             EventHandlingException(_, ServerError)
           ) =>
     }

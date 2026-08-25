@@ -11,7 +11,7 @@ import io.parapet.core.processes.{Noop, SystemProcess}
 import io.parapet.core.snapshot.{SnapshotManager, SnapshotStorage}
 import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
 import io.parapet.effect.Monad.*
-import io.parapet.{Envelope, Event, ProcessRef}
+import io.parapet.{Event, ProcessRef}
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
 import scala.collection.mutable.ListBuffer

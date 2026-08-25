@@ -7,7 +7,7 @@ import io.parapet.core.exceptions.RecoveryContractViolation
 import io.parapet.effect.{Deferred, Effect}
 import io.parapet.effect.Monad.*
 import io.parapet.free.{FunctionK, ~>}
-import io.parapet.{Envelope, Event, ProcessRef, Scope}
+import io.parapet.{Event, ProcessRef, Scope}
 
 /** Translates parapet [[Dsl.FlowOp]] programs into the user's effect type `F[_]`.
   *

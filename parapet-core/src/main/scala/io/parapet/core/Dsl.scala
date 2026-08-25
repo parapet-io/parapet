@@ -116,9 +116,9 @@ object Dsl:
 
   /** Reads the interpreter's current [[io.parapet.Scope]].
     *
-    * The current scope is reader-context metadata, normally copied from the incoming [[io.parapet.Envelope]]. Reading
-    * it does not mutate anything. The continuation `f` builds the next program step after seeing the scope, and that
-    * next step continues under the same scope.
+    * The current scope is reader-context metadata, normally copied from the incoming [[io.parapet.core.Envelope]].
+    * Reading it does not mutate anything. The continuation `f` builds the next program step after seeing the scope, and
+    * that next step continues under the same scope.
     */
   final case class WithScope[F[_], G[_], A](f: Scope => Free[G, A]) extends FlowOp[F, A]
 

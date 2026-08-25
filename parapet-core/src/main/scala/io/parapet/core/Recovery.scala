@@ -6,7 +6,7 @@ import io.parapet.core.journal.JournalEntry
 import io.parapet.core.snapshot.{Snapshot, Snapshotable}
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
-import io.parapet.{Envelope, Event, ProcessRef, Scope}
+import io.parapet.{Event, ProcessRef, Scope}
 import org.slf4j.LoggerFactory
 
 import scala.util.{Failure, Success}
