@@ -1,7 +1,7 @@
 package io.parapet.runtime
 
 import io.parapet.runtime.Envelope
-import io.parapet.{Event, ProcessRef, Scope}
+import io.parapet.{Event, ProcessRef}
 
 /** A delivery wrapper that pairs an [[Event]] with its routing metadata.
   *

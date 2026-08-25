@@ -5,8 +5,8 @@ import io.parapet.core.Parapet.ParConfig
 import io.parapet.runtime.Scheduler.{Deliver, SubmissionResult, Task}
 import io.parapet.core.processes.Noop
 import io.parapet.effect.{Effect, EffectFiber, Monad}
-import io.parapet.runtime.{Context, Envelope, EventTransformers, Scheduler}
-import io.parapet.{ProcessRef, Scope}
+import io.parapet.runtime.{Context, Envelope, EventTransformers, Scheduler, Scope}
+import io.parapet.ProcessRef
 
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.FiniteDuration

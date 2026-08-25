@@ -6,7 +6,8 @@ import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.fault.Fault
 import io.parapet.effect.Effect
 import io.parapet.free.{FunctionK, ~>}
-import io.parapet.{ProcessRef, Scope}
+import io.parapet.ProcessRef
+import io.parapet.runtime.Scope
 
 import scala.util.Random
 

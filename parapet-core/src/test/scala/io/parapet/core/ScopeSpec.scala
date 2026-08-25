@@ -4,8 +4,9 @@ import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.ScopeSpec.*
 import io.parapet.core.TestUtils.*
 import io.parapet.core.TestUtils.given
+import io.parapet.runtime.Scope
 import io.parapet.syntax.FlowSyntax
-import io.parapet.{Event, ProcessRef, Scope}
+import io.parapet.{Event, ProcessRef}
 import org.scalatest.OptionValues.*
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*

@@ -2,7 +2,8 @@ package io.parapet.core
 
 import io.parapet.core.annotations.developerApi
 import io.parapet.free.{Free, Inject}
-import io.parapet.{Event, ProcessRef, Scope}
+import io.parapet.runtime.Scope
+import io.parapet.{Event, ProcessRef}
 
 import scala.concurrent.duration.FiniteDuration
 

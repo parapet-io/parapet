@@ -6,8 +6,8 @@ import io.parapet.runtime.Scheduler.{Ok, SubmissionResult, Task}
 import io.parapet.core.exceptions.RecoveryContractViolation
 import io.parapet.effect.Monad.*
 import io.parapet.journal.{EventCodecRegistry, JournalConfig, JournalStoreLocal}
-import io.parapet.runtime.{Context, EventTransformers, Scheduler}
-import io.parapet.{Event, ProcessRef, Scope}
+import io.parapet.runtime.{Context, EventTransformers, Scheduler, Scope}
+import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 

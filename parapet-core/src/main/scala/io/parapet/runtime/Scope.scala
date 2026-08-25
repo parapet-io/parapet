@@ -1,4 +1,4 @@
-package io.parapet
+package io.parapet.runtime
 
 /** Immutable typed metadata. */
 opaque type Scope = Map[String, Any]
