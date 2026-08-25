@@ -1,4 +1,6 @@
-package io.parapet.core
+package io.parapet
+
+import io.parapet.core.Events
 
 /** Marks a process whose recorded domain deliveries are not re-executed during recovery.
   *

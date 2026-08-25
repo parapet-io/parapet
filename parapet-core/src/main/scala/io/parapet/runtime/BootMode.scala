@@ -1,4 +1,4 @@
-package io.parapet.core
+package io.parapet.runtime
 
 /** Whether the runtime is re-folding recorded history or running normally.
   *

@@ -8,7 +8,7 @@ import io.parapet.effect.{Deferred, Effect}
 import io.parapet.effect.Monad.*
 import io.parapet.free.{FunctionK, ~>}
 import io.parapet.runtime.{Context, Envelope, EventTransformer, Scheduler, Scope}
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, ProcessRef, ReplayBoundary}
 
 /** Translates parapet [[Dsl.FlowOp]] programs into the user's effect type `F[_]`.
   *

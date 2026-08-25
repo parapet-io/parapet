@@ -7,7 +7,7 @@ import io.parapet.core.exceptions.RecoveryContractViolation
 import io.parapet.effect.Monad.*
 import io.parapet.journal.{EventCodecRegistry, JournalConfig, JournalStoreLocal}
 import io.parapet.runtime.{Context, EventTransformers, Scheduler, Scope}
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, ProcessRef, ReplayBoundary}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 

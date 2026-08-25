@@ -7,7 +7,7 @@ import io.parapet.core.Queue.ChannelType
 import Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.{Noop, SystemProcess}
-import io.parapet.core.{BootMode, Clock, Events, Parapet, Process, Queue, Recovery}
+import io.parapet.core.{Clock, Events, Parapet, Process, Queue}
 import io.parapet.effect.Monad.*
 import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
 import io.parapet.journal.*

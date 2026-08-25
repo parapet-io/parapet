@@ -1,13 +1,14 @@
-package io.parapet.core
+package io.parapet.runtime
 
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Events.{Initialize, Registered, Restored}
+import io.parapet.core.Process
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
 import io.parapet.journal.JournalEntry
 import io.parapet.runtime.{Context, Envelope, Scope}
 import io.parapet.snapshot.{Snapshot, Snapshotable}
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, ProcessRef, ReplayBoundary}
 import org.slf4j.LoggerFactory
 
 import scala.util.{Failure, Success}
