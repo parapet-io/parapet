@@ -1,6 +1,7 @@
-package io.parapet.core
+package io.parapet.fault
 
 import io.parapet.core.Dsl.FlowOp
+import io.parapet.fault.{Fault, FaultPolicy, Sent}
 import io.parapet.{Event, ProcessRef}
 
 import scala.concurrent.duration.{Duration, FiniteDuration, NANOSECONDS}

@@ -1,8 +1,9 @@
-package io.parapet.core
+package io.parapet.fault
 
 import io.parapet.core.Context.ProcessState
 import io.parapet.core.Dsl.{Delay, FlowOp, Forward, Send}
 import io.parapet.core.DslInterpreter.Interpreter
+import io.parapet.fault.Fault
 import io.parapet.effect.Effect
 import io.parapet.free.{FunctionK, ~>}
 import io.parapet.{ProcessRef, Scope}

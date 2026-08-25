@@ -1,4 +1,4 @@
-package io.parapet.core
+package io.parapet.fault
 
 import io.parapet.core.Dsl.UnitFlow
 import io.parapet.core.TestUtils.TestIO
