@@ -3,7 +3,7 @@ package io.parapet
 import java.util.UUID
 
 /** A stable, opaque address used by the parapet runtime to deliver [[Event]]s to a specific
-  * [[io.parapet.core.Process]].
+  * [[Process]].
   *
   * `ProcessRef` is the only handle a sender needs in order to communicate with a process - the underlying mailbox,
   * scheduler, and process implementation are all hidden behind it. References are value-based: two refs with the same

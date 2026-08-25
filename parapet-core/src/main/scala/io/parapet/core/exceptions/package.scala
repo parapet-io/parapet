@@ -42,7 +42,7 @@ package object exceptions {
         s"process '$process' cannot execute $operation while recovery is enabled; move it behind ReplayBoundary"
       )
 
-  /** Raised when a process is used before its [[io.parapet.core.Process.init]] hook ran. */
+  /** Raised when a process is used before its [[io.parapet.Process.init]] hook ran. */
   case class UninitializedProcessException(message: String) extends RuntimeException(message)
 
   /** Raised when a stopped process receives further events. */

@@ -4,7 +4,7 @@ import io.parapet.core.Dsl.{DslF, FlowOp, WithDsl}
 
 /** Combinators on [[DslF]] programs.
   *
-  * Mixed into [[io.parapet.ParApp]] and [[io.parapet.core.Process]] so that `++`, `void`, `handleError`, etc. are
+  * Mixed into [[io.parapet.ParApp]] and [[io.parapet.Process]] so that `++`, `void`, `handleError`, etc. are
   * available without explicit imports.
   */
 trait FlowSyntax[F[_]] extends EventSyntax[F] with WithDsl[F]:

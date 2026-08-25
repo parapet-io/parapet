@@ -5,7 +5,7 @@ import io.parapet.runtime.Scheduler
 import io.parapet.runtime.Scheduler.SchedulerConfig
 import io.parapet.snapshot.SnapshotConfig
 
-/** Bundle of runtime configuration values supplied to [[io.parapet.ParApp]].
+/** Bundle of runtime configuration values supplied to [[ParApp]].
   *
   * @param processBufferSize
   *   default mailbox capacity for processes that don't override [[Process.bufferSize]]; `-1` means unbounded.

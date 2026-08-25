@@ -1,6 +1,6 @@
 package io.parapet
 
-/** Marker trait for any value that can flow between [[io.parapet.core.Process]] instances.
+/** Marker trait for any value that can flow between [[Process]] instances.
   *
   * Every message exchanged through the parapet runtime - system signals, user commands, dead-letter notifications,
   * network frames - must extend `Event`. Events are typically implemented as immutable case classes so that they can be
@@ -8,7 +8,7 @@ package io.parapet
   *
   * Two general-purpose payload events are provided in the companion object. Domain code is expected to define its own
   * event hierarchies (often as a sealed family) for type-safe pattern matching inside a process's
-  * [[io.parapet.core.Process.handle]].
+  * [[Process.handle]].
   */
 trait Event
 
