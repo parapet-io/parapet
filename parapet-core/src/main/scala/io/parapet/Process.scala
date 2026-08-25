@@ -1,6 +1,6 @@
 package io.parapet
 
-import io.parapet.core.Dsl.{DslF, WithDsl}
+import io.parapet.dsl.Dsl.{DslF, WithDsl}
 import io.parapet.Event.SystemEvent
 import io.parapet.Process
 import io.parapet.runtime.{Context, Scheduler}

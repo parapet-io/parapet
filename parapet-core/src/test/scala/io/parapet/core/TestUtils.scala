@@ -1,11 +1,11 @@
 package io.parapet.core
 
-import io.parapet.core.Dsl.*
+import io.parapet.dsl.Dsl.*
 import io.parapet.ParConfig
 import io.parapet.runtime.Scheduler.{Deliver, SubmissionResult, Task}
 import io.parapet.core.processes.Noop
 import io.parapet.effect.{Effect, EffectFiber, Monad}
-import io.parapet.runtime.{Context, Envelope, EventTransformers, Scheduler, Scope}
+import io.parapet.runtime.{Context, DslInterpreter, Envelope, EventTransformers, Scheduler, Scope}
 import io.parapet.ProcessRef
 
 import scala.collection.mutable.ListBuffer

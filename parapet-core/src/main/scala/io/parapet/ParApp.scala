@@ -1,13 +1,13 @@
 package io.parapet
 
 import com.typesafe.scalalogging.Logger
-import io.parapet.core.DslInterpreter.Interpreter
+import io.parapet.runtime.DslInterpreter.Interpreter
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.fault.{FaultInjector, FaultPolicy}
-import io.parapet.core.DslInterpreter
+import io.parapet.dsl.Dsl
 import io.parapet.effect.{Effect, Parallel}
 import io.parapet.journal.{EventCodecRegistry, JournalStore, JournalStoreLocal}
-import io.parapet.runtime.{Context, EventTransformer, EventTransformers, Scheduler, SchedulerRuntime}
+import io.parapet.runtime.{Context, DslInterpreter, EventTransformer, EventTransformers, Scheduler, SchedulerRuntime}
 import io.parapet.snapshot.{SnapshotStorage, SnapshotStorageLocal}
 import io.parapet.syntax.FlowSyntax
 import org.slf4j.LoggerFactory
@@ -53,7 +53,7 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
   /** Convenience alias for a process's program type - a `Dsl` computation in `F` producing `Unit`. Lets subclasses
     * write `Program` instead of the verbose `DslF[F, Unit]`.
     */
-  type Program = io.parapet.core.Dsl.DslF[F, Unit]
+  type Program = Dsl.DslF[F, Unit]
 
   /** Logger bound to the concrete app's class name; available to subclasses for startup diagnostics.
     */

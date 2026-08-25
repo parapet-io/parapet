@@ -1,6 +1,7 @@
 package io.parapet.core
 
-import io.parapet.core.Dsl.WithDsl
+import io.parapet.dsl.Dsl
+import io.parapet.dsl.Dsl.WithDsl
 import io.parapet.syntax.FlowSyntax
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*

@@ -1,9 +1,9 @@
 package io.parapet
 
-import io.parapet.core.Dsl.DslF
+import io.parapet.dsl.Dsl.DslF
 import io.parapet.Event.*
-import io.parapet.core.Dsl
 import io.parapet.Channel
+import io.parapet.dsl.Dsl
 import io.parapet.effect.Monad.*
 import io.parapet.effect.{Deferred, Effect}
 import io.parapet.runtime.Scope

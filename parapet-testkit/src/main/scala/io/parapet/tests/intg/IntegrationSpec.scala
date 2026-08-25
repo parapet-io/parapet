@@ -1,6 +1,6 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Dsl.{DslF, WithDsl}
+import io.parapet.dsl.Dsl.{DslF, WithDsl}
 import io.parapet.Event.Start
 import io.parapet.{ParConfig, Process}
 import io.parapet.core.processes.DeadLetterProcess

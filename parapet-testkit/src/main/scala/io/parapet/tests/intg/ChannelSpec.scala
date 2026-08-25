@@ -1,6 +1,6 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Dsl.DslF
+import io.parapet.dsl.Dsl.DslF
 import io.parapet.Event.{Start, Stop}
 import io.parapet.{Channel, ParConfig, Process}
 import io.parapet.runtime.Scheduler.SchedulerConfig

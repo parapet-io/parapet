@@ -1,12 +1,12 @@
-package io.parapet.core
+package io.parapet.runtime
 
-import io.parapet.runtime.Context.ProcessState
-import io.parapet.core.Dsl.*
-import io.parapet.runtime.Scheduler.{Deliver, ProcessQueueIsFull}
 import io.parapet.core.exceptions.RecoveryContractViolation
-import io.parapet.effect.{Deferred, Effect, Fiber}
+import io.parapet.dsl.Dsl.*
+import io.parapet.dsl.{Dsl, FunctionK, ~>}
 import io.parapet.effect.Monad.*
-import io.parapet.free.{FunctionK, ~>}
+import io.parapet.effect.{Deferred, Effect, Fiber}
+import io.parapet.runtime.Context.ProcessState
+import io.parapet.runtime.Scheduler.{Deliver, ProcessQueueIsFull}
 import io.parapet.runtime.{Context, Envelope, EventTransformer, Scheduler, Scope}
 import io.parapet.{Event, Process, ProcessRef, ReplayBoundary}
 

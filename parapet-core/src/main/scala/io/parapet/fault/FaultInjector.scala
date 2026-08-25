@@ -1,12 +1,12 @@
 package io.parapet.fault
 
 import io.parapet.runtime.Context.ProcessState
-import io.parapet.core.Dsl.{Delay, FlowOp, Forward, Send}
-import io.parapet.core.DslInterpreter.Interpreter
+import io.parapet.dsl.Dsl.{Delay, FlowOp, Forward, Send}
+import io.parapet.runtime.DslInterpreter.Interpreter
 import io.parapet.fault.Fault
 import io.parapet.effect.Effect
-import io.parapet.free.{FunctionK, ~>}
 import io.parapet.ProcessRef
+import io.parapet.dsl.{FunctionK, ~>}
 import io.parapet.runtime.Scope
 
 import scala.util.Random

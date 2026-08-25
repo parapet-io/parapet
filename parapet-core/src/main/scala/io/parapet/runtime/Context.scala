@@ -1,7 +1,7 @@
 package io.parapet.runtime
 
 import Context.*
-import io.parapet.core.DslInterpreter.Interpreter
+import DslInterpreter.Interpreter
 import io.parapet.Event.{Initialize, Registered, Start}
 import io.parapet.effect.Queue.ChannelType
 import Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}

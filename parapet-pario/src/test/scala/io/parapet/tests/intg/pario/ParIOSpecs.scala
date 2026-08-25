@@ -2,7 +2,7 @@ package io.parapet.tests.intg.pario
 
 import io.parapet
 import io.parapet.{Channel, Event, Process}
-import io.parapet.core.Dsl.DslF
+import io.parapet.dsl.Dsl.DslF
 import io.parapet.Event
 import io.parapet.Event.Start
 import Channel.ChannelTimeoutException

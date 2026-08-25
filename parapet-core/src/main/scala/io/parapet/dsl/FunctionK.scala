@@ -1,4 +1,4 @@
-package io.parapet.free
+package io.parapet.dsl
 
 /** A natural transformation: a polymorphic function from `F[A]` to `G[A]` for every `A`.
   *

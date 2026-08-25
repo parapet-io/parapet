@@ -1,6 +1,6 @@
 package io.parapet.runtime
 
-import io.parapet.core.Dsl.WithDsl
+import io.parapet.dsl.Dsl.WithDsl
 import EnvelopeCauseSpec.*
 import io.parapet.core.TestUtils.{*, given}
 import io.parapet.runtime.{Envelope, Scope}

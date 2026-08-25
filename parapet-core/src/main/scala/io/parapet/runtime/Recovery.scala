@@ -1,6 +1,6 @@
 package io.parapet.runtime
 
-import io.parapet.core.DslInterpreter.Interpreter
+import DslInterpreter.Interpreter
 import io.parapet.Event.{Initialize, Registered, Restored}
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*

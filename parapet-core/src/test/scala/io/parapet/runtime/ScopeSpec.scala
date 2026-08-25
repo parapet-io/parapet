@@ -1,6 +1,6 @@
 package io.parapet.runtime
 
-import io.parapet.core.Dsl.{DslF, WithDsl}
+import io.parapet.dsl.Dsl.{DslF, WithDsl}
 import ScopeSpec.*
 import io.parapet.core.TestUtils.{*, given}
 import io.parapet.runtime.Scope

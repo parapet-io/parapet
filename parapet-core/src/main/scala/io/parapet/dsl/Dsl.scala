@@ -1,10 +1,9 @@
-package io.parapet.core
+package io.parapet.dsl
 
 import io.parapet
 import io.parapet.core.annotations.developerApi
 import io.parapet.effect.Fiber
-import io.parapet.free.{Free, Inject}
-import io.parapet.runtime.Scope
+import io.parapet.runtime.{DslInterpreter, Scope}
 import io.parapet.{Event, ProcessRef}
 
 import scala.concurrent.duration.FiniteDuration
@@ -555,7 +554,7 @@ object Dsl:
     * Unlike [[FlowOps]], this is not exposed through the default `dsl` member on [[Process]]. Callers must opt in
     * explicitly, which keeps process-lock operations out of the normal user-facing DSL surface.
     */
-  private[core] class RuntimeOps[F[_], C[_]](using inject: Inject[[x] =>> FlowOp[F, x], C]):
+  private[parapet] class RuntimeOps[F[_], C[_]](using inject: Inject[[x] =>> FlowOp[F, x], C]):
 
     /** Acquires the runtime per-process delivery lock for `ref`.
       *

@@ -3,8 +3,8 @@ package io.parapet.runtime
 import com.typesafe.scalalogging.Logger
 import io.parapet.ProcessRef.*
 import Context.ProcessState
-import io.parapet.core.Dsl.{Dsl, FlowOps}
-import io.parapet.core.DslInterpreter.Interpreter
+import io.parapet.dsl.Dsl.{Dsl, FlowOps}
+import DslInterpreter.Interpreter
 import io.parapet.Event.*
 import io.parapet.effect.Queue.ChannelType
 import Scheduler.*

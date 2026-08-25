@@ -1,4 +1,4 @@
-package io.parapet.free
+package io.parapet.dsl
 
 /** Tagged-union over two algebras. Lets a single [[Free]] program mix operations from `F` and `G`.
   */

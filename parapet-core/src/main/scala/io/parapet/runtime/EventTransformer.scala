@@ -2,7 +2,6 @@ package io.parapet.runtime
 
 import io.parapet.Event
 import io.parapet.runtime.EventTransformer
-import io.parapet.core.DslInterpreter
 
 /** Transforms events on their way to a specific receiver.
   *

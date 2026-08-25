@@ -1,4 +1,4 @@
-package io.parapet.free
+package io.parapet.dsl
 
 import io.parapet.effect.Monad
 

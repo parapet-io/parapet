@@ -1,6 +1,6 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Dsl.DslF
+import io.parapet.dsl.Dsl.DslF
 import io.parapet.Event.Start
 import io.parapet.tests.intg.DslSpec._
 import io.parapet.testutils.EventStore

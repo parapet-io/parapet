@@ -1,6 +1,6 @@
 package io.parapet.core
 
-import io.parapet.core.Dsl.FlowOps
+import io.parapet.dsl.Dsl.FlowOps
 import org.scalatest.funsuite.AnyFunSuite
 
 class ImplicitDslSpec extends AnyFunSuite:
