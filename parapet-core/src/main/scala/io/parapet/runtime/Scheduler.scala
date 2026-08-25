@@ -12,10 +12,9 @@ import io.parapet.core.{Parallel, Queue}
 import io.parapet.core.exceptions.*
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
-import io.parapet.core.Process
 import io.parapet.journal.JournalDraft
 import io.parapet.snapshot.Snapshotable
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, Process, ProcessRef}
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}

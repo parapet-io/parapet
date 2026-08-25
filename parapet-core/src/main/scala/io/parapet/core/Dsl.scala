@@ -1,5 +1,6 @@
 package io.parapet.core
 
+import io.parapet
 import io.parapet.core.annotations.developerApi
 import io.parapet.free.{Free, Inject}
 import io.parapet.runtime.Scope
@@ -72,7 +73,7 @@ object Dsl:
 
   /** Registers `child` as a sub-process of `parent`, integrating it into the supervision graph.
     */
-  final case class Register[F[_]](parent: ProcessRef.Unknown, child: Process[F, ?, ?]) extends FlowOp[F, Unit]
+  final case class Register[F[_]](parent: ProcessRef.Unknown, child: parapet.Process[F, ?, ?]) extends FlowOp[F, Unit]
 
   /** Races `first` against `second` and returns whichever wins, cancelling the loser. */
   final case class Race[F[_], G[_], A, B](first: Free[G, A], second: Free[G, B]) extends FlowOp[F, Either[A, B]]
@@ -389,7 +390,7 @@ object Dsl:
       * stop server
       * }}}
       */
-    def register(parent: ProcessRef.Unknown, child: Process[F, ?, ?]*): Free[C, Unit] =
+    def register(parent: ProcessRef.Unknown, child: parapet.Process[F, ?, ?]*): Free[C, Unit] =
       child
         .map(process => Free.inject[[x] =>> FlowOp[F, x], C, Unit](Register(parent, process)))
         .foldLeft(unit) { (result, next) =>

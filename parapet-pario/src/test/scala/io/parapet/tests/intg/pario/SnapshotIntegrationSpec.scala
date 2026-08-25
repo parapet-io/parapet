@@ -1,8 +1,7 @@
 package io.parapet.tests.intg.pario
 
 import io.parapet.core.Events.{Restored, Start}
-import io.parapet.ParConfig
-import io.parapet.core.Process
+import io.parapet.{ParConfig, Process}
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
 import io.parapet.snapshot.{Snapshot, SnapshotConfig, SnapshotStorageLocal, Snapshotable}

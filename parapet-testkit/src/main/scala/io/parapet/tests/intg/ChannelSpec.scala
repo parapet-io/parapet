@@ -2,10 +2,10 @@ package io.parapet.tests.intg
 
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.{Start, Stop}
-import io.parapet.ParConfig
+import io.parapet.{ParConfig, Process}
 import io.parapet.runtime.Scheduler.SchedulerConfig
 import io.parapet.core.exceptions.EventHandlingException
-import io.parapet.core.{Channel, Process}
+import io.parapet.core.Channel
 import io.parapet.core.Channel.{
   ChannelInterruptedException,
   ChannelTimeoutException,

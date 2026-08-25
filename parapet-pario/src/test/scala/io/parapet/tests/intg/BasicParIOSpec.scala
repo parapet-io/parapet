@@ -3,21 +3,21 @@ package io.parapet.tests.intg
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.effect.ParIO
 import io.parapet.journal.EventCodecRegistry
-import io.parapet.{ParApp, ParConfig, ParIOApp, core}
+import io.parapet.{ParApp, ParConfig, ParIOApp, Process, core}
 
 trait BasicParIOSpec extends IntegrationSpec[ParIO] with ParIOApp {
   self =>
 
   override def createApp(
-      processes0: ParIO[Seq[core.Process[ParIO, ?, ?]]],
-      deadLetter0: Option[ParIO[DeadLetterProcess[ParIO]]],
-      config0: ParConfig,
-      eventCodecs0: EventCodecRegistry
+                          processes0: ParIO[Seq[Process[ParIO, ?, ?]]],
+                          deadLetter0: Option[ParIO[DeadLetterProcess[ParIO]]],
+                          config0: ParConfig,
+                          eventCodecs0: EventCodecRegistry
   ): ParApp[ParIO] =
     new ParIOApp {
       override val config: ParConfig = config0
 
-      override def processes(args: Array[String]): ParIO[Seq[core.Process[ParIO, ?, ?]]] =
+      override def processes(args: Array[String]): ParIO[Seq[Process[ParIO, ?, ?]]] =
         processes0
 
       override def deadLetter: ParIO[DeadLetterProcess[ParIO]] =
@@ -26,6 +26,6 @@ trait BasicParIOSpec extends IntegrationSpec[ParIO] with ParIOApp {
       override def eventCodecs: EventCodecRegistry = eventCodecs0
     }
 
-  override def processes(args: Array[String]): ParIO[Seq[core.Process[ParIO, ?, ?]]] =
+  override def processes(args: Array[String]): ParIO[Seq[Process[ParIO, ?, ?]]] =
     ParIO.pure(Seq.empty)
 }

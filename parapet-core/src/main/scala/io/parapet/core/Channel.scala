@@ -5,7 +5,7 @@ import io.parapet.core.Events.{Failure, Stop, SystemEvent}
 import io.parapet.effect.{Deferred, Effect}
 import io.parapet.effect.Monad.*
 import io.parapet.runtime.Scope
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, Process, ProcessRef}
 
 import java.util.concurrent.atomic.AtomicLong
 import scala.concurrent.duration.FiniteDuration

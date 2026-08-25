@@ -1,7 +1,8 @@
-package io.parapet.core
+package io.parapet
 
 import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.Events.SystemEvent
+import io.parapet.Process
 import io.parapet.runtime.{Context, Scheduler}
 import io.parapet.syntax.FlowSyntax
 import io.parapet.{Event, ProcessRef}
@@ -76,7 +77,7 @@ trait Process[F[_], In <: Event, Out <: Event] extends WithDsl[F] with FlowSynta
   /** The currently active receive function. Lazily initialized from [[handle]] on first dispatch; subsequently swapped
     * by [[switch]].
     */
-  private[core] def handler: Receive =
+  private[parapet] def handler: Receive =
     currentHandler match
       case Some(value) => value
       case None        =>

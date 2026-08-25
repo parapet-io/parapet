@@ -1,5 +1,6 @@
 package io.parapet.core
 
+import io.parapet
 import io.parapet.{Event, ProcessRef}
 import io.parapet.core.Dsl.WithDsl
 import io.parapet.core.Events.Start
@@ -19,12 +20,12 @@ class ProcessSpec extends AnyFunSuite with WithDsl[TestUtils.TestIO]:
   test("and composes system event handlers for typed processes") {
     var seen = Vector.empty[String]
 
-    val left = Process.typed[TestIO, Command](_ => {
+    val left = parapet.Process.typed[TestIO, Command](_ => {
       case Start => eval { seen = seen :+ "left" }
       case Ping  => unit
     })
 
-    val right = Process.typed[TestIO, Command](_ => {
+    val right = parapet.Process.typed[TestIO, Command](_ => {
       case Start => eval { seen = seen :+ "right" }
       case Ping  => unit
     })
@@ -40,9 +41,9 @@ class ProcessSpec extends AnyFunSuite with WithDsl[TestUtils.TestIO]:
   test("or dispatches system events to the branch that handles them") {
     var seen = Vector.empty[String]
 
-    val domainOnly = Process.typed[TestIO, Command](_ => { case Ping => unit })
+    val domainOnly = parapet.Process.typed[TestIO, Command](_ => { case Ping => unit })
 
-    val lifecycleAware = Process.typed[TestIO, Command](_ => {
+    val lifecycleAware = parapet.Process.typed[TestIO, Command](_ => {
       case Start => eval { seen = seen :+ "lifecycle" }
       case Ping  => unit
     })
@@ -59,7 +60,7 @@ class ProcessSpec extends AnyFunSuite with WithDsl[TestUtils.TestIO]:
     val clientRef = ProcessRef[Response.type]("client")
     val fixture   = new RuntimeFixture
 
-    val server = new Process[TestIO, Request.type, Response.type]:
+    val server = new parapet.Process[TestIO, Request.type, Response.type]:
       import dsl.*
 
       override def handle: Receive = { case Request =>

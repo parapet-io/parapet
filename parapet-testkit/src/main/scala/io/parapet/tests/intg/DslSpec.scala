@@ -2,10 +2,9 @@ package io.parapet.tests.intg
 
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events.Start
-import io.parapet.core.Process
 import io.parapet.tests.intg.DslSpec._
 import io.parapet.testutils.EventStore
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, Process, ProcessRef}
 import org.scalatest.OptionValues._
 import org.scalatest.matchers.should.Matchers._
 import org.scalatest.wordspec.AnyWordSpec

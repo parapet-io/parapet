@@ -1,8 +1,7 @@
 package io.parapet.syntax
 
 import io.parapet.core.Dsl.{Dsl, DslF, FlowOps}
-import io.parapet.core.Process
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, Process, ProcessRef}
 
 /** Provides the `~>` "send to" operator for ergonomic message dispatch inside DSL programs.
   *

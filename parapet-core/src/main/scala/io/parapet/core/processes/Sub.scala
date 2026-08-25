@@ -1,9 +1,8 @@
 package io.parapet.core.processes
 
 import io.parapet.core.Events.SystemEvent
-import io.parapet.core.Process
 import io.parapet.core.processes.Sub._
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, Process, ProcessRef}
 
 /** A multicast/filter process: re-publishes every non-system event it receives to a fixed set of subscribers,
   * optionally gated by a per-subscriber filter.

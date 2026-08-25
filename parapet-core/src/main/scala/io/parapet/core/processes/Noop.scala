@@ -1,7 +1,6 @@
 package io.parapet.core.processes
 
-import io.parapet.core.Process
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, Process, ProcessRef}
 
 /** Built-in process that silently swallows every event sent to it.
   *

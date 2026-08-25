@@ -1,9 +1,8 @@
 package io.parapet.core.processes
 
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, Process, ProcessRef}
 import io.parapet.ProcessRef.{DeadLetterRef, SystemRef}
 import io.parapet.core.Events.{DeadLetter, Failure}
-import io.parapet.core.Process
 
 /** Built-in singleton process pinned to [[io.parapet.ProcessRef.SystemRef]] that handles runtime-level failures.
   *

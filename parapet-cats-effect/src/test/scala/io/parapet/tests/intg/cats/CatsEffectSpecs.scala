@@ -5,19 +5,19 @@ import io.parapet.cats.CatsEffectParApp
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.journal.EventCodecRegistry
 import io.parapet.tests.intg.IntegrationSpec
-import io.parapet.{ParApp, ParConfig, core}
+import io.parapet.{ParApp, ParConfig, Process, core}
 
 trait BasicCatsEffectSpec extends IntegrationSpec[IO] with CatsEffectParApp:
   override def createApp(
-      processes0: IO[Seq[core.Process[IO, ?, ?]]],
-      deadLetter0: Option[IO[DeadLetterProcess[IO]]],
-      config0: ParConfig,
-      eventCodecs0: EventCodecRegistry
+                          processes0: IO[Seq[Process[IO, ?, ?]]],
+                          deadLetter0: Option[IO[DeadLetterProcess[IO]]],
+                          config0: ParConfig,
+                          eventCodecs0: EventCodecRegistry
   ): ParApp[IO] =
     new CatsEffectParApp:
       override val config: ParConfig = config0
 
-      override def processes(args: Array[String]): IO[Seq[core.Process[IO, ?, ?]]] =
+      override def processes(args: Array[String]): IO[Seq[Process[IO, ?, ?]]] =
         processes0
 
       override def deadLetter: IO[DeadLetterProcess[IO]] =
@@ -25,7 +25,7 @@ trait BasicCatsEffectSpec extends IntegrationSpec[IO] with CatsEffectParApp:
 
       override def eventCodecs: EventCodecRegistry = eventCodecs0
 
-  override def processes(args: Array[String]): IO[Seq[core.Process[IO, ?, ?]]] =
+  override def processes(args: Array[String]): IO[Seq[Process[IO, ?, ?]]] =
     IO.pure(Seq.empty)
 
 class BlockingSpec extends io.parapet.tests.intg.BlockingSpec[IO] with BasicCatsEffectSpec

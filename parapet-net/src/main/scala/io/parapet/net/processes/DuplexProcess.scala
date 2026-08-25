@@ -2,10 +2,9 @@ package io.parapet.net.processes
 
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.Events.{Start, Stop}
-import io.parapet.core.Process
 import io.parapet.net.processes.DuplexProcess.*
 import io.parapet.net.transport.{DuplexTransport, Message, ReceiveResult, TransportError}
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, Process, ProcessRef}
 import org.slf4j.LoggerFactory
 
 import java.util.UUID

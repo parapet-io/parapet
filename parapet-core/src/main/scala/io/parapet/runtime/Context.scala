@@ -7,12 +7,12 @@ import io.parapet.core.Queue.ChannelType
 import Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.{Noop, SystemProcess}
-import io.parapet.core.{Clock, Events, Process, Queue}
+import io.parapet.core.{Clock, Events, Queue}
 import io.parapet.effect.Monad.*
 import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
 import io.parapet.journal.*
 import io.parapet.snapshot.{SnapshotManager, SnapshotStorage, Snapshotable}
-import io.parapet.{Event, ParConfig, ProcessRef}
+import io.parapet.{Event, ParConfig, Process, ProcessRef}
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
 import scala.collection.mutable.ListBuffer

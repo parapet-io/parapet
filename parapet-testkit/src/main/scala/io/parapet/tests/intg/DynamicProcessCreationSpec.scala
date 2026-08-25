@@ -1,10 +1,9 @@
 package io.parapet.tests.intg
 
 import io.parapet.core.Events.Start
-import io.parapet.core.Process
 import io.parapet.tests.intg.DynamicProcessCreationSpec._
 import io.parapet.testutils.EventStore
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, Process, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers._
 
