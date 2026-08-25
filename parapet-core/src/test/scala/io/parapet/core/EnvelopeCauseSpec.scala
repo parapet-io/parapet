@@ -4,6 +4,7 @@ import io.parapet.core.Dsl.WithDsl
 import io.parapet.core.EnvelopeCauseSpec.*
 import io.parapet.core.TestUtils.*
 import io.parapet.core.TestUtils.given
+import io.parapet.runtime.Envelope
 import io.parapet.syntax.FlowSyntax
 import io.parapet.{Event, ProcessRef, Scope}
 import org.scalatest.funsuite.AnyFunSuite

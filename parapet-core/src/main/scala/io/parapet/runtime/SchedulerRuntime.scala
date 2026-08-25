@@ -1,4 +1,4 @@
-package io.parapet.core
+package io.parapet.runtime
 
 /** Internal runtime capability for running scheduler worker loops.
   */

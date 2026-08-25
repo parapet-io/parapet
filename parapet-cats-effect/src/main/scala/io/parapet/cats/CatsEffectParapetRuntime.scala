@@ -4,8 +4,9 @@ import cats.effect.{FiberIO, IO, Outcome}
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
 import io.parapet.ParApp
-import io.parapet.core.{Parallel, SchedulerRuntime}
+import io.parapet.core.Parallel
 import io.parapet.effect.{Effect, EffectFiber}
+import io.parapet.runtime.SchedulerRuntime
 
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{CancellationException, ExecutorService, Executors, ThreadFactory}

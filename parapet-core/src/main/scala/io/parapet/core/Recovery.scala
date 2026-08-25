@@ -5,6 +5,7 @@ import io.parapet.core.Events.{Initialize, Registered, Restored}
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
 import io.parapet.journal.JournalEntry
+import io.parapet.runtime.{Context, Envelope}
 import io.parapet.snapshot.{Snapshot, Snapshotable}
 import io.parapet.{Event, ProcessRef, Scope}
 import org.slf4j.LoggerFactory

@@ -7,7 +7,7 @@ import io.parapet.core.Process
 import io.parapet.effect.Effect
 import io.parapet.syntax.logger.*
 import io.parapet.ProcessRef
-import io.parapet.core.Envelope
+import io.parapet.runtime.Envelope
 import org.slf4j.LoggerFactory
 
 /** Marker trait for the singleton process that consumes [[io.parapet.core.Events.DeadLetter]] messages.

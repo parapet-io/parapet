@@ -1,8 +1,9 @@
 package io.parapet.core
 
 import com.typesafe.scalalogging.StrictLogging
-import io.parapet.core.Scheduler.SchedulerConfig
+import io.parapet.runtime.Scheduler.SchedulerConfig
 import io.parapet.journal.JournalConfig
+import io.parapet.runtime.Scheduler
 import io.parapet.snapshot.SnapshotConfig
 
 /** Top-level constants and tuning knobs for the parapet runtime.

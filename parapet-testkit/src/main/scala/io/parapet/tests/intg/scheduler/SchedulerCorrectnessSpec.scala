@@ -1,14 +1,14 @@
 package io.parapet.tests.intg.scheduler
 
-import io.parapet.core.Scheduler.*
+import io.parapet.runtime.Scheduler.*
 import io.parapet.core.Process
+import io.parapet.runtime.Envelope
 import io.parapet.tests.intg.scheduler.*
 import io.parapet.tests.intg.scheduler.TaskProcessingTime.*
 import io.parapet.tests.intg.scheduler.TaskSubmitter.assertEventsOrder
 import io.parapet.tests.intg.scheduler.{EventDiff, SchedulerCorrectnessSpec, SchedulerStressSpec}
 import io.parapet.testutils.EventStore
 import io.parapet.{Event, ProcessRef}
-import io.parapet.core.Envelope
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 import scala.util.Using

@@ -1,23 +1,24 @@
-package io.parapet.core
+package io.parapet.runtime
 
 import com.typesafe.scalalogging.Logger
 import io.parapet.ProcessRef.*
-import io.parapet.core.Context.ProcessState
+import Context.ProcessState
 import io.parapet.core.Dsl.{Dsl, FlowOps}
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Events.*
 import io.parapet.core.Queue.ChannelType
-import io.parapet.core.Scheduler.*
+import Scheduler.*
+import io.parapet.core.{Parallel, Queue}
 import io.parapet.core.exceptions.*
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
+import io.parapet.core.Process
 import io.parapet.journal.JournalDraft
 import io.parapet.snapshot.Snapshotable
 import io.parapet.{Event, ProcessRef, Scope}
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
-
 import scala.util.Try
 
 /** Routes [[Scheduler.Task]]s (envelope deliveries) to the right per-process mailbox and runs the resulting handler
@@ -131,7 +132,7 @@ object Scheduler:
   /** Internal "wake up and check the mailbox" event the scheduler enqueues after a release if there are still pending
     * tasks.
     */
-  private[core] case object NotifyEvent extends Event
+  private[runtime] case object NotifyEvent extends Event
 
   /** Outcome of [[Scheduler.submit]]. */
   sealed trait SubmissionResult

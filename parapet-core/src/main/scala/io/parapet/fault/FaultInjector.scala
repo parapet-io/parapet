@@ -1,6 +1,6 @@
 package io.parapet.fault
 
-import io.parapet.core.Context.ProcessState
+import io.parapet.runtime.Context.ProcessState
 import io.parapet.core.Dsl.{Delay, FlowOp, Forward, Send}
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.fault.Fault

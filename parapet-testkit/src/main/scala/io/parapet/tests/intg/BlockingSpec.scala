@@ -3,7 +3,7 @@ package io.parapet.tests.intg
 import io.parapet.core.Events.{DeadLetter, Kill, Start, Stop}
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.Process
-import io.parapet.core.Scheduler.SchedulerConfig
+import io.parapet.runtime.Scheduler.SchedulerConfig
 import io.parapet.core.exceptions.EventHandlingException
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.testutils.EventStore

@@ -2,6 +2,7 @@ package io.parapet.core
 
 import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.Events.SystemEvent
+import io.parapet.runtime.{Context, Scheduler}
 import io.parapet.syntax.FlowSyntax
 import io.parapet.{Event, ProcessRef}
 

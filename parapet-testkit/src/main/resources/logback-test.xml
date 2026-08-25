@@ -38,7 +38,7 @@
       Scheduler logs are only emitted when `ParConfig.devMode = true`; the stress harness enables it.
       Route them to the file at DEBUG so each envelope hop leaves a trace.
     -->
-    <logger name="io.parapet.core.Scheduler" level="DEBUG" additivity="false">
+    <logger name="io.parapet.runtime.Scheduler" level="DEBUG" additivity="false">
         <appender-ref ref="file"/>
     </logger>
     <logger name="parapet-scheduler" level="DEBUG" additivity="false">

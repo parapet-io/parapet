@@ -1,6 +1,6 @@
 package io.parapet.tests.intg.scheduler
 
-import io.parapet.core.Scheduler.SchedulerConfig
+import io.parapet.runtime.Scheduler.SchedulerConfig
 
 /** Declarative description of a single scheduler-correctness scenario.
   *

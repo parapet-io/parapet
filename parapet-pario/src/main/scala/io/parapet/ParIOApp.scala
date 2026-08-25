@@ -1,7 +1,7 @@
 package io.parapet
 
 import io.parapet.effect.{Effect, ParIO, ParIORuntime}
-import io.parapet.core.SchedulerRuntime
+import io.parapet.runtime.SchedulerRuntime
 
 /** A [[ParApp]] specialization bound to the reference [[ParIO]] effect type.
   *

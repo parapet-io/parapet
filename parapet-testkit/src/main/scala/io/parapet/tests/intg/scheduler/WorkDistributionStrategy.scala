@@ -1,9 +1,9 @@
 package io.parapet.tests.intg.scheduler
 
 import io.parapet.core.Process
-import io.parapet.core.Scheduler.Deliver
+import io.parapet.runtime.Envelope
+import io.parapet.runtime.Scheduler.Deliver
 import io.parapet.{Event, ProcessRef}
-import io.parapet.core.Envelope
 
 /** Describes how test events are distributed across receivers. */
 trait WorkDistributionStrategy {

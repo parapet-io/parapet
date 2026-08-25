@@ -1,5 +1,6 @@
 package io.parapet.core
 
+import io.parapet.runtime.Envelope
 import io.parapet.{Event, ProcessRef}
 
 /** System-defined [[Event]]s emitted by the parapet runtime.

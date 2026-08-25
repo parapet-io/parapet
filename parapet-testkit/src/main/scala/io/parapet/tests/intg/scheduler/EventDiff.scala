@@ -1,7 +1,7 @@
 package io.parapet.tests.intg.scheduler
 
 import io.parapet.ProcessRef
-import io.parapet.core.Scheduler.Deliver
+import io.parapet.runtime.Scheduler.Deliver
 import io.parapet.tests.intg.scheduler.EventDiff
 import io.parapet.tests.intg.scheduler.TestEvent
 import io.parapet.testutils.EventStore

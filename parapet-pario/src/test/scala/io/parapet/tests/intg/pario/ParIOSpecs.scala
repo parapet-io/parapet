@@ -9,7 +9,7 @@ import io.parapet.core.Process
 import io.parapet.core.{Channel, Parapet}
 import io.parapet.core.Channel.ChannelTimeoutException
 import io.parapet.core.Parapet.ParConfig
-import io.parapet.core.Scheduler.SchedulerConfig
+import io.parapet.runtime.Scheduler.SchedulerConfig
 import io.parapet.effect.ParIO
 import io.parapet.testutils.EventStore
 import io.parapet.tests.intg.BasicParIOSpec

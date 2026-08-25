@@ -1,5 +1,7 @@
 package io.parapet.core
 
+import io.parapet.runtime.SchedulerRuntime
+
 /** Type class providing concurrent execution for the effect type `F`.
   *
   * The runtime relies on a [[Parallel]] instance for finite parallel batches such as child-process shutdown. Long-lived

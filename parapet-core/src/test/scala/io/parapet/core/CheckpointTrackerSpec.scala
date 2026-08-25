@@ -1,6 +1,6 @@
 package io.parapet.core
 
-import io.parapet.core.Context.CheckpointTracker
+import io.parapet.runtime.Context.CheckpointTracker
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 

@@ -1,8 +1,9 @@
 package io.parapet.tests.intg.scheduler
 
 import io.parapet.ProcessRef
-import io.parapet.core.Scheduler.*
-import io.parapet.core.{Context, EventTransformers, Parapet, Scheduler}
+import io.parapet.runtime.Scheduler.*
+import io.parapet.core.Parapet
+import io.parapet.runtime.{Context, EventTransformers, Scheduler}
 import io.parapet.syntax.logger.*
 import io.parapet.tests.intg.scheduler.*
 import io.parapet.tests.intg.scheduler.TaskSubmitter.submitAll

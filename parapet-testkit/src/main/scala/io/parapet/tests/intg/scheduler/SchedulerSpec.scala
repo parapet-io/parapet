@@ -9,7 +9,7 @@ import io.parapet.tests.intg.IntegrationSpec
 import io.parapet.tests.intg.scheduler.SchedulerSpec.*
 import io.parapet.testutils.EventStore
 import io.parapet.Event
-import io.parapet.core.Envelope
+import io.parapet.runtime.Envelope
 import org.scalatest.OptionValues.*
 import org.scalatest.matchers.should.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec

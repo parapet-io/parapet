@@ -1,15 +1,16 @@
-package io.parapet.core
+package io.parapet.runtime
 
-import io.parapet.core.Context.*
+import Context.*
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Events.{Initialize, Registered, Start}
 import io.parapet.core.Queue.ChannelType
-import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
+import Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.{Noop, SystemProcess}
-import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
+import io.parapet.core.{BootMode, Clock, Events, Parapet, Process, Queue, Recovery}
 import io.parapet.effect.Monad.*
-import io.parapet.journal.{DeliveryRecorder, EventCodec, EventCodecRegistry, JournalDraft, JournalEntry, JournalStore}
+import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
+import io.parapet.journal.*
 import io.parapet.snapshot.{SnapshotManager, SnapshotStorage, Snapshotable}
 import io.parapet.{Event, ProcessRef}
 
@@ -35,9 +36,9 @@ import scala.jdk.CollectionConverters.*
 class Context[F[_]](
     config: Parapet.ParConfig,
     val eventTransformers: EventTransformers,
-    private[core] val snapshotManager: Option[SnapshotManager[F]],
-    private[core] val recorder: Option[DeliveryRecorder[F]],
-    private[core] val codecRegistry: EventCodecRegistry
+    private[parapet] val snapshotManager: Option[SnapshotManager[F]],
+    private[parapet] val recorder: Option[DeliveryRecorder[F]],
+    private[parapet] val codecRegistry: EventCodecRegistry
 )(using effect: Effect[F]):
   self =>
 
@@ -112,7 +113,7 @@ class Context[F[_]](
   def nextSeq(): F[Long] =
     recorder.fold(effect.delay(seqCounter.incrementAndGet()))(_.advanceSequence())
 
-  private[core] def continueSeqAfter(seq: Long): Unit =
+  private[parapet] def continueSeqAfter(seq: Long): Unit =
     recorder match
       case Some(r) => r.continueAfter(seq)
       case None    => seqCounter.updateAndGet(current => math.max(current, seq)); ()
@@ -121,7 +122,7 @@ class Context[F[_]](
 
   /** The scheduler bound to this context via [[bind]]; `null` until then.
     */
-  private[core] def scheduler: Scheduler[F] = _scheduler
+  private[runtime] def scheduler: Scheduler[F] = _scheduler
 
   /** Binds `scheduler` to this context and creates the built-in system processes. Must run before [[Scheduler.start]].
     */
@@ -130,7 +131,7 @@ class Context[F[_]](
       _scheduler = scheduler
     } >> createSysProcesses
 
-  private[core] def createSysProcesses: F[Unit] =
+  private[runtime] def createSysProcesses: F[Unit] =
     for
       sysProcesses <- effect.delay(List(new SystemProcess[F], new Noop[F]))
       states       <- Monad.sequence(sysProcesses.map(ProcessState(_, config, clock)))

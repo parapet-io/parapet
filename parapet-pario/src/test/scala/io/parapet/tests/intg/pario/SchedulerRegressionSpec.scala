@@ -1,8 +1,8 @@
 package io.parapet.tests.intg.pario
 
 import io.parapet.ProcessRef
-import io.parapet.core.{Context, DslInterpreter, EventTransformers, Parallel, Parapet, Scheduler, SchedulerRuntime}
-import io.parapet.core.Scheduler.SchedulerConfig
+import io.parapet.core.{DslInterpreter, Parallel, Parapet}
+import io.parapet.runtime.Scheduler.SchedulerConfig
 import io.parapet.effect.{
   Effect,
   ElasticPoolConfig,
@@ -12,6 +12,7 @@ import io.parapet.effect.{
   ParIORuntimeConfig,
   TimerThreadPoolConfig
 }
+import io.parapet.runtime.{Context, EventTransformers, Scheduler, SchedulerRuntime}
 import io.parapet.tests.intg.scheduler.{
   TaskSubmitter,
   TestEvent,

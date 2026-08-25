@@ -1,6 +1,8 @@
-package io.parapet.core
+package io.parapet.runtime
 
 import io.parapet.ProcessRef
+import io.parapet.runtime.EventTransformers
+import io.parapet.core.DslInterpreter
 
 import scala.collection.mutable
 
