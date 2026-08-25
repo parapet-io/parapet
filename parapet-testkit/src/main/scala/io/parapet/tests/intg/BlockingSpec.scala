@@ -1,6 +1,6 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Events.{DeadLetter, Kill, Start, Stop}
+import io.parapet.Event.{DeadLetter, Kill, Start, Stop}
 import io.parapet.{ParConfig, Process}
 import io.parapet.runtime.Scheduler.SchedulerConfig
 import io.parapet.core.exceptions.EventHandlingException

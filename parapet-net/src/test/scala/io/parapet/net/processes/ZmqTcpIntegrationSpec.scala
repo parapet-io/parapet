@@ -1,7 +1,7 @@
 package io.parapet.net.processes
 
 import cats.effect.IO
-import io.parapet.core.Events.Start
+import io.parapet.Event.Start
 import io.parapet.net.transport.zmq.{
   ZmqTcpClient,
   ZmqTcpClientConfig,

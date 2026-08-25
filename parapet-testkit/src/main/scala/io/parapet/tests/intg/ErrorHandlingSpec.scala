@@ -1,7 +1,7 @@
 package io.parapet.tests.intg
 
 import io.parapet.{Event, Process, ProcessRef}
-import io.parapet.core.Events._
+import io.parapet.Event._
 import io.parapet.core.exceptions.EventHandlingException
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.runtime.Envelope

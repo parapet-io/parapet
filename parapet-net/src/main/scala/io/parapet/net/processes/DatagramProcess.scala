@@ -1,6 +1,6 @@
 package io.parapet.net.processes
 
-import io.parapet.core.Events.{Start, Stop}
+import io.parapet.Event.{Start, Stop}
 import io.parapet.{Event, Process}
 import io.parapet.net.transport.{Datagram, ReceiveResult, TransportError}
 import io.parapet.net.transport.DatagramTransport

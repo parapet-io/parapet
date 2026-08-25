@@ -1,7 +1,7 @@
 package io.parapet.runtime
 
 import io.parapet.core.DslInterpreter.Interpreter
-import io.parapet.core.Events.{Initialize, Registered, Restored}
+import io.parapet.Event.{Initialize, Registered, Restored}
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
 import io.parapet.journal.JournalEntry

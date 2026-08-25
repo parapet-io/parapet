@@ -1,7 +1,7 @@
 package io.parapet.tests.intg
 
 import io.parapet.{Event, Process}
-import io.parapet.core.Events._
+import io.parapet.Event._
 import io.parapet.tests.intg.ReplySpec._
 import io.parapet.testutils.EventStore
 import org.scalatest.OptionValues._

@@ -1,6 +1,6 @@
 package io.parapet.tests.intg.pario
 
-import io.parapet.core.Events.{Initialize, Restored, Start}
+import io.parapet.Event.{Initialize, Restored, Start}
 import io.parapet.{ParConfig, Process}
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given

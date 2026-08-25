@@ -5,7 +5,7 @@ import io.parapet.ProcessRef.*
 import Context.ProcessState
 import io.parapet.core.Dsl.{Dsl, FlowOps}
 import io.parapet.core.DslInterpreter.Interpreter
-import io.parapet.core.Events.*
+import io.parapet.Event.*
 import io.parapet.core.Queue.ChannelType
 import Scheduler.*
 import io.parapet.core.{Parallel, Queue}
@@ -530,7 +530,7 @@ object Scheduler:
             processState.stopped.flatMap {
               case true =>
                 sendToDeadLetter(
-                  DeadLetter(envelope, ProcessStoppedException(process.ref)),
+                  envelope.deadLetter(ProcessStoppedException(process.ref)),
                   context,
                   interpreter,
                   deliveryScope
@@ -551,7 +551,7 @@ object Scheduler:
               processState.stopped.flatMap { stopped =>
                 if terminated || stopped then
                   sendToDeadLetter(
-                    DeadLetter(envelope, new IllegalStateException(s"process=$process is terminated")),
+                    envelope.deadLetter(new IllegalStateException(s"process=$process is terminated")),
                     context,
                     interpreter,
                     deliveryScope
@@ -706,7 +706,7 @@ object Scheduler:
         scope: Scope,
         error: Throwable
     )(using effect: Effect[F]): F[Unit] =
-      val failure = Failure(envelope, error)
+      val failure = envelope.failure(error)
       val waiter  = envelope.scope.get(Scope.Causation).flatMap { _ =>
         context
           .getProcessState(envelope.sender)
@@ -715,7 +715,7 @@ object Scheduler:
 
       waiter match
         case Some(state) => send(SystemRef, failure, state, interpreter, scope)
-        case None        => sendToDeadLetter(DeadLetter(envelope, error), context, interpreter, scope)
+        case None        => sendToDeadLetter(envelope.deadLetter(error), context, interpreter, scope)
 
     private def sendToDeadLetter[F[_]](
         deadLetter: DeadLetter,

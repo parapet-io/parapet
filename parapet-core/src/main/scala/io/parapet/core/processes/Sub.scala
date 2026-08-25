@@ -1,6 +1,6 @@
 package io.parapet.core.processes
 
-import io.parapet.core.Events.SystemEvent
+import io.parapet.Event.SystemEvent
 import io.parapet.core.processes.Sub._
 import io.parapet.{Event, Process, ProcessRef}
 

@@ -368,8 +368,8 @@ object Dsl:
 
     /** Registers one or more child processes under `parent`.
       *
-      * Children are guaranteed to receive [[io.parapet.core.Events.Stop]] before their parent does - useful for
-      * releasing resources in the right order.
+      * Children are guaranteed to receive [[io.parapet.Event.Stop]] before their parent does - useful for releasing
+      * resources in the right order.
       *
       * Example:
       *

@@ -1,6 +1,6 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Events.{DeadLetter, Start}
+import io.parapet.Event.{DeadLetter, Start}
 import io.parapet.core.exceptions.EventMatchException
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.runtime.Envelope

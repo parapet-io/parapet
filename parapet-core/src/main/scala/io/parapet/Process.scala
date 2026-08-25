@@ -1,7 +1,7 @@
 package io.parapet
 
 import io.parapet.core.Dsl.{DslF, WithDsl}
-import io.parapet.core.Events.SystemEvent
+import io.parapet.Event.SystemEvent
 import io.parapet.Process
 import io.parapet.runtime.{Context, Scheduler}
 import io.parapet.syntax.FlowSyntax
@@ -20,8 +20,8 @@ import java.util.concurrent.atomic.AtomicReference
   *   - [[handle]] is invoked sequentially per process - no concurrent invocations on the same instance, even across
   *     worker threads.
   *   - Each event is delivered at most once, in mailbox order.
-  *   - Lifecycle events ([[io.parapet.core.Events.Start]], [[io.parapet.core.Events.Stop]]) are issued automatically by
-  *     the [[Scheduler]].
+  *   - Lifecycle events ([[io.parapet.Event.Start]], [[io.parapet.Event.Stop]]) are issued automatically by the
+  *     [[Scheduler]].
   *
   * A process can dynamically swap its receive function via [[switch]], compose with another process via [[and]] /
   * [[or]] (aliases [[++]] / [[or]]), and access the [[Context]] it has been registered with via the protected `context`
@@ -88,8 +88,8 @@ trait Process[F[_], In <: Event, Out <: Event] extends WithDsl[F] with FlowSynta
   /** Defines the process's reaction to incoming events.
     *
     * Implementations return a partial function pairing each handled [[Event]] with a `Dsl` program. Events that fall
-    * outside the partial function's domain produce a [[io.parapet.core.Events.Failure]] which is routed to the
-    * dead-letter handler unless the sender registered for failure notifications.
+    * outside the partial function's domain produce a [[io.parapet.Event.Failure]] which is routed to the dead-letter
+    * handler unless the sender registered for failure notifications.
     */
   def handle: Receive
 

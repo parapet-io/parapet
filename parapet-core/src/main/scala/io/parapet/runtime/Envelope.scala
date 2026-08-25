@@ -38,6 +38,14 @@ final case class Envelope(
   def event(value: Event): Envelope =
     self.copy(event = value)
 
+  /** This delivery, described as undeliverable. */
+  private[parapet] def deadLetter(error: Throwable): Event.DeadLetter =
+    Event.DeadLetter(sender, event, receiver, error)
+
+  /** This delivery, described as failed, for return to a waiting caller. */
+  private[parapet] def failure(error: Throwable): Event.Failure =
+    Event.Failure(sender, event, receiver, error)
+
   override def toString: String =
     if scope.isEmpty then s"Envelope(id:$id, cause:$cause, sender:$sender, event:$event, receiver:$receiver)"
     else

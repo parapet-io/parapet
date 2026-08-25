@@ -3,7 +3,7 @@ package io.parapet.core
 import io.parapet
 import io.parapet.{Event, ProcessRef}
 import io.parapet.core.Dsl.WithDsl
-import io.parapet.core.Events.Start
+import io.parapet.Event.Start
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 

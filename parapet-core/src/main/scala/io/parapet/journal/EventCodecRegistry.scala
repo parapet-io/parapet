@@ -1,7 +1,7 @@
 package io.parapet.journal
 
 import io.parapet.Event
-import io.parapet.core.Events
+import io.parapet.Event
 import EventCodec.Tag
 import scala.collection.mutable
 
@@ -25,7 +25,7 @@ final class EventCodecRegistry private (
 object EventCodecRegistry:
 
   private[journal] val systemCodecs = Map[Class[?], EventCodec](
-    classOf[Events.Registered] -> RegisteredEventCodec
+    classOf[Event.Registered] -> RegisteredEventCodec
   )
 
   /** Builds a registry, rejecting a class or a tag that is claimed more than once. */

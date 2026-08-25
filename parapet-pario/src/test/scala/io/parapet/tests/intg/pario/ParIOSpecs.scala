@@ -4,8 +4,8 @@ import io.parapet
 import io.parapet.{Channel, Event, Process}
 import io.parapet.Event.{ByteEvent, StringEvent}
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Events
-import io.parapet.core.Events.Start
+import io.parapet.Event
+import io.parapet.Event.Start
 import Channel.ChannelTimeoutException
 import io.parapet.ParConfig
 import io.parapet.runtime.Scheduler.SchedulerConfig
@@ -64,12 +64,12 @@ class AsyncSpec extends AnyFunSuite with BasicParIOSpec:
   test("parallel") {
     val eventStore = new EventStore[ParIO, Event]
     val process    = parapet.Process
-      .builder[ParIO](ref => { case Events.Start =>
+      .builder[ParIO](ref => { case Event.Start =>
         for
           fibers <- par(List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10).map(calc): _*)
           res    <- fibers.map(_.join).reduce((fa, fb) => fa.flatMap(a => fb.map(b => a + b)))
           _      <- eval(res shouldBe 385)
-          _      <- eval(eventStore.add(ref, Events.Stop))
+          _      <- eval(eventStore.add(ref, Event.Stop))
         yield ()
       })
       .build

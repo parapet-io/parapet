@@ -1,6 +1,6 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Events._
+import io.parapet.Event._
 import io.parapet.{ParConfig, Process}
 import io.parapet.tests.intg.ProcessLifecycleSpec._
 import io.parapet.testutils.EventStore

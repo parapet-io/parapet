@@ -1,7 +1,7 @@
 package io.parapet
 
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Events.*
+import io.parapet.Event.*
 import io.parapet.core.Dsl
 import io.parapet.Channel
 import io.parapet.effect.Monad.*
@@ -77,7 +77,7 @@ class Channel[F[_], In <: Event, Out <: Event](
             completeAndReset(active, scala.util.Failure(ChannelTimeoutException(timeout)))
           )
         case _ => unit
-    case Failure(_, error) =>
+    case Failure(_, _, _, error) =>
       inFlight match
         case Some(active) => completeAndReset(active, scala.util.Failure(error))
         case None         => unit

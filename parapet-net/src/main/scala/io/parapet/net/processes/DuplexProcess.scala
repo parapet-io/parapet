@@ -1,7 +1,7 @@
 package io.parapet.net.processes
 
 import com.typesafe.scalalogging.Logger
-import io.parapet.core.Events.{Start, Stop}
+import io.parapet.Event.{Start, Stop}
 import io.parapet.net.processes.DuplexProcess.*
 import io.parapet.net.transport.{DuplexTransport, Message, ReceiveResult, TransportError}
 import io.parapet.{Event, Process, ProcessRef}

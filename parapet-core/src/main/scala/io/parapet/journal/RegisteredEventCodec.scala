@@ -1,6 +1,6 @@
 package io.parapet.journal
 
-import io.parapet.core.Events.Registered
+import io.parapet.Event.Registered
 import io.parapet.{Event, ProcessRef}
 
 import java.nio.charset.StandardCharsets.UTF_8

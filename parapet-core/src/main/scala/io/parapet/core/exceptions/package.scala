@@ -4,7 +4,7 @@ import io.parapet.ProcessRef
 
 /** Exceptions raised by the parapet runtime when routing or process lifecycle invariants are violated.
   *
-  * These are surfaced through [[io.parapet.core.Events.Failure]] and (when unhandled) end up at the
+  * These are surfaced through [[io.parapet.Event.Failure]] and (when unhandled) end up at the
   * [[io.parapet.core.processes.DeadLetterProcess]].
   */
 package object exceptions {
@@ -19,8 +19,7 @@ package object exceptions {
       new UnknownProcessException(s"process: '$ref' doesn't exist")
   }
 
-  /** Wraps a throwable raised inside a process's `handle` so it can be propagated as a
-    * [[io.parapet.core.Events.Failure]].
+  /** Wraps a throwable raised inside a process's `handle` so it can be propagated as a [[io.parapet.Event.Failure]].
     */
   case class EventHandlingException(message: String = "", cause: Throwable = null)
       extends RuntimeException(message, cause)

@@ -1,11 +1,11 @@
 package io.parapet
 
-import io.parapet.core.Events
+import io.parapet.Event
 
 /** Marks a process whose recorded domain deliveries are not re-executed during recovery.
   *
   * Its snapshot and lifecycle are still restored normally. It must recreate children from
-  * [[io.parapet.core.Events.Initialize]] or [[io.parapet.core.Events.Restored]]; external work resumes after
-  * [[io.parapet.core.Events.Start]].
+  * [[io.parapet.Event.Initialize]] or [[io.parapet.Event.Restored]]; external work resumes after
+  * [[io.parapet.Event.Start]].
   */
 trait ReplayBoundary

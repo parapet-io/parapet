@@ -2,12 +2,12 @@ package io.parapet.runtime
 
 import Context.*
 import io.parapet.core.DslInterpreter.Interpreter
-import io.parapet.core.Events.{Initialize, Registered, Start}
+import io.parapet.Event.{Initialize, Registered, Start}
 import io.parapet.core.Queue.ChannelType
 import Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.{Noop, SystemProcess}
-import io.parapet.core.{Clock, Events, Queue}
+import io.parapet.core.{Clock, Queue}
 import io.parapet.effect.Monad.*
 import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
 import io.parapet.journal.*
@@ -193,8 +193,7 @@ class Context[F[_]](
   def child(parent: ProcessRef.Unknown): Vector[ProcessRef.Unknown] =
     graph.getOrDefault(parent, ListBuffer.empty).toVector
 
-  /** Registers a child and schedules [[io.parapet.core.Events.Initialize]] followed by
-    * [[io.parapet.core.Events.Start]].
+  /** Registers a child and schedules [[io.parapet.Event.Initialize]] followed by [[io.parapet.Event.Start]].
     */
   def registerAndStart(parent: ProcessRef.Unknown, process: Process[F, ?, ?]): F[SubmissionResult] =
     register(parent, process) >> sendLifecycleEvent(process.ref, Initialize) >> sendStartEvent(process.ref)
@@ -204,12 +203,12 @@ class Context[F[_]](
 
   private[parapet] def sendLifecycleEvent(
       processRef: ProcessRef.Unknown,
-      event: Events.SystemEvent
+      event: Event.SystemEvent
   ): F[SubmissionResult] =
     scheduler.submit(Deliver(Envelope(ProcessRef.SystemRef, event, processRef)))
 
-  /** Registers a batch of root processes and schedules [[io.parapet.core.Events.Initialize]] followed by
-    * [[io.parapet.core.Events.Start]].
+  /** Registers a batch of root processes and schedules [[io.parapet.Event.Initialize]] followed by
+    * [[io.parapet.Event.Start]].
     */
   def registerAll(processes0: List[Process[F, ?, ?]]): F[List[ProcessRef.Unknown]] =
     registerAll(ProcessRef.SystemRef, processes0)
@@ -221,7 +220,7 @@ class Context[F[_]](
       _    <- Monad.sequence(processes0.map(p => sendLifecycleEvent(p.ref, Initialize) >> sendStartEvent(p.ref)))
     yield refs
 
-  /** Restores and replays the application, then schedules [[io.parapet.core.Events.Start]] for the live phase. */
+  /** Restores and replays the application, then schedules [[io.parapet.Event.Start]] for the live phase. */
   private[parapet] def boot(processes0: List[Process[F, ?, ?]], interpreter: Interpreter[F]): F[Unit] =
     val recovery = new Recovery(self, interpreter)
     effect.delay {

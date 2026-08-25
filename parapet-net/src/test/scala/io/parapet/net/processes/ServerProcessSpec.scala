@@ -1,7 +1,7 @@
 package io.parapet.net.processes
 
 import io.parapet.ProcessRef
-import io.parapet.core.Events.Stop
+import io.parapet.Event.Stop
 import io.parapet.core.TestUtils.*
 import io.parapet.core.TestUtils.given
 import io.parapet.net.transport.{Message, ReceiveResult, RoutedMessage, RoutingId, ServerTransport, TransportError}
