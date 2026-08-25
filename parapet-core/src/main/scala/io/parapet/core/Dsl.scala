@@ -117,7 +117,7 @@ object Dsl:
 
   /** Reads the interpreter's current [[io.parapet.Scope]].
     *
-    * The current scope is reader-context metadata, normally copied from the incoming [[io.parapet.core.Envelope]].
+    * The current scope is reader-context metadata, normally copied from the incoming [[io.parapet.runtime.Envelope]].
     * Reading it does not mutate anything. The continuation `f` builds the next program step after seeing the scope, and
     * that next step continues under the same scope.
     */
@@ -310,12 +310,12 @@ object Dsl:
       * program.
       */
     @developerApi
-    private[core] def reply(event: => Event): Free[C, Unit] =
+    private[parapet] def reply(event: => Event): Free[C, Unit] =
       unsafe.withSender(sender => send(event, sender))
 
     /** Low-level untyped batch reply helper for core internals. */
     @developerApi
-    private[core] def reply(events: Seq[Event]): Free[C, Unit] =
+    private[parapet] def reply(events: Seq[Event]): Free[C, Unit] =
       unsafe.withSender { sender =>
         events.toList match
           case Nil          => unit
@@ -327,7 +327,7 @@ object Dsl:
 
     /** Reads the current [[Scope]] and builds the next step from it. */
     @developerApi
-    private[core] def withScope[A](f: Scope => Free[C, A]): Free[C, A] =
+    private[parapet] def withScope[A](f: Scope => Free[C, A]): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](WithScope[F, C, A](f))
 
     /** Runs `body` under the scope produced by `f(currentScope)`.
@@ -336,7 +336,7 @@ object Dsl:
       * finishes (whether by success or by raising), subsequent operations continue with the outer scope.
       */
     @developerApi
-    private[core] def mapScope[A](f: Scope => Scope)(body: Free[C, A]): Free[C, A] =
+    private[parapet] def mapScope[A](f: Scope => Scope)(body: Free[C, A]): Free[C, A] =
       Free.inject[[x] =>> FlowOp[F, x], C, A](MapScope[F, C, A](f, body))
 
     /** Executes `flow` asynchronously as a [[Fiber]]. The fiber runs concurrently and the returned handle can be

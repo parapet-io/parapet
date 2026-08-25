@@ -1,9 +1,8 @@
-package io.parapet.core
+package io.parapet.runtime
 
 import io.parapet.core.Dsl.{DslF, WithDsl}
-import io.parapet.core.ScopeSpec.*
-import io.parapet.core.TestUtils.*
-import io.parapet.core.TestUtils.given
+import ScopeSpec.*
+import io.parapet.core.TestUtils.{*, given}
 import io.parapet.runtime.Scope
 import io.parapet.syntax.FlowSyntax
 import io.parapet.{Event, ProcessRef}

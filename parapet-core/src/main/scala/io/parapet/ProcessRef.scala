@@ -49,7 +49,7 @@ object ProcessRef:
     */
   val DeadLetterRef: ProcessRef[Event] = ProcessRef(s"$ParapetPrefix-deadletter")
 
-  /** Reference to the [[io.parapet.core.Scheduler]] itself, used internally for control messages such as `Stop`.
+  /** Reference to the [[io.parapet.runtime.Scheduler]] itself, used internally for control messages such as `Stop`.
     */
   val SchedulerRef: ProcessRef[Event] = ProcessRef(s"$ParapetPrefix-scheduler")
 
