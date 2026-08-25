@@ -1,9 +1,8 @@
 package io.parapet.journal
 
 import com.typesafe.scalalogging.Logger
-import io.parapet.core.Clock
 import io.parapet.effect.Monad.*
-import io.parapet.effect.{Deferred, Effect, Retry}
+import io.parapet.effect.{Clock, Deferred, Effect, Retry}
 import org.slf4j.LoggerFactory
 
 import java.util.ArrayDeque

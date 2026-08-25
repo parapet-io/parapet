@@ -6,11 +6,10 @@ import Context.ProcessState
 import io.parapet.core.Dsl.{Dsl, FlowOps}
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.Event.*
-import io.parapet.core.Queue.ChannelType
+import io.parapet.effect.Queue.ChannelType
 import Scheduler.*
-import io.parapet.core.{Parallel, Queue}
 import io.parapet.core.exceptions.*
-import io.parapet.effect.Effect
+import io.parapet.effect.{Effect, Parallel, Queue}
 import io.parapet.effect.Monad.*
 import io.parapet.journal.JournalDraft
 import io.parapet.snapshot.Snapshotable

@@ -1,8 +1,7 @@
 package io.parapet.tests.intg.pario
 
-import io.parapet.core.Clock
 import io.parapet.snapshot.*
-import io.parapet.effect.ParIO
+import io.parapet.effect.{Clock, ParIO}
 import io.parapet.effect.ParIO.given
 import io.parapet.snapshot.{Snapshot, SnapshotManager, SnapshotStorageLocal, Snapshotable}
 import io.parapet.{Event, ProcessRef}

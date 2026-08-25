@@ -4,8 +4,8 @@ import com.typesafe.scalalogging.Logger
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.fault.{FaultInjector, FaultPolicy}
-import io.parapet.core.{DslInterpreter, Parallel}
-import io.parapet.effect.Effect
+import io.parapet.core.DslInterpreter
+import io.parapet.effect.{Effect, Parallel}
 import io.parapet.journal.{EventCodecRegistry, JournalStore, JournalStoreLocal}
 import io.parapet.runtime.{Context, EventTransformer, EventTransformers, Scheduler, SchedulerRuntime}
 import io.parapet.snapshot.{SnapshotStorage, SnapshotStorageLocal}

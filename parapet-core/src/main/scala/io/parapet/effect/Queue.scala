@@ -1,6 +1,4 @@
-package io.parapet.core
-
-import io.parapet.effect.{Effect, Monad}
+package io.parapet.effect
 
 import java.util.concurrent.{ArrayBlockingQueue, BlockingQueue, LinkedBlockingQueue, TimeUnit}
 import scala.concurrent.duration.FiniteDuration

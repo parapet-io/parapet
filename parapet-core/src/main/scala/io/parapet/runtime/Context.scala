@@ -3,13 +3,12 @@ package io.parapet.runtime
 import Context.*
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.Event.{Initialize, Registered, Start}
-import io.parapet.core.Queue.ChannelType
+import io.parapet.effect.Queue.ChannelType
 import Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.{Noop, SystemProcess}
-import io.parapet.core.{Clock, Queue}
 import io.parapet.effect.Monad.*
-import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
+import io.parapet.effect.{Clock, Deferred, Effect, EffectFiber, Monad, Queue}
 import io.parapet.journal.*
 import io.parapet.snapshot.{SnapshotManager, SnapshotStorage, Snapshotable}
 import io.parapet.{Event, ParConfig, Process, ProcessRef}

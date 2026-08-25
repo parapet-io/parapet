@@ -1,4 +1,6 @@
-package io.parapet.core
+package io.parapet.effect
+
+import io.parapet.effect.Clock
 
 import scala.concurrent.duration.FiniteDuration
 

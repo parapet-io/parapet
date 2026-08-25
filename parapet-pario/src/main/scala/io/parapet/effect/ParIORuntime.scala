@@ -1,6 +1,5 @@
 package io.parapet.effect
 
-import io.parapet.core.Parallel
 import io.parapet.runtime.SchedulerRuntime
 
 import java.util.concurrent.{

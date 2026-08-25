@@ -1,6 +1,7 @@
-package io.parapet.core
+package io.parapet.effect
 
 import io.parapet.core.Dsl.{DslF, WithDsl}
+import io.parapet.core.Dsl
 import io.parapet.effect.EffectFiber
 
 /** Handle to a forked, concurrently-running [[Dsl]] computation.

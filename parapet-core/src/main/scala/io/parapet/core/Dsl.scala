@@ -2,6 +2,7 @@ package io.parapet.core
 
 import io.parapet
 import io.parapet.core.annotations.developerApi
+import io.parapet.effect.Fiber
 import io.parapet.free.{Free, Inject}
 import io.parapet.runtime.Scope
 import io.parapet.{Event, ProcessRef}

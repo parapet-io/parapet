@@ -1,4 +1,4 @@
-package io.parapet.core
+package io.parapet.effect
 
 import io.parapet.runtime.SchedulerRuntime
 

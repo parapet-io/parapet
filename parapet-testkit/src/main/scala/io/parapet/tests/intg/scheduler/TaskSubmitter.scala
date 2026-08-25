@@ -1,9 +1,8 @@
 package io.parapet.tests.intg.scheduler
 
 import io.parapet.runtime.Scheduler.{Deliver, Task}
-import io.parapet.effect.{Effect, Monad}
+import io.parapet.effect.{Effect, Monad, Parallel}
 import io.parapet.effect.Monad.*
-import io.parapet.core.Parallel
 import io.parapet.runtime.Scheduler
 
 import scala.annotation.tailrec

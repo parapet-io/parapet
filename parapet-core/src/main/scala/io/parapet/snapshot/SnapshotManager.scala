@@ -2,9 +2,8 @@ package io.parapet.snapshot
 
 import com.typesafe.scalalogging.Logger
 import io.parapet.ProcessRef
-import io.parapet.core.{Clock, Queue}
 import io.parapet.effect.Monad.*
-import io.parapet.effect.{Deferred, Effect}
+import io.parapet.effect.{Clock, Deferred, Effect, Queue}
 import org.slf4j.LoggerFactory
 
 import java.util.concurrent.ConcurrentHashMap

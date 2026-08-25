@@ -1,6 +1,6 @@
 package io.parapet
 
-import io.parapet.effect.{Effect, ParIO, ParIORuntime}
+import io.parapet.effect.{Effect, ParIO, ParIORuntime, Parallel}
 import io.parapet.runtime.SchedulerRuntime
 
 /** A [[ParApp]] specialization bound to the reference [[ParIO]] effect type.
@@ -17,7 +17,7 @@ trait ParIOApp extends ParApp[ParIO]:
   protected def runtime: ParIORuntime = ParIO.runtime
 
   protected def effectInstance: Effect[ParIO]                                     = runtime.effect
-  protected def parallelInstance: core.Parallel[ParIO]                            = runtime.parallel
+  protected def parallelInstance: Parallel[ParIO]                                 = runtime.parallel
   override private[parapet] def schedulerRuntimeInstance: SchedulerRuntime[ParIO] =
     runtime.schedulerRuntime
 
