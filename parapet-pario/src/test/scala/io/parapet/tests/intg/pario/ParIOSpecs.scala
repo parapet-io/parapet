@@ -6,9 +6,9 @@ import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events
 import io.parapet.core.Events.Start
 import io.parapet.core.Process
-import io.parapet.core.{Channel, Parapet}
+import io.parapet.core.Channel
 import io.parapet.core.Channel.ChannelTimeoutException
-import io.parapet.core.Parapet.ParConfig
+import io.parapet.ParConfig
 import io.parapet.runtime.Scheduler.SchedulerConfig
 import io.parapet.effect.ParIO
 import io.parapet.testutils.EventStore
@@ -24,7 +24,7 @@ class BlockingSpec extends io.parapet.tests.intg.BlockingSpec[ParIO] with BasicP
 
 @Ignore
 class ChannelSpec extends io.parapet.tests.intg.ChannelSpec[ParIO] with BasicParIOSpec:
-  override val config: Parapet.ParConfig = ParConfig(-1, SchedulerConfig(1))
+  override val config: ParConfig = ParConfig(-1, SchedulerConfig(1))
 
 class DslSpec extends io.parapet.tests.intg.DslSpec[ParIO] with BasicParIOSpec
 

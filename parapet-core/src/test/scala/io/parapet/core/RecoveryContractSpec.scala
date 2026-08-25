@@ -1,7 +1,7 @@
 package io.parapet.core
 
 import io.parapet.core.Dsl.WithDsl
-import io.parapet.core.Parapet.ParConfig
+import io.parapet.ParConfig
 import io.parapet.runtime.Scheduler.{Ok, SubmissionResult, Task}
 import io.parapet.core.exceptions.RecoveryContractViolation
 import io.parapet.effect.Monad.*

@@ -7,12 +7,12 @@ import io.parapet.core.Queue.ChannelType
 import Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.processes.{Noop, SystemProcess}
-import io.parapet.core.{Clock, Events, Parapet, Process, Queue}
+import io.parapet.core.{Clock, Events, Process, Queue}
 import io.parapet.effect.Monad.*
 import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
 import io.parapet.journal.*
 import io.parapet.snapshot.{SnapshotManager, SnapshotStorage, Snapshotable}
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, ParConfig, ProcessRef}
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
 import scala.collection.mutable.ListBuffer
@@ -34,7 +34,7 @@ import scala.jdk.CollectionConverters.*
   *   per-process pipeline of [[EventTransformer]]s registered before startup.
   */
 class Context[F[_]](
-    config: Parapet.ParConfig,
+    config: ParConfig,
     val eventTransformers: EventTransformers,
     private[parapet] val snapshotManager: Option[SnapshotManager[F]],
     private[parapet] val recorder: Option[DeliveryRecorder[F]],
@@ -42,7 +42,7 @@ class Context[F[_]](
 )(using effect: Effect[F]):
   self =>
 
-  /** Convenience accessor for [[Parapet.ParConfig.devMode]]. */
+  /** Convenience accessor for [[ParConfig.devMode]]. */
   val devMode: Boolean = config.devMode
 
   /** Enables/Disables snapshotting. */
@@ -274,7 +274,7 @@ object Context:
     * feature is on its storage must be provided, when off the storage is ignored.
     */
   def apply[F[_]](
-      config: Parapet.ParConfig,
+      config: ParConfig,
       eventTransformers: EventTransformers,
       snapshotStorage: Option[SnapshotStorage[F]] = None,
       journalStorage: Option[JournalStore[F]] = None,
@@ -527,7 +527,7 @@ object Context:
     /** Builds a fresh [[ProcessState]], honoring the process's overridden mailbox size or falling back to the global
       * default.
       */
-    def apply[F[_]](process: Process[F, ?, ?], config: Parapet.ParConfig, clock: Clock)(using
+    def apply[F[_]](process: Process[F, ?, ?], config: ParConfig, clock: Clock)(using
         effect: Effect[F]
     ): F[ProcessState[F]] =
       val processBufferSize =

@@ -2,7 +2,6 @@ package io.parapet
 
 import com.typesafe.scalalogging.Logger
 import io.parapet.core.DslInterpreter.Interpreter
-import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.fault.{FaultInjector, FaultPolicy}
 import io.parapet.core.{DslInterpreter, Parallel, Process}

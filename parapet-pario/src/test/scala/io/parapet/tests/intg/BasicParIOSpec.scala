@@ -1,10 +1,9 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Parapet
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.effect.ParIO
 import io.parapet.journal.EventCodecRegistry
-import io.parapet.{ParApp, ParIOApp, core}
+import io.parapet.{ParApp, ParConfig, ParIOApp, core}
 
 trait BasicParIOSpec extends IntegrationSpec[ParIO] with ParIOApp {
   self =>
@@ -12,11 +11,11 @@ trait BasicParIOSpec extends IntegrationSpec[ParIO] with ParIOApp {
   override def createApp(
       processes0: ParIO[Seq[core.Process[ParIO, ?, ?]]],
       deadLetter0: Option[ParIO[DeadLetterProcess[ParIO]]],
-      config0: Parapet.ParConfig,
+      config0: ParConfig,
       eventCodecs0: EventCodecRegistry
   ): ParApp[ParIO] =
     new ParIOApp {
-      override val config: Parapet.ParConfig = config0
+      override val config: ParConfig = config0
 
       override def processes(args: Array[String]): ParIO[Seq[core.Process[ParIO, ?, ?]]] =
         processes0

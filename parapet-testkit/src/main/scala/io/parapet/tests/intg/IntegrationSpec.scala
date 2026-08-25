@@ -2,7 +2,7 @@ package io.parapet.tests.intg
 
 import io.parapet.core.Dsl.{DslF, WithDsl}
 import io.parapet.core.Events.Start
-import io.parapet.core.Parapet.ParConfig
+import io.parapet.ParConfig
 import io.parapet.core.Process
 import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.effect.{Effect, EffectFiber}

@@ -54,9 +54,9 @@ trait Process[F[_], In <: Event, Out <: Event] extends WithDsl[F] with FlowSynta
     */
   val ref: ProcessRef[In] = ProcessRef.jdkUUIDRef[In]
 
-  /** Maximum number of pending events this process will buffer, or `-1` to use the global default from
-    * [[Parapet.ParConfig]]. Beyond the limit, [[Scheduler]] returns [[Scheduler.ProcessQueueIsFull]] and the sender is
-    * responsible for backpressure.
+  /** Maximum number of pending events this process will buffer, or `-1` to use the global default from [[ParConfig]].
+    * Beyond the limit, [[Scheduler]] returns [[Scheduler.ProcessQueueIsFull]] and the sender is responsible for
+    * backpressure.
     */
   val bufferSize: Int = -1
 

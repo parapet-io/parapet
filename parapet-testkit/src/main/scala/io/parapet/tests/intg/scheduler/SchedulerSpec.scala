@@ -1,7 +1,7 @@
 package io.parapet.tests.intg.scheduler
 
 import io.parapet.core.Events.{DeadLetter, Start}
-import io.parapet.core.Parapet.*
+import io.parapet.ParConfig
 import io.parapet.core.Process
 import io.parapet.core.exceptions.{EventDeliveryException, UnknownProcessException}
 import io.parapet.core.processes.DeadLetterProcess

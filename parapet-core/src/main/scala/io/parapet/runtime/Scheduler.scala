@@ -110,8 +110,8 @@ object Scheduler:
       val cores = Runtime.getRuntime.availableProcessors()
       SchedulerConfig(numberOfWorkers = cores, numberOfSignalQueues = cores)
 
-  /** Thin wrapper around an SLF4J [[Logger]] that elides invocations when not in [[Parapet.ParConfig.devMode]] - keeps
-    * hot paths from constructing message strings unnecessarily.
+  /** Thin wrapper around an SLF4J [[Logger]] that elides invocations when not in [[ParConfig.devMode]] - keeps hot
+    * paths from constructing message strings unnecessarily.
     */
   final case class LoggerWrapper[F[_]](logger: Logger, devMode: Boolean)(using effect: Effect[F]):
     def debug(message: => String): F[Unit] =

@@ -1,8 +1,7 @@
 package io.parapet.tests.intg.scheduler
 
-import io.parapet.ProcessRef
+import io.parapet.{ParConfig, ProcessRef}
 import io.parapet.runtime.Scheduler.*
-import io.parapet.core.Parapet
 import io.parapet.runtime.{Context, EventTransformers, Scheduler}
 import io.parapet.syntax.logger.*
 import io.parapet.tests.intg.scheduler.*
@@ -71,7 +70,7 @@ trait SchedulerTestRunner[F[_]] extends IntegrationSpec[F] {
 
       require(tasks.size >= spec.numberOfEvents, "number of tasks must be gte number of events")
 
-      val parConfig = Parapet.ParConfig(
+      val parConfig = ParConfig(
         processBufferSize = -1,
         schedulerConfig = spec.config,
         devMode = spec.devMode
