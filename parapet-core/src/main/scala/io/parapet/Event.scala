@@ -6,14 +6,12 @@ package io.parapet
   * network frames - must extend `Event`. Events are typically implemented as immutable case classes so that they can be
   * safely shared between fibers without defensive copying.
   *
-  * Two general-purpose payload events are provided in the companion object. Domain code is expected to define its own
-  * event hierarchies (often as a sealed family) for type-safe pattern matching inside a process's [[Process.handle]].
+  * Domain code defines its own event hierarchies (often as a sealed family) for type-safe pattern matching inside a
+  * process's [[Process.handle]]. The companion object holds the events the runtime itself emits.
   */
 trait Event
 
-/** The events parapet itself defines: those the runtime emits ([[Event.SystemEvent]]) and general-purpose payload
-  * carriers for cases where declaring a dedicated type is unnecessary.
-  */
+/** The events the parapet runtime emits. */
 object Event:
 
   /** An event emitted by the runtime rather than by application code.
@@ -95,21 +93,3 @@ object Event:
     /** Lifts a [[Failure]] no waiter consumed into a dead letter, preserving the original routing. */
     private[parapet] def apply(f: Failure): DeadLetter =
       new DeadLetter(f.sender, f.event, f.receiver, f.error)
-
-  /** An [[Event]] carrying a raw byte payload.
-    *
-    * Useful for transport processes that operate on opaque buffers and delegate decoding to upstream handlers.
-    *
-    * @param data
-    *   the raw bytes; ownership is transferred to the event and must not be mutated after construction.
-    */
-  final case class ByteEvent(data: Array[Byte]) extends Event:
-    override def toString: String = new String(data)
-
-  /** An [[Event]] carrying a single string payload.
-    *
-    * @param value
-    *   the payload text.
-    */
-  final case class StringEvent(value: String) extends Event:
-    override def toString: String = value

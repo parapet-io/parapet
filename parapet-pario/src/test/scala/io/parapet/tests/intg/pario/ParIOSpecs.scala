@@ -2,7 +2,6 @@ package io.parapet.tests.intg.pario
 
 import io.parapet
 import io.parapet.{Channel, Event, Process}
-import io.parapet.Event.{ByteEvent, StringEvent}
 import io.parapet.core.Dsl.DslF
 import io.parapet.Event
 import io.parapet.Event.Start
@@ -79,6 +78,7 @@ class AsyncSpec extends AnyFunSuite with BasicParIOSpec:
 
 @Ignore
 class BlockingChannelWithTimeout extends AnyFunSuite with BasicParIOSpec:
+  import BlockingChannelWithTimeout.*
   import dsl._
 
   test("blockingChannelTimeout") {
@@ -121,3 +121,10 @@ class BlockingChannelWithTimeout extends AnyFunSuite with BasicParIOSpec:
     unsafeRun(eventStore.await(2, createApp(ct.pure(Seq(client, server, failover))).run))
     eventStore.get(failover.ref) shouldBe Seq(StringEvent("success"), StringEvent("success"))
   }
+
+object BlockingChannelWithTimeout:
+  final case class ByteEvent(data: Array[Byte]) extends Event:
+    override def toString: String = new String(data)
+
+  final case class StringEvent(value: String) extends Event:
+    override def toString: String = value
