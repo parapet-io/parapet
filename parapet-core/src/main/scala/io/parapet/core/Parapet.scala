@@ -3,7 +3,7 @@ package io.parapet.core
 import com.typesafe.scalalogging.StrictLogging
 import io.parapet.core.Scheduler.SchedulerConfig
 import io.parapet.core.journal.JournalConfig
-import io.parapet.core.snapshot.SnapshotConfig
+import io.parapet.snapshot.SnapshotConfig
 
 /** Top-level constants and tuning knobs for the parapet runtime.
   *

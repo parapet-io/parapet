@@ -1,4 +1,4 @@
-package io.parapet.core.snapshot
+package io.parapet.snapshot
 
 /** Snapshotting / recovery configuration (see `dev-docs/snapshot.md`).
   *

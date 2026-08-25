@@ -4,9 +4,9 @@ import io.parapet.core.Events.{Initialize, Restored, Start}
 import io.parapet.core.Parapet.ParConfig
 import io.parapet.core.{Process, ReplayBoundary}
 import io.parapet.core.journal.{EventCodec, EventCodecRegistry, JournalConfig, JournalStoreLocal}
-import io.parapet.core.snapshot.{Snapshot, SnapshotConfig, SnapshotStorageLocal, Snapshotable}
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
+import io.parapet.snapshot.{Snapshot, SnapshotConfig, SnapshotStorageLocal, Snapshotable}
 import io.parapet.testutils.EventStore
 import io.parapet.tests.intg.BasicParIOSpec
 import io.parapet.{Event, ProcessRef}

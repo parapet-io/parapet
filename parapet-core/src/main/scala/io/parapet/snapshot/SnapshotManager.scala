@@ -1,4 +1,4 @@
-package io.parapet.core.snapshot
+package io.parapet.snapshot
 
 import com.typesafe.scalalogging.Logger
 import io.parapet.ProcessRef

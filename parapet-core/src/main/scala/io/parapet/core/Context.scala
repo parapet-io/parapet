@@ -8,9 +8,9 @@ import io.parapet.core.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.core.exceptions.UnknownProcessException
 import io.parapet.core.journal.{DeliveryRecorder, EventCodec, EventCodecRegistry, JournalDraft, JournalStore}
 import io.parapet.core.processes.{Noop, SystemProcess}
-import io.parapet.core.snapshot.{SnapshotManager, SnapshotStorage}
 import io.parapet.effect.{Deferred, Effect, EffectFiber, Monad}
 import io.parapet.effect.Monad.*
+import io.parapet.snapshot.{SnapshotManager, SnapshotStorage, Snapshotable}
 import io.parapet.{Event, ProcessRef}
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
@@ -62,7 +62,7 @@ class Context[F[_]](
   /** Enqueues an asynchronous snapshot of `process` as of delivery `seq`. Returns `true` if it was enqueued, otherwise -
     * `false`.
     */
-  def snapshotAsync(ref: ProcessRef.Unknown, process: snapshot.Snapshotable, seq: Long): F[Boolean] =
+  def snapshotAsync(ref: ProcessRef.Unknown, process: Snapshotable, seq: Long): F[Boolean] =
     snapshotManager.fold(effect.pure(false))(_.createAsync(ref, process, seq))
 
   /** Whether the delivery journal is recording. */
@@ -378,7 +378,7 @@ object Context:
     val checkpoints: CheckpointTracker = new CheckpointTracker(clock)
 
     /** Whether this process opts into snapshotting. */
-    val snapshotable: Boolean = process.isInstanceOf[snapshot.Snapshotable]
+    val snapshotable: Boolean = process.isInstanceOf[Snapshotable]
 
     /** Bookkeeping for offloaded operations spawned by this process. */
     def offloads: OffloadTracker[F] =

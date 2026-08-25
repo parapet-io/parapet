@@ -1,7 +1,8 @@
-package io.parapet.core.snapshot
+package io.parapet.snapshot
 
 import io.parapet.core.TestUtils.{*, given}
-import io.parapet.core.snapshot.SnapshotStorageLocal.DirKeyBytes
+import io.parapet.snapshot.{Snapshot, SnapshotBinaryFormat, SnapshotStorageLocal}
+import io.parapet.snapshot.SnapshotStorageLocal.DirKeyBytes
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*

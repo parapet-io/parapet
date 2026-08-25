@@ -3,9 +3,9 @@ package io.parapet.core
 import io.parapet.core.DslInterpreter.Interpreter
 import io.parapet.core.Events.{Initialize, Registered, Restored}
 import io.parapet.core.journal.JournalEntry
-import io.parapet.core.snapshot.{Snapshot, Snapshotable}
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
+import io.parapet.snapshot.{Snapshot, Snapshotable}
 import io.parapet.{Event, ProcessRef, Scope}
 import org.slf4j.LoggerFactory
 

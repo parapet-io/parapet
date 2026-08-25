@@ -10,9 +10,9 @@ import io.parapet.core.Queue.ChannelType
 import io.parapet.core.Scheduler.*
 import io.parapet.core.exceptions.*
 import io.parapet.core.journal.JournalDraft
-import io.parapet.core.snapshot.Snapshotable
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
+import io.parapet.snapshot.Snapshotable
 import io.parapet.{Event, ProcessRef, Scope}
 import org.slf4j.LoggerFactory
 
