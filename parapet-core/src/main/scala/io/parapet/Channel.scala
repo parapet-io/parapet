@@ -1,9 +1,11 @@
-package io.parapet.core
+package io.parapet
 
 import io.parapet.core.Dsl.DslF
-import io.parapet.core.Events.{Failure, Initialize, Kill, Restored, Start, Stop}
-import io.parapet.effect.{Deferred, Effect}
+import io.parapet.core.Events.*
+import io.parapet.core.Dsl
+import io.parapet.Channel
 import io.parapet.effect.Monad.*
+import io.parapet.effect.{Deferred, Effect}
 import io.parapet.runtime.Scope
 import io.parapet.{Event, Process, ProcessRef}
 

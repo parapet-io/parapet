@@ -1,13 +1,12 @@
 package io.parapet.tests.intg.pario
 
 import io.parapet
-import io.parapet.{Event, Process}
+import io.parapet.{Channel, Event, Process}
 import io.parapet.Event.{ByteEvent, StringEvent}
 import io.parapet.core.Dsl.DslF
 import io.parapet.core.Events
 import io.parapet.core.Events.Start
-import io.parapet.core.Channel
-import io.parapet.core.Channel.ChannelTimeoutException
+import Channel.ChannelTimeoutException
 import io.parapet.ParConfig
 import io.parapet.runtime.Scheduler.SchedulerConfig
 import io.parapet.effect.ParIO

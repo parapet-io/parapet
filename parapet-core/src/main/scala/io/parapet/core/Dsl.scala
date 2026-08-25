@@ -570,7 +570,7 @@ object Dsl:
     def unlockProcess(ref: ProcessRef.Unknown): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Unlock[F](ref))
 
-  private[core] object RuntimeOps:
+  private[parapet] object RuntimeOps:
     type Aux[F[_]] = RuntimeOps[F, [x] =>> Dsl[F, x]]
 
     given [F[_], G[_]](using Inject[[x] =>> FlowOp[F, x], G]): RuntimeOps[F, G] =
