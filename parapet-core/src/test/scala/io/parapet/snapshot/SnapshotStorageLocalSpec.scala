@@ -1,7 +1,6 @@
 package io.parapet.snapshot
 
-import io.parapet.core.TestUtils.{*, given}
-import io.parapet.snapshot.{Snapshot, SnapshotBinaryFormat, SnapshotStorageLocal}
+import io.parapet.TestUtils.{*, given}
 import io.parapet.snapshot.SnapshotStorageLocal.DirKeyBytes
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
