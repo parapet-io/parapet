@@ -1,9 +1,20 @@
 package io.parapet.tests.intg.pario
 
-import io.parapet.core.journal.*
+import io.parapet.journal.*
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
 import io.parapet.effect.{Effect, EffectFiber}
+import io.parapet.journal.{
+  DeliveryRecorder,
+  EventCodec,
+  EventCodecRegistry,
+  JournalConfig,
+  JournalDraft,
+  JournalEntry,
+  JournalSegment,
+  JournalStore,
+  JournalStoreLocal
+}
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*

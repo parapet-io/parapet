@@ -1,10 +1,9 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Dsl.DslF
-import io.parapet.core.{Channel, Process}
+import io.parapet.dsl.Dsl.DslF
 import io.parapet.tests.intg.SwitchBehaviorSpec._
 import io.parapet.testutils.EventStore
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Channel, Event, Process, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers._
 

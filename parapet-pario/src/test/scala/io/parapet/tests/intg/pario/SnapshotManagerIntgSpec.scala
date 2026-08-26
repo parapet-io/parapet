@@ -1,9 +1,9 @@
 package io.parapet.tests.intg.pario
 
-import io.parapet.core.Clock
-import io.parapet.core.snapshot.*
-import io.parapet.effect.ParIO
+import io.parapet.snapshot.*
+import io.parapet.effect.{Clock, ParIO}
 import io.parapet.effect.ParIO.given
+import io.parapet.snapshot.{Snapshot, SnapshotManager, SnapshotStorageLocal, Snapshotable}
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*

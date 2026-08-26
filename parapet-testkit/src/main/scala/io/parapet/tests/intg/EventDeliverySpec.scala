@@ -1,12 +1,11 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.Events._
-import io.parapet.core.Process
-import io.parapet.core.exceptions.EventMatchException
-import io.parapet.core.processes.DeadLetterProcess
+import io.parapet.Event._
+import io.parapet.exceptions.EventMatchException
+import io.parapet.runtime.Envelope
 import io.parapet.tests.intg.EventDeliverySpec._
 import io.parapet.testutils.EventStore
-import io.parapet.{Envelope, Event, ProcessRef}
+import io.parapet.{DeadLetterProcess, Event, Process, ProcessRef}
 import org.scalatest.OptionValues._
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers._
@@ -123,7 +122,7 @@ abstract class EventDeliverySpec[F[_]] extends AnyFlatSpec with IntegrationSpec[
 
     eventStore.size shouldBe 1
     eventStore.get(deadLetter.ref).headOption.value should matchPattern {
-      case DeadLetter(Envelope.Routing(client.`ref`, UnknownEvent, server.`ref`), _: EventMatchException) =>
+      case DeadLetter(client.`ref`, UnknownEvent, server.`ref`, _: EventMatchException) =>
     }
   }
 

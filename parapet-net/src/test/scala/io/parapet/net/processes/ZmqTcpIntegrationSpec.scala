@@ -1,8 +1,7 @@
 package io.parapet.net.processes
 
 import cats.effect.IO
-import io.parapet.core.Events.Start
-import io.parapet.core.Process
+import io.parapet.Event.Start
 import io.parapet.net.transport.zmq.{
   ZmqTcpClient,
   ZmqTcpClientConfig,
@@ -22,7 +21,7 @@ import io.parapet.net.transport.{
 }
 import io.parapet.tests.intg.cats.BasicCatsEffectSpec
 import io.parapet.testutils.EventStore
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, Process, ProcessRef}
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers.*
 

@@ -1,8 +1,8 @@
 package io.parapet.net.processes
 
 import io.parapet.ProcessRef
-import io.parapet.core.TestUtils.*
-import io.parapet.core.TestUtils.given
+import io.parapet.TestUtils.*
+import io.parapet.TestUtils.given
 import io.parapet.net.transport.{Message, TransportError}
 import io.parapet.net.transport.ClientTransport
 import org.scalatest.funsuite.AnyFunSuite

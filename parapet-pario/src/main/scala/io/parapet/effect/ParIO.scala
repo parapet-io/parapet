@@ -1,7 +1,5 @@
 package io.parapet.effect
 
-import io.parapet.core.Parallel
-
 import scala.concurrent.duration.FiniteDuration
 
 /** Reference effect type for Parapet. ParIO is not the recommended production backend.

@@ -1,14 +1,13 @@
 package io.parapet.tests.intg.scheduler
 
-import io.parapet.core.Events.{DeadLetter, Start}
-import io.parapet.core.Parapet.*
-import io.parapet.core.Process
-import io.parapet.core.exceptions.{EventDeliveryException, UnknownProcessException}
-import io.parapet.core.processes.DeadLetterProcess
+import io.parapet.Event.{DeadLetter, Start}
+import io.parapet.{DeadLetterProcess, ParConfig, Process}
+import io.parapet.exceptions.{EventDeliveryException, UnknownProcessException}
 import io.parapet.tests.intg.IntegrationSpec
 import io.parapet.tests.intg.scheduler.SchedulerSpec.*
 import io.parapet.testutils.EventStore
-import io.parapet.{Envelope, Event}
+import io.parapet.Event
+import io.parapet.runtime.Envelope
 import org.scalatest.OptionValues.*
 import org.scalatest.matchers.should.Matchers.*
 import org.scalatest.wordspec.AnyWordSpec
@@ -45,7 +44,7 @@ abstract class SchedulerSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
         eventStore.size shouldBe 1
         eventStore.get(deadLetter.ref).headOption.value should matchPattern {
-          case DeadLetter(Envelope.Routing(client.`ref`, Request, unknownProcess.`ref`), _: UnknownProcessException) =>
+          case DeadLetter(client.`ref`, Request, unknownProcess.`ref`, _: UnknownProcessException) =>
         }
       }
     }
@@ -86,7 +85,9 @@ abstract class SchedulerSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
         eventStore.size shouldBe 1
         eventStore.get(deadLetter.ref).headOption.value should matchPattern {
           case DeadLetter(
-                Envelope.Routing(client.`ref`, NamedRequest("3"), slowServer.`ref`),
+                client.`ref`,
+                NamedRequest("3"),
+                slowServer.`ref`,
                 _: EventDeliveryException
               ) =>
         }

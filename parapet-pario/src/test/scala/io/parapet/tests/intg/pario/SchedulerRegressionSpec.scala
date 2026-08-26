@@ -1,8 +1,7 @@
 package io.parapet.tests.intg.pario
 
-import io.parapet.ProcessRef
-import io.parapet.core.{Context, DslInterpreter, EventTransformers, Parallel, Parapet, Scheduler, SchedulerRuntime}
-import io.parapet.core.Scheduler.SchedulerConfig
+import io.parapet.{ParConfig, ProcessRef}
+import io.parapet.runtime.Scheduler.SchedulerConfig
 import io.parapet.effect.{
   Effect,
   ElasticPoolConfig,
@@ -10,8 +9,10 @@ import io.parapet.effect.{
   ParIO,
   ParIORuntime,
   ParIORuntimeConfig,
+  Parallel,
   TimerThreadPoolConfig
 }
+import io.parapet.runtime.{Context, DslInterpreter, EventTransformers, Scheduler, SchedulerRuntime}
 import io.parapet.tests.intg.scheduler.{
   TaskSubmitter,
   TestEvent,
@@ -83,7 +84,7 @@ class SchedulerRegressionSpec extends AnyFunSuite:
     val eventStore = new EventStore[ParIO, TestEvent]
     val processes  = TestProcesses.createAll(2, WorkloadProfile.instant, eventStore)
     val tasks      = WorkDistributionStrategy.RoundRobin.createTasks(20, processes, numberOfSubmitters = 2)
-    val config     = Parapet.ParConfig(
+    val config     = ParConfig(
       processBufferSize = -1,
       schedulerConfig = SchedulerConfig(numberOfWorkers = 2),
       devMode = true

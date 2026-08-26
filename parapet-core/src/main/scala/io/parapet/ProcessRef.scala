@@ -2,8 +2,7 @@ package io.parapet
 
 import java.util.UUID
 
-/** A stable, opaque address used by the parapet runtime to deliver [[Event]]s to a specific
-  * [[io.parapet.core.Process]].
+/** A stable, opaque address used by the parapet runtime to deliver [[Event]]s to a specific [[Process]].
   *
   * `ProcessRef` is the only handle a sender needs in order to communicate with a process - the underlying mailbox,
   * scheduler, and process implementation are all hidden behind it. References are value-based: two refs with the same
@@ -40,16 +39,16 @@ object ProcessRef:
     */
   val ParapetPrefix = "parapet"
 
-  /** Reference to the runtime's [[io.parapet.core.processes.SystemProcess]], which routes lifecycle and failure events.
+  /** Reference to the runtime's [[io.parapet.runtime.SystemProcess]], which routes lifecycle and failure events.
     */
   val SystemRef: ProcessRef[Event] = ProcessRef(s"$ParapetPrefix-system")
 
   /** Reference to the dead-letter sink. Events sent here are surfaced via the configured
-    * [[io.parapet.core.processes.DeadLetterProcess]].
+    * [[io.parapet.DeadLetterProcess]].
     */
   val DeadLetterRef: ProcessRef[Event] = ProcessRef(s"$ParapetPrefix-deadletter")
 
-  /** Reference to the [[io.parapet.core.Scheduler]] itself, used internally for control messages such as `Stop`.
+  /** Reference to the [[io.parapet.runtime.Scheduler]] itself, used internally for control messages such as `Stop`.
     */
   val SchedulerRef: ProcessRef[Event] = ProcessRef(s"$ParapetPrefix-scheduler")
 

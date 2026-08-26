@@ -1,6 +1,6 @@
 package io.parapet.tests.intg.scheduler
 
-import io.parapet.core.Scheduler.SchedulerConfig
+import io.parapet.runtime.Scheduler.SchedulerConfig
 import io.parapet.syntax.logger.*
 import io.parapet.tests.intg.scheduler.SchedulerStressSpec
 import io.parapet.tests.intg.scheduler.*

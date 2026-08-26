@@ -1,9 +1,9 @@
 package io.parapet.net.processes
 
 import io.parapet.ProcessRef
-import io.parapet.core.Events.Stop
-import io.parapet.core.TestUtils.*
-import io.parapet.core.TestUtils.given
+import io.parapet.Event.Stop
+import io.parapet.TestUtils.*
+import io.parapet.TestUtils.given
 import io.parapet.net.transport.{Message, ReceiveResult, RoutedMessage, RoutingId, ServerTransport, TransportError}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*

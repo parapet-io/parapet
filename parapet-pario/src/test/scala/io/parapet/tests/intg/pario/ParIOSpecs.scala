@@ -1,19 +1,17 @@
 package io.parapet.tests.intg.pario
 
+import io.parapet
+import io.parapet.{Channel, Event, Process}
+import io.parapet.dsl.Dsl.DslF
 import io.parapet.Event
-import io.parapet.Event.{ByteEvent, StringEvent}
-import io.parapet.core.Dsl.DslF
-import io.parapet.core.Events
-import io.parapet.core.Events.Start
-import io.parapet.core.Process
-import io.parapet.core.{Channel, Parapet}
-import io.parapet.core.Channel.ChannelTimeoutException
-import io.parapet.core.Parapet.ParConfig
-import io.parapet.core.Scheduler.SchedulerConfig
+import io.parapet.Event.Start
+import Channel.ChannelTimeoutException
+import io.parapet.ParConfig
+import io.parapet.runtime.Scheduler.SchedulerConfig
 import io.parapet.effect.ParIO
 import io.parapet.testutils.EventStore
 import io.parapet.tests.intg.BasicParIOSpec
-import io.parapet.{ProcessRef, core}
+import io.parapet.ProcessRef
 import org.scalatest.Ignore
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
@@ -24,7 +22,7 @@ class BlockingSpec extends io.parapet.tests.intg.BlockingSpec[ParIO] with BasicP
 
 @Ignore
 class ChannelSpec extends io.parapet.tests.intg.ChannelSpec[ParIO] with BasicParIOSpec:
-  override val config: Parapet.ParConfig = ParConfig(-1, SchedulerConfig(1))
+  override val config: ParConfig = ParConfig(-1, SchedulerConfig(1))
 
 class DslSpec extends io.parapet.tests.intg.DslSpec[ParIO] with BasicParIOSpec
 
@@ -64,13 +62,13 @@ class AsyncSpec extends AnyFunSuite with BasicParIOSpec:
 
   test("parallel") {
     val eventStore = new EventStore[ParIO, Event]
-    val process    = core.Process
-      .builder[ParIO](ref => { case Events.Start =>
+    val process    = parapet.Process
+      .builder[ParIO](ref => { case Event.Start =>
         for
           fibers <- par(List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10).map(calc): _*)
           res    <- fibers.map(_.join).reduce((fa, fb) => fa.flatMap(a => fb.map(b => a + b)))
           _      <- eval(res shouldBe 385)
-          _      <- eval(eventStore.add(ref, Events.Stop))
+          _      <- eval(eventStore.add(ref, Event.Stop))
         yield ()
       })
       .build
@@ -80,6 +78,7 @@ class AsyncSpec extends AnyFunSuite with BasicParIOSpec:
 
 @Ignore
 class BlockingChannelWithTimeout extends AnyFunSuite with BasicParIOSpec:
+  import BlockingChannelWithTimeout.*
   import dsl._
 
   test("blockingChannelTimeout") {
@@ -122,3 +121,10 @@ class BlockingChannelWithTimeout extends AnyFunSuite with BasicParIOSpec:
     unsafeRun(eventStore.await(2, createApp(ct.pure(Seq(client, server, failover))).run))
     eventStore.get(failover.ref) shouldBe Seq(StringEvent("success"), StringEvent("success"))
   }
+
+object BlockingChannelWithTimeout:
+  final case class ByteEvent(data: Array[Byte]) extends Event:
+    override def toString: String = new String(data)
+
+  final case class StringEvent(value: String) extends Event:
+    override def toString: String = value

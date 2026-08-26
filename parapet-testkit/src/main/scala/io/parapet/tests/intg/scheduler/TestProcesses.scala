@@ -1,7 +1,6 @@
 package io.parapet.tests.intg.scheduler
 
-import io.parapet.Event
-import io.parapet.core.Process
+import io.parapet.{Event, Process}
 import io.parapet.testutils.EventStore
 
 import scala.concurrent.duration.FiniteDuration

@@ -1,24 +1,13 @@
 package io.parapet
 
 import com.typesafe.scalalogging.Logger
-import io.parapet.core.DslInterpreter.Interpreter
-import io.parapet.core.Parapet.ParConfig
-import io.parapet.core.journal.{EventCodecRegistry, JournalStore, JournalStoreLocal}
-import io.parapet.core.processes.DeadLetterProcess
-import io.parapet.core.snapshot.{SnapshotStorage, SnapshotStorageLocal}
-import io.parapet.core.{
-  Context,
-  DslInterpreter,
-  EventTransformer,
-  EventTransformers,
-  FaultInjector,
-  FaultPolicy,
-  Parallel,
-  Process,
-  Scheduler,
-  SchedulerRuntime
-}
-import io.parapet.effect.Effect
+import io.parapet.runtime.DslInterpreter.Interpreter
+import io.parapet.fault.{FaultInjector, FaultPolicy}
+import io.parapet.dsl.Dsl
+import io.parapet.effect.{Effect, Parallel}
+import io.parapet.journal.{EventCodecRegistry, JournalStore, JournalStoreLocal}
+import io.parapet.runtime.{Context, DslInterpreter, EventTransformer, EventTransformers, Scheduler, SchedulerRuntime}
+import io.parapet.snapshot.{SnapshotStorage, SnapshotStorageLocal}
 import io.parapet.syntax.FlowSyntax
 import org.slf4j.LoggerFactory
 
@@ -63,7 +52,7 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
   /** Convenience alias for a process's program type - a `Dsl` computation in `F` producing `Unit`. Lets subclasses
     * write `Program` instead of the verbose `DslF[F, Unit]`.
     */
-  type Program = io.parapet.core.Dsl.DslF[F, Unit]
+  type Program = Dsl.DslF[F, Unit]
 
   /** Logger bound to the concrete app's class name; available to subclasses for startup diagnostics.
     */
@@ -106,14 +95,14 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
     */
   def eventCodecs: EventCodecRegistry = EventCodecRegistry.empty
 
-  /** When true, the runtime wraps the interpreter with a [[io.parapet.core.FaultInjector]] that injects the faults
+  /** When true, the runtime wraps the interpreter with a [[io.parapet.fault.FaultInjector]] that injects the faults
     * described by [[faultPolicy]]. Defaults to false, so production runs are unaffected. Override - e.g. from a system
     * property - to enable fault injection for tests or simulations.
     */
   def faultInjectionEnabled: Boolean = false
 
   /** The faults to inject while [[faultInjectionEnabled]] is true; ignored otherwise. Build one with
-    * [[io.parapet.core.FaultPolicy]].
+    * [[io.parapet.fault.FaultPolicy]].
     */
   def faultPolicy: FaultPolicy[F] = FaultPolicy.none
 
@@ -121,7 +110,7 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
   def faultSeed: Long = System.nanoTime()
 
   /** Constructs the [[DslInterpreter]] used to translate a process's `Dsl` program into effects in `F`, wrapping it
-    * with a [[io.parapet.core.FaultInjector]] when [[faultInjectionEnabled]] is set.
+    * with a [[io.parapet.fault.FaultInjector]] when [[faultInjectionEnabled]] is set.
     *
     * Most applications override [[faultInjectionEnabled]] / [[faultPolicy]] rather than this method; override here only
     * to substitute an entirely custom interpreter (e.g. for tracing).
