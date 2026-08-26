@@ -148,7 +148,7 @@ class Context[F[_]](
     *
     * @return
     *   the child's [[ProcessRef]], which equals `child.ref`.
-    * @throws io.parapet.core.exceptions.UnknownProcessException
+    * @throws io.parapet.exceptions.UnknownProcessException
     *   if `parent` is not registered.
     */
   def register(parent: ProcessRef.Unknown, child: Process[F, ?, ?]): F[ProcessRef.Unknown] =

@@ -5,7 +5,7 @@ import io.parapet.ProcessRef
 /** Exceptions raised by the parapet runtime when routing or process lifecycle invariants are violated.
   *
   * These are surfaced through [[io.parapet.Event.Failure]] and (when unhandled) end up at the
-  * [[io.parapet.core.processes.DeadLetterProcess]].
+  * [[io.parapet.DeadLetterProcess]].
   */
 package object exceptions {
 

@@ -240,7 +240,7 @@ object Dsl:
 
     /** Sends `event` impersonating `sender`. Reserved for runtime-internal re-routing.
       *
-      * Misuse breaks sender attribution and is rejected by [[io.parapet.core.processes.SystemProcess]].
+      * Misuse breaks sender attribution and is rejected by [[io.parapet.runtime.SystemProcess]].
       */
     @developerApi
     def send[E <: Event](

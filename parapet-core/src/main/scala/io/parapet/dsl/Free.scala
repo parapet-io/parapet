@@ -7,7 +7,7 @@ import io.parapet.effect.Monad
   * Programs are built by composing values with [[Free.pure]] / [[Free.lift]] (and monadic operations) and then run by
   * folding into a target monad `G` via [[foldMap]].
   *
-  * Used internally by [[io.parapet.core.Dsl]] to encode process programs as data so they can be inspected and
+  * Used internally by [[io.parapet.dsl.Dsl]] to encode process programs as data so they can be inspected and
   * interpreted by the runtime.
   */
 sealed trait Free[F[_], A]:

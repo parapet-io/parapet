@@ -71,7 +71,7 @@ object Event:
   ) extends SystemEvent
 
   /** A delivery that could not be completed - unknown or terminated receiver, a handler that raised, or an event no
-    * handler matched - routed to the configured [[io.parapet.core.processes.DeadLetterProcess]].
+    * handler matched - routed to the configured [[io.parapet.DeadLetterProcess]].
     *
     * @param sender
     *   the process the undelivered event came from.

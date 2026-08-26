@@ -39,12 +39,12 @@ object ProcessRef:
     */
   val ParapetPrefix = "parapet"
 
-  /** Reference to the runtime's [[io.parapet.core.processes.SystemProcess]], which routes lifecycle and failure events.
+  /** Reference to the runtime's [[io.parapet.runtime.SystemProcess]], which routes lifecycle and failure events.
     */
   val SystemRef: ProcessRef[Event] = ProcessRef(s"$ParapetPrefix-system")
 
   /** Reference to the dead-letter sink. Events sent here are surfaced via the configured
-    * [[io.parapet.core.processes.DeadLetterProcess]].
+    * [[io.parapet.DeadLetterProcess]].
     */
   val DeadLetterRef: ProcessRef[Event] = ProcessRef(s"$ParapetPrefix-deadletter")
 
