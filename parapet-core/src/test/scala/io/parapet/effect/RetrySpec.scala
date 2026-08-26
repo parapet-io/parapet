@@ -1,6 +1,6 @@
 package io.parapet.effect
 
-import io.parapet.core.TestUtils.{*, given}
+import io.parapet.TestUtils.{*, given}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 

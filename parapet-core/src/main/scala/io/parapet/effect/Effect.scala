@@ -16,8 +16,8 @@ trait EffectFiber[F[_], A]:
 /** Capability bundle the parapet runtime requires of any effect type `F`.
   *
   * Extends [[Monad]] with the additional primitives the [[io.parapet.runtime.Scheduler]] and
-  * [[io.parapet.runtime.DslInterpreter]] need: lazy evaluation ([[delay]]), thread offload ([[blocking]]), error handling,
-  * sleep, fork, and race.
+  * [[io.parapet.runtime.DslInterpreter]] need: lazy evaluation ([[delay]]), thread offload ([[blocking]]), error
+  * handling, sleep, fork, and race.
   *
   * Concrete instances live in backend modules such as `parapet-cats-effect`, `parapet-pario`, or an
   * application-specific integration.

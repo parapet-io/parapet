@@ -1,14 +1,14 @@
-package io.parapet.core
+package io.parapet.runtime
 
 import io.parapet
+import io.parapet.TestUtils.{RuntimeFixture, TestIO}
 import io.parapet.dsl.Dsl.WithDsl
-import io.parapet.ParConfig
-import io.parapet.runtime.Scheduler.{Ok, SubmissionResult, Task}
 import io.parapet.effect.Monad.*
 import io.parapet.exceptions.RecoveryContractViolation
 import io.parapet.journal.{EventCodecRegistry, JournalConfig, JournalStoreLocal}
+import io.parapet.runtime.Scheduler.{Ok, SubmissionResult, Task}
 import io.parapet.runtime.{Context, DslInterpreter, EventTransformers, Scheduler, Scope}
-import io.parapet.{Event, ProcessRef, ReplayBoundary}
+import io.parapet.{Event, ParConfig, ProcessRef, ReplayBoundary, TestUtils}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
@@ -17,8 +17,7 @@ import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch}
 import scala.jdk.CollectionConverters.*
 
 class RecoveryContractSpec extends AnyFunSuite with WithDsl[TestUtils.TestIO]:
-  import TestUtils.*
-  import TestUtils.given
+  import TestUtils.{*, given}
   import dsl.*
 
   test("concurrent registration installs one process and records one marker") {

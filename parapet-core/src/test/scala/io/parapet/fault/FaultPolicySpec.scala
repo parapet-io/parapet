@@ -1,7 +1,7 @@
 package io.parapet.fault
 
 import io.parapet.dsl.Dsl.UnitFlow
-import io.parapet.core.TestUtils.TestIO
+import io.parapet.TestUtils.TestIO
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 

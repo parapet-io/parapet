@@ -1,5 +1,6 @@
-package io.parapet.core
+package io.parapet.dsl
 
+import io.parapet.TestUtils
 import io.parapet.dsl.Dsl.FlowOps
 import org.scalatest.funsuite.AnyFunSuite
 

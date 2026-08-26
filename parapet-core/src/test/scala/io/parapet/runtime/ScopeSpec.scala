@@ -2,7 +2,7 @@ package io.parapet.runtime
 
 import io.parapet.dsl.Dsl.{DslF, WithDsl}
 import ScopeSpec.*
-import io.parapet.core.TestUtils.{*, given}
+import io.parapet.TestUtils.{*, given}
 import io.parapet.runtime.Scope
 import io.parapet.syntax.FlowSyntax
 import io.parapet.{Event, ProcessRef}

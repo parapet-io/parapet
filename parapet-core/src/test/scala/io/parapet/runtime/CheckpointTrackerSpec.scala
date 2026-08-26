@@ -1,4 +1,4 @@
-package io.parapet.core
+package io.parapet.runtime
 
 import io.parapet.effect.Clock
 import io.parapet.runtime.Context.CheckpointTracker

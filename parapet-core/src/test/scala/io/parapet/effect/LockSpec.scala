@@ -1,6 +1,7 @@
-package io.parapet.core
+package io.parapet.effect
 
-import io.parapet.core.TestUtils.TestIO
+import io.parapet.TestUtils
+import TestUtils.TestIO
 import io.parapet.effect.Lock
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*

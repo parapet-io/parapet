@@ -1,15 +1,15 @@
-package io.parapet.core
+package io.parapet
 
 import io.parapet
-import io.parapet.{Event, ProcessRef}
-import io.parapet.dsl.Dsl.WithDsl
 import io.parapet.Event.Start
+import TestUtils.{RuntimeFixture, TestIO}
+import io.parapet.dsl.Dsl.WithDsl
+import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
 class ProcessSpec extends AnyFunSuite with WithDsl[TestUtils.TestIO]:
-  import TestUtils.*
-  import TestUtils.given
+  import TestUtils.{*, given}
   import dsl.*
 
   sealed trait Command extends Event

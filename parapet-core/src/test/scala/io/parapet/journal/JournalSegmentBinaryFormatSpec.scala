@@ -1,4 +1,4 @@
-package io.parapet.core.journal
+package io.parapet.journal
 
 import io.parapet.journal.{JournalEntry, JournalMetadata, JournalSegment, JournalSegmentBinaryFormat}
 import io.parapet.{Event, ProcessRef}
