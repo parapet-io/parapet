@@ -1,4 +1,4 @@
-package io.parapet.core.processes
+package io.parapet.runtime
 
 import io.parapet.{Event, Process, ProcessRef}
 

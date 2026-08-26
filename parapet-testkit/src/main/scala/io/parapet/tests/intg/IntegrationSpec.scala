@@ -2,8 +2,7 @@ package io.parapet.tests.intg
 
 import io.parapet.dsl.Dsl.{DslF, WithDsl}
 import io.parapet.Event.Start
-import io.parapet.{ParConfig, Process}
-import io.parapet.core.processes.DeadLetterProcess
+import io.parapet.{DeadLetterProcess, ParConfig, Process}
 import io.parapet.effect.{Effect, EffectFiber}
 import io.parapet.effect.Monad.*
 import io.parapet.journal.EventCodecRegistry

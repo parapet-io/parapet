@@ -1,7 +1,7 @@
 package io.parapet.dsl
 
 import io.parapet
-import io.parapet.core.annotations.developerApi
+import io.parapet.annotations.developerApi
 import io.parapet.effect.Fiber
 import io.parapet.runtime.{DslInterpreter, Scope}
 import io.parapet.{Event, ProcessRef}

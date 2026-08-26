@@ -1,10 +1,9 @@
 package io.parapet.tests.intg
 
 import io.parapet.Event.{DeadLetter, Kill, Start, Stop}
-import io.parapet.{ParConfig, Process}
+import io.parapet.{DeadLetterProcess, ParConfig, Process}
 import io.parapet.runtime.Scheduler.SchedulerConfig
-import io.parapet.core.exceptions.EventHandlingException
-import io.parapet.core.processes.DeadLetterProcess
+import io.parapet.exceptions.EventHandlingException
 import io.parapet.testutils.EventStore
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.OptionValues._

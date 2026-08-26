@@ -1,9 +1,8 @@
 package io.parapet.tests.intg
 
-import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.effect.ParIO
 import io.parapet.journal.EventCodecRegistry
-import io.parapet.{ParApp, ParConfig, ParIOApp, Process, core}
+import io.parapet.{DeadLetterProcess, ParApp, ParConfig, ParIOApp, Process}
 
 trait BasicParIOSpec extends IntegrationSpec[ParIO] with ParIOApp {
   self =>

@@ -2,10 +2,9 @@ package io.parapet.tests.intg.cats
 
 import cats.effect.IO
 import io.parapet.cats.CatsEffectParApp
-import io.parapet.core.processes.DeadLetterProcess
 import io.parapet.journal.EventCodecRegistry
 import io.parapet.tests.intg.IntegrationSpec
-import io.parapet.{ParApp, ParConfig, Process, core}
+import io.parapet.{DeadLetterProcess, ParApp, ParConfig, Process}
 
 trait BasicCatsEffectSpec extends IntegrationSpec[IO] with CatsEffectParApp:
   override def createApp(

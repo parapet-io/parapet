@@ -1,12 +1,10 @@
-package io.parapet.core.processes
+package io.parapet
 
 import com.typesafe.scalalogging.Logger
-import io.parapet.ProcessRef.DeadLetterRef
 import io.parapet.Event.DeadLetter
+import io.parapet.ProcessRef.DeadLetterRef
 import io.parapet.effect.Effect
 import io.parapet.syntax.logger.*
-import io.parapet.{Process, ProcessRef}
-import io.parapet.runtime.Envelope
 import org.slf4j.LoggerFactory
 
 /** Marker trait for the singleton process that consumes [[io.parapet.Event.DeadLetter]] messages.

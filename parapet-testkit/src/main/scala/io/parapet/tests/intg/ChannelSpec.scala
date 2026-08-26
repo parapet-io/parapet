@@ -4,13 +4,13 @@ import io.parapet.dsl.Dsl.DslF
 import io.parapet.Event.{Start, Stop}
 import io.parapet.{Channel, ParConfig, Process}
 import io.parapet.runtime.Scheduler.SchedulerConfig
-import io.parapet.core.exceptions.EventHandlingException
 import Channel.{
   ChannelInterruptedException,
   ChannelTimeoutException,
   IllegalChannelStateException,
   UnexpectedChannelResponseException
 }
+import io.parapet.exceptions.EventHandlingException
 import io.parapet.tests.intg.ChannelSpec._
 import io.parapet.testutils.EventStore
 import io.parapet.{Event, ProcessRef}

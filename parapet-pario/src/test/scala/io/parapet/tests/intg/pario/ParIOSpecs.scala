@@ -11,7 +11,7 @@ import io.parapet.runtime.Scheduler.SchedulerConfig
 import io.parapet.effect.ParIO
 import io.parapet.testutils.EventStore
 import io.parapet.tests.intg.BasicParIOSpec
-import io.parapet.{ProcessRef, core}
+import io.parapet.ProcessRef
 import org.scalatest.Ignore
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*

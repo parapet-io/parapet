@@ -1,4 +1,4 @@
-package io.parapet.core
+package io.parapet
 
 import io.parapet.ProcessRef
 

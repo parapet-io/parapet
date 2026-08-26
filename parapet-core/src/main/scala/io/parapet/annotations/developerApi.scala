@@ -1,4 +1,4 @@
-package io.parapet.core.annotations
+package io.parapet.annotations
 
 /** Marks a symbol as part of the runtime's developer-facing API.
   *
