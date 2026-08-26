@@ -15,6 +15,8 @@ import io.parapet.snapshot.SnapshotConfig
   *   when `true` enables verbose runtime logging useful while developing.
   * @param snapshot
   *   snapshotting / recovery configuration; disabled by default.
+  * @param journal
+  *   delivery-journal configuration; disabled by default.
   */
 final case class ParConfig(
     processBufferSize: Int,

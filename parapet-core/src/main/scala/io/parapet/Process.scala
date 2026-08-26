@@ -87,9 +87,7 @@ trait Process[F[_], In <: Event, Out <: Event] extends WithDsl[F] with FlowSynta
 
   /** Defines the process's reaction to incoming events.
     *
-    * Implementations return a partial function pairing each handled [[Event]] with a `Dsl` program. Events that fall
-    * outside the partial function's domain produce a [[io.parapet.Event.Failure]] which is routed to the dead-letter
-    * handler unless the sender registered for failure notifications.
+    * Implementations return a partial function pairing each handled [[Event]] with a `Dsl` program.
     */
   def handle: Receive
 

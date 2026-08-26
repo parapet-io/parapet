@@ -78,10 +78,12 @@ class Channel[F[_], In <: Event, Out <: Event](
           )
         case _ => unit
     case Failure(_, _, _, error) =>
-      inFlight match
-        case Some(active) => completeAndReset(active, scala.util.Failure(error))
-        case None         => unit
-    // A lifecycle event is never a response.
+      withScope { scope =>
+        inFlight match
+          case Some(active) if scope.get(Scope.Causation).contains(active.causationId) =>
+            completeAndReset(active, scala.util.Failure(error))
+          case _ => unit
+      }
     case Initialize | Start | Restored | Kill => unit
     case event                                =>
       dsl.unsafe.withSender { sender =>

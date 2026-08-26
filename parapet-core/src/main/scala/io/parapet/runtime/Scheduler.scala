@@ -535,7 +535,7 @@ object Scheduler:
             processState.stopped.flatMap {
               case true =>
                 sendToDeadLetter(
-                  envelope.deadLetter(ProcessStoppedException(process.ref)),
+                  deadLetterOf(envelope, ProcessStoppedException(process.ref)),
                   context,
                   interpreter,
                   deliveryScope
@@ -556,7 +556,7 @@ object Scheduler:
               processState.stopped.flatMap { stopped =>
                 if terminated || stopped then
                   sendToDeadLetter(
-                    envelope.deadLetter(new IllegalStateException(s"process=$process is terminated")),
+                    deadLetterOf(envelope, new IllegalStateException(s"process=$process is terminated")),
                     context,
                     interpreter,
                     deliveryScope
@@ -698,12 +698,13 @@ object Scheduler:
               EventHandlingException(errorMessage, cause)
             )
 
-    /** Routes a failed delivery to the process awaiting it, or to the dead-letter sink.
-      *
-      * A [[Failure]] is delivered only when the original send was a call: it carries [[Scope.Causation]], its sender is
-      * still registered, and that sender handles [[Failure]]. Everything else - a notification nobody awaits, a sender
-      * that has since stopped - becomes a [[DeadLetter]]. Failures are never escalated past the immediate sender.
-      */
+    private def failureOf(envelope: Envelope, error: Throwable): Failure =
+      Failure(envelope.sender, envelope.event, envelope.receiver, error)
+
+    private def deadLetterOf(envelope: Envelope, error: Throwable): DeadLetter =
+      DeadLetter(envelope.sender, envelope.event, envelope.receiver, error)
+
+    /** Routes a failed delivery back to its sender, or to the dead-letter sink. */
     private def sendErrorToSender[F[_]](
         envelope: Envelope,
         context: Context[F],
@@ -711,16 +712,14 @@ object Scheduler:
         scope: Scope,
         error: Throwable
     )(using effect: Effect[F]): F[Unit] =
-      val failure = envelope.failure(error)
-      val waiter  = envelope.scope.get(Scope.Causation).flatMap { _ =>
-        context
-          .getProcessState(envelope.sender)
-          .filter(state => Try(state.process.canHandle(failure)).getOrElse(false))
-      }
+      val failure = failureOf(envelope, error)
+      val sender  = context
+        .getProcessState(envelope.sender)
+        .filter(state => state.process.canHandle(failure))
 
-      waiter match
+      sender match
         case Some(state) => send(SystemRef, failure, state, interpreter, scope)
-        case None        => sendToDeadLetter(envelope.deadLetter(error), context, interpreter, scope)
+        case None        => sendToDeadLetter(deadLetterOf(envelope, error), context, interpreter, scope)
 
     private def sendToDeadLetter[F[_]](
         deadLetter: DeadLetter,

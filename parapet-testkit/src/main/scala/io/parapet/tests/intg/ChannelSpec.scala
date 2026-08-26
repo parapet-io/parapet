@@ -346,6 +346,47 @@ abstract class ChannelSpec[F[_]] extends AnyFunSuite with IntegrationSpec[F] {
     eventStore.get(clientRef) shouldBe Seq(TimedOut, Response(2))
   }
 
+  test("channel drops a stale failure from a timed-out request via causation correlation") {
+    // The server raises on the first request, but only after that request has timed out, so the resulting Failure
+    // reaches the channel while it is already awaiting the second request's response. Without causation correlation
+    // the late Failure would complete - and wrongly fail - the healthy second request.
+    val eventStore = new EventStore[F, Event]
+    val clientRef  = ProcessRef[Event]("stale-failure-client")
+
+    val ch = Channel[F, Request, Response]
+
+    val server = new Process[F, Request, Response] {
+      override val ref: ProcessRef[Request] = ProcessRef("stale-failure-server")
+
+      override def handle: Receive = { case Request(seq) =>
+        if seq == 1 then delay(200.millis) ++ eval(throw new RuntimeException("late boom"))
+        else reply(Response(seq))
+      }
+    }
+
+    val client = new Process[F, Event, Event] {
+      override val ref: ProcessRef[Event] = clientRef
+
+      override def handle: Receive = { case Start =>
+        register(ref, ch) ++
+          ch.send(Request(1), server.ref, 50.millis).flatMap {
+            case SFailure(_: ChannelTimeoutException) => eval(eventStore.add(ref, TimedOut))
+            case other                                => eval(fail(s"expected timeout for request 1, got $other"))
+          } ++
+          ch.send(Request(2), server.ref, 2.seconds).flatMap {
+            case Success(Response(2)) => eval(eventStore.add(ref, Response(2)))
+            case other                => eval(fail(s"expected fresh Response(2), got $other"))
+          }
+      }
+    }
+
+    assertThrows[java.util.concurrent.TimeoutException] {
+      // the late Failure for Request(1) must not complete Request(2)
+      unsafeRun(eventStore.await(3, createApp(ct.pure(Seq(client, server))).run, timeout = 5.seconds))
+    }
+    eventStore.get(clientRef) shouldBe Seq(TimedOut, Response(2))
+  }
+
   test("channel surfaces interruption when stopped while a request is in flight") {
     val eventStore = new EventStore[F, Event]
     val clientRef  = ProcessRef("client")

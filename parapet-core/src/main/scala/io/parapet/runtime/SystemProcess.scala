@@ -4,11 +4,8 @@ import io.parapet.Event.{DeadLetter, Failure}
 import io.parapet.ProcessRef.{DeadLetterRef, SystemRef}
 import io.parapet.{DeadLetterProcess, Event, Process, ProcessRef}
 
-/** Built-in singleton process pinned to [[io.parapet.ProcessRef.SystemRef]] that handles runtime-level failures.
-  *
-  * The runtime sends a [[Failure]] here whenever a normal sender cannot intercept its own routing failure (for example,
-  * when the failed envelope's sender ref is itself unknown). The system process re-wraps the failure as a
-  * [[DeadLetter]] and routes it to the [[DeadLetterProcess]].
+/** The runtime's own process, pinned to [[io.parapet.ProcessRef.SystemRef]]. It is the sender of events the runtime
+  * originates.
   */
 class SystemProcess[F[_]] extends Process[F, Event, Event] {
 

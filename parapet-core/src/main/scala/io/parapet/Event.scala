@@ -14,10 +14,7 @@ trait Event
 /** The events the parapet runtime emits. */
 object Event:
 
-  /** An event emitted by the runtime rather than by application code.
-    *
-    * Handlers observe these exactly like domain events. The hierarchy is sealed, so the set is fixed by the runtime.
-    */
+  /** An event emitted by the runtime rather than by application code. */
   sealed trait SystemEvent extends Event
 
   /** Prepares a fresh process instance before it receives replayed or live domain events. */
@@ -48,39 +45,34 @@ object Event:
     */
   case object Kill extends SystemEvent
 
-  /** Carries a handler error back to a process awaiting a correlated reply.
-    *
-    * Message passing has no call stack, so an error that must reach a waiter travels as an event. Only a delivery made
-    * as a call - one carrying a causation id - is answered this way; every other handler error becomes a
-    * [[DeadLetter]].
+  /** An unexpected error raised while handling an event, reported to its sender.
     *
     * @param sender
-    *   the process whose call failed, and to which this is delivered.
+    *   the process that sent [[event]].
     * @param event
-    *   the payload whose delivery failed.
+    *   the event being handled.
     * @param receiver
-    *   the process whose handler raised.
+    *   the process that raised.
     * @param error
-    *   the throwable raised by the receiver's handler.
+    *   the error raised.
     */
-  final private[parapet] case class Failure(
+  final case class Failure(
       sender: ProcessRef.Unknown,
       event: Event,
       receiver: ProcessRef.Unknown,
       error: Throwable
   ) extends SystemEvent
 
-  /** A delivery that could not be completed - unknown or terminated receiver, a handler that raised, or an event no
-    * handler matched - routed to the configured [[io.parapet.DeadLetterProcess]].
+  /** An event that was not delivered.
     *
     * @param sender
-    *   the process the undelivered event came from.
+    *   the process that sent [[event]].
     * @param event
-    *   the undelivered payload.
+    *   the undelivered event.
     * @param receiver
     *   the process it was addressed to.
     * @param error
-    *   why delivery did not complete.
+    *   why it was not delivered.
     */
   final case class DeadLetter(
       sender: ProcessRef.Unknown,
@@ -90,6 +82,5 @@ object Event:
   ) extends SystemEvent
 
   object DeadLetter:
-    /** Lifts a [[Failure]] no waiter consumed into a dead letter, preserving the original routing. */
     private[parapet] def apply(f: Failure): DeadLetter =
       new DeadLetter(f.sender, f.event, f.receiver, f.error)

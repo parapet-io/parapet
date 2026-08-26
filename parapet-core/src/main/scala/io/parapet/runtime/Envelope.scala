@@ -1,6 +1,5 @@
 package io.parapet.runtime
 
-import io.parapet.runtime.Envelope
 import io.parapet.{Event, ProcessRef}
 
 /** A delivery wrapper that pairs an [[Event]] with its routing metadata.
@@ -25,7 +24,7 @@ final case class Envelope(
 ):
   self =>
 
-  /** Reserved for future tracing/debugging support; currently always `0`. */
+  /** Delivery timestamp. Always `0`. */
   val ts: Long = 0L
 
   /** Id of the envelope that caused this one. */
@@ -37,14 +36,6 @@ final case class Envelope(
   /** Returns a copy of this envelope with [[event]] replaced by `value`. */
   def event(value: Event): Envelope =
     self.copy(event = value)
-
-  /** This delivery, described as undeliverable. */
-  private[parapet] def deadLetter(error: Throwable): Event.DeadLetter =
-    Event.DeadLetter(sender, event, receiver, error)
-
-  /** This delivery, described as failed, for return to a waiting caller. */
-  private[parapet] def failure(error: Throwable): Event.Failure =
-    Event.Failure(sender, event, receiver, error)
 
   override def toString: String =
     if scope.isEmpty then s"Envelope(id:$id, cause:$cause, sender:$sender, event:$event, receiver:$receiver)"
