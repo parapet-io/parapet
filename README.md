@@ -38,6 +38,8 @@ class Echo[F[_]](peer: ProcessRef[Ping]) extends Process[F, Ping | Pong]:
 * **Batteries for distribution.** Pluggable transports (`parapet-net`), protobuf `WireCodec`
   (`parapet-protocol`), an integration test-kit, bounded mailboxes, first-class failure
   events, and overridable dead-letter hooks.
+* **Recoverable processes.** Opt-in journaling and snapshots: a restarted process is rebuilt by
+  replaying its own history.
 
 ## Modules
 
