@@ -1,6 +1,6 @@
 package io.parapet.syntax
 
-import io.parapet.dsl.Dsl.{DslF, FlowOp, WithDsl}
+import io.parapet.dsl.Dsl.{DslF, WithDsl}
 
 /** Combinators on [[DslF]] programs.
   *

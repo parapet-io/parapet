@@ -7,7 +7,7 @@ import scala.util.Try
 /** Encodes and decodes events.
   */
 trait EventCodec {
-  import EventCodec._
+  import EventCodec.*
 
   /** Unique codec id. */
   def tag: Tag

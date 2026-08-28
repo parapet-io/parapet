@@ -1,10 +1,10 @@
 package io.parapet
 
-import io.parapet.{ParConfig, ProcessRef}
 import io.parapet.dsl.Dsl.*
 import io.parapet.effect.{Effect, EffectFiber, Monad}
-import io.parapet.runtime.Scheduler.{Deliver, SubmissionResult, Task}
 import io.parapet.runtime.*
+import io.parapet.runtime.Scheduler.{Deliver, SubmissionResult, Task}
+import io.parapet.{ParConfig, ProcessRef}
 
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.FiniteDuration

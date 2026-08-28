@@ -2,7 +2,7 @@ package io.parapet.runtime
 
 import io.parapet.Event.{DeadLetter, Failure}
 import io.parapet.ProcessRef.{DeadLetterRef, SystemRef}
-import io.parapet.{DeadLetterProcess, Event, Process, ProcessRef}
+import io.parapet.{Event, Process, ProcessRef}
 
 /** The runtime's own process, pinned to [[io.parapet.ProcessRef.SystemRef]]. It is the sender of events the runtime
   * originates.

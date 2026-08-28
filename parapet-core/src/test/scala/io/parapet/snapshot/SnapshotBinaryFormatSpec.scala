@@ -1,6 +1,5 @@
 package io.parapet.snapshot
 
-import io.parapet.snapshot.{Snapshot, SnapshotBinaryFormat}
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*

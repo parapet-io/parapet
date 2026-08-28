@@ -8,7 +8,7 @@ import io.parapet.exceptions.RecoveryContractViolation
 import io.parapet.journal.{EventCodecRegistry, JournalConfig, JournalStoreLocal}
 import io.parapet.runtime.Scheduler.{Ok, SubmissionResult, Task}
 import io.parapet.runtime.{Context, DslInterpreter, EventTransformers, Scheduler, Scope}
-import io.parapet.{Event, ParConfig, ProcessRef, ReplayBoundary, TestUtils}
+import io.parapet.*
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 

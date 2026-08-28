@@ -1,9 +1,9 @@
 package io.parapet.runtime
 
-import io.parapet.dsl.Dsl.{DslF, WithDsl}
-import ScopeSpec.*
 import io.parapet.TestUtils.{*, given}
+import io.parapet.dsl.Dsl.{DslF, WithDsl}
 import io.parapet.runtime.Scope
+import io.parapet.runtime.ScopeSpec.*
 import io.parapet.syntax.FlowSyntax
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.OptionValues.*

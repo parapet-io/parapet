@@ -1,13 +1,11 @@
 package io.parapet
 
-import io.parapet.dsl.Dsl.DslF
 import io.parapet.Event.*
-import io.parapet.Channel
 import io.parapet.dsl.Dsl
+import io.parapet.dsl.Dsl.DslF
 import io.parapet.effect.Monad.*
 import io.parapet.effect.{Deferred, Effect}
 import io.parapet.runtime.Scope
-import io.parapet.{Event, Process, ProcessRef}
 
 import java.util.concurrent.atomic.AtomicLong
 import scala.concurrent.duration.FiniteDuration

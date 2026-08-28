@@ -1,8 +1,6 @@
 package io.parapet.dsl
 
 import io.parapet.TestUtils
-import TestUtils.{RuntimeFixture, TestIO}
-import io.parapet.dsl.Dsl
 import io.parapet.dsl.Dsl.WithDsl
 import io.parapet.syntax.FlowSyntax
 import org.scalatest.funsuite.AnyFunSuite

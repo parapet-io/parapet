@@ -1,8 +1,8 @@
 package io.parapet.runtime
 
-import io.parapet.dsl.Dsl.WithDsl
-import EnvelopeCauseSpec.*
 import io.parapet.TestUtils.{*, given}
+import io.parapet.dsl.Dsl.WithDsl
+import io.parapet.runtime.EnvelopeCauseSpec.*
 import io.parapet.runtime.{Envelope, Scope}
 import io.parapet.syntax.FlowSyntax
 import io.parapet.{Event, ProcessRef}

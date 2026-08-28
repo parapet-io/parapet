@@ -2,9 +2,7 @@ package io.parapet
 
 import io.parapet
 import io.parapet.Event.Start
-import TestUtils.{RuntimeFixture, TestIO}
 import io.parapet.dsl.Dsl.WithDsl
-import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
@@ -61,7 +59,6 @@ class ProcessSpec extends AnyFunSuite with WithDsl[TestUtils.TestIO]:
     val fixture   = new RuntimeFixture
 
     val server = new parapet.Process[TestIO, Request.type]:
-      import dsl.*
 
       override def handle: Receive = { case Request =>
         reply(Response)

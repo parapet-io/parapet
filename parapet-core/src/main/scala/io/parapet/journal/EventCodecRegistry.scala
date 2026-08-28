@@ -1,8 +1,8 @@
 package io.parapet.journal
 
 import io.parapet.Event
-import io.parapet.Event
-import EventCodec.Tag
+import io.parapet.journal.EventCodec.Tag
+
 import scala.collection.mutable
 
 /** Resolves the [[EventCodec]].

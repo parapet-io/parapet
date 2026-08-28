@@ -1,10 +1,10 @@
 package io.parapet.runtime
 
-import DslInterpreter.Interpreter
 import io.parapet.Event.{Initialize, Registered, Restored}
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
 import io.parapet.journal.JournalEntry
+import io.parapet.runtime.DslInterpreter.Interpreter
 import io.parapet.runtime.{Context, Envelope, Scope}
 import io.parapet.snapshot.{Snapshot, Snapshotable}
 import io.parapet.{Event, Process, ProcessRef, ReplayBoundary}

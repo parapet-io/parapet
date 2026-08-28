@@ -1,7 +1,6 @@
 package io.parapet.effect
 
-import io.parapet.effect.Lock
-import io.parapet.effect.Effect
+import io.parapet.effect.{Effect, Lock}
 
 import java.util.concurrent.Semaphore
 

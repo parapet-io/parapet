@@ -7,7 +7,7 @@ import io.parapet.effect.{Deferred, Effect, Fiber}
 import io.parapet.exceptions.RecoveryContractViolation
 import io.parapet.runtime.Context.ProcessState
 import io.parapet.runtime.Scheduler.{Deliver, ProcessQueueIsFull}
-import io.parapet.runtime.{Context, Envelope, EventTransformer, Scheduler, Scope}
+import io.parapet.runtime.Scope
 import io.parapet.{Event, Process, ProcessRef, ReplayBoundary}
 
 /** Translates parapet [[Dsl.FlowOp]] programs into the user's effect type `F[_]`.
