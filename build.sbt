@@ -4,6 +4,7 @@ ThisBuild / organization := "io.parapet"
 ThisBuild / organizationName := "parapet"
 ThisBuild / organizationHomepage := Some(url("https://parapet.io/"))
 ThisBuild / homepage := Some(url("https://github.com/parapet-io/parapet"))
+ThisBuild / description := "A purely functional Scala 3 toolkit for building distributed systems"
 ThisBuild / scalaVersion := "3.3.4"
 ThisBuild / scalacOptions ++= Seq(
   "-deprecation",
@@ -27,12 +28,8 @@ ThisBuild / scmInfo := Some(
   )
 )
 ThisBuild / versionScheme := Some("early-semver")
+ThisBuild / pomIncludeRepository := { _ => false }
 Global / useGpgPinentry := false
-ThisBuild / publishTo := {
-  val centralSnapshots = "https://central.sonatype.com/repository/maven-snapshots/"
-  if (isSnapshot.value) Some("central-snapshots" at centralSnapshots)
-  else localStaging.value
-}
 
 val scalaTestVersion = "3.2.19"
 val jeromqVersion = "0.6.0"
