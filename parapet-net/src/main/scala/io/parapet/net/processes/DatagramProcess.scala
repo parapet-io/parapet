@@ -16,7 +16,7 @@ final class DatagramProcess[F[_]](
     pollLimit: Int = 16,
     pollDelay: FiniteDuration = 10.millis,
     override val ref: ProcessRef[Publish] = ProcessRef[Publish]("net-datagram")
-) extends Process[F, Publish, Nothing]:
+) extends Process[F, Publish]:
 
   import dsl.*
 

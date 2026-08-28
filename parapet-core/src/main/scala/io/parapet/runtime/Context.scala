@@ -151,7 +151,7 @@ class Context[F[_]](
     * @throws io.parapet.exceptions.UnknownProcessException
     *   if `parent` is not registered.
     */
-  def register(parent: ProcessRef.Unknown, child: Process[F, ?, ?]): F[ProcessRef.Unknown] =
+  def register(parent: ProcessRef.Unknown, child: Process[F, ?]): F[ProcessRef.Unknown] =
     effect.suspend {
       if !processes.containsKey(parent) then
         effect.raiseError(UnknownProcessException(s"process cannot be registered because parent $parent doesn't exist"))
@@ -193,7 +193,7 @@ class Context[F[_]](
 
   /** Registers a child and schedules [[io.parapet.Event.Initialize]] followed by [[io.parapet.Event.Start]].
     */
-  def registerAndStart(parent: ProcessRef.Unknown, process: Process[F, ?, ?]): F[SubmissionResult] =
+  def registerAndStart(parent: ProcessRef.Unknown, process: Process[F, ?]): F[SubmissionResult] =
     register(parent, process) >> sendLifecycleEvent(process.ref, Initialize) >> sendStartEvent(process.ref)
 
   private[parapet] def sendStartEvent(processRef: ProcessRef.Unknown): F[SubmissionResult] =
@@ -208,18 +208,18 @@ class Context[F[_]](
   /** Registers a batch of root processes and schedules [[io.parapet.Event.Initialize]] followed by
     * [[io.parapet.Event.Start]].
     */
-  def registerAll(processes0: List[Process[F, ?, ?]]): F[List[ProcessRef.Unknown]] =
+  def registerAll(processes0: List[Process[F, ?]]): F[List[ProcessRef.Unknown]] =
     registerAll(ProcessRef.SystemRef, processes0)
 
   /** Registers and activates a batch of processes under `parent`. */
-  def registerAll(parent: ProcessRef.Unknown, processes0: List[Process[F, ?, ?]]): F[List[ProcessRef.Unknown]] =
+  def registerAll(parent: ProcessRef.Unknown, processes0: List[Process[F, ?]]): F[List[ProcessRef.Unknown]] =
     for
       refs <- Monad.sequence(processes0.map(register(parent, _)))
       _    <- Monad.sequence(processes0.map(p => sendLifecycleEvent(p.ref, Initialize) >> sendStartEvent(p.ref)))
     yield refs
 
   /** Restores and replays the application, then schedules [[io.parapet.Event.Start]] for the live phase. */
-  private[parapet] def boot(processes0: List[Process[F, ?, ?]], interpreter: Interpreter[F]): F[Unit] =
+  private[parapet] def boot(processes0: List[Process[F, ?]], interpreter: Interpreter[F]): F[Unit] =
     val recovery = new Recovery(self, interpreter)
     effect.delay {
       bootMode = BootMode.Replaying
@@ -238,11 +238,11 @@ class Context[F[_]](
     recorder.fold(effect.pure(Option.empty[Long]))(_.maxEnvelopeId)
 
   /** Snapshot of every [[Process]] currently registered (system + user). */
-  def getProcesses: List[Process[F, ?, ?]] =
+  def getProcesses: List[Process[F, ?]] =
     processes.values().asScala.map(_.process).toList
 
   /** Looks up a process by ref. */
-  def getProcess(ref: ProcessRef.Unknown): Option[Process[F, ?, ?]] =
+  def getProcess(ref: ProcessRef.Unknown): Option[Process[F, ?]] =
     getProcessState(ref).map(_.process)
 
   /** Looks up the runtime state (mailbox + lifecycle flags) of a process. */
@@ -364,7 +364,7 @@ object Context:
     */
   final class ProcessState[F[_]](
       queue: TaskQueue[F],
-      val process: Process[F, ?, ?],
+      val process: Process[F, ?],
       val terminationSignal: Deferred[F, Unit],
       clock: Clock
   )(using effect: Effect[F]):
@@ -528,7 +528,7 @@ object Context:
     /** Builds a fresh [[ProcessState]], honoring the process's overridden mailbox size or falling back to the global
       * default.
       */
-    def apply[F[_]](process: Process[F, ?, ?], config: ParConfig, clock: Clock)(using
+    def apply[F[_]](process: Process[F, ?], config: ParConfig, clock: Clock)(using
         effect: Effect[F]
     ): F[ProcessState[F]] =
       val processBufferSize =

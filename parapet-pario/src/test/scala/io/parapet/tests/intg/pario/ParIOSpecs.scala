@@ -18,6 +18,8 @@ import org.scalatest.matchers.should.Matchers.*
 
 import scala.concurrent.duration.*
 
+class AskSpec extends io.parapet.tests.intg.AskSpec[ParIO] with BasicParIOSpec
+
 class BlockingSpec extends io.parapet.tests.intg.BlockingSpec[ParIO] with BasicParIOSpec
 
 @Ignore
@@ -84,7 +86,7 @@ class BlockingChannelWithTimeout extends AnyFunSuite with BasicParIOSpec:
   test("blockingChannelTimeout") {
     val eventStore = new EventStore[ParIO, Event]
 
-    val server = new Process[ParIO, Event, ByteEvent] {
+    val server = new Process[ParIO, Event] {
       override val ref = ProcessRef("server")
 
       override def handle: Receive = { case e: ByteEvent =>
@@ -102,7 +104,7 @@ class BlockingChannelWithTimeout extends AnyFunSuite with BasicParIOSpec:
       .build
 
     val clientRef = ProcessRef("client")
-    val ch        = new Channel[ParIO, ByteEvent, ByteEvent](clientRef)
+    val ch        = new Channel[ParIO, ByteEvent](clientRef)
     val client    = Process
       .builder[ParIO](ref => { case Start =>
         register(ref, ch) ++

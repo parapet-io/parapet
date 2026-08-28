@@ -675,7 +675,7 @@ object Scheduler:
         Signal(Envelope(ProcessRef.SchedulerRef, NotifyEvent, ref))
 
     private def handleError[F[_]](
-        process: Process[F, ?, ?],
+        process: Process[F, ?],
         envelope: Envelope,
         context: Context[F],
         interpreter: Interpreter[F],

@@ -30,7 +30,7 @@ abstract class SwitchBehaviorSpec[F[_]] extends AnyFunSuite with IntegrationSpec
     val p2 = new TestProcess[F](saveEvent2(p2Ref), eventStore, p2Ref)
 
     val p  = p1.or(p2)
-    val ch = new Channel[F, Switch, Event]()
+    val ch = new Channel[F, Event]()
 
     val test = onStart {
       // we need a channel here to introduce synchronization boundary, this approach can be improved in future releases
@@ -50,7 +50,7 @@ object SwitchBehaviorSpec {
       initial: PartialFunction[Event, DslF[F, Unit]],
       es: EventStore[F, Event],
       override val ref: ProcessRef[Event]
-  ) extends Process[F, Event, Event] {
+  ) extends Process[F, Event] {
     self =>
 
     import dsl._

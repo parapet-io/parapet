@@ -18,7 +18,7 @@ final class ServerProcess[F[_]](
     sink: ProcessRef[Received | Failed],
     pollDelay: FiniteDuration = 10.millis,
     override val ref: ProcessRef[Reply] = ProcessRef[Reply]("net-server")
-) extends Process[F, Reply, Nothing]:
+) extends Process[F, Reply]:
 
   import dsl.*
 

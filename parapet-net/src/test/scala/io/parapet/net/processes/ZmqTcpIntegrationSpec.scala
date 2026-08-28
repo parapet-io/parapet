@@ -46,7 +46,7 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
             new ServerProcess[IO](tcpServer, ProcessRef[ServerProcess.Received | ServerProcess.Failed]("echo-sink"))
           val clientProcess = new ClientProcess[IO](tcpClient)
 
-          val echo = new Process[IO, ServerProcess.Received | ServerProcess.Failed, ServerProcess.Reply] {
+          val echo = new Process[IO, ServerProcess.Received | ServerProcess.Failed] {
             override val ref: ProcessRef[ServerProcess.Received | ServerProcess.Failed] = ProcessRef("echo-sink")
             override def handle: Receive                                                = {
               case ServerProcess.Received(correlationId, data) =>
@@ -57,7 +57,7 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
             }
           }
 
-          val driver = new Process[IO, Event, Event] {
+          val driver = new Process[IO, Event] {
             override val ref: ProcessRef[Event] = ProcessRef("driver")
             override def handle: Receive        = {
               case Start =>
@@ -266,7 +266,7 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
               )
             val duplexProcess = new DuplexProcess[IO](duplexTransport)
 
-            val echo = new Process[IO, ServerProcess.Received | ServerProcess.Failed, ServerProcess.Reply] {
+            val echo = new Process[IO, ServerProcess.Received | ServerProcess.Failed] {
               override val ref: ProcessRef[ServerProcess.Received | ServerProcess.Failed] = ProcessRef("duplex-echo")
               override def handle: Receive                                                = {
                 case ServerProcess.Received(correlationId, data) =>
@@ -277,7 +277,7 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
               }
             }
 
-            val driver = new Process[IO, Event, Event] {
+            val driver = new Process[IO, Event] {
               override val ref: ProcessRef[Event] = ProcessRef("duplex-driver")
               override def handle: Receive        = {
                 case Start =>
@@ -324,7 +324,7 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
               )
             val duplexProcess = new DuplexProcess[IO](duplexTransport)
 
-            val echo = new Process[IO, ServerProcess.Received | ServerProcess.Failed, ServerProcess.Reply] {
+            val echo = new Process[IO, ServerProcess.Received | ServerProcess.Failed] {
               override val ref: ProcessRef[ServerProcess.Received | ServerProcess.Failed] =
                 ProcessRef("duplex-multi-echo")
 
@@ -337,8 +337,8 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
               }
             }
 
-            def client(processName: String, payload: String): Process[IO, Event, Event] =
-              new Process[IO, Event, Event] {
+            def client(processName: String, payload: String): Process[IO, Event] =
+              new Process[IO, Event] {
                 override val ref: ProcessRef[Event] = ProcessRef(processName)
 
                 override def handle: Receive = {
@@ -397,7 +397,7 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
               )
             val duplexProcess = new DuplexProcess[IO](duplexTransport)
 
-            val echo = new Process[IO, ServerProcess.Received | ServerProcess.Failed, ServerProcess.Reply] {
+            val echo = new Process[IO, ServerProcess.Received | ServerProcess.Failed] {
               override val ref: ProcessRef[ServerProcess.Received | ServerProcess.Failed] = ProcessRef("stress-echo")
               override def handle: Receive                                                = {
                 case ServerProcess.Received(correlationId, data) =>
@@ -408,8 +408,8 @@ class ZmqTcpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
               }
             }
 
-            def client(index: Int): Process[IO, Event, Event] =
-              new Process[IO, Event, Event] {
+            def client(index: Int): Process[IO, Event] =
+              new Process[IO, Event] {
                 override val ref: ProcessRef[Event] = ProcessRef(s"stress-client-$index")
                 override def handle: Receive        = {
                   case Start =>

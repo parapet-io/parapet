@@ -7,7 +7,7 @@ import io.parapet.{DeadLetterProcess, Event, Process, ProcessRef}
 /** The runtime's own process, pinned to [[io.parapet.ProcessRef.SystemRef]]. It is the sender of events the runtime
   * originates.
   */
-class SystemProcess[F[_]] extends Process[F, Event, Event] {
+class SystemProcess[F[_]] extends Process[F, Event] {
 
   override val name: String           = SystemRef.value
   override val ref: ProcessRef[Event] = SystemRef

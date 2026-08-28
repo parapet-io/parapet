@@ -15,7 +15,7 @@ import ClientProcess.*
 final class ClientProcess[F[_]](
     transport: ClientTransport[F],
     override val ref: ProcessRef[Request] = ProcessRef[Request]("net-client")
-) extends Process[F, Request, Response | Failed]:
+) extends Process[F, Request]:
 
   import dsl.*
 

@@ -94,7 +94,7 @@ class RecoveryContractSpec extends AnyFunSuite with WithDsl[TestUtils.TestIO]:
     }
     executed shouldBe false
 
-    val boundary = new parapet.Process[TestIO, Event, Event] with ReplayBoundary:
+    val boundary = new parapet.Process[TestIO, Event] with ReplayBoundary:
       override val ref: ProcessRef[Event] = ProcessRef.root[Event]("storage")
       def handle: Receive                 = PartialFunction.empty
 
@@ -142,7 +142,7 @@ class RecoveryContractSpec extends AnyFunSuite with WithDsl[TestUtils.TestIO]:
     context.bind(scheduler).unsafeRun()
     Fixture(context, store)
 
-  private def process(processRef: ProcessRef[Event]): parapet.Process[TestIO, Event, Event] =
-    new parapet.Process[TestIO, Event, Event]:
+  private def process(processRef: ProcessRef[Event]): parapet.Process[TestIO, Event] =
+    new parapet.Process[TestIO, Event]:
       override val ref: ProcessRef[Event] = processRef
       def handle: Receive                 = PartialFunction.empty

@@ -90,7 +90,7 @@ object JournalRecordingIntgSpec:
 
   /** A recoverable counter: snapshots its running count. */
   final class Counter(override val ref: ProcessRef[Event], store: EventStore[ParIO, Event])
-      extends Process[ParIO, Event, Event]
+      extends Process[ParIO, Event]
       with Snapshotable:
 
     import dsl.*

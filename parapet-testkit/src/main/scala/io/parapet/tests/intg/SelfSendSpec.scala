@@ -15,7 +15,7 @@ abstract class SelfSendSpec[F[_]] extends AnyFlatSpec with IntegrationSpec[F] {
     val eventStore = new EventStore[F, Counter]
     val count      = 11000
 
-    val process = new Process[F, Event, Event] {
+    val process = new Process[F, Event] {
       def handle: Receive = {
         case Start          => Counter(count) ~> ref
         case c @ Counter(i) =>

@@ -34,7 +34,7 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
     yield ()
 
   /** Registers and recovers the initial processes, then replays the journal. */
-  def boot(processes: List[Process[F, ?, ?]]): F[Unit] =
+  def boot(processes: List[Process[F, ?]]): F[Unit] =
     processes.foldLeft(effect.pure(()))((acc, process) =>
       acc >> context.register(ProcessRef.SystemRef, process).void
     ) >>
@@ -45,7 +45,7 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
   // ======================= RECOVER =======================  //
 
   /** Restores or initializes one process, then recovers the children it registered. */
-  private def recover(process: Process[F, ?, ?]): F[Unit] =
+  private def recover(process: Process[F, ?]): F[Unit] =
     if recovered.contains(process.ref) then effect.pure(())
     else
       recovered.add(process.ref)
@@ -60,7 +60,7 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
       case None        => effect.raiseError(new IllegalStateException(s"process state doesn't exist. ref=$ref"))
 
   /** Restores `process` from its latest snapshot and records its replay boundary. */
-  private def restoreState(process: Process[F, ?, ?]): F[Boolean] =
+  private def restoreState(process: Process[F, ?]): F[Boolean] =
     val ref: ProcessRef.Unknown = process.ref
     process match
       case snapshotable: Snapshotable =>

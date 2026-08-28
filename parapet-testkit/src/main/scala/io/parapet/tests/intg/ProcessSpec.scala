@@ -17,13 +17,13 @@ abstract class ProcessSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
   "A process p1 composed with process p2 using `or`" when {
     "p1 can't match event" should {
       "invoke p2" in {
-        val eventStore                   = new EventStore[F, Event]
-        val p1: Process[F, Event, Event] = new Process[F, Event, Event] {
+        val eventStore            = new EventStore[F, Event]
+        val p1: Process[F, Event] = new Process[F, Event] {
           override val handle: Receive = { case Start =>
             unit
           }
         }
-        val p2: Process[F, Event, Event] = new Process[F, Event, Event] {
+        val p2: Process[F, Event] = new Process[F, Event] {
           override val handle: Receive = { case r: Result =>
             eval(eventStore.add(ref, r))
           }
@@ -45,13 +45,13 @@ abstract class ProcessSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
   "A two processes p1 and p2 composed using `and`" when {
     "both defined for event X" should {
       "deliver event X" in {
-        val eventStore                   = new EventStore[F, Event]
-        val p1: Process[F, Event, Event] = new Process[F, Event, Event] {
+        val eventStore            = new EventStore[F, Event]
+        val p1: Process[F, Event] = new Process[F, Event] {
           override val handle: Receive = { case r: Result =>
             eval(eventStore.add(ref, r))
           }
         }
-        val p2: Process[F, Event, Event] = new Process[F, Event, Event] {
+        val p2: Process[F, Event] = new Process[F, Event] {
           override val handle: Receive = { case r: Result =>
             eval(eventStore.add(ref, r))
           }
@@ -81,12 +81,12 @@ abstract class ProcessSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
             eval(eventStore.add(ref, f))
           }
         }
-        val p1: Process[F, Event, Event] = new Process[F, Event, Event] {
+        val p1: Process[F, Event] = new Process[F, Event] {
           override val handle: Receive = { case Start =>
             unit
           }
         }
-        val p2: Process[F, Event, Event] = new Process[F, Event, Event] {
+        val p2: Process[F, Event] = new Process[F, Event] {
           override val handle: Receive = { case Start =>
             unit
           }
@@ -110,7 +110,7 @@ abstract class ProcessSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
 object ProcessSpec {
 
-  class Multiplier[F[_]] extends Process[F, Event, Event] {
+  class Multiplier[F[_]] extends Process[F, Event] {
 
     import dsl._
 

@@ -14,13 +14,13 @@ abstract class ReplySpec[F[_]] extends AnyFlatSpec with IntegrationSpec[F] {
 
   "Reply" should "send send event to the sender" in {
     val clientEventStore = new EventStore[F, Event]
-    val server           = new Process[F, Event, Event] {
+    val server           = new Process[F, Event] {
       def handle: Receive = { case Request =>
         reply(Response)
       }
     }
 
-    val client = new Process[F, Event, Event] {
+    val client = new Process[F, Event] {
       def handle: Receive = {
         case Start    => Request ~> server
         case Response => eval(clientEventStore.add(ref, Response))

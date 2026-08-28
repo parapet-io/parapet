@@ -16,7 +16,7 @@ final class DuplexProcess[F[_]](
     transport: DuplexTransport[F],
     pollDelay: FiniteDuration = 10.millis,
     override val ref: ProcessRef[Request] = ProcessRef[Request]("net-duplex")
-) extends Process[F, Request, Response | Failed]:
+) extends Process[F, Request]:
 
   import dsl.*
 

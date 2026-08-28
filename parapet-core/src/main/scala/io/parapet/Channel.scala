@@ -21,23 +21,21 @@ import scala.util.Try
   * request is in flight the channel rejects additional requests; this enforces a strict "one outstanding call"
   * discipline.
   *
-  * Callers typically construct a channel, register it under their own process, and use [[send]] to obtain a `Try[Out]`
+  * Callers typically construct a channel, register it under their own process, and use [[send]] to obtain a `Try[Res]`
   * representing the eventual reply.
   *
   * Replies are correlated to in-flight requests by [[Scope.Causation]].
   *
-  * @tparam In
-  *   events this channel is allowed to send.
-  * @tparam Out
-  *   expected response event type.
+  * @tparam Res
+  *   expected response event type. The reply is checked against it before the call completes.
   *
   * @param ref
   *   optional fixed reference; defaults to a fresh UUID.
   */
-class Channel[F[_], In <: Event, Out <: Event](
+class Channel[F[_], Res <: Event](
     override val ref: ProcessRef[Event] = ProcessRef.jdkUUIDRef[Event]
-)(using Effect[F], ClassTag[Out])
-    extends Process[F, Event, Event]:
+)(using Effect[F], ClassTag[Res])
+    extends Process[F, Event]:
   import Channel.*
   import dsl.*
 
@@ -47,11 +45,11 @@ class Channel[F[_], In <: Event, Out <: Event](
   // `inFlight` is mutated from two contexts:
   //   (a) the channel's own handler (single-threaded by construction);
   //   (b) `send`, while holding `lockProcess(ref)`
-  private var inFlight: Option[InFlight[F, Out]] = None
+  private var inFlight: Option[InFlight[F, Res]] = None
   private val requestIds                         = new AtomicLong()
 
   private def waitForRequest: Receive = {
-    case req: Request[F, Out] @unchecked => sendReq(req)
+    case req: Request[F, Res] @unchecked => sendReq(req)
     // Swallow stray events: late `Timeout(_)` from a fiber that lost the cancel race, and stale replies that
     // arrive after the channel has already timed out and reset. Without this, the runtime would dead-letter
     // them with a WARN per stray event.
@@ -64,7 +62,7 @@ class Channel[F[_], In <: Event, Out <: Event](
         case Some(active) =>
           complete(active, scala.util.Failure(ChannelInterruptedException("channel has been closed")))
         case None => unit
-    case req: Request[F, Out] @unchecked =>
+    case req: Request[F, Res] @unchecked =>
       suspend(
         req.result
           .complete(scala.util.Failure(IllegalChannelStateException("the current request is not completed yet")))
@@ -128,7 +126,7 @@ class Channel[F[_], In <: Event, Out <: Event](
     * @return
     *   `Success(reply)` on a normal response, `Failure(error)` on error.
     */
-  def send[E <: In](event: E, receiver: ProcessRef[? >: E]): DslF[F, Try[Out]] =
+  def send[E <: Event](event: E, receiver: ProcessRef[? >: E]): DslF[F, Try[Res]] =
     send(event, receiver, None)
 
   /** Sends `event` to `receiver` and waits up to `timeout` for a response.
@@ -136,24 +134,24 @@ class Channel[F[_], In <: Event, Out <: Event](
     * If the timeout elapses before a response or failure arrives, the call completes with [[ChannelTimeoutException]]
     * and the channel is reset for the next request.
     */
-  def send[E <: In](event: E, receiver: ProcessRef[? >: E], timeout: FiniteDuration): DslF[F, Try[Out]] =
+  def send[E <: Event](event: E, receiver: ProcessRef[? >: E], timeout: FiniteDuration): DslF[F, Try[Res]] =
     send(event, receiver, Some(timeout))
 
-  private def send[E <: In](
+  private def send[E <: Event](
       event: E,
       receiver: ProcessRef[? >: E],
       timeout: Option[FiniteDuration]
-  ): DslF[F, Try[Out]] =
+  ): DslF[F, Try[Res]] =
     for
       requestId <- eval(requestIds.incrementAndGet())
-      deferred  <- suspend(Deferred[F, Try[Out]]())
+      deferred  <- suspend(Deferred[F, Try[Res]]())
       request = Request(requestId, event, deferred, receiver, timeout)
       _     <- lockProcess(ref)
       _     <- sendReq(request).guarantee(unlockProcess(ref))
       value <- suspend(deferred.get)
     yield value
 
-  private def sendReq(req: Request[F, Out]): DslF[F, Unit] =
+  private def sendReq(req: Request[F, Res]): DslF[F, Unit] =
     eval {
       inFlight match
         case Some(_) => false
@@ -181,20 +179,20 @@ class Channel[F[_], In <: Event, Out <: Event](
   private def causationIdOf(id: Long): String =
     s"${ref.value}:$id"
 
-  private def castResponse(event: Event): Try[Out] =
+  private def castResponse(event: Event): Try[Res] =
     event match
-      case out: Out => scala.util.Success(out)
+      case out: Res => scala.util.Success(out)
       case other    =>
         scala.util.Failure(
           UnexpectedChannelResponseException(
-            s"expected response matching ${summon[ClassTag[Out]]}, but received ${other.getClass.getName}: $other"
+            s"expected response matching ${summon[ClassTag[Res]]}, but received ${other.getClass.getName}: $other"
           )
         )
 
-  private def complete(active: InFlight[F, Out], result: Try[Out]): DslF[F, Unit] =
+  private def complete(active: InFlight[F, Res], result: Try[Res]): DslF[F, Unit] =
     suspend(active.result.complete(result).map(_ => ()))
 
-  private def completeAndReset(active: InFlight[F, Out], result: Try[Out]): DslF[F, Unit] =
+  private def completeAndReset(active: InFlight[F, Res], result: Try[Res]): DslF[F, Unit] =
     resetAndWaitForRequest ++ complete(active, result)
 
 /** Constructors and exceptions for [[Channel]]. */
@@ -219,37 +217,26 @@ object Channel:
       extends ChannelException(message, cause)
 
   /** Builds a fresh [[Channel]] with a UUID ref. */
-  def apply[F[_]](using Effect[F]): Channel[F, Event, Event] =
-    new Channel[F, Event, Event]()
-
-  /** Builds a fresh typed [[Channel]] with a UUID ref. */
-  def apply[F[_], In <: Event, Out <: Event](using Effect[F], ClassTag[Out]): Channel[F, In, Out] =
-    new Channel[F, In, Out]()
+  def apply[F[_], Res <: Event](using Effect[F], ClassTag[Res]): Channel[F, Res] =
+    new Channel[F, Res]()
 
   /** Builds a [[Channel]] pinned to `ref`. */
-  def apply[F[_]](ref: ProcessRef[Event])(using Effect[F]): Channel[F, Event, Event] =
-    new Channel[F, Event, Event](ref)
-
-  /** Builds a typed [[Channel]] pinned to `ref`. */
-  def apply[F[_], In <: Event, Out <: Event](ref: ProcessRef[Event])(using
-      Effect[F],
-      ClassTag[Out]
-  ): Channel[F, In, Out] =
-    new Channel[F, In, Out](ref)
+  def apply[F[_], Res <: Event](ref: ProcessRef[Event])(using Effect[F], ClassTag[Res]): Channel[F, Res] =
+    new Channel[F, Res](ref)
 
   /** Internal request envelope sent from [[Channel.send]] to the channel's mailbox. */
-  final private case class Request[F[_], Out <: Event](
+  final private case class Request[F[_], Res <: Event](
       id: Long,
       event: Event,
-      result: Deferred[F, Try[Out]],
+      result: Deferred[F, Try[Res]],
       receiver: ProcessRef.Unknown,
       timeout: Option[FiniteDuration]
   ) extends Event
 
-  final private case class InFlight[F[_], Out <: Event](
+  final private case class InFlight[F[_], Res <: Event](
       id: Long,
       causationId: String,
-      result: Deferred[F, Try[Out]],
+      result: Deferred[F, Try[Res]],
       receiver: ProcessRef.Unknown,
       timeout: Option[FiniteDuration]
   )

@@ -68,7 +68,7 @@ abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
       "be delivered to all receivers in specified order" in {
         val eventStore = new EventStore[F, Request]
 
-        def createServer(addr: String): Process[F, Event, Event] = Process[F](ref => { case req: Request =>
+        def createServer(addr: String): Process[F, Event] = Process[F](ref => { case req: Request =>
           eval(eventStore.add(ref, Request(s"$addr-${req.body}")))
         })
 
@@ -93,13 +93,13 @@ abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
         val eventStore = new EventStore[F, Response]
 
-        val server = new Process[F, Event, Response] {
+        val server = new Process[F, Event] {
           override def handle: Receive = { case Request(data) =>
             reply(Response(s"echo-$data"))
           }
         }
 
-        val client: Process[F, Event, Event] = Process[F](ref => {
+        val client: Process[F, Event] = Process[F](ref => {
           case Start         => Request("hello") ~> server
           case res: Response => eval(eventStore.add(ref, res))
         })
@@ -117,13 +117,13 @@ abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
         val eventStore = new EventStore[F, Response]
 
-        val server = new Process[F, Event, Response] {
+        val server = new Process[F, Event] {
           override def handle: Receive = { case Request(data) =>
             reply(Response(s"echo-$data"))
           }
         }
 
-        val client: Process[F, Event, Event] = Process[F](ref => {
+        val client: Process[F, Event] = Process[F](ref => {
           case Start         => Request("hello") ~> server
           case res: Response => eval(eventStore.add(ref, res))
         })
@@ -141,13 +141,13 @@ abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
         val eventStore = new EventStore[F, Response]
 
-        val server = new Process[F, Event, Response] {
+        val server = new Process[F, Event] {
           override def handle: Receive = { case Request(data) =>
             reply(Seq(Response(s"1-$data"), Response(s"2-$data"), Response(s"3-$data")))
           }
         }
 
-        val client: Process[F, Event, Event] = Process
+        val client: Process[F, Event] = Process
           .builder[F](ref => {
             case Start         => Request("x") ~> server
             case res: Response => eval(eventStore.add(ref, res))
@@ -246,17 +246,17 @@ abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
       "be delivered to a receiver with original sender reference" in {
         val eventStore = new EventStore[F, Response]
 
-        val server: Process[F, Event, Response] = new Process[F, Event, Response] {
+        val server: Process[F, Event] = new Process[F, Event] {
           override def handle: Receive = { case Request(body) =>
             reply(Response(s"echo-$body"))
           }
         }
 
-        val proxy: Process[F, Event, Event] = Process[F](_ => { case Request(body) =>
+        val proxy: Process[F, Event] = Process[F](_ => { case Request(body) =>
           forward(Request(s"proxy-$body"), server.ref)
         })
 
-        val client: Process[F, Event, Event] = Process
+        val client: Process[F, Event] = Process
           .builder[F](ref => {
             case Start         => Request("ping") ~> proxy
             case res: Response => eval(eventStore.add(ref, res))
@@ -277,7 +277,7 @@ abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
         val eventStore = new EventStore[F, IntEvent]
 
-        val process: Process[F, Event, Event] = Process[F] { ref =>
+        val process: Process[F, Event] = Process[F] { ref =>
           def times(n: Int): DslF[F, Unit] = {
             def step(remaining: Int): DslF[F, Unit] = flow {
               if (remaining == 0) unit
@@ -307,7 +307,7 @@ abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
         val longRunningTask = delay(1.minute)
 
-        val process: Process[F, Event, Event] = Process[F](ref => { case Start =>
+        val process: Process[F, Event] = Process[F](ref => { case Start =>
           fork(longRunningTask) ++ eval(eventStore.add(ref, Request("end")))
         })
 
@@ -325,7 +325,7 @@ abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
         val longRunningTask = delay(10.minutes)
 
-        val process: Process[F, Event, Event] = Process[F](ref => { case Start =>
+        val process: Process[F, Event] = Process[F](ref => { case Start =>
           for {
             res <- race(longRunningTask, eval("now"))
             _   <- res match {
@@ -346,7 +346,7 @@ abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 
         val failure = eval(throw new RuntimeException("server failed"))
 
-        val process: Process[F, Event, Event] = Process[F](ref => { case Start =>
+        val process: Process[F, Event] = Process[F](ref => { case Start =>
           failure.handleError((err: Throwable) => eval(eventStore.add(ref, Response(err))))
         })
         unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(process))).run))
@@ -377,7 +377,7 @@ abstract class DslSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
           step ++ loop
         }
 
-        val process: Process[F, Event, Event] = Process
+        val process: Process[F, Event] = Process
           .builder[F](_ => { case Start =>
             fork(loop).map(_ => ())
           })

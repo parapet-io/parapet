@@ -91,7 +91,7 @@ object SnapshotIntegrationSpec:
       override val ref: ProcessRef[Event],
       store: EventStore[ParIO, Event],
       recordStart: Boolean = false
-  ) extends Process[ParIO, Event, Event]
+  ) extends Process[ParIO, Event]
       with Snapshotable:
 
     import dsl.*

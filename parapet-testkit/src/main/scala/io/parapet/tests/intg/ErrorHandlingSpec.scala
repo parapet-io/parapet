@@ -28,7 +28,7 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
 
         // A plain `~>` is a notification: nobody is awaiting a reply, so the handler error has no
         // waiter to return to and must surface as a dead letter.
-        val client = new Process[F, Event, Event] {
+        val client = new Process[F, Event] {
           def handle: Receive = { case Start => Request ~> faultyServer }
         }
 
@@ -53,12 +53,12 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
             eval(eventStore.add(ref, f))
           }
         }
-        val server = new Process[F, Event, Event] {
+        val server = new Process[F, Event] {
           def handle: Receive = { case Request =>
             eval(throw new RuntimeException("server is down"))
           }
         }
-        val client = new Process[F, Event, Event] {
+        val client = new Process[F, Event] {
           def handle: Receive = { case Start =>
             Request ~> server
           }
@@ -84,12 +84,12 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
             eval(eventStore.add(ref, f))
           }
         }
-        val server = new Process[F, Event, Event] {
+        val server = new Process[F, Event] {
           def handle: Receive = { case Request =>
             eval(throw new RuntimeException("server is down"))
           }
         }
-        val client = new Process[F, Event, Event] {
+        val client = new Process[F, Event] {
           def handle: Receive = {
             case Start      => Request ~> server
             case _: Failure => eval(throw new RuntimeException("client failed to handle error"))
@@ -110,7 +110,7 @@ abstract class ErrorHandlingSpec[F[_]] extends AnyWordSpec with IntegrationSpec[
 
 object ErrorHandlingSpec {
 
-  def createFaultyServer[F[_]]: Process[F, Event, Event] = new Process[F, Event, Event] {
+  def createFaultyServer[F[_]]: Process[F, Event] = new Process[F, Event] {
 
     import dsl._
 

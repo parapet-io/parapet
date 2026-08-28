@@ -7,10 +7,10 @@ import io.parapet.effect.Effect
 import io.parapet.syntax.logger.*
 import org.slf4j.LoggerFactory
 
-/** Marker trait for the singleton process that consumes [[io.parapet.Event.DeadLetter]] messages.
-  * Subclasses are pinned to [[io.parapet.ProcessRef.DeadLetterRef]].
+/** Marker trait for the singleton process that consumes [[io.parapet.Event.DeadLetter]] messages. Subclasses are pinned
+  * to [[io.parapet.ProcessRef.DeadLetterRef]].
   */
-trait DeadLetterProcess[F[_]] extends Process[F, DeadLetter, Nothing]:
+trait DeadLetterProcess[F[_]] extends Process[F, DeadLetter]:
   override val name: String                      = DeadLetterRef.value
   final override val ref: ProcessRef[DeadLetter] = DeadLetterRef
 

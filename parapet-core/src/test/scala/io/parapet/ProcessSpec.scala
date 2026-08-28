@@ -60,7 +60,7 @@ class ProcessSpec extends AnyFunSuite with WithDsl[TestUtils.TestIO]:
     val clientRef = ProcessRef[Response.type]("client")
     val fixture   = new RuntimeFixture
 
-    val server = new parapet.Process[TestIO, Request.type, Response.type]:
+    val server = new parapet.Process[TestIO, Request.type]:
       import dsl.*
 
       override def handle: Receive = { case Request =>

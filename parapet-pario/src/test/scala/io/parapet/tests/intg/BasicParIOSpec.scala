@@ -8,7 +8,7 @@ trait BasicParIOSpec extends IntegrationSpec[ParIO] with ParIOApp {
   self =>
 
   override def createApp(
-      processes0: ParIO[Seq[Process[ParIO, ?, ?]]],
+      processes0: ParIO[Seq[Process[ParIO, ?]]],
       deadLetter0: Option[ParIO[DeadLetterProcess[ParIO]]],
       config0: ParConfig,
       eventCodecs0: EventCodecRegistry
@@ -16,7 +16,7 @@ trait BasicParIOSpec extends IntegrationSpec[ParIO] with ParIOApp {
     new ParIOApp {
       override val config: ParConfig = config0
 
-      override def processes(args: Array[String]): ParIO[Seq[Process[ParIO, ?, ?]]] =
+      override def processes(args: Array[String]): ParIO[Seq[Process[ParIO, ?]]] =
         processes0
 
       override def deadLetter: ParIO[DeadLetterProcess[ParIO]] =
@@ -25,6 +25,6 @@ trait BasicParIOSpec extends IntegrationSpec[ParIO] with ParIOApp {
       override def eventCodecs: EventCodecRegistry = eventCodecs0
     }
 
-  override def processes(args: Array[String]): ParIO[Seq[Process[ParIO, ?, ?]]] =
+  override def processes(args: Array[String]): ParIO[Seq[Process[ParIO, ?]]] =
     ParIO.pure(Seq.empty)
 }

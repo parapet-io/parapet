@@ -106,13 +106,13 @@ abstract class EventDeliverySpec[F[_]] extends AnyFlatSpec with IntegrationSpec[
       }
     }
 
-    val server = new Process[F, Event, Event] {
+    val server = new Process[F, Event] {
       def handle: Receive = { case Start =>
         unit
       }
     }
 
-    val client = new Process[F, Event, Event] {
+    val client = new Process[F, Event] {
       def handle: Receive = { case Start =>
         UnknownEvent ~> server
       }
@@ -139,9 +139,9 @@ object EventDeliverySpec {
   def createProcesses[F[_]](
       numOfProcesses: Int,
       eventStore: EventStore[F, QualifiedEvent]
-  ): Seq[Process[F, Event, Event]] =
+  ): Seq[Process[F, Event]] =
     (0 until numOfProcesses).map { i =>
-      new Process[F, Event, Event] {
+      new Process[F, Event] {
 
         import dsl._
 

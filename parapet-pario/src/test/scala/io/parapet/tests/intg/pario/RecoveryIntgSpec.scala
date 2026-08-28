@@ -429,7 +429,7 @@ object RecoveryIntgSpec:
       store: EventStore[ParIO, Event],
       ioCalls: AtomicInteger,
       recreateChild: Boolean
-  ) extends Process[ParIO, Event, Event]
+  ) extends Process[ParIO, Event]
       with ReplayBoundary:
 
     import dsl.*
@@ -450,7 +450,7 @@ object RecoveryIntgSpec:
       store: EventStore[ParIO, Event],
       recordChildStart: Boolean = false,
       recordChildInitialize: Boolean = false
-  ) extends Process[ParIO, Event, Event]:
+  ) extends Process[ParIO, Event]:
 
     import dsl.*
 
@@ -465,7 +465,7 @@ object RecoveryIntgSpec:
       store: EventStore[ParIO, Event],
       recordStart: Boolean = false,
       recordInitialize: Boolean = false
-  ) extends Process[ParIO, Event, Event]:
+  ) extends Process[ParIO, Event]:
 
     import dsl.*
 
@@ -494,7 +494,7 @@ object RecoveryIntgSpec:
       recordAcked: Boolean = true,
       recordStart: Boolean = false,
       recordRestored: Boolean = false
-  ) extends Process[ParIO, Event, Event]
+  ) extends Process[ParIO, Event]
       with Snapshotable:
 
     import dsl.*
@@ -514,7 +514,7 @@ object RecoveryIntgSpec:
   final class Relay(
       override val ref: ProcessRef[Event],
       childRef: ProcessRef[Event]
-  ) extends Process[ParIO, Event, Event]:
+  ) extends Process[ParIO, Event]:
 
     import dsl.*
 

@@ -73,7 +73,7 @@ object Dsl:
 
   /** Registers `child` as a sub-process of `parent`, integrating it into the supervision graph.
     */
-  final case class Register[F[_]](parent: ProcessRef.Unknown, child: parapet.Process[F, ?, ?]) extends FlowOp[F, Unit]
+  final case class Register[F[_]](parent: ProcessRef.Unknown, child: parapet.Process[F, ?]) extends FlowOp[F, Unit]
 
   /** Races `first` against `second` and returns whichever wins, cancelling the loser. */
   final case class Race[F[_], G[_], A, B](first: Free[G, A], second: Free[G, B]) extends FlowOp[F, Either[A, B]]
@@ -304,11 +304,10 @@ object Dsl:
     def delay(duration: FiniteDuration): Free[C, Unit] =
       Free.inject[[x] =>> FlowOp[F, x], C, Unit](Delay[F](duration))
 
-    /** Low-level untyped reply helper for core internals.
+    /** Low-level reply helper for core internals.
       *
-      * User processes should call [[Process.reply]], which checks the event against the process's declared `Out`
-      * protocol. This helper stays untyped because the generic DSL does not know which process is currently building a
-      * program.
+      * User processes should call [[Process.reply]]. This helper stays here because the generic DSL does not know which
+      * process is currently building a program.
       */
     @developerApi
     private[parapet] def reply(event: => Event): Free[C, Unit] =
@@ -390,7 +389,7 @@ object Dsl:
       * stop server
       * }}}
       */
-    def register(parent: ProcessRef.Unknown, child: parapet.Process[F, ?, ?]*): Free[C, Unit] =
+    def register(parent: ProcessRef.Unknown, child: parapet.Process[F, ?]*): Free[C, Unit] =
       child
         .map(process => Free.inject[[x] =>> FlowOp[F, x], C, Unit](Register(parent, process)))
         .foldLeft(unit) { (result, next) =>
@@ -524,7 +523,7 @@ object Dsl:
       /** Runs `f` with the current sender's [[ProcessRef]] in scope.
         *
         * This is intentionally core-private because it exposes the raw, untyped sender ref. User code should use
-        * [[Process.reply]], which checks replies against the process's declared `Out` protocol.
+        * [[Process.reply]].
         */
       @developerApi
       def withSender[A](f: ProcessRef[Event] => Free[C, A]): Free[C, A] =

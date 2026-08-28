@@ -31,7 +31,7 @@ class AeronUdpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
       AeronUdpTransport.make[IO](config).use { transport =>
         val udpProc = new DatagramProcess[IO](transport, sinkRef, pollLimit = 16, pollDelay = 10.millis)
 
-        val sink = new Process[IO, DatagramProcess.Received | DatagramProcess.Failed, Event] {
+        val sink = new Process[IO, DatagramProcess.Received | DatagramProcess.Failed] {
           override val ref: ProcessRef[DatagramProcess.Received | DatagramProcess.Failed] = sinkRef
           override def handle: Receive                                                    = {
             case message @ DatagramProcess.Received(_) => eval(store.add(ref, message))
@@ -39,7 +39,7 @@ class AeronUdpIntegrationSpec extends AnyFlatSpec with BasicCatsEffectSpec:
           }
         }
 
-        val driver = new Process[IO, Event, Event] {
+        val driver = new Process[IO, Event] {
           override val ref: ProcessRef[Event] = ProcessRef("driver")
           override def handle: Receive        = { case Start =>
             // Aeron publication needs a brief warmup before offer() succeeds.
