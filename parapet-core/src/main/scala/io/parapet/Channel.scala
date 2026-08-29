@@ -33,7 +33,8 @@ import scala.util.Try
 class Channel[F[_], Res <: Event](
     override val ref: ProcessRef[Event] = ProcessRef.jdkUUIDRef[Event]
 )(using Effect[F], ClassTag[Res])
-    extends Process[F, Event]:
+    extends Process[F, Event]
+    with ReplayBoundary:
   import Channel.*
   import dsl.*
 
@@ -142,11 +143,10 @@ class Channel[F[_], Res <: Event](
   ): DslF[F, Try[Res]] =
     for
       requestId <- eval(requestIds.incrementAndGet())
-      deferred  <- suspend(Deferred[F, Try[Res]]())
-      request = Request(requestId, event, deferred, receiver, timeout)
-      _     <- lockProcess(ref)
-      _     <- sendReq(request).guarantee(unlockProcess(ref))
-      value <- suspend(deferred.get)
+      result    <- suspend(Deferred[F, Try[Res]]())
+      request = Request(requestId, event, result, receiver, timeout)
+      _     <- request ~> ref
+      value <- suspend(result.get)
     yield value
 
   private def sendReq(req: Request[F, Res]): DslF[F, Unit] =

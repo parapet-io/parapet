@@ -146,13 +146,16 @@ trait Process[F[_], In <: Event] extends WithDsl[F] with FlowSyntax[F]:
         timeout: FiniteDuration
     ): DslF[F, Try[Res]] =
       dsl.flow {
-        // A per-ask child: the ref is derived from a counter rather than a UUID so that a replayed handler
-        // registers the same ref the journal recorded for it.
-        val channel = new Channel[F, Res](ref.child[Event](s"ask-${askIds.incrementAndGet()}"))
-        val release = dsl.halt(channel.ref)
-        (dsl.register(ref, channel) ++ channel.send(event, receiver, timeout))
-          .handleError(error => release ++ dsl.raiseError[Try[Res]](error))
-          .through(release)
+        if context.journalEnabled && !self.isInstanceOf[ReplayBoundary] then
+          dsl.raiseError(exceptions.RecoveryContractViolation(ref, "ask"))
+        else
+          // A per-ask child: the ref is derived from a counter rather than a UUID so that a replayed handler
+          // registers the same ref the journal recorded for it.
+          val channel = new Channel[F, Res](ref.child[Event](s"ask-${askIds.incrementAndGet()}"))
+          val release = dsl.halt(channel.ref)
+          (dsl.register(ref, channel) ++ channel.send(event, receiver, timeout))
+            .handleError(error => release ++ dsl.raiseError[Try[Res]](error))
+            .through(release)
       }
 
   /** Alias for [[and]]. */
