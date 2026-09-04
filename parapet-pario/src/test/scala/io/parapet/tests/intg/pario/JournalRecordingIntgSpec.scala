@@ -1,10 +1,18 @@
 package io.parapet.tests.intg.pario
 
 import io.parapet.Event.Start
-import io.parapet.{ParConfig, Process}
+import io.parapet.{ParConfig, ParIOApp, Process}
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
-import io.parapet.journal.{EventCodec, EventCodecRegistry, JournalConfig, JournalStoreLocal}
+import io.parapet.journal.{
+  EventCodec,
+  EventCodecRegistry,
+  JournalConfig,
+  JournalEntry,
+  JournalStore,
+  JournalStoreLocal,
+  JournalWriteMode
+}
 import io.parapet.snapshot.{Snapshot, Snapshotable}
 import io.parapet.testutils.EventStore
 import io.parapet.tests.intg.BasicParIOSpec
@@ -14,6 +22,8 @@ import org.scalatest.matchers.should.Matchers.*
 
 import java.nio.ByteBuffer
 import java.nio.file.Files
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.{CountDownLatch, TimeUnit, TimeoutException}
 import scala.util.{Failure, Success, Try}
 
 class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
@@ -41,6 +51,55 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
     entries.map(_.seq) shouldBe entries.map(_.seq).sorted        // ascending
   }
 
+  test("write-ahead mode makes the delivery durable before invoking its handler") {
+    val dir          = Files.createTempDirectory("journal-write-ahead")
+    val counterRef   = ProcessRef[Event]("write-ahead-counter")
+    val events       = new EventStore[ParIO, Event]
+    val durableStore = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
+    val gatedStore   = new GatedJournalStore(durableStore)
+    val counter      = new Counter(counterRef, events)
+    val driver       = onStart(Add(1) ~> counterRef)
+    val appConfig    = ParConfig.default.copy(
+      journal = JournalConfig(
+        enabled = true,
+        dataDir = dir.toString,
+        batchSize = 64,
+        writeMode = JournalWriteMode.WriteAhead
+      )
+    )
+    val app = new ParIOApp:
+      override val config: ParConfig = appConfig
+      override def processes(args: Array[String]): ParIO[Seq[Process[ParIO, ?]]] =
+        ParIO.pure(Seq(counter, driver))
+      override def eventCodecs: EventCodecRegistry = codecs
+      override def journalStorage: JournalStore[ParIO] = gatedStore
+
+    val outcome = new AtomicReference[Try[Unit]]()
+    val thread  = new Thread(
+      () => outcome.set(Try(app.unsafeRun(events.await(1, app.run)))),
+      "write-ahead-runtime"
+    )
+
+    try
+      thread.start()
+      gatedStore.awaitAppend()
+
+      counter.count shouldBe 0L
+      durableStore.read(0L).unsafeRunSync() shouldBe empty
+
+      gatedStore.release()
+      thread.join(TimeUnit.SECONDS.toMillis(10L))
+      thread.isAlive shouldBe false
+      Option(outcome.get()).getOrElse(fail("runtime terminated without reporting an outcome")).get
+
+      counter.count shouldBe 1L
+      durableStore.read(0L).unsafeRunSync().map(_.seq) shouldBe Vector(1L)
+    finally
+      gatedStore.release()
+      if thread.isAlive then thread.interrupt()
+      thread.join(1000L)
+  }
+
   test("a restart continues the delivery seq past the journal instead of overwriting recorded history") {
     val dir        = Files.createTempDirectory("journal-restart")
     val counterRef = ProcessRef[Event]("jrnl-counter")
@@ -62,6 +121,33 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
   }
 
 object JournalRecordingIntgSpec:
+
+  private final class GatedJournalStore(delegate: JournalStore[ParIO]) extends JournalStore[ParIO]:
+    private val appendEntered = new CountDownLatch(1)
+    private val allowAppend   = new CountDownLatch(1)
+
+    def awaitAppend(): Unit =
+      if !appendEntered.await(10L, TimeUnit.SECONDS) then
+        throw new TimeoutException("journal append did not start")
+
+    def release(): Unit = allowAppend.countDown()
+
+    override def append(entries: Vector[JournalEntry]): ParIO[Unit] =
+      ParIO
+        .blocking {
+          appendEntered.countDown()
+          if !allowAppend.await(10L, TimeUnit.SECONDS) then
+            throw new TimeoutException("journal append was not released")
+        }
+        .flatMap(_ => delegate.append(entries))
+
+    override def read(afterSeq: Long): ParIO[Vector[JournalEntry]] = delegate.read(afterSeq)
+
+    override def maxSeq: ParIO[Option[Long]] = delegate.maxSeq
+
+    override def maxEnvelopeId: ParIO[Option[Long]] = delegate.maxEnvelopeId
+
+    override def truncate(upToSeq: Long): ParIO[Unit] = delegate.truncate(upToSeq)
 
   final case class Add(n: Int)        extends Event
   case object Probe                   extends Event

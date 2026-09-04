@@ -1,8 +1,12 @@
 package io.parapet.journal
 
-import io.parapet.effect.Backoff
+/** Controls when admitting a delivery waits for durable journal storage. */
+enum JournalWriteMode:
+  /** Admissions may return while their delivery remains buffered. */
+  case Buffered
 
-import scala.concurrent.duration.*
+  /** Every admission returns only after its delivery and all earlier admissions are durable. */
+  case WriteAhead
 
 /** Tuning for [[DeliveryRecorder]].
   *
@@ -14,24 +18,25 @@ import scala.concurrent.duration.*
   * @param dataDir
   *   directory holding the journal segment files.
   * @param batchSize
-  *   entries buffered before a batch is flushed.
-  * @param maxRetries
-  *   store retries before a write fails.
-  * @param backoff
-  *   delay between store retries.
+  *   maximum entries in a buffered batch.
+  * @param writeMode
+  *   durability guarantee applied to each delivery admission.
+  * @param maxSegmentBytes
+  *   target size at which the active journal file is sealed and rotated.
+  * @param maxEntryBytes
+  *   maximum encoded size accepted for one delivery.
   */
 final case class JournalConfig(
     enabled: Boolean = false,
     requireCodec: Boolean = false,
     dataDir: String = "parapet-journal",
     batchSize: Int = JournalConfig.DefaultBatchSize,
-    maxRetries: Int = JournalConfig.DefaultMaxRetries,
-    backoff: Backoff = JournalConfig.DefaultBackoff
+    writeMode: JournalWriteMode = JournalWriteMode.Buffered,
+    maxSegmentBytes: Long = JournalStoreLocal.DefaultMaxSegmentBytes,
+    maxEntryBytes: Int = JournalStoreLocal.DefaultMaxEntryBytes
 )
 
 object JournalConfig:
-  val DefaultBatchSize: Int   = 1024
-  val DefaultMaxRetries: Int  = 8
-  val DefaultBackoff: Backoff = Backoff.Exp(base = 50.millis, max = 5.seconds)
+  val DefaultBatchSize: Int = 1024
 
   val default: JournalConfig = JournalConfig()

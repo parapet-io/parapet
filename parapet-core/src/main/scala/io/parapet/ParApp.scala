@@ -88,7 +88,13 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
   /** The journal backend. Override to plug in a custom store; defaults to local files under `config.journal.dataDir`.
     */
   def journalStorage: JournalStore[F] =
-    new JournalStoreLocal[F](JournalStoreLocal.Config(Path.of(config.journal.dataDir)))
+    new JournalStoreLocal[F](
+      JournalStoreLocal.Config(
+        Path.of(config.journal.dataDir),
+        config.journal.maxSegmentBytes,
+        config.journal.maxEntryBytes
+      )
+    )
 
   /** Codecs for events that may be journaled, keyed by event class and tag. Override to register application events;
     * defaults to empty (nothing is journalable).

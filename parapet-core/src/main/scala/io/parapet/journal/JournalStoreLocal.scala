@@ -1,105 +1,51 @@
 package io.parapet.journal
 
-import io.parapet.effect.Effect
+import io.parapet.effect.{Clock, Effect}
 import org.slf4j.LoggerFactory
 
-import java.nio.file.{Files, Path, StandardCopyOption}
-import scala.jdk.CollectionConverters.*
-import scala.util.Try
+import java.nio.file.Path
 
-/** Local filesystem [[JournalStore]]: one file per batch, named by its `[minSeq]-[maxSeq]` range. */
-class JournalStoreLocal[F[_]](config: JournalStoreLocal.Config)(using effect: Effect[F]) extends JournalStore[F]:
-
-  import JournalStoreLocal.*
+/** Local filesystem [[JournalStore]]. */
+class JournalStoreLocal[F[_]](
+    config: JournalStoreLocal.Config,
+    clock: Clock = Clock()
+)(using effect: Effect[F])
+    extends JournalStore[F]:
 
   private val logger = LoggerFactory.getLogger(classOf[JournalStoreLocal[?]])
+  private val log    = new DeliveryLog(
+    DeliveryLog.Config(config.dataDir, config.maxSegmentBytes, config.maxEntryBytes),
+    clock = clock
+  )
 
-  override def append(segment: JournalSegment): F[Unit] =
+  override def append(entries: Vector[JournalEntry]): F[Unit] =
     effect.delay {
-      if segment.entries.nonEmpty then
-        val m = segment.metadata
-        logger.debug(s"append journal segment [${m.minSeq}, ${m.maxSeq}] of ${m.entryCount} entries")
-        Files.createDirectories(config.dataDir)
-        val target = config.dataDir.resolve(fileName(m.minSeq, m.maxSeq))
-        val temp   = Files.createTempFile(config.dataDir, "pjrn-", ".tmp")
-        try
-          Files.write(temp, JournalSegmentBinaryFormat.encode(segment))
-          Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-          ()
-        finally
-          Try(Files.deleteIfExists(temp))
-          ()
+      if entries.nonEmpty then
+        logger.debug(s"append journal entries [${entries.head.seq}, ${entries.last.seq}] (${entries.size} entries)")
+        log.append(entries)
     }
 
   override def read(afterSeq: Long): F[Vector[JournalEntry]] =
-    effect.delay {
-      segments
-        .filter(_.maxSeq > afterSeq)
-        .flatMap(segment => JournalSegmentBinaryFormat.decode(Files.readAllBytes(segment.path)).entries)
-        .filter(_.seq > afterSeq)
-        .sortBy(_.seq)
-    }
+    effect.delay(log.read(afterSeq))
 
   override def maxSeq: F[Option[Long]] =
-    effect.delay(segments.map(_.maxSeq).maxOption)
+    effect.delay(log.maxSeq)
 
   override def maxEnvelopeId: F[Option[Long]] =
-    // Read only each segment's fixed-size header, not its entries.
-    effect.delay(segments.map(segment => readMetadata(segment.path).maxEnvelopeId).maxOption)
-
-  /** Reads only the leading fixed-size header of a segment file (not its entries). */
-  private def readMetadata(path: Path): JournalMetadata =
-    val in = Files.newInputStream(path)
-    try JournalSegmentBinaryFormat.readMetadata(in.readNBytes(JournalSegmentBinaryFormat.MetadataBytes))
-    finally in.close()
+    effect.delay(log.maxEnvelopeId)
 
   override def truncate(upToSeq: Long): F[Unit] =
-    effect.delay {
-      segments.filter(_.maxSeq <= upToSeq).foreach { segment =>
-        Files.deleteIfExists(segment.path)
-        ()
-      }
-    }
-
-  /** Segment files sorted by `minSeq`; empty when the directory doesn't exist. Fails if the path exists but is not a
-    * directory.
-    */
-  private def segments: Vector[Segment] =
-    if !Files.exists(config.dataDir) then Vector.empty
-    else if !Files.isDirectory(config.dataDir) then
-      throw new java.nio.file.NotDirectoryException(config.dataDir.toString)
-    else
-      val listing = Files.list(config.dataDir)
-      try
-        listing
-          .iterator()
-          .asScala
-          .filter(_.getFileName.toString.endsWith(Suffix))
-          .map { path =>
-            val (minSeq, maxSeq) = parseRange(path.getFileName.toString)
-            Segment(path, minSeq, maxSeq)
-          }
-          .toVector
-          .sortBy(_.minSeq)
-      finally listing.close()
+    effect.delay(log.truncate(upToSeq))
 
 object JournalStoreLocal:
 
-  case class Config(dataDir: Path)
+  val DefaultMaxSegmentBytes: Long = 32L * 1024L * 1024L
+  val DefaultMaxEntryBytes: Int    = 16 * 1024 * 1024
 
-  final private case class Segment(path: Path, minSeq: Long, maxSeq: Long)
+  private[parapet] val MinimumSegmentBytes: Long = DeliveryLog.MinimumSegmentBytes
 
-  private val Suffix   = ".jrnl"
-  private val SeqWidth = 20 // decimal digits of Long.MaxValue
-
-  private def fileName(minSeq: Long, maxSeq: Long): String =
-    s"${pad(minSeq)}-${pad(maxSeq)}$Suffix"
-
-  private def pad(seq: Long): String =
-    String.format(s"%0${SeqWidth}d", seq)
-
-  private def parseRange(name: String): (Long, Long) =
-    val range = name.stripSuffix(Suffix).split('-') match
-      case Array(min, max) => min.toLongOption.zip(max.toLongOption)
-      case _               => None
-    range.getOrElse(throw new IllegalStateException(s"malformed journal segment file: $name"))
+  final case class Config(
+      dataDir: Path,
+      maxSegmentBytes: Long = DefaultMaxSegmentBytes,
+      maxEntryBytes: Int = DefaultMaxEntryBytes
+  )
