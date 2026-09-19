@@ -230,10 +230,10 @@ class Context[F[_]](
         bootMode = BootMode.Live
       } >> Monad.sequence(getProcesses.map(process => sendStartEvent(process.ref))).void
 
-  /** Highest delivery `seq` recorded in the journal, or `None`; seeds the delivery counter at boot. */
+  /** Durable journal delivery-sequence high-water, if any; seeds the delivery counter at boot. */
   private[parapet] def journalMaxSeq: F[Option[Long]] = recorder.fold(effect.pure(Option.empty[Long]))(_.maxSeq)
 
-  /** Highest envelope id the journal refers to, or `None` */
+  /** Durable journal envelope-id high-water, if any. */
   private[parapet] def journalMaxEnvelopeId: F[Option[Long]] =
     recorder.fold(effect.pure(Option.empty[Long]))(_.maxEnvelopeId)
 

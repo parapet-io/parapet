@@ -85,7 +85,12 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     val parentRef = ProcessRef[Event]("missing-marker-parent")
     val childRef  = ProcessRef[Event]("missing-marker-child")
     val config    = ParConfig.default.copy(
-      journal = JournalConfig(enabled = true, dataDir = dir.toString, batchSize = 1)
+      journal = JournalConfig(
+        enabled = true,
+        dataDir = dir.toString,
+        batchSize = 1,
+        maxSegmentBytes = RotateAfterEveryEntryBytes
+      )
     )
 
     val store1 = new EventStore[ParIO, Event]
@@ -123,7 +128,12 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     val parentRef = ProcessRef[Event]("tail-parent")
     val childRef  = ProcessRef[Event]("tail-child")
     val config    = ParConfig.default.copy(
-      journal = JournalConfig(enabled = true, dataDir = dir.toString, batchSize = 1)
+      journal = JournalConfig(
+        enabled = true,
+        dataDir = dir.toString,
+        batchSize = 1,
+        maxSegmentBytes = RotateAfterEveryEntryBytes
+      )
     )
 
     val store1 = new EventStore[ParIO, Event]
@@ -354,6 +364,8 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
   }
 
 object RecoveryIntgSpec:
+
+  private val RotateAfterEveryEntryBytes = JournalStoreLocal.MinimumSegmentBytes + 1L
 
   final case class Add(n: Int)                  extends Event
   final case class Acked(count: Long)           extends Event

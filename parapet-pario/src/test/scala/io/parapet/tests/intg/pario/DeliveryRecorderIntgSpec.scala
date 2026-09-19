@@ -11,7 +11,6 @@ import io.parapet.journal.{
   JournalConfig,
   JournalDraft,
   JournalEntry,
-  JournalSegment,
   JournalStore,
   JournalStoreLocal
 }
@@ -151,11 +150,11 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     private val calls          = new AtomicInteger(0)
     private val attempts       = new CopyOnWriteArrayList[Vector[JournalEntry]]()
     private val durableBatches = new CopyOnWriteArrayList[Vector[JournalEntry]]()
+    private val truncations    = new AtomicInteger(0)
 
-    override def append(segment: JournalSegment): ParIO[Unit] =
+    override def append(entries: Vector[JournalEntry]): ParIO[Unit] =
       ParIO.blocking {
-        val entries = segment.entries
-        val call    = calls.getAndIncrement()
+        val call = calls.getAndIncrement()
         attempts.add(entries)
         if call == 0 && gateFirst then
           firstEntered.countDown()
@@ -179,11 +178,17 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
         durableBatches.asScala.iterator.flatMap(_.iterator).flatMap(entry => Iterator(entry.id, entry.cause)).maxOption
       )
 
-    override def truncate(upToSeq: Long): ParIO[Unit] = ParIO.unit
+    override def truncate(upToSeq: Long): ParIO[Unit] =
+      ParIO.delay {
+        truncations.incrementAndGet()
+        ()
+      }
 
     def release(): Unit = releaseFirst.countDown()
 
     def appendAttempts: Vector[Vector[JournalEntry]] = attempts.asScala.toVector
+
+    def truncateCount: Int = truncations.get()
 
   // Observes recorder-owned blocking and sleeping without observing the fake store, which uses ParIO directly.
   final private class ProbeEffect(
@@ -237,6 +242,92 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     AdmissionScenario("partial-tail", workers = 5, perWorker = 47, batchSize = 31, samples = 2)
   )
 
+  test("buffered mode may return before a partial batch is durable") {
+    val config = JournalConfig.default.copy(batchSize = 4)
+    config.writeMode shouldBe JournalWriteMode.Buffered
+
+    val store    = new ControlledStore(gateFirst = false)
+    val recorder = DeliveryRecorder.fresh[ParIO](
+      store,
+      registry,
+      config
+    )
+
+    recorder.admit(draft(1L)).run() shouldBe 1L
+    store.appendAttempts shouldBe empty
+
+    recorder.flush().run()
+    store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L))
+    recorder.close().run()
+  }
+
+  test("write-ahead mode waits for the admitted delivery to become durable") {
+    val store    = new ControlledStore()
+    val recorder = DeliveryRecorder.fresh[ParIO](
+      store,
+      registry,
+      JournalConfig(batchSize = 4, writeMode = JournalWriteMode.WriteAhead)
+    )
+    var admission = Option.empty[Running[Long]]
+
+    try
+      val running = startThread("write-ahead-admit")(recorder.admit(draft(1L)).run())
+      admission = Some(running)
+      await(store.firstEntered, "write-ahead admission did not reach the store")
+
+      running.thread.isAlive shouldBe true
+      store.maxSeq.run() shouldBe None
+
+      store.release()
+      awaitOne(running, "write-ahead admission").get shouldBe 1L
+      store.maxSeq.run() shouldBe Some(1L)
+      store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L))
+      recorder.close().run()
+    finally
+      store.release()
+      stopThreads(admission.toVector.map(_.thread))
+  }
+
+  test("truncate publishes the buffered tail before discarding covered segments") {
+    val dir      = Files.createTempDirectory("recorder-truncate")
+    val recorder = DeliveryRecorder.fresh[ParIO](storeAt(dir), registry, JournalConfig(batchSize = 4))
+
+    recorder.admit(draft(1L)).run() shouldBe 1L
+    seqsOnDisk(dir) shouldBe empty
+
+    recorder.truncate(1L).run()
+
+    recorder.read(0L).run() shouldBe empty
+    recorder.maxSeq.run() shouldBe Some(1L)
+
+    recorder.admit(draft(2L)).run() shouldBe 2L
+    recorder.close().run()
+    seqsOnDisk(dir) shouldBe Vector(2L)
+  }
+
+  test("truncate does not reach the store when flushing the buffered tail fails") {
+    val boom     = new RuntimeException("disk full")
+    val store    = new ControlledStore(firstResult = Left(boom))
+    val recorder = DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 4))
+    var running  = Option.empty[Running[Unit]]
+
+    try
+      recorder.admit(draft(1L)).run() shouldBe 1L
+      val truncation = startThread("truncate-after-flush")(recorder.truncate(1L).run())
+      running = Some(truncation)
+      await(store.firstEntered, "truncate did not start flushing the buffered tail")
+
+      store.release()
+      val result = awaitOne(truncation, "truncate after failed flush")
+      result match
+        case Failure(error) => (error eq boom) shouldBe true
+        case Success(_)     => fail("truncate unexpectedly succeeded")
+      store.truncateCount shouldBe 0
+    finally
+      store.release()
+      stopThreads(running.toVector.map(_.thread))
+  }
+
   test("single-writer admits produce contiguous, non-overlapping local segments") {
     val dir      = Files.createTempDirectory("recorder-single")
     val recorder = DeliveryRecorder.fresh[ParIO](storeAt(dir), registry, JournalConfig(batchSize = 4))
@@ -254,7 +345,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
         val recorder = DeliveryRecorder.fresh[ParIO](
           store,
           registry,
-          JournalConfig(batchSize = scenario.batchSize, maxRetries = 0)
+          JournalConfig(batchSize = scenario.batchSize)
         )
         val barrier = new CyclicBarrier(scenario.workers)
         val nextId  = new AtomicLong(0L)
@@ -295,7 +386,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val waiterProbe = new CountDownLatch(3)
     val probe       = new ProbeEffect(summon[Effect[ParIO]], deferredWaitEntered = waiterProbe)
     val recorder    =
-      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 2, maxRetries = 0))(using probe)
+      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 2))(using probe)
     val completed = new LinkedBlockingQueue[Try[Long]]()
     var running   = Vector.empty[Running[Long]]
 
@@ -340,7 +431,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val waiterProbe = new CountDownLatch(1)
     val probe       = new ProbeEffect(summon[Effect[ParIO]], deferredWaitEntered = waiterProbe)
     val recorder    =
-      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 1, maxRetries = 0))(using probe)
+      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 1))(using probe)
     var threads = Vector.empty[Thread]
 
     try
@@ -370,7 +461,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val waiterProbe = new CountDownLatch(3)
     val probe       = new ProbeEffect(summon[Effect[ParIO]], deferredWaitEntered = waiterProbe)
     val recorder    =
-      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 2, maxRetries = 0))(using probe)
+      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 2))(using probe)
     val completed = new LinkedBlockingQueue[Try[Long]]()
     var running   = Vector.empty[Running[Long]]
 
@@ -421,7 +512,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val closeProbe = new CountDownLatch(1)
     val probe      = new ProbeEffect(summon[Effect[ParIO]], drainPollEntered = closeProbe)
     val recorder   =
-      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 4, maxRetries = 0))(using probe)
+      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 4))(using probe)
     var running = Vector.empty[Running[Unit]]
 
     try
@@ -451,7 +542,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
   test("sequenceOnly creates gaps without overlapping publication ranges") {
     val store    = new ControlledStore(gateFirst = false)
-    val recorder = DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 2, maxRetries = 0))
+    val recorder = DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 2))
 
     recorder.admit(draft(1L)).run() shouldBe 1L
     recorder.advanceSequence().run() shouldBe 2L
@@ -467,7 +558,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       store,
       highWater = Long.MaxValue - 1L,
       registry = registry,
-      config = JournalConfig(batchSize = 4, maxRetries = 0)
+      config = JournalConfig(batchSize = 4)
     )
 
     recorder.admit(draft(1L)).run() shouldBe Long.MaxValue
@@ -506,11 +597,6 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       storeAt(Files.createTempDirectory("r")),
       registry,
       JournalConfig(batchSize = 0)
-    )
-    an[IllegalArgumentException] should be thrownBy DeliveryRecorder.fresh[ParIO](
-      storeAt(Files.createTempDirectory("r")),
-      registry,
-      JournalConfig(maxRetries = -1)
     )
     an[IllegalArgumentException] should be thrownBy DeliveryRecorder.resume[ParIO](
       storeAt(Files.createTempDirectory("r")),

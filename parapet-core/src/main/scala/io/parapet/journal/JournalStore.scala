@@ -3,25 +3,24 @@ package io.parapet.journal
 /** Durable store for the delivery journal. */
 trait JournalStore[F[_]]:
 
-  /** Persists `segment` as one unit. Its entries are expected in ascending `seq` order. Each attempt is atomic: it
-    * leaves either none or the complete segment durable; an error may be ambiguous between those two outcomes. Because
-    * a caller may retry after such an error, appending the same segment again must be idempotent and must not create
-    * duplicate logical entries.
+  /** Appends `entries` in ascending `seq` order above the durable high-water. Successful completion means every entry
+    * satisfies the store's configured durability guarantee. An append error is terminal for the writer.
     */
-  def append(segment: JournalSegment): F[Unit]
+  def append(entries: Vector[JournalEntry]): F[Unit]
 
-  /** All intact entries with `seq > afterSeq`, in ascending `seq` order, merged across segments. */
+  /** All intact entries with `seq > afterSeq`, in ascending `seq` order. */
   def read(afterSeq: Long): F[Vector[JournalEntry]]
 
-  /** The highest `seq` stored, if any - the delivery-sequence high-water for resuming after recovery. */
+  /** The durable delivery-sequence high-water, including discarded entries, if any. */
   def maxSeq: F[Option[Long]]
 
-  /** The highest envelope id the journal refers to - the greater of any entry's own `id` and any entry's `cause` - if
-    * any.
+  /** The durable envelope-id high-water: the greatest entry `id` or `cause` ever recorded, including discarded entries,
+    * if any.
     */
   def maxEnvelopeId: F[Option[Long]]
 
   /** Drops every segment whose entries are all `<= upToSeq` (dead once covered by snapshots). Segments straddling
-    * `upToSeq` are kept whole.
+    * `upToSeq` are kept whole. Callers recording through [[DeliveryRecorder]] use [[DeliveryRecorder.truncate]] so
+    * buffered admissions are published first.
     */
   def truncate(upToSeq: Long): F[Unit]
