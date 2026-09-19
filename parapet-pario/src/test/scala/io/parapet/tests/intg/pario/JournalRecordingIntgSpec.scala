@@ -68,10 +68,10 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
       )
     )
     val app = new ParIOApp:
-      override val config: ParConfig = appConfig
+      override val config: ParConfig                                             = appConfig
       override def processes(args: Array[String]): ParIO[Seq[Process[ParIO, ?]]] =
         ParIO.pure(Seq(counter, driver))
-      override def eventCodecs: EventCodecRegistry = codecs
+      override def eventCodecs: EventCodecRegistry     = codecs
       override def journalStorage: JournalStore[ParIO] = gatedStore
 
     val outcome = new AtomicReference[Try[Unit]]()
@@ -122,13 +122,12 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
 
 object JournalRecordingIntgSpec:
 
-  private final class GatedJournalStore(delegate: JournalStore[ParIO]) extends JournalStore[ParIO]:
+  final private class GatedJournalStore(delegate: JournalStore[ParIO]) extends JournalStore[ParIO]:
     private val appendEntered = new CountDownLatch(1)
     private val allowAppend   = new CountDownLatch(1)
 
     def awaitAppend(): Unit =
-      if !appendEntered.await(10L, TimeUnit.SECONDS) then
-        throw new TimeoutException("journal append did not start")
+      if !appendEntered.await(10L, TimeUnit.SECONDS) then throw new TimeoutException("journal append did not start")
 
     def release(): Unit = allowAppend.countDown()
 

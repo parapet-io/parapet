@@ -14,7 +14,7 @@ class JournalStoreLocal[F[_]](
 
   private val logger = LoggerFactory.getLogger(classOf[JournalStoreLocal[?]])
   private val log    = new DeliveryLog(
-    DeliveryLog.Config(config.dataDir, config.maxSegmentBytes, config.maxEntryBytes),
+    DeliveryLog.Config(config.dataDir, config.maxSegmentBytes, config.maxEntryBytes, config.durability),
     clock = clock
   )
 
@@ -44,8 +44,20 @@ object JournalStoreLocal:
 
   private[parapet] val MinimumSegmentBytes: Long = DeliveryLog.MinimumSegmentBytes
 
+  /** Local delivery-log configuration.
+    *
+    * @param dataDir
+    *   directory containing delivery-log files.
+    * @param maxSegmentBytes
+    *   target size at which an active segment is sealed.
+    * @param maxEntryBytes
+    *   maximum encoded size accepted for one delivery.
+    * @param durability
+    *   storage guarantee acknowledged by a successful append.
+    */
   final case class Config(
       dataDir: Path,
       maxSegmentBytes: Long = DefaultMaxSegmentBytes,
-      maxEntryBytes: Int = DefaultMaxEntryBytes
+      maxEntryBytes: Int = DefaultMaxEntryBytes,
+      durability: JournalDurability = JournalDurability.HostCrash
   )

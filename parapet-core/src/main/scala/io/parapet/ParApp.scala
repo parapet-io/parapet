@@ -92,7 +92,8 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
       JournalStoreLocal.Config(
         Path.of(config.journal.dataDir),
         config.journal.maxSegmentBytes,
-        config.journal.maxEntryBytes
+        config.journal.maxEntryBytes,
+        config.journal.durability
       )
     )
 
@@ -166,11 +167,24 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
         codecRegistry = eventCodecs
       )
       interp = interpreter(context)
-      scheduler         <- Scheduler(config.schedulerConfig, context, interp)
-      _                 <- context.bind(scheduler)
-      deadLetterProcess <- deadLetter
-      _                 <- context.boot(ps.toList :+ deadLetterProcess, interp)
-      _                 <- scheduler.start
+      scheduler <- Scheduler(config.schedulerConfig, context, interp)
+      application =
+        for
+          _                 <- context.bind(scheduler)
+          deadLetterProcess <- deadLetter
+          _                 <- context.boot(ps.toList :+ deadLetterProcess, interp)
+          _                 <- scheduler.start
+        yield ()
+      supervisedApplication = context.recorder match
+        case None => application
+        case Some(recorder) =>
+          for
+            _ <- effect.race(
+              effect.guarantee(application)(recorder.close()),
+              recorder.runWriter
+            )
+          yield ()
+      _ <- supervisedApplication
     yield ()
 
   /** Standard JVM entry point; runs [[run]] under [[unsafeRun]]. Subclasses normally do not need to override this.

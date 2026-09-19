@@ -5,8 +5,16 @@ enum JournalWriteMode:
   /** Admissions may return while their delivery remains buffered. */
   case Buffered
 
-  /** Every admission returns only after its delivery and all earlier admissions are durable. */
+  /** Every admission waits until its delivery and all earlier admissions satisfy the configured storage guarantee. */
   case WriteAhead
+
+/** Controls the storage guarantee acknowledged by a successful journal append. */
+enum JournalDurability:
+  /** File data and metadata are forced before append completion. */
+  case HostCrash
+
+  /** Append completes when the operating system has accepted the bytes into its page cache. */
+  case ProcessCrash
 
 /** Tuning for [[DeliveryRecorder]].
   *
@@ -20,7 +28,9 @@ enum JournalWriteMode:
   * @param batchSize
   *   maximum entries in a buffered batch.
   * @param writeMode
-  *   durability guarantee applied to each delivery admission.
+  *   whether delivery admission waits for the configured storage guarantee.
+  * @param durability
+  *   storage guarantee acknowledged by each journal append.
   * @param maxSegmentBytes
   *   target size at which the active journal file is sealed and rotated.
   * @param maxEntryBytes
@@ -32,6 +42,7 @@ final case class JournalConfig(
     dataDir: String = "parapet-journal",
     batchSize: Int = JournalConfig.DefaultBatchSize,
     writeMode: JournalWriteMode = JournalWriteMode.Buffered,
+    durability: JournalDurability = JournalDurability.HostCrash,
     maxSegmentBytes: Long = JournalStoreLocal.DefaultMaxSegmentBytes,
     maxEntryBytes: Int = JournalStoreLocal.DefaultMaxEntryBytes
 )

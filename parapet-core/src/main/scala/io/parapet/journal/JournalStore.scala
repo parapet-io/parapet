@@ -4,7 +4,7 @@ package io.parapet.journal
 trait JournalStore[F[_]]:
 
   /** Appends `entries` in ascending `seq` order above the durable high-water. Successful completion means every entry
-    * is durable. An append error is terminal for the writer.
+    * satisfies the store's configured durability guarantee. An append error is terminal for the writer.
     */
   def append(entries: Vector[JournalEntry]): F[Unit]
 
@@ -20,7 +20,7 @@ trait JournalStore[F[_]]:
   def maxEnvelopeId: F[Option[Long]]
 
   /** Drops every segment whose entries are all `<= upToSeq` (dead once covered by snapshots). Segments straddling
-    * `upToSeq` are kept whole. Callers recording through [[DeliveryRecorder]] use
-    * [[DeliveryRecorder.truncate]] so buffered admissions are published first.
+    * `upToSeq` are kept whole. Callers recording through [[DeliveryRecorder]] use [[DeliveryRecorder.truncate]] so
+    * buffered admissions are published first.
     */
   def truncate(upToSeq: Long): F[Unit]

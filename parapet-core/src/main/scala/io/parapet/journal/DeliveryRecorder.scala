@@ -11,9 +11,9 @@ import scala.util.{Failure, Success}
   * Admission is totally ordered: `seq` is assigned in the same step that admits the delivery, so admission order equals
   * `seq` order. Calls to [[advanceSequence]] may leave gaps between recorded positions.
   *
-  * In [[JournalWriteMode.Buffered]] mode, an [[admit]] that fills a batch waits for that batch to be stored. In
-  * [[JournalWriteMode.WriteAhead]] mode, every [[admit]] waits for its delivery and all earlier admissions to be
-  * stored. A write failure is terminal and causes every in-flight and subsequent operation to fail.
+  * In [[JournalWriteMode.Buffered]] mode, [[admit]] returns after admission. In [[JournalWriteMode.WriteAhead]] mode,
+  * it waits for its delivery and all earlier admissions to be stored. A write failure is terminal and causes every
+  * durability waiter and subsequent operation to fail.
   */
 final class DeliveryRecorder[F[_]] private (
     store: JournalStore[F],
@@ -34,13 +34,17 @@ final class DeliveryRecorder[F[_]] private (
     encode(draft).flatMap { encoded =>
       config.writeMode match
         case JournalWriteMode.Buffered   => recorder.admit(encoded)
-        case JournalWriteMode.WriteAhead => recorder.admitAndFlush(encoded)
+        case JournalWriteMode.WriteAhead => recorder.admitDurable(encoded)
     }
 
   /** Establishes the delivery's global position and waits until it and all earlier admissions have been stored. */
   def admitAndFlush(draft: JournalDraft): F[Long] =
-    encode(draft).flatMap(encoded => recorder.admitAndFlush(encoded))
+    encode(draft).flatMap(encoded => recorder.admitDurable(encoded))
 
+  /** Publishes admitted deliveries until [[close]] is called. The runtime supervises this effect. */
+  private[parapet] def runWriter: F[Unit] = recorder.runWriter
+
+  /** Encodes the event carried by `draft` into the representation accepted by the delivery store. */
   private def encode(draft: JournalDraft): F[EncodedDraft] =
     effect.suspend {
       registry.codecFor(draft.event) match
@@ -103,6 +107,7 @@ object DeliveryRecorder:
   final private class DeliveryStore[F[_]](store: JournalStore[F])(using effect: Effect[F])
       extends Recorder.Store[F, EncodedDraft]:
 
+    /** Publishes recorder entries to the journal store in recorder order. */
     def append(entries: Vector[Recorder.Entry[EncodedDraft]]): F[Unit] =
       effect
         .delay {
@@ -143,6 +148,7 @@ object DeliveryRecorder:
   )(using Effect[F]): DeliveryRecorder[F] =
     create(store, config, highWater, registry)
 
+  /** Creates a delivery recorder with the supplied recovered high-water position. */
   private def create[F[_]](
       store: JournalStore[F],
       config: JournalConfig,

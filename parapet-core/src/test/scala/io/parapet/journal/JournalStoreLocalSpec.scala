@@ -21,11 +21,14 @@ class JournalStoreLocalSpec extends AnyFunSuite:
   private def newStore(
       dir: Path = Files.createTempDirectory("journal-spec"),
       maxSegmentBytes: Long = JournalStoreLocal.DefaultMaxSegmentBytes,
-      maxEntryBytes: Int = JournalStoreLocal.DefaultMaxEntryBytes
+      maxEntryBytes: Int = JournalStoreLocal.DefaultMaxEntryBytes,
+      durability: JournalDurability = JournalDurability.HostCrash
   ) =
     (
       dir,
-      new JournalStoreLocal[TestIO](JournalStoreLocal.Config(dir, maxSegmentBytes, maxEntryBytes))
+      new JournalStoreLocal[TestIO](
+        JournalStoreLocal.Config(dir, maxSegmentBytes, maxEntryBytes, durability)
+      )
     )
 
   private def seqs(entries: Vector[JournalEntry]): Vector[Long] = entries.map(_.seq)
@@ -52,6 +55,21 @@ class JournalStoreLocalSpec extends AnyFunSuite:
   private def highWaterFile(dir: Path): Path = dir.resolve(DeliveryLog.HighWaterFileName)
 
   private def highWaterTempFile(dir: Path): Path = dir.resolve(DeliveryLog.HighWaterTempFileName)
+
+  test("host-crash durability is the default") {
+    val localConfig = JournalStoreLocal.Config(Files.createTempDirectory("journal-durability-default"))
+
+    JournalConfig.default.durability shouldBe JournalDurability.HostCrash
+    localConfig.durability shouldBe JournalDurability.HostCrash
+  }
+
+  test("process-crash durability appends and recovers entries") {
+    val (dir, store) = newStore(durability = JournalDurability.ProcessCrash)
+    store.append(Vector(entry(1), entry(2))).unsafeRun()
+
+    val (_, recovered) = newStore(dir, durability = JournalDurability.ProcessCrash)
+    seqs(recovered.read(0L).unsafeRun()) shouldBe Vector(1L, 2L)
+  }
 
   test("append then read returns entries after the given seq") {
     val (_, store) = newStore()

@@ -277,12 +277,18 @@ final private[journal] class DeliveryLog(
         channel.position(metadata.entriesEndOffset)
 
       frames.foreach(frame => writeFully(channel, ByteBuffer.wrap(frame)))
-      channel.force(true)
+      forceAppend(channel)
     finally channel.close()
 
     if create then forceDataDirectory()
 
     updated
+
+  /** Applies the configured durability barrier to an ordinary entry append. */
+  private def forceAppend(channel: FileChannel): Unit =
+    config.durability match
+      case JournalDurability.HostCrash    => channel.force(true)
+      case JournalDurability.ProcessCrash => ()
 
   private def sealActive(metadata: Metadata): Unit =
     val sealedMetadataForFile = metadata.copy(state = SegmentState.Sealed(clock.currentTimeMillis))
@@ -596,7 +602,8 @@ private[journal] object DeliveryLog:
   final case class Config(
       dataDir: Path,
       maxSegmentBytes: Long,
-      maxEntryBytes: Int
+      maxEntryBytes: Int,
+      durability: JournalDurability = JournalDurability.HostCrash
   )
 
   final class CorruptLogException(message: String) extends RuntimeException(message)

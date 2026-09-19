@@ -5,7 +5,10 @@ import io.parapet.journal.Recorder.{Config, Entry, Store}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.{ConcurrentHashMap, CountDownLatch, TimeUnit}
 import scala.collection.mutable.ListBuffer
+import scala.jdk.CollectionConverters.*
 
 class RecorderSpec extends AnyFunSuite:
 
