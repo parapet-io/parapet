@@ -531,6 +531,7 @@ final private[journal] class DeliveryLog(
     forceDirectory(config.dataDir)
 
   private def forceDirectory(path: Path): Unit =
+    if (System.getProperty("os.name").startsWith("Windows")) return // Directory fsync is not supported on Windows
     val channel = FileChannel.open(path, StandardOpenOption.READ)
     try channel.force(true)
     finally channel.close()
