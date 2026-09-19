@@ -61,7 +61,8 @@ class RecorderSpec extends AnyFunSuite:
         val outcome =
           try Success(body)
           catch case error: Throwable => Failure(error)
-        result.set(outcome),
+        result.set(outcome)
+      ,
       name
     )
     thread.start()

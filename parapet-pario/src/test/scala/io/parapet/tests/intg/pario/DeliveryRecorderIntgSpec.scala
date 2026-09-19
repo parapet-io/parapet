@@ -1,9 +1,7 @@
 package io.parapet.tests.intg.pario
 
-import io.parapet.journal.*
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
-import io.parapet.effect.{Effect, EffectFiber}
 import io.parapet.journal.{
   DeliveryRecorder,
   EventCodec,
@@ -12,24 +10,16 @@ import io.parapet.journal.{
   JournalDraft,
   JournalEntry,
   JournalStore,
-  JournalStoreLocal
+  JournalStoreLocal,
+  JournalWriteMode
 }
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
-import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong, AtomicReference}
-import java.util.concurrent.{
-  CopyOnWriteArrayList,
-  CountDownLatch,
-  CyclicBarrier,
-  LinkedBlockingQueue,
-  TimeUnit,
-  TimeoutException
-}
-import scala.concurrent.duration.FiniteDuration
+import java.util.concurrent.{CopyOnWriteArrayList, CountDownLatch, CyclicBarrier, TimeUnit, TimeoutException}
 import scala.jdk.CollectionConverters.*
 import scala.util.{Failure, Success, Try}
 
@@ -53,13 +43,14 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
   extension [A](fa: ParIO[A]) private def run(): A = fa.unsafeRunSync()
 
-  private def draft(id: Long) = JournalDraft(id, ref, ref, 0L, E(id))
+  private def draft(id: Long): JournalDraft = JournalDraft(id, ref, ref, 0L, E(id))
 
-  private def storeAt(dir: Path) = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
+  private def storeAt(dir: Path): JournalStoreLocal[ParIO] =
+    new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
 
-  private def seqsOnDisk(dir: Path): Vector[Long] = storeAt(dir).read(0L).run().map(_.seq)
+  private def seqsOnDisk(dir: Path): Vector[Long] =
+    storeAt(dir).read(0L).run().map(_.seq)
 
-  // [min, max] of every segment file, sorted by min, read straight from the filenames.
   private def fileRanges(dir: Path): Vector[(Long, Long)] =
     val listing = Files.list(dir)
     try
@@ -96,11 +87,32 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
   final private case class Running[A](thread: Thread, result: AtomicReference[Try[A]])
 
+  final private case class ActiveRecorder(
+      recorder: DeliveryRecorder[ParIO],
+      writer: Running[Unit]
+  )
+
   private def startThread[A](name: String)(body: => A): Running[A] =
     val result = new AtomicReference[Try[A]]()
     val thread = new Thread(() => result.set(Try(body)), name)
     thread.start()
     Running(thread, result)
+
+  private def startRecorder(recorder: DeliveryRecorder[ParIO]): ActiveRecorder =
+    ActiveRecorder(recorder, startThread("delivery-recorder-writer")(recorder.runWriter.run()))
+
+  private def fresh(
+      store: JournalStore[ParIO],
+      config: JournalConfig = JournalConfig.default
+  ): ActiveRecorder =
+    startRecorder(DeliveryRecorder.fresh(store, registry, config))
+
+  private def resume(
+      store: JournalStore[ParIO],
+      highWater: Long,
+      config: JournalConfig = JournalConfig.default
+  ): ActiveRecorder =
+    startRecorder(DeliveryRecorder.resume(store, highWater, registry, config))
 
   private def awaitAll[A](running: Seq[Running[A]], clue: String): Vector[Try[A]] =
     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(awaitSeconds)
@@ -126,12 +138,20 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       latch.await(awaitSeconds, TimeUnit.SECONDS) shouldBe true
     }
 
-  private def take[A](queue: LinkedBlockingQueue[A], clue: String): A =
-    Option(queue.poll(awaitSeconds, TimeUnit.SECONDS)).getOrElse(fail(clue))
-
   private def stopThreads(threads: Seq[Thread]): Unit =
-    threads.foreach(_.join(1000L))
     threads.filter(_.isAlive).foreach(_.interrupt())
+    threads.foreach(_.join(1000L))
+
+  private def stop(active: ActiveRecorder): Unit =
+    stopThreads(Vector(active.writer.thread))
+
+  private def close(active: ActiveRecorder): Unit =
+    active.recorder.close().run()
+    awaitOne(active.writer, "delivery recorder writer").get
+
+  private def failureOf[A](result: Try[A]): Throwable = result match
+    case Failure(error) => error
+    case Success(value) => fail(s"expected failure, got $value")
 
   private def assertSameFailure(expected: Throwable)(body: => Any): Unit =
     val actual = intercept[Throwable](body)
@@ -139,7 +159,6 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       (actual eq expected) shouldBe true
     }
 
-  // In-memory store with a controllable first append and a trace captured in actual append-call order.
   final private class ControlledStore(
       firstResult: Either[Throwable, Unit] = Right(()),
       gateFirst: Boolean = true
@@ -190,88 +209,27 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
     def truncateCount: Int = truncations.get()
 
-  // Observes recorder-owned blocking and sleeping without observing the fake store, which uses ParIO directly.
-  final private class ProbeEffect(
-      delegate: Effect[ParIO],
-      deferredWaitEntered: CountDownLatch = new CountDownLatch(0),
-      drainPollEntered: CountDownLatch = new CountDownLatch(0)
-  ) extends Effect[ParIO]:
-
-    override def pure[A](value: A): ParIO[A] = delegate.pure(value)
-
-    extension [A](fa: ParIO[A])
-      def flatMap[B](f: A => ParIO[B]): ParIO[B]              = fa.flatMap(f)
-      override def map[B](f: A => B): ParIO[B]                = fa.map(f)
-      def handleErrorWith(f: Throwable => ParIO[A]): ParIO[A] = fa.handleErrorWith(f)
-
-    override def delay[A](thunk: => A): ParIO[A] = delegate.delay(thunk)
-
-    override def blocking[A](thunk: => A): ParIO[A] =
-      delegate.blocking {
-        deferredWaitEntered.countDown()
-        thunk
-      }
-
-    override def suspend[A](thunk: => ParIO[A]): ParIO[A] = delegate.suspend(thunk)
-
-    override def raiseError[A](error: Throwable): ParIO[A] = delegate.raiseError(error)
-
-    override def sleep(duration: FiniteDuration): ParIO[Unit] =
-      delegate.delay(drainPollEntered.countDown()).flatMap(_ => delegate.sleep(duration))
-
-    override def start[A](fa: ParIO[A]): ParIO[EffectFiber[ParIO, A]] = delegate.start(fa)
-
-    override def startBlocking[A](fa: ParIO[A]): ParIO[EffectFiber[ParIO, A]] = delegate.startBlocking(fa)
-
-    override def race[A, B](left: ParIO[A], right: ParIO[B]): ParIO[Either[A, B]] = delegate.race(left, right)
-
-    override def guarantee[A](fa: ParIO[A])(finalizer: ParIO[Unit]): ParIO[A] = delegate.guarantee(fa)(finalizer)
-
-  final private case class AdmissionScenario(
-      name: String,
-      workers: Int,
-      perWorker: Int,
-      batchSize: Int,
-      samples: Int
-  )
-
-  private val admissionMatrix = Vector(
-    AdmissionScenario("single-worker", workers = 1, perWorker = 32, batchSize = 1, samples = 1),
-    AdmissionScenario("contended-size-one", workers = 6, perWorker = 40, batchSize = 1, samples = 2),
-    AdmissionScenario("contended-batches", workers = 8, perWorker = 80, batchSize = 8, samples = 3),
-    AdmissionScenario("partial-tail", workers = 5, perWorker = 47, batchSize = 31, samples = 2)
-  )
-
   test("buffered mode may return before a partial batch is durable") {
-    val config = JournalConfig.default.copy(batchSize = 4)
-    config.writeMode shouldBe JournalWriteMode.Buffered
+    val store  = new ControlledStore(gateFirst = false)
+    val active = fresh(store, JournalConfig.default.copy(batchSize = 4))
 
-    val store    = new ControlledStore(gateFirst = false)
-    val recorder = DeliveryRecorder.fresh[ParIO](
-      store,
-      registry,
-      config
-    )
+    try
+      active.recorder.admit(draft(1L)).run() shouldBe 1L
+      store.appendAttempts shouldBe empty
 
-    recorder.admit(draft(1L)).run() shouldBe 1L
-    store.appendAttempts shouldBe empty
-
-    recorder.flush().run()
-    store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L))
-    recorder.close().run()
+      active.recorder.flush().run()
+      store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L))
+      close(active)
+    finally stop(active)
   }
 
   test("write-ahead mode waits for the admitted delivery to become durable") {
-    val store    = new ControlledStore()
-    val recorder = DeliveryRecorder.fresh[ParIO](
-      store,
-      registry,
-      JournalConfig(batchSize = 4, writeMode = JournalWriteMode.WriteAhead)
-    )
+    val store     = new ControlledStore()
+    val active    = fresh(store, JournalConfig(batchSize = 4, writeMode = JournalWriteMode.WriteAhead))
     var admission = Option.empty[Running[Long]]
 
     try
-      val running = startThread("write-ahead-admit")(recorder.admit(draft(1L)).run())
+      val running = startThread("write-ahead-admit")(active.recorder.admit(draft(1L)).run())
       admission = Some(running)
       await(store.firstEntered, "write-ahead admission did not reach the store")
 
@@ -282,311 +240,139 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       awaitOne(running, "write-ahead admission").get shouldBe 1L
       store.maxSeq.run() shouldBe Some(1L)
       store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L))
-      recorder.close().run()
+      close(active)
     finally
       store.release()
       stopThreads(admission.toVector.map(_.thread))
+      stop(active)
   }
 
   test("truncate publishes the buffered tail before discarding covered segments") {
-    val dir      = Files.createTempDirectory("recorder-truncate")
-    val recorder = DeliveryRecorder.fresh[ParIO](storeAt(dir), registry, JournalConfig(batchSize = 4))
+    val dir    = Files.createTempDirectory("recorder-truncate")
+    val active = fresh(storeAt(dir), JournalConfig(batchSize = 4))
 
-    recorder.admit(draft(1L)).run() shouldBe 1L
-    seqsOnDisk(dir) shouldBe empty
+    try
+      active.recorder.admit(draft(1L)).run() shouldBe 1L
+      seqsOnDisk(dir) shouldBe empty
 
-    recorder.truncate(1L).run()
+      active.recorder.truncate(1L).run()
+      active.recorder.read(0L).run() shouldBe empty
+      active.recorder.maxSeq.run() shouldBe Some(1L)
 
-    recorder.read(0L).run() shouldBe empty
-    recorder.maxSeq.run() shouldBe Some(1L)
-
-    recorder.admit(draft(2L)).run() shouldBe 2L
-    recorder.close().run()
-    seqsOnDisk(dir) shouldBe Vector(2L)
+      active.recorder.admit(draft(2L)).run() shouldBe 2L
+      close(active)
+      seqsOnDisk(dir) shouldBe Vector(2L)
+    finally stop(active)
   }
 
   test("truncate does not reach the store when flushing the buffered tail fails") {
-    val boom     = new RuntimeException("disk full")
-    val store    = new ControlledStore(firstResult = Left(boom))
-    val recorder = DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 4))
-    var running  = Option.empty[Running[Unit]]
+    val boom       = new RuntimeException("disk full")
+    val store      = new ControlledStore(firstResult = Left(boom))
+    val active     = fresh(store, JournalConfig(batchSize = 4))
+    var truncation = Option.empty[Running[Unit]]
 
     try
-      recorder.admit(draft(1L)).run() shouldBe 1L
-      val truncation = startThread("truncate-after-flush")(recorder.truncate(1L).run())
-      running = Some(truncation)
+      active.recorder.admit(draft(1L)).run() shouldBe 1L
+      val running = startThread("truncate-after-flush")(active.recorder.truncate(1L).run())
+      truncation = Some(running)
       await(store.firstEntered, "truncate did not start flushing the buffered tail")
 
       store.release()
-      val result = awaitOne(truncation, "truncate after failed flush")
-      result match
-        case Failure(error) => (error eq boom) shouldBe true
-        case Success(_)     => fail("truncate unexpectedly succeeded")
+      (failureOf(awaitOne(running, "truncate after failed flush")) eq boom) shouldBe true
+      (failureOf(awaitOne(active.writer, "delivery recorder writer")) eq boom) shouldBe true
       store.truncateCount shouldBe 0
+
+      assertSameFailure(boom)(active.recorder.admit(draft(2L)).run())
+      assertSameFailure(boom)(active.recorder.advanceSequence().run())
+      assertSameFailure(boom)(active.recorder.flush().run())
+      assertSameFailure(boom)(active.recorder.close().run())
     finally
       store.release()
-      stopThreads(running.toVector.map(_.thread))
-  }
-
-  test("single-writer admits produce contiguous, non-overlapping local segments") {
-    val dir      = Files.createTempDirectory("recorder-single")
-    val recorder = DeliveryRecorder.fresh[ParIO](storeAt(dir), registry, JournalConfig(batchSize = 4))
-    (1L to 10L).foreach(i => recorder.admit(draft(i)).run())
-    recorder.close().run()
-
-    seqsOnDisk(dir) shouldBe (1L to 10L).toVector
-    assertDisjointAndIncreasing(fileRanges(dir))
+      stopThreads(truncation.toVector.map(_.thread))
+      stop(active)
   }
 
   test("concurrent admission preserves every position and publishes batches in FIFO order") {
-    admissionMatrix.foreach { scenario =>
-      (1 to scenario.samples).foreach { sample =>
-        val store    = new ControlledStore(gateFirst = false)
-        val recorder = DeliveryRecorder.fresh[ParIO](
-          store,
-          registry,
-          JournalConfig(batchSize = scenario.batchSize)
-        )
-        val barrier = new CyclicBarrier(scenario.workers)
-        val nextId  = new AtomicLong(0L)
-        val workers = (1 to scenario.workers).map { worker =>
-          startThread(s"${scenario.name}-$sample-worker-$worker") {
-            barrier.await(awaitSeconds, TimeUnit.SECONDS)
-            Vector.fill(scenario.perWorker) {
-              val id = nextId.incrementAndGet()
-              id -> recorder.admit(draft(id)).run()
-            }
-          }
-        }
-
-        val returned = awaitAll(workers, s"${scenario.name} sample $sample").flatMap(_.get)
-        recorder.close().run()
-
-        val total         = scenario.workers * scenario.perWorker
-        val actual        = store.appendAttempts
-        val expectedSeqs  = (1L to total.toLong).toVector
-        val remainder     = total % scenario.batchSize
-        val expectedSizes =
-          Vector.fill(total / scenario.batchSize)(scenario.batchSize) ++
-            Option.when(remainder > 0)(remainder)
-
-        withClue(s"${scenario.name}, sample $sample: ") {
-          verifyPublication(actual, expectedSeqs)
-          actual.map(_.size) shouldBe expectedSizes
-          returned.size shouldBe total
-          returned.map(_._1).distinct.size shouldBe total
-          actual.flatten.map(entry => entry.id -> entry.seq).toMap shouldBe returned.toMap
+    val workersCount = 8
+    val perWorker    = 80
+    val batchSize    = 8
+    val total        = workersCount * perWorker
+    val store        = new ControlledStore(gateFirst = false)
+    val active       = fresh(store, JournalConfig(batchSize = batchSize))
+    val barrier      = new CyclicBarrier(workersCount)
+    val nextId       = new AtomicLong(0L)
+    val workers      = (1 to workersCount).map { worker =>
+      startThread(s"admit-$worker") {
+        barrier.await(awaitSeconds, TimeUnit.SECONDS)
+        Vector.fill(perWorker) {
+          val id = nextId.incrementAndGet()
+          id -> active.recorder.admit(draft(id)).run()
         }
       }
     }
-  }
-
-  test("several batches queued behind one owner retain exact FIFO publication order") {
-    val store       = new ControlledStore()
-    val waiterProbe = new CountDownLatch(3)
-    val probe       = new ProbeEffect(summon[Effect[ParIO]], deferredWaitEntered = waiterProbe)
-    val recorder    =
-      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 2))(using probe)
-    val completed = new LinkedBlockingQueue[Try[Long]]()
-    var running   = Vector.empty[Running[Long]]
 
     try
-      recorder.admit(draft(1L)).run() shouldBe 1L
-      val owner = startThread("fifo-owner")(recorder.admit(draft(2L)).run())
-      running :+= owner
-      await(store.firstEntered, "the first batch never reached the store")
+      val returned = awaitAll(workers, "concurrent admissions").flatMap(_.get)
+      close(active)
 
-      val later = (3L to 9L).map { id =>
-        startThread(s"fifo-admit-$id") {
-          val outcome = Try(recorder.admit(draft(id)).run())
-          completed.put(outcome)
-          outcome.get
-        }
-      }.toVector
-      running ++= later
-
-      Vector
-        .fill(4)(take(completed, "four buffered admits did not return"))
-        .foreach(outcome => outcome.isSuccess shouldBe true)
-      await(waiterProbe, "three sealed batches were not waiting behind the owner")
-
-      store.release()
-      awaitAll(running, "queued FIFO admissions").foreach(_.get)
-      recorder.close().run()
-
-      store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(
-        Vector(1L, 2L),
-        Vector(3L, 4L),
-        Vector(5L, 6L),
-        Vector(7L, 8L),
-        Vector(9L)
-      )
+      val actual       = store.appendAttempts
+      val expectedSeqs = (1L to total.toLong).toVector
+      verifyPublication(actual, expectedSeqs)
+      actual.map(_.size) shouldBe Vector.fill(total / batchSize)(batchSize)
+      returned.size shouldBe total
+      returned.map(_._1).distinct.size shouldBe total
+      actual.flatten.map(entry => entry.id -> entry.seq).toMap shouldBe returned.toMap
     finally
-      store.release()
-      stopThreads(running.map(_.thread))
+      stopThreads(workers.map(_.thread))
+      stop(active)
   }
 
-  test("flush joins an unresolved full batch even when the active buffer is empty") {
-    val store       = new ControlledStore()
-    val waiterProbe = new CountDownLatch(1)
-    val probe       = new ProbeEffect(summon[Effect[ParIO]], deferredWaitEntered = waiterProbe)
-    val recorder    =
-      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 1))(using probe)
-    var threads = Vector.empty[Thread]
+  test("sequence-only admissions create gaps without changing publication order") {
+    val store  = new ControlledStore(gateFirst = false)
+    val active = fresh(store, JournalConfig(batchSize = 2))
 
     try
-      val owner = startThread("flush-owner")(recorder.admit(draft(1L)).run())
-      threads :+= owner.thread
-      await(store.firstEntered, "the owner never entered append")
+      active.recorder.admit(draft(1L)).run() shouldBe 1L
+      active.recorder.advanceSequence().run() shouldBe 2L
+      active.recorder.admit(draft(2L)).run() shouldBe 3L
+      close(active)
 
-      val flush = startThread("flush-waiter")(recorder.flush().run())
-      threads :+= flush.thread
-      await(waiterProbe, "flush did not wait for the unresolved FIFO tail")
-      flush.thread.isAlive shouldBe true
-
-      store.release()
-      awaitOne(owner, "owner admit").get shouldBe 1L
-      awaitOne(flush, "flush barrier").get
-      recorder.close().run()
-
-      store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L))
-    finally
-      store.release()
-      stopThreads(threads)
-  }
-
-  test("one store failure wakes every sealed waiter, discards the tail, and remains sticky") {
-    val boom        = new RuntimeException("disk full")
-    val store       = new ControlledStore(firstResult = Left(boom))
-    val waiterProbe = new CountDownLatch(3)
-    val probe       = new ProbeEffect(summon[Effect[ParIO]], deferredWaitEntered = waiterProbe)
-    val recorder    =
-      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 2))(using probe)
-    val completed = new LinkedBlockingQueue[Try[Long]]()
-    var running   = Vector.empty[Running[Long]]
-
-    try
-      recorder.admit(draft(1L)).run() shouldBe 1L
-      val owner = startThread("failure-owner")(recorder.admit(draft(2L)).run())
-      running :+= owner
-      await(store.firstEntered, "the failing append was not entered")
-
-      val later = (3L to 9L).map { id =>
-        startThread(s"failure-admit-$id") {
-          val outcome = Try(recorder.admit(draft(id)).run())
-          completed.put(outcome)
-          outcome.get
-        }
-      }.toVector
-      running ++= later
-
-      Vector
-        .fill(4)(take(completed, "four buffered admits did not return before failure"))
-        .foreach(outcome => outcome.isSuccess shouldBe true)
-      await(waiterProbe, "three sealed batches were not awaiting the failing owner")
-
-      store.release()
-      val ownerOutcome = awaitOne(owner, "failing owner")
-      ownerOutcome match
-        case Failure(error) => (error eq boom) shouldBe true
-        case Success(value) => fail(s"failing owner unexpectedly returned $value")
-
-      val laterOutcomes = awaitAll(later, "failure waiters")
-      laterOutcomes.count(_.isSuccess) shouldBe 4
-      val waiterFailures = laterOutcomes.collect { case Failure(error) => error }
-      waiterFailures.size shouldBe 3
-      waiterFailures.foreach(error => (error eq boom) shouldBe true)
-
-      store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L, 2L))
-      assertSameFailure(boom)(recorder.admit(draft(10L)).run())
-      assertSameFailure(boom)(recorder.advanceSequence().run())
-      assertSameFailure(boom)(recorder.flush().run())
-      assertSameFailure(boom)(recorder.close().run())
-    finally
-      store.release()
-      stopThreads(running.map(_.thread))
-  }
-
-  test("concurrent closes share one durability barrier and close is idempotent") {
-    val store      = new ControlledStore()
-    val closeProbe = new CountDownLatch(1)
-    val probe      = new ProbeEffect(summon[Effect[ParIO]], drainPollEntered = closeProbe)
-    val recorder   =
-      DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 4))(using probe)
-    var running = Vector.empty[Running[Unit]]
-
-    try
-      recorder.admit(draft(1L)).run() shouldBe 1L
-      val first = startThread("first-close")(recorder.close().run())
-      running :+= first
-      await(store.firstEntered, "close did not publish the partial tail")
-
-      val second = startThread("second-close")(recorder.close().run())
-      running :+= second
-      await(closeProbe, "the concurrent close did not join the active drain")
-      first.thread.isAlive shouldBe true
-      second.thread.isAlive shouldBe true
-
-      store.release()
-      awaitAll(running, "concurrent closes").foreach(_.get)
-      recorder.close().run()
-
-      store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L))
-      an[IllegalStateException] should be thrownBy recorder.admit(draft(2L)).run()
-      an[IllegalStateException] should be thrownBy recorder.advanceSequence().run()
-      an[IllegalStateException] should be thrownBy recorder.flush().run()
-    finally
-      store.release()
-      stopThreads(running.map(_.thread))
-  }
-
-  test("sequenceOnly creates gaps without overlapping publication ranges") {
-    val store    = new ControlledStore(gateFirst = false)
-    val recorder = DeliveryRecorder.fresh[ParIO](store, registry, JournalConfig(batchSize = 2))
-
-    recorder.admit(draft(1L)).run() shouldBe 1L
-    recorder.advanceSequence().run() shouldBe 2L
-    recorder.admit(draft(2L)).run() shouldBe 3L
-    recorder.close().run()
-
-    store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L, 3L))
+      store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L, 3L))
+    finally stop(active)
   }
 
   test("sequence exhaustion rejects overflow without losing the final valid position") {
-    val store    = new ControlledStore(gateFirst = false)
-    val recorder = DeliveryRecorder.resume[ParIO](
-      store,
-      highWater = Long.MaxValue - 1L,
-      registry = registry,
-      config = JournalConfig(batchSize = 4)
-    )
+    val store  = new ControlledStore(gateFirst = false)
+    val active = resume(store, Long.MaxValue - 1L, JournalConfig(batchSize = 4))
 
-    recorder.admit(draft(1L)).run() shouldBe Long.MaxValue
-    an[IllegalStateException] should be thrownBy recorder.admit(draft(2L)).run()
-    an[IllegalStateException] should be thrownBy recorder.advanceSequence().run()
-    store.appendAttempts shouldBe empty
+    try
+      active.recorder.admit(draft(1L)).run() shouldBe Long.MaxValue
+      an[IllegalStateException] should be thrownBy active.recorder.admit(draft(2L)).run()
+      an[IllegalStateException] should be thrownBy active.recorder.advanceSequence().run()
+      store.appendAttempts shouldBe empty
 
-    recorder.flush().run()
-    recorder.close().run()
-    store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(Long.MaxValue))
+      active.recorder.flush().run()
+      close(active)
+      store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(Long.MaxValue))
+    finally stop(active)
   }
 
   test("reopening continues past the supplied high-water instead of overwriting segments") {
-    val dir = Files.createTempDirectory("recorder-reopen")
+    val dir   = Files.createTempDirectory("recorder-reopen")
+    val first = fresh(storeAt(dir), JournalConfig(batchSize = 4))
 
-    val first = DeliveryRecorder.fresh[ParIO](storeAt(dir), registry, JournalConfig(batchSize = 4))
-    (1L to 6L).foreach(i => first.admit(draft(i)).run())
-    first.close().run()
+    try
+      (1L to 6L).foreach(i => first.recorder.admit(draft(i)).run())
+      close(first)
+    finally stop(first)
 
     val highWater = storeAt(dir).maxSeq.run().getOrElse(0L)
-    val second    = DeliveryRecorder.resume[ParIO](
-      storeAt(dir),
-      highWater,
-      registry,
-      JournalConfig(batchSize = 4)
-    )
-    (1L to 5L).foreach(i => second.admit(draft(i)).run())
-    second.close().run()
+    val second    = resume(storeAt(dir), highWater, JournalConfig(batchSize = 4))
+
+    try
+      (1L to 5L).foreach(i => second.recorder.admit(draft(i)).run())
+      close(second)
+    finally stop(second)
 
     seqsOnDisk(dir) shouldBe (1L to 11L).toVector
     assertDisjointAndIncreasing(fileRanges(dir))

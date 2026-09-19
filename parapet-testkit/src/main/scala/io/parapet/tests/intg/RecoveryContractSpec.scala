@@ -65,8 +65,10 @@ abstract class RecoveryContractSpec[F[_]] extends AnyFlatSpec with IntegrationSp
 
   /** Boots `process` with the journal enabled and asserts the application fails with a contract violation. */
   private def expectViolation(process: Process[F, Event]): Unit = {
-    val error = intercept[Throwable] {
-      unsafeRun(createApp(ct.pure(Seq(process)), config0 = journalOn()).run)
+    // No event is emitted: the application failure must win EventStore.await's race.
+    val events = new EventStore[F, Event]
+    val error  = intercept[Throwable] {
+      unsafeRun(events.await(1, createApp(ct.pure(Seq(process)), config0 = journalOn()).run))
     }
     // Backends wrap differently (fiber joins, cancellation), so look through the whole chain.
     withClue(s"expected a RecoveryContractViolation somewhere in: $error\n") {
