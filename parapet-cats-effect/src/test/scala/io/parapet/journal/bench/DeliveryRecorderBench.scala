@@ -225,15 +225,15 @@ object DeliveryRecorderBench:
           _        <- fixture.admitter.flush
           ended    <- IO.monotonic
           observed <- IO.delay(fixture.store.observed)
-          _ <- IO.delay {
+          _        <- IO.delay {
             val storedEntries = observed.foldLeft(0L)((total, sample) => total + sample.entries)
             require(
               storedEntries == latencies.length.toLong,
               s"observed $storedEntries stored entries for ${latencies.length} admissions"
             )
           }
-          _        <- fixture.admitter.close
-          names    <- IO.delay(listing(fixture.dir))
+          _     <- fixture.admitter.close
+          names <- IO.delay(listing(fixture.dir))
         yield RunResult(
           cfg,
           fixture.dir,
@@ -405,12 +405,12 @@ object DeliveryRecorderBench:
     val threadCounts = csv(prop("bench.threads", "1,2,4,8,16,32")).map(_.toInt)
     val modes        = csv(prop("bench.modes", "Buffered,WriteAhead")).map(parseWriteMode)
     val durabilities = csv(prop("bench.durabilities", "HostCrash,ProcessCrash")).map(parseDurability)
-    val ops           = prop("bench.ops", "2000").toInt
-    val warmup        = prop("bench.warmup", "200").toInt
-    val batchSize     = prop("bench.batchSize", "1024").toInt
-    val segmentBytes  = prop("bench.segmentBytes", JournalStoreLocal.DefaultMaxSegmentBytes.toString).toLong
-    val payloadBytes  = prop("bench.payloadBytes", "64").toInt
-    val keepFiles     = prop("bench.keep", "false").toBoolean
+    val ops          = prop("bench.ops", "2000").toInt
+    val warmup       = prop("bench.warmup", "200").toInt
+    val batchSize    = prop("bench.batchSize", "1024").toInt
+    val segmentBytes = prop("bench.segmentBytes", JournalStoreLocal.DefaultMaxSegmentBytes.toString).toLong
+    val payloadBytes = prop("bench.payloadBytes", "64").toInt
+    val keepFiles    = prop("bench.keep", "false").toBoolean
 
     println(s"java       ${System.getProperty("java.version")} on ${System.getProperty("os.name")}")
     println(s"cpus       ${Runtime.getRuntime.availableProcessors()}")

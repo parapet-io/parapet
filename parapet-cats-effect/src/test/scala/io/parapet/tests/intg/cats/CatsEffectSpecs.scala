@@ -41,6 +41,8 @@ class ErrorHandlingSpec extends io.parapet.tests.intg.ErrorHandlingSpec[IO] with
 
 class EventDeliverySpec extends io.parapet.tests.intg.EventDeliverySpec[IO] with BasicCatsEffectSpec
 
+class RecoveryContractSpec extends io.parapet.tests.intg.RecoveryContractSpec[IO] with BasicCatsEffectSpec
+
 class ProcessBehaviourSpec extends io.parapet.tests.intg.ProcessBehaviourSpec[IO] with BasicCatsEffectSpec
 
 class ProcessLifecycleSpec extends io.parapet.tests.intg.ProcessLifecycleSpec[IO] with BasicCatsEffectSpec

@@ -2,11 +2,12 @@ package io.parapet
 
 import com.typesafe.scalalogging.Logger
 import io.parapet.dsl.Dsl
+import io.parapet.effect.Monad.*
 import io.parapet.effect.{Effect, Parallel}
 import io.parapet.fault.{FaultInjector, FaultPolicy}
 import io.parapet.journal.{EventCodecRegistry, JournalStore, JournalStoreLocal}
-import io.parapet.runtime.DslInterpreter.Interpreter
 import io.parapet.runtime.*
+import io.parapet.runtime.DslInterpreter.Interpreter
 import io.parapet.snapshot.{SnapshotStorage, SnapshotStorageLocal}
 import io.parapet.syntax.FlowSyntax
 import org.slf4j.LoggerFactory
@@ -151,7 +152,8 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
     *   if [[processes]] returns an empty sequence.
     */
   def run(args: Array[String]): F[Unit] =
-    val effect = summon[Effect[F]]
+    val effect   = summon[Effect[F]]
+    val parallel = summon[Parallel[F]]
 
     for
       ps <- processes(args)
@@ -176,14 +178,8 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
           _                 <- scheduler.start
         yield ()
       supervisedApplication = context.recorder match
-        case None => application
-        case Some(recorder) =>
-          for
-            _ <- effect.race(
-              effect.guarantee(application)(recorder.close()),
-              recorder.runWriter
-            )
-          yield ()
+        case None           => application
+        case Some(recorder) => parallel.par(Seq(application, recorder.runWriter))
       _ <- supervisedApplication
     yield ()
 

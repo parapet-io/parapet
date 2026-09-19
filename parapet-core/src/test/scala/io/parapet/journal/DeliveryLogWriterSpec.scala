@@ -26,7 +26,7 @@ class DeliveryLogWriterSpec extends AnyFunSuite:
     error.getMessage should include("made no progress")
   }
 
-  private final class PartialWritableChannel(maxWriteSize: Int) extends WritableByteChannel:
+  final private class PartialWritableChannel(maxWriteSize: Int) extends WritableByteChannel:
     private val written = Vector.newBuilder[Byte]
     private var open    = true
 

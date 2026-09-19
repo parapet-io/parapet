@@ -34,6 +34,8 @@ class ErrorHandlingSpec extends io.parapet.tests.intg.ErrorHandlingSpec[ParIO] w
 
 class EventDeliverySpec extends io.parapet.tests.intg.EventDeliverySpec[ParIO] with BasicParIOSpec
 
+class RecoveryContractSpec extends io.parapet.tests.intg.RecoveryContractSpec[ParIO] with BasicParIOSpec
+
 class ProcessBehaviourSpec extends io.parapet.tests.intg.ProcessBehaviourSpec[ParIO] with BasicParIOSpec
 
 class ProcessLifecycleSpec extends io.parapet.tests.intg.ProcessLifecycleSpec[ParIO] with BasicParIOSpec

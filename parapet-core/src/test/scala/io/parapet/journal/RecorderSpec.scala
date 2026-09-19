@@ -181,7 +181,7 @@ class RecorderSpec extends AnyFunSuite:
     val writer = startWriter(target)
 
     target.admit("a").unsafeRun() shouldBe 1L
-    val firstClose = startThread("first-close")(target.close().unsafeRun())
+    val firstClose  = startThread("first-close")(target.close().unsafeRun())
     var secondClose = Option.empty[Running[Unit]]
 
     try
@@ -228,14 +228,14 @@ class RecorderSpec extends AnyFunSuite:
   }
 
   test("concurrent buffered admissions receive unique positions and publish in position order") {
-    val workers   = 8
-    val perWorker = 50
-    val total     = workers * perWorker
-    val store     = new RecordingStore
-    val target    = recorder(batchSize = 8, store = store)
-    val writer    = startWriter(target)
-    val barrier   = new CyclicBarrier(workers)
-    val assigned  = new ConcurrentHashMap[String, Long]()
+    val workers    = 8
+    val perWorker  = 50
+    val total      = workers * perWorker
+    val store      = new RecordingStore
+    val target     = recorder(batchSize = 8, store = store)
+    val writer     = startWriter(target)
+    val barrier    = new CyclicBarrier(workers)
+    val assigned   = new ConcurrentHashMap[String, Long]()
     val admissions = (0 until workers).toVector.map { worker =>
       startThread(s"admit-$worker") {
         barrier.await(timeoutMillis, TimeUnit.MILLISECONDS)
@@ -254,7 +254,7 @@ class RecorderSpec extends AnyFunSuite:
       val entries = store.appended.flatten
       entries.map(_.id) shouldBe (1L to total.toLong).toVector
       entries.map(entry => entry.data -> entry.id).toMap shouldBe assigned.asScala.toMap
-      store.appended.foreach(batch => batch.size should (be > 0 and be <= 8))
+      store.appended.foreach(batch => batch.size should ((be > 0).and(be <= 8)))
     finally stop((Vector(writer) ++ admissions)*)
   }
 
@@ -265,7 +265,7 @@ class RecorderSpec extends AnyFunSuite:
     val writer = startWriter(target)
 
     target.admit("a").unsafeRun() shouldBe 1L
-    val firstDurable = startThread("first-durable")(target.admitDurable("b").unsafeRun())
+    val firstDurable  = startThread("first-durable")(target.admitDurable("b").unsafeRun())
     var secondDurable = Option.empty[Running[Long]]
     var flushing      = Option.empty[Running[Unit]]
 
