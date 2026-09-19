@@ -36,7 +36,14 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
     val counterRef = ProcessRef[Event]("jrnl-counter")
     val store      = new EventStore[ParIO, Event]
 
-    val config  = ParConfig.default.copy(journal = JournalConfig(enabled = true, dataDir = dir.toString, batchSize = 1))
+    val config = ParConfig.default.copy(
+      journal = JournalConfig(
+        enabled = true,
+        dataDir = dir.toString,
+        batchSize = 1,
+        writeMode = JournalWriteMode.WriteAhead
+      )
+    )
     val counter = new Counter(counterRef, store)
     val driver  = onStart(((1 to 3).map(i => Add(i) ~> counterRef) :+ (Probe ~> counterRef)).reduce(_ ++ _))
 
@@ -104,7 +111,14 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
     val dir        = Files.createTempDirectory("journal-restart")
     val counterRef = ProcessRef[Event]("jrnl-counter")
     // Journal only, no snapshots: nothing but the journal seed can stop the seq from restarting at 1 on the second boot.
-    val config = ParConfig.default.copy(journal = JournalConfig(enabled = true, dataDir = dir.toString, batchSize = 1))
+    val config = ParConfig.default.copy(
+      journal = JournalConfig(
+        enabled = true,
+        dataDir = dir.toString,
+        batchSize = 1,
+        writeMode = JournalWriteMode.WriteAhead
+      )
+    )
 
     def runOnce(): Unit =
       val store   = new EventStore[ParIO, Event]
