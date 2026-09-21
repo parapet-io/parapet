@@ -267,6 +267,19 @@ class ParIORuntimeSpec extends AnyFunSuite:
     finally runtime.shutdown()
   }
 
+  test("onCancel") {
+    val runtime = testRuntime()
+    val work    = runtime.effect
+      .delay {
+        while (true)
+          Thread.sleep(1000)
+      }
+      .onCancel(runtime.effect.delay(println("canceled1")))
+      .flatMap(_ => runtime.effect.delay(println("extra")))
+      .onCancel(runtime.effect.delay(println("canceled2")))
+    runtime.unsafeRun(runtime.effect.start(work).flatMap(f => f.cancel))
+  }
+
   private def eventuallyCancelled(leftCancelled: AtomicBoolean, rightCancelled: AtomicBoolean): Unit =
     val deadline = System.nanoTime() + 1.second.toNanos
     while System.nanoTime() < deadline && !(leftCancelled.get() && rightCancelled.get()) do Thread.sleep(10)

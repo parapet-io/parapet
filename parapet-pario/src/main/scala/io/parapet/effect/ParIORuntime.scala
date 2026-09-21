@@ -129,6 +129,7 @@ private[parapet] object Pools:
   */
 final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
   import ParIO.*
+  import ParIORuntime.CancellationSignal
 
   private enum RuntimeContext:
     case External, Scheduler, Parallel, Async, Blocking
@@ -136,6 +137,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
   sealed private trait Frame
   final private case class BindFrame(run: Any => ParIO[Any])          extends Frame
   final private case class RecoverFrame(run: Throwable => ParIO[Any]) extends Frame
+  final private case class CancelFrame(run: ParIO[Any])               extends Frame
 
   private val runtimeContextLocal = new ThreadLocal[RuntimeContext]()
 
@@ -226,8 +228,8 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     */
   private[parapet] def unsafeRun[A](fa: ParIO[A]): A =
     Option(runtimeContextLocal.get()) match
-      case Some(_) => unsafeRunLoop(fa)
-      case None    => withRuntimeContext(RuntimeContext.External)(unsafeRunLoop(fa))
+      case Some(_) => unsafeRunLoop(fa, new CancellationSignal())
+      case None    => withRuntimeContext(RuntimeContext.External)(unsafeRunLoop(fa, new CancellationSignal()))
 
   /** Stops the runtime's executors. */
   def shutdown(): Unit =
@@ -241,7 +243,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
   override def close(): Unit =
     shutdown()
 
-  private def unsafeRunLoop[A](io: ParIO[A]): A =
+  private def unsafeRunLoop[A](io: ParIO[A], cancellationSignal: CancellationSignal): A =
     var current: ParIO[Any] = io.asInstanceOf[ParIO[Any]]
     var stack: List[Frame]  = Nil
 
@@ -256,6 +258,9 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
                 current = run(value)
                 stack = tail
               case RecoverFrame(_) :: tail =>
+                current = Pure(value)
+                stack = tail
+              case CancelFrame(_) :: tail =>
                 current = Pure(value)
                 stack = tail
 
@@ -279,7 +284,23 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
           case Sleep(duration) =>
             sleepOnTimer(duration)
             current = Pure(())
+
+          case OnCancel(source, handler) =>
+            current = source.asInstanceOf[ParIO[Any]]
+            stack = CancelFrame(handler.asInstanceOf[ParIO[Any]]) :: stack
       catch
+        case e: InterruptedException =>
+          var frames = stack
+          while frames.nonEmpty do
+            frames match
+              case CancelFrame(run) :: tail =>
+                unsafeRun(run)
+                frames = tail
+              case _ :: tail =>
+                frames = tail
+              case Nil =>
+                ()
+          throw CancellationException("canceled")
         case error: Throwable =>
           var frames  = stack
           var handled = false
@@ -303,16 +324,17 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
       runtimeContext: RuntimeContext,
       fa: ParIO[A]
   ): EffectFiber[ParIO, A] =
-    val result  = new CompletableFuture[A]()
-    val started = new AtomicBoolean(false)
-    val runner  = new AtomicReference[Thread]()
-    val task    = pool.submit(new Callable[Unit]:
+    val result             = new CompletableFuture[A]()
+    val started            = new AtomicBoolean(false)
+    val runner             = new AtomicReference[Thread]()
+    val cancellationSignal = new CancellationSignal()
+    val task               = pool.submit(new Callable[Unit]:
       override def call(): Unit =
         started.set(true)
         withRuntimeContext(runtimeContext) {
           val current = Thread.currentThread()
           runner.set(current)
-          try result.complete(unsafeRunLoop(fa))
+          try result.complete(unsafeRunLoop(fa, cancellationSignal))
           catch case error: Throwable => result.completeExceptionally(error)
           finally runner.compareAndSet(current, null)
         })
@@ -323,33 +345,36 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
 
       def cancel: ParIO[Unit] =
         ParIO.blocking {
-          val cancellation = new CancellationException("fiber cancelled")
-          task.cancel(true)
+          if cancellationSignal.request() then
+            val cancellation = new CancellationException("fiber cancelled")
+            task.cancel(true)
 
-          if started.get() then
-            Option(runner.get()).foreach(_.interrupt())
-            try result.get(5, TimeUnit.SECONDS)
-            catch
-              case _: CancellationException => ()
-              case _: ExecutionException    => ()
-              case _: TimeoutException      => result.completeExceptionally(cancellation)
-              case _: InterruptedException  =>
-                result.completeExceptionally(cancellation)
-                Thread.currentThread().interrupt()
-          else result.completeExceptionally(cancellation)
-          ()
+            if started.get() then
+              Option(runner.get()).foreach(_.interrupt())
+              try result.get(5, TimeUnit.SECONDS)
+              catch
+                case _: CancellationException => ()
+                case _: ExecutionException    => ()
+                case _: TimeoutException      => result.completeExceptionally(cancellation)
+                case _: InterruptedException  =>
+                  result.completeExceptionally(cancellation)
+                  Thread.currentThread().interrupt()
+            else result.completeExceptionally(cancellation)
+            ()
         }
 
   private def racePrograms[A, B](left: ParIO[A], right: ParIO[B]): Either[A, B] =
     final case class RaceResult(tag: Int, value: Any)
 
-    val completion = new ExecutorCompletionService[RaceResult](racePool)
-    val leftFuture = completion.submit(new Callable[RaceResult]:
+    val completion             = new ExecutorCompletionService[RaceResult](racePool)
+    val leftCancellationSignal = new CancellationSignal()
+    val leftFuture             = completion.submit(new Callable[RaceResult]:
       override def call(): RaceResult =
-        withRuntimeContext(RuntimeContext.Async)(RaceResult(0, unsafeRunLoop(left))))
-    val rightFuture = completion.submit(new Callable[RaceResult]:
+        withRuntimeContext(RuntimeContext.Async)(RaceResult(0, unsafeRunLoop(left, leftCancellationSignal))))
+    val rightCancellationSignal = new CancellationSignal()
+    val rightFuture             = completion.submit(new Callable[RaceResult]:
       override def call(): RaceResult =
-        withRuntimeContext(RuntimeContext.Async)(RaceResult(1, unsafeRunLoop(right))))
+        withRuntimeContext(RuntimeContext.Async)(RaceResult(1, unsafeRunLoop(right, rightCancellationSignal))))
 
     try
       val winner = completion.take().get()
@@ -357,12 +382,24 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
       if winner.tag == 0 then Left(winner.value.asInstanceOf[A]) else Right(winner.value.asInstanceOf[B])
     catch
       case error: ExecutionException if error.getCause != null =>
-        if !leftFuture.isDone then leftFuture.cancel(true)
-        if !rightFuture.isDone then rightFuture.cancel(true)
+        if !leftFuture.isDone then {
+          leftCancellationSignal.request()
+          leftFuture.cancel(true)
+        }
+        if !rightFuture.isDone then {
+          rightCancellationSignal.request()
+          rightFuture.cancel(true)
+        }
         throw error.getCause
       case error: InterruptedException =>
-        if !leftFuture.isDone then leftFuture.cancel(true)
-        if !rightFuture.isDone then rightFuture.cancel(true)
+        if !leftFuture.isDone then {
+          leftCancellationSignal.request()
+          leftFuture.cancel(true)
+        }
+        if !rightFuture.isDone then {
+          rightCancellationSignal.request()
+          rightFuture.cancel(true)
+        }
         Thread.currentThread().interrupt()
         throw error
 
@@ -378,16 +415,17 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
       runtimeContext: RuntimeContext
   ): Unit =
     if effects.nonEmpty then
-      val completion = new ExecutorCompletionService[Unit](pool)
-      val futures    = scala.collection.mutable.ArrayBuffer.empty[Future[Unit]]
-      var completed  = false
+      val completion         = new ExecutorCompletionService[Unit](pool)
+      val futures            = scala.collection.mutable.ArrayBuffer.empty[Future[Unit]]
+      var completed          = false
+      val cancellationSignal = new CancellationSignal()
 
       try
         effects.foreach(effect =>
           futures +=
             completion.submit(new Callable[Unit]:
               override def call(): Unit =
-                withRuntimeContext(runtimeContext)(unsafeRunLoop(effect)))
+                withRuntimeContext(runtimeContext)(unsafeRunLoop(effect, cancellationSignal)))
         )
 
         var remaining = futures.size
@@ -400,6 +438,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
         case error: ExecutionException if error.getCause != null =>
           throw error.getCause
         case error: InterruptedException =>
+          cancellationSignal.request()
           Thread.currentThread().interrupt()
           throw error
       finally if !completed then futures.foreach(future => if !future.isDone then future.cancel(true))
@@ -450,3 +489,8 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
 object ParIORuntime:
   lazy val default: ParIORuntime =
     new ParIORuntime(ParIORuntimeConfig.default)
+
+  private class CancellationSignal:
+    private val requested    = AtomicBoolean()
+    def request(): Boolean   = requested.compareAndSet(false, true)
+    def isRequested: Boolean = requested.get()

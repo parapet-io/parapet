@@ -23,6 +23,9 @@ sealed trait ParIO[+A]:
   final def unsafeRunSync(): A =
     ParIO.runtime.unsafeRun(this)
 
+  final def onCancel(f: => ParIO[Unit]): ParIO[A] =
+    ParIO.OnCancel(this, f)
+
 /** [[ParIO]] constructors and the default runtime-backed type-class instances for the reference runtime. */
 object ParIO:
   /** Wraps an already-known value. */
@@ -45,6 +48,8 @@ object ParIO:
 
   /** Describes a duration delay. How this is scheduled depends on the active [[ParIORuntime]]. */
   final case class Sleep(duration: FiniteDuration) extends ParIO[Unit]
+
+  final case class OnCancel[+A](ioa: ParIO[A], fin: ParIO[Unit]) extends ParIO[A]
 
   /** Lifts a pure value. */
   def pure[A](value: A): ParIO[A] =
