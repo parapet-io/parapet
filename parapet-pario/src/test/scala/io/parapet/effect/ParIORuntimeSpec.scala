@@ -124,6 +124,32 @@ class ParIORuntimeSpec extends AnyFunSuite:
     finally runtime.shutdown()
   }
 
+  test("guarantee runs the finalizer before cancellation completes") {
+    val runtime   = testRuntime()
+    val started   = new CountDownLatch(1)
+    val release   = new CountDownLatch(1)
+    val finalized = new AtomicBoolean(false)
+    val program = runtime.effect.guarantee(
+      ParIO.delay {
+        started.countDown()
+        release.await()
+        ()
+      }
+    )(ParIO.delay(finalized.set(true)))
+
+    try
+      val fiber = runtime.unsafeRun(runtime.effect.start(program))
+      started.await(1, TimeUnit.SECONDS) shouldBe true
+
+      runtime.unsafeRun(fiber.cancel)
+
+      finalized.get() shouldBe true
+      intercept[CancellationException](runtime.unsafeRun(fiber.join))
+    finally
+      release.countDown()
+      runtime.shutdown()
+  }
+
   test("cancel completes a fiber that has not started so join cannot hang") {
     val runtime      = testRuntime(asyncSize = 1)
     val started      = new CountDownLatch(1)

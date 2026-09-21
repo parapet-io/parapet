@@ -53,6 +53,9 @@ object ParIO:
   /** Registers a finalizer for cancellation of `source`. */
   final case class OnCancel[+A](source: ParIO[A], finalizer: ParIO[Unit]) extends ParIO[A]
 
+  /** Registers a finalizer for every outcome of `source`. */
+  final case class Guarantee[+A](source: ParIO[A], finalizer: ParIO[Unit]) extends ParIO[A]
+
   /** Lifts a pure value. */
   def pure[A](value: A): ParIO[A] =
     Pure(value)

@@ -137,6 +137,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
   final private case class BindFrame(run: Any => ParIO[Any])          extends Frame
   final private case class RecoverFrame(run: Throwable => ParIO[Any]) extends Frame
   final private case class CancelFrame(run: ParIO[Any])               extends Frame
+  final private case class GuaranteeFrame(run: ParIO[Any])            extends Frame
 
   final private case class RunningTask[A](
       future: Future[A],
@@ -201,25 +202,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
       ParIO.delay(racePrograms(left, right))
 
     def guarantee[A](fa: ParIO[A])(finalizer: ParIO[Unit]): ParIO[A] =
-      def restoreInterrupt(wasInterrupted: Boolean): ParIO[Unit] =
-        if wasInterrupted then ParIO.delay(Thread.currentThread().interrupt())
-        else ParIO.unit
-
-      def raiseOriginal[B](originalError: Throwable, wasInterrupted: Boolean): ParIO[B] =
-        restoreInterrupt(wasInterrupted).flatMap(_ => ParIO.raiseError[B](originalError))
-
-      fa
-        .handleErrorWith { originalError =>
-          ParIO.delay(Thread.interrupted()).flatMap { wasInterrupted =>
-            finalizer
-              .handleErrorWith { finalizerError =>
-                originalError.addSuppressed(finalizerError)
-                raiseOriginal[Unit](originalError, wasInterrupted)
-              }
-              .flatMap(_ => raiseOriginal[A](originalError, wasInterrupted))
-          }
-        }
-        .flatMap(value => finalizer.flatMap(_ => ParIO.pure(value)))
+      ParIO.Guarantee(fa, finalizer)
 
     def onCancel[A](fa: ParIO[A])(finalizer: ParIO[Unit]): ParIO[A] =
       ParIO.OnCancel(fa, finalizer)
@@ -274,6 +257,10 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
               case CancelFrame(_) :: tail =>
                 current = Pure(value)
                 stack = tail
+              case GuaranteeFrame(finalizer) :: tail =>
+                stack = tail
+                unsafeRunLoop(finalizer, new CancellationSignal())
+                current = Pure(value)
 
           case Delay(thunk) =>
             current = Pure(thunk())
@@ -299,6 +286,10 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
           case OnCancel(source, finalizer) =>
             current = source.asInstanceOf[ParIO[Any]]
             stack = CancelFrame(finalizer.asInstanceOf[ParIO[Any]]) :: stack
+
+          case Guarantee(source, finalizer) =>
+            current = source.asInstanceOf[ParIO[Any]]
+            stack = GuaranteeFrame(finalizer.asInstanceOf[ParIO[Any]]) :: stack
       catch
         case _: Throwable if cancellationSignal.isRequested =>
           throw runCancellationFinalizers(stack)
@@ -311,6 +302,12 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
                 current = run(error)
                 stack = tail
                 handled = true
+              case GuaranteeFrame(finalizer) :: tail =>
+                val wasInterrupted = Thread.interrupted()
+                try unsafeRunLoop(finalizer, new CancellationSignal())
+                catch case finalizerError: Throwable => error.addSuppressed(finalizerError)
+                finally if wasInterrupted then Thread.currentThread().interrupt()
+                frames = tail
               case _ :: tail =>
                 frames = tail
               case Nil =>
@@ -327,6 +324,12 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     while frames.nonEmpty do
       frames match
         case CancelFrame(finalizer) :: tail =>
+          Thread.interrupted()
+          try unsafeRunLoop(finalizer, new CancellationSignal())
+          catch case error: Throwable => cancellation.addSuppressed(error)
+          finally Thread.interrupted()
+          frames = tail
+        case GuaranteeFrame(finalizer) :: tail =>
           Thread.interrupted()
           try unsafeRunLoop(finalizer, new CancellationSignal())
           catch case error: Throwable => cancellation.addSuppressed(error)

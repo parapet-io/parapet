@@ -55,7 +55,7 @@ trait Effect[F[_]] extends Monad[F]:
   /** Races `left` against `right`; the loser is cancelled. */
   def race[A, B](left: F[A], right: F[B]): F[Either[A, B]]
 
-  /** Runs `fa` and runs `finalizer` afterward regardless of success/failure. */
+  /** Runs `fa` and runs `finalizer` afterward regardless of success, failure, or cancellation. */
   def guarantee[A](fa: F[A])(finalizer: F[Unit]): F[A]
 
   /** Runs `finalizer` if `fa` is canceled. */
