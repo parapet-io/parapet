@@ -17,7 +17,7 @@ trait EffectFiber[F[_], A]:
   *
   * Extends [[Monad]] with the additional primitives the [[io.parapet.runtime.Scheduler]] and
   * [[io.parapet.runtime.DslInterpreter]] need: lazy evaluation ([[delay]]), thread offload ([[blocking]]), error
-  * handling, sleep, fork, and race.
+  * handling, cancellation finalization, sleep, fork, and race.
   *
   * Concrete instances live in backend modules such as `parapet-cats-effect`, `parapet-pario`, or an
   * application-specific integration.
@@ -58,6 +58,9 @@ trait Effect[F[_]] extends Monad[F]:
   /** Runs `fa` and runs `finalizer` afterward regardless of success/failure. */
   def guarantee[A](fa: F[A])(finalizer: F[Unit]): F[A]
 
+  /** Runs `finalizer` if `fa` is canceled. */
+  def onCancel[A](fa: F[A])(finalizer: F[Unit]): F[A]
+
   extension [A](fa: F[A])
     /** Recovers from an exception via `f`. */
     def handleErrorWith(f: Throwable => F[A]): F[A]
@@ -75,6 +78,10 @@ object Effect:
     /** Runs `fa` and `finalizer` afterward regardless of outcome. */
     def guarantee(finalizer: F[Unit]): F[A] =
       summon[Effect[F]].guarantee(fa)(finalizer)
+
+    /** Runs `finalizer` if `fa` is canceled. */
+    def onCancel(finalizer: F[Unit]): F[A] =
+      summon[Effect[F]].onCancel(fa)(finalizer)
 
     /** Materializes a possible failure as an `Either`. */
     def attempt: F[Either[Throwable, A]] =

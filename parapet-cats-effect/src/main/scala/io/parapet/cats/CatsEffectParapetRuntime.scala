@@ -61,6 +61,9 @@ final class CatsEffectParapetRuntime private (
     def guarantee[A](fa: IO[A])(finalizer: IO[Unit]): IO[A] =
       fa.guarantee(finalizer)
 
+    def onCancel[A](fa: IO[A])(finalizer: IO[Unit]): IO[A] =
+      fa.onCancel(finalizer)
+
   given parallel: Parallel[IO] with
     def par(effects: Seq[IO[Unit]]): IO[Unit] =
       effects.toList.parSequence_

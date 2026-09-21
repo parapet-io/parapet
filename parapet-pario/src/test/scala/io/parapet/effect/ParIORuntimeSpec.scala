@@ -267,17 +267,104 @@ class ParIORuntimeSpec extends AnyFunSuite:
     finally runtime.shutdown()
   }
 
-  test("onCancel") {
-    val runtime = testRuntime()
-    val work    = runtime.effect
+  test("onCancel preserves a successful result without running the finalizer") {
+    val runtime   = testRuntime()
+    val finalized = new AtomicBoolean(false)
+    val program   = runtime.effect.onCancel(ParIO.pure(42))(ParIO.delay(finalized.set(true)))
+
+    try
+      runtime.unsafeRun(program) shouldBe 42
+      finalized.get() shouldBe false
+    finally runtime.shutdown()
+  }
+
+  test("onCancel does not run for an ordinary failure") {
+    val runtime   = testRuntime()
+    val original  = new InterruptedException("not a cancellation request")
+    val finalized = new AtomicBoolean(false)
+    val program   = runtime.effect
+      .onCancel(ParIO.raiseError[Int](original))(ParIO.delay(finalized.set(true)))
+      .handleErrorWith(error => if error eq original then ParIO.pure(42) else ParIO.raiseError(error))
+
+    try
+      runtime.unsafeRun(program) shouldBe 42
+      finalized.get() shouldBe false
+    finally runtime.shutdown()
+  }
+
+  test("onCancel runs nested finalizers in order and skips the remaining computation") {
+    val runtime                 = testRuntime()
+    val started                 = new CountDownLatch(1)
+    val release                 = new CountDownLatch(1)
+    val innerFinalized          = new CountDownLatch(1)
+    val outerFinalized          = new CountDownLatch(1)
+    val innerSawInterrupted     = new AtomicBoolean(true)
+    val outerSawInnerFinalized  = new AtomicBoolean(false)
+    val remainingComputationRan = new AtomicBoolean(false)
+    val cancellationRecovered   = new AtomicBoolean(false)
+    val work                    = ParIO
       .delay {
-        while (true)
-          Thread.sleep(1000)
+        started.countDown()
+        release.await()
+        ()
       }
-      .onCancel(runtime.effect.delay(println("canceled1")))
-      .flatMap(_ => runtime.effect.delay(println("extra")))
-      .onCancel(runtime.effect.delay(println("canceled2")))
-    runtime.unsafeRun(runtime.effect.start(work).flatMap(f => f.cancel))
+      .onCancel(
+        ParIO.delay {
+          innerSawInterrupted.set(Thread.currentThread().isInterrupted)
+          Thread.sleep(1)
+          innerFinalized.countDown()
+        }
+      )
+      .flatMap(_ => ParIO.delay(remainingComputationRan.set(true)))
+      .onCancel(
+        ParIO.delay {
+          outerSawInnerFinalized.set(innerFinalized.getCount == 0L)
+          outerFinalized.countDown()
+        }
+      )
+      .handleErrorWith(_ => ParIO.delay(cancellationRecovered.set(true)))
+
+    try
+      val fiber = runtime.unsafeRun(runtime.effect.start(work))
+      started.await(1, TimeUnit.SECONDS) shouldBe true
+
+      runtime.unsafeRun(fiber.cancel)
+
+      innerFinalized.getCount shouldBe 0L
+      outerFinalized.getCount shouldBe 0L
+      innerSawInterrupted.get() shouldBe false
+      outerSawInnerFinalized.get() shouldBe true
+      remainingComputationRan.get() shouldBe false
+      cancellationRecovered.get() shouldBe false
+      intercept[CancellationException](runtime.unsafeRun(fiber.join))
+    finally
+      release.countDown()
+      runtime.shutdown()
+  }
+
+  test("race completes the losing branch cancellation before returning") {
+    val runtime        = testRuntime()
+    val loserStarted   = new CountDownLatch(1)
+    val releaseLoser   = new CountDownLatch(1)
+    val loserFinalized = new AtomicBoolean(false)
+    val winner         = ParIO.delay {
+      loserStarted.await()
+      "winner"
+    }
+    val loser = ParIO
+      .delay {
+        loserStarted.countDown()
+        releaseLoser.await()
+        "loser"
+      }
+      .onCancel(ParIO.delay(loserFinalized.set(true)))
+
+    try
+      runtime.unsafeRun(runtime.effect.race(winner, loser)) shouldBe Left("winner")
+      loserFinalized.get() shouldBe true
+    finally
+      releaseLoser.countDown()
+      runtime.shutdown()
   }
 
   private def eventuallyCancelled(leftCancelled: AtomicBoolean, rightCancelled: AtomicBoolean): Unit =
