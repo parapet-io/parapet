@@ -103,6 +103,9 @@ object TestUtils:
             throw original
       }
 
+    def onCancel[A](fa: TestIO[A])(finalizer: TestIO[Unit]): TestIO[A] =
+      fa
+
   final class RuntimeFixture:
     val captured: ListBuffer[Envelope] = ListBuffer.empty
 
