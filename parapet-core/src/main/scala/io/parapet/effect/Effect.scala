@@ -38,6 +38,9 @@ trait Effect[F[_]] extends Monad[F]:
   /** Aborts the effect with `error`. */
   def raiseError[A](error: Throwable): F[A]
 
+  /** Requests cancellation of the current fiber. */
+  def canceled: F[Unit]
+
   /** Suspends for `duration`.
     *
     * Implementations may block a runtime thread unless they support true async suspension.

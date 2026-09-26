@@ -6,6 +6,7 @@ import io.parapet.runtime.*
 import io.parapet.runtime.Scheduler.{Deliver, SubmissionResult, Task}
 import io.parapet.{ParConfig, ProcessRef}
 
+import java.util.concurrent.CancellationException
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.FiniteDuration
 
@@ -72,6 +73,9 @@ object TestUtils:
 
     def raiseError[A](error: Throwable): TestIO[A] =
       TestIO.raiseError(error)
+
+    def canceled: TestIO[Unit] =
+      TestIO.raiseError(new CancellationException("effect canceled"))
 
     def sleep(duration: FiniteDuration): TestIO[Unit] =
       TestIO.delay(Thread.sleep(duration.toMillis))

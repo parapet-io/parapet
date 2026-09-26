@@ -46,6 +46,9 @@ final class CatsEffectParapetRuntime private (
     def raiseError[A](error: Throwable): IO[A] =
       IO.raiseError(error)
 
+    def canceled: IO[Unit] =
+      IO.canceled
+
     def sleep(duration: FiniteDuration): IO[Unit] =
       IO.sleep(duration)
 

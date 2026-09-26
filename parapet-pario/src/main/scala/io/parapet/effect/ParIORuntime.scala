@@ -189,6 +189,9 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     def raiseError[A](error: Throwable): ParIO[A] =
       ParIO.raiseError(error)
 
+    def canceled: ParIO[Unit] =
+      ParIO.canceled
+
     def sleep(duration: FiniteDuration): ParIO[Unit] =
       ParIO.sleep(duration)
 
@@ -278,6 +281,10 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
           case HandleError(source, handler) =>
             current = source.asInstanceOf[ParIO[Any]]
             stack = RecoverFrame(handler.asInstanceOf[Throwable => ParIO[Any]]) :: stack
+
+          case Canceled =>
+            cancellationSignal.request()
+            current = Pure(())
 
           case Sleep(duration) =>
             sleepOnTimer(duration)

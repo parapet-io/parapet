@@ -318,6 +318,24 @@ class ParIORuntimeSpec extends AnyFunSuite:
     finally runtime.shutdown()
   }
 
+  test("canceled runs cancellation finalizers and skips the remaining computation") {
+    val runtime                 = testRuntime()
+    val finalized               = new AtomicBoolean(false)
+    val remainingComputationRan = new AtomicBoolean(false)
+    val cancellationRecovered   = new AtomicBoolean(false)
+    val program = runtime.effect
+      .onCancel(runtime.effect.canceled)(ParIO.delay(finalized.set(true)))
+      .flatMap(_ => ParIO.delay(remainingComputationRan.set(true)))
+      .handleErrorWith(_ => ParIO.delay(cancellationRecovered.set(true)))
+
+    try
+      intercept[CancellationException](runtime.unsafeRun(program))
+      finalized.get() shouldBe true
+      remainingComputationRan.get() shouldBe false
+      cancellationRecovered.get() shouldBe false
+    finally runtime.shutdown()
+  }
+
   test("onCancel runs nested finalizers in order and skips the remaining computation") {
     val runtime                 = testRuntime()
     val started                 = new CountDownLatch(1)

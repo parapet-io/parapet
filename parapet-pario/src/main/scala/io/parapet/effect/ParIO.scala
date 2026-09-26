@@ -47,6 +47,9 @@ object ParIO:
   /** Error-recovery constructor used by [[ParIO.handleErrorWith]]. */
   final case class HandleError[A](source: ParIO[A], handler: Throwable => ParIO[A]) extends ParIO[A]
 
+  /** Requests cancellation of the current fiber. */
+  case object Canceled extends ParIO[Unit]
+
   /** Describes a duration delay. How this is scheduled depends on the active [[ParIORuntime]]. */
   final case class Sleep(duration: FiniteDuration) extends ParIO[Unit]
 
@@ -79,6 +82,10 @@ object ParIO:
   /** Aborts with `error` when interpreted. */
   def raiseError[A](error: Throwable): ParIO[A] =
     Delay(() => throw error)
+
+  /** Requests cancellation of the current fiber. */
+  def canceled: ParIO[Unit] =
+    Canceled
 
   /** Describes a duration delay. */
   def sleep(duration: FiniteDuration): ParIO[Unit] =
