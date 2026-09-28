@@ -13,7 +13,7 @@ import scala.concurrent.duration.FiniteDuration
 object TestUtils:
   type Id[A] = A
 
-  private final class TestCancellation extends CancellationException("effect canceled")
+  final private class TestCancellation extends CancellationException("effect canceled")
 
   given Monad[Id] with
     def pure[A](value: A): A = value

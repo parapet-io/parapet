@@ -661,10 +661,10 @@ object Scheduler:
           errorHandler: Throwable => F[Unit]
       ): F[Unit] =
         logger.debug(s"worker[$name]::runEffect. envelope: $envelope") >> effect.outcome(effect0).flatMap {
-          case Outcome.Succeeded(()) => effect.pure(())
+          case Outcome.Succeeded(())                                => effect.pure(())
           case Outcome.Failed(violation: RecoveryContractViolation) => effect.raiseError(violation)
           case Outcome.Failed(error)                                => errorHandler(error)
-          case Outcome.Canceled() =>
+          case Outcome.Canceled()                                   =>
             logger.debug(s"worker[$name]::runEffect canceled. envelope: $envelope") >>
               processState.offloads.cancelAll
         }

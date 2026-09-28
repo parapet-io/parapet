@@ -52,7 +52,7 @@ abstract class SchedulerSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
     "a handler cancels itself" should {
       "continue delivering events to the process" in {
         val eventStore = new EventStore[F, Event]
-        val server = new Process[F, Event] {
+        val server     = new Process[F, Event] {
           def handle: Receive = {
             case CancelDelivery    => suspend(ct.canceled)
             case AfterCancellation => eval(eventStore.add(ref, AfterCancellation))

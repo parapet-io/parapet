@@ -87,7 +87,7 @@ class ParIORuntimeSpec extends AnyFunSuite:
     val started   = new CountDownLatch(1)
     val release   = new CountDownLatch(1)
     val finalized = new AtomicBoolean(false)
-    val child = runtime.effect.onCancel(
+    val child     = runtime.effect.onCancel(
       ParIO.delay {
         started.countDown()
         release.await()
