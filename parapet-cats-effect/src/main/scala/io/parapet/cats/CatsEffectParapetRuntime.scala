@@ -49,6 +49,13 @@ final class CatsEffectParapetRuntime private (
     def canceled: IO[Unit] =
       IO.canceled
 
+    def outcome[A](fa: IO[A]): IO[FiberOutcome[A]] =
+      IO.uncancelable { poll =>
+        fa.start.flatMap { fiber =>
+          poll(wrapFiber(fiber).join).onCancel(fiber.cancel)
+        }
+      }
+
     def sleep(duration: FiniteDuration): IO[Unit] =
       IO.sleep(duration)
 

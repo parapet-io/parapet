@@ -41,6 +41,13 @@ trait Effect[F[_]] extends Monad[F]:
   /** Requests cancellation of the current fiber. */
   def canceled: F[Unit]
 
+  /** Runs `fa` and returns its terminal outcome.
+    *
+    * Cancellation of `fa` is returned as [[Outcome.Canceled]]. Cancellation of the caller still cancels `fa` and
+    * propagates to the caller.
+    */
+  def outcome[A](fa: F[A]): F[Outcome[A]]
+
   /** Suspends for `duration`.
     *
     * Implementations may block a runtime thread unless they support true async suspension.

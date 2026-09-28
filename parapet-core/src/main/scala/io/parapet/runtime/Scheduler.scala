@@ -6,7 +6,7 @@ import io.parapet.ProcessRef.*
 import io.parapet.dsl.Dsl.{Dsl, FlowOps}
 import io.parapet.effect.Monad.*
 import io.parapet.effect.Queue.ChannelType
-import io.parapet.effect.{Effect, Parallel, Queue}
+import io.parapet.effect.{Effect, Outcome, Parallel, Queue}
 import io.parapet.exceptions.*
 import io.parapet.journal.JournalDraft
 import io.parapet.runtime.Context.ProcessState
@@ -660,9 +660,13 @@ object Scheduler:
           processState: ProcessState[F],
           errorHandler: Throwable => F[Unit]
       ): F[Unit] =
-        logger.debug(s"worker[$name]::runEffect. envelope: $envelope") >> effect0.handleErrorWith {
-          case violation: RecoveryContractViolation => effect.raiseError(violation)
-          case error                                => errorHandler(error)
+        logger.debug(s"worker[$name]::runEffect. envelope: $envelope") >> effect.outcome(effect0).flatMap {
+          case Outcome.Succeeded(()) => effect.pure(())
+          case Outcome.Failed(violation: RecoveryContractViolation) => effect.raiseError(violation)
+          case Outcome.Failed(error)                                => errorHandler(error)
+          case Outcome.Canceled() =>
+            logger.debug(s"worker[$name]::runEffect canceled. envelope: $envelope") >>
+              processState.offloads.cancelAll
         }
 
       private def createNotifySignal(ref: ProcessRef.Unknown): Signal =
@@ -767,8 +771,12 @@ object Scheduler:
               case true =>
                 stopChildProcesses >>
                   processState.offloads.cancelAll >>
-                  deliverStopEvent(sender, processState, interpreter, scope)
-                    .handleErrorWith(error => onError(receiver, error)) >>
+                  effect.outcome(deliverStopEvent(sender, processState, interpreter, scope)).flatMap {
+                    case Outcome.Succeeded(()) => effect.pure(())
+                    case Outcome.Failed(error) => onError(receiver, error)
+                    case Outcome.Canceled()    =>
+                      logger.debug(s"process: '$receiver' canceled its stop handler")
+                  } >>
                   logger.debug(s"process: '$receiver' has been stopped") >>
                   effect.pure(true)
               case false =>

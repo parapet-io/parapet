@@ -13,6 +13,8 @@ import scala.concurrent.duration.FiniteDuration
 object TestUtils:
   type Id[A] = A
 
+  private final class TestCancellation extends CancellationException("effect canceled")
+
   given Monad[Id] with
     def pure[A](value: A): A = value
 
@@ -75,7 +77,15 @@ object TestUtils:
       TestIO.raiseError(error)
 
     def canceled: TestIO[Unit] =
-      TestIO.raiseError(new CancellationException("effect canceled"))
+      TestIO.raiseError(new TestCancellation)
+
+    def outcome[A](fa: TestIO[A]): TestIO[Outcome[A]] =
+      TestIO.delay {
+        try Outcome.Succeeded(fa.unsafeRun())
+        catch
+          case _: TestCancellation => Outcome.Canceled()
+          case error: Throwable    => Outcome.Failed(error)
+      }
 
     def sleep(duration: FiniteDuration): TestIO[Unit] =
       TestIO.delay(Thread.sleep(duration.toMillis))
@@ -85,8 +95,8 @@ object TestUtils:
         val outcome =
           try Outcome.Succeeded(fa.unsafeRun())
           catch
-            case _: CancellationException => Outcome.Canceled()
-            case error: Throwable         => Outcome.Failed(error)
+            case _: TestCancellation => Outcome.Canceled()
+            case error: Throwable    => Outcome.Failed(error)
         new EffectFiber[TestIO, A]:
           def join: TestIO[Outcome[A]] = TestIO.pure(outcome)
           def cancel: TestIO[Unit]     = TestIO.unit

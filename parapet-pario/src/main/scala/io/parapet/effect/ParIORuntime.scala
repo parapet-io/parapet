@@ -192,6 +192,9 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     def canceled: ParIO[Unit] =
       ParIO.canceled
 
+    def outcome[A](fa: ParIO[A]): ParIO[Outcome[A]] =
+      ParIO.OutcomeOf(fa)
+
     def sleep(duration: FiniteDuration): ParIO[Unit] =
       ParIO.sleep(duration)
 
@@ -279,6 +282,23 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
               case Outcome.Succeeded(value) => current = Pure(value)
               case Outcome.Failed(error)    => throw error
               case Outcome.Canceled()       => current = ParIO.Canceled
+
+          case OutcomeOf(source) =>
+            val childSignal = cancellationSignal.child()
+            try
+              val value = unsafeRunLoop(source, childSignal)
+              current = Pure(Outcome.Succeeded(value))
+            catch
+              // Cancellation of the enclosing computation must propagate.
+              case error: Throwable if cancellationSignal.isRequested =>
+                throw error
+
+              // Cancellation requested by the source is materialized.
+              case _: Throwable if childSignal.isRequested =>
+                current = Pure(Outcome.Canceled())
+
+              case error: Throwable =>
+                current = Pure(Outcome.Failed(error))
 
           case FlatMap(source, bind) =>
             current = source.asInstanceOf[ParIO[Any]]
@@ -565,7 +585,14 @@ object ParIORuntime:
   lazy val default: ParIORuntime =
     new ParIORuntime(ParIORuntimeConfig.default)
 
-  final private class CancellationSignal:
-    private val requested    = new AtomicBoolean(false)
-    def request(): Boolean   = requested.compareAndSet(false, true)
-    def isRequested: Boolean = requested.get()
+  final private class CancellationSignal(parent: Option[CancellationSignal] = None):
+    private val requested = new AtomicBoolean(false)
+
+    def child(): CancellationSignal =
+      new CancellationSignal(Some(this))
+
+    def request(): Boolean =
+      requested.compareAndSet(false, true)
+
+    def isRequested: Boolean =
+      requested.get() || parent.exists(_.isRequested)

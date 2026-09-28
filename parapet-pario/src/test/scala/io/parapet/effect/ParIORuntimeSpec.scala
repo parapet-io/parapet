@@ -67,6 +67,46 @@ class ParIORuntimeSpec extends AnyFunSuite:
     finally runtime.shutdown()
   }
 
+  test("outcome materializes success, failure, and self-cancellation") {
+    val runtime           = testRuntime()
+    val error             = new RuntimeException("boom")
+    val cancellationError = new CancellationException("ordinary failure")
+
+    try
+      runtime.unsafeRun(runtime.effect.outcome(ParIO.pure(42))) shouldBe Outcome.Succeeded(42)
+      runtime.unsafeRun(runtime.effect.outcome(ParIO.raiseError[Int](error))) shouldBe Outcome.Failed(error)
+      runtime.unsafeRun(runtime.effect.outcome(ParIO.raiseError[Int](cancellationError))) shouldBe Outcome.Failed(
+        cancellationError
+      )
+      runtime.unsafeRun(runtime.effect.outcome(runtime.effect.canceled)) shouldBe Outcome.Canceled()
+    finally runtime.shutdown()
+  }
+
+  test("canceling an outcome caller cancels its child and remains cancellation") {
+    val runtime   = testRuntime()
+    val started   = new CountDownLatch(1)
+    val release   = new CountDownLatch(1)
+    val finalized = new AtomicBoolean(false)
+    val child = runtime.effect.onCancel(
+      ParIO.delay {
+        started.countDown()
+        release.await()
+      }
+    )(ParIO.delay(finalized.set(true)))
+
+    try
+      val fiber = runtime.unsafeRun(runtime.effect.start(runtime.effect.outcome(child)))
+      started.await(1, TimeUnit.SECONDS) shouldBe true
+
+      runtime.unsafeRun(fiber.cancel)
+
+      finalized.get() shouldBe true
+      runtime.unsafeRun(fiber.join) shouldBe Outcome.Canceled()
+    finally
+      release.countDown()
+      runtime.shutdown()
+  }
+
   test("guarantee returns the original value after a successful finalizer") {
     val runtime   = testRuntime()
     val finalized = new AtomicBoolean(false)

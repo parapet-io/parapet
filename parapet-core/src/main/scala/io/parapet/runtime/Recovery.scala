@@ -3,6 +3,7 @@ package io.parapet.runtime
 import io.parapet.Event.{Initialize, Registered, Restored}
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
+import io.parapet.effect.Outcome
 import io.parapet.journal.JournalEntry
 import io.parapet.runtime.DslInterpreter.Interpreter
 import io.parapet.runtime.{Context, Envelope, Scope}
@@ -103,8 +104,10 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
         effect.delay(state.process.canHandle(event)).flatMap {
           case false => effect.pure(())
           case true  =>
-            effect.suspend(
-              state.process(event).foldMap(interpreter.interpret(ProcessRef.SystemRef, state, Scope.empty)).void
+            runHandler(
+              effect.suspend(
+                state.process(event).foldMap(interpreter.interpret(ProcessRef.SystemRef, state, Scope.empty)).void
+              )
             )
         }
 
@@ -146,7 +149,16 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
               case Success(_) if state.process.isInstanceOf[ReplayBoundary] => effect.pure(())
               case Success(event)                                           =>
                 val scope = Scope.empty.put(Scope.Cause, entry.id)
-                effect.suspend(state.process(event).foldMap(interpreter.interpret(entry.sender, state, scope)).void)
+                runHandler(
+                  effect.suspend(state.process(event).foldMap(interpreter.interpret(entry.sender, state, scope)).void)
+                )
+
+  private def runHandler(program: F[Unit]): F[Unit] =
+    effect.outcome(program).flatMap {
+      case Outcome.Succeeded(()) => effect.pure(())
+      case Outcome.Failed(error) => effect.raiseError(error)
+      case Outcome.Canceled()    => effect.pure(())
+    }
 
   private def processSeq(ref: ProcessRef.Unknown): Long = processSeqTracker.getOrElse(ref, 0L)
 
