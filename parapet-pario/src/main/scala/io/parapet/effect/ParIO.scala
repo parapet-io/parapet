@@ -41,6 +41,9 @@ object ParIO:
   /** Defers construction of a `ParIO`. */
   final case class Suspend[A](thunk: () => ParIO[A]) extends ParIO[A]
 
+  /** Races two computations. A canceled participant does not win the race. */
+  final case class Race[A, B](left: ParIO[A], right: ParIO[B]) extends ParIO[Either[A, B]]
+
   /** Sequencing constructor used by [[ParIO.flatMap]]. */
   final case class FlatMap[A, B](source: ParIO[A], bind: A => ParIO[B]) extends ParIO[B]
 

@@ -1,7 +1,7 @@
 package io.parapet
 
 import io.parapet.dsl.Dsl.*
-import io.parapet.effect.{Effect, EffectFiber, Monad}
+import io.parapet.effect.{Effect, EffectFiber, Monad, Outcome}
 import io.parapet.runtime.*
 import io.parapet.runtime.Scheduler.{Deliver, SubmissionResult, Task}
 import io.parapet.{ParConfig, ProcessRef}
@@ -82,10 +82,14 @@ object TestUtils:
 
     def start[A](fa: TestIO[A]): TestIO[EffectFiber[TestIO, A]] =
       TestIO.delay {
-        val result = fa.handleErrorWith(TestIO.raiseError).unsafeRun()
+        val outcome =
+          try Outcome.Succeeded(fa.unsafeRun())
+          catch
+            case _: CancellationException => Outcome.Canceled()
+            case error: Throwable         => Outcome.Failed(error)
         new EffectFiber[TestIO, A]:
-          def join: TestIO[A]      = TestIO.pure(result)
-          def cancel: TestIO[Unit] = TestIO.unit
+          def join: TestIO[Outcome[A]] = TestIO.pure(outcome)
+          def cancel: TestIO[Unit]     = TestIO.unit
       }
 
     def startBlocking[A](fa: TestIO[A]): TestIO[EffectFiber[TestIO, A]] =

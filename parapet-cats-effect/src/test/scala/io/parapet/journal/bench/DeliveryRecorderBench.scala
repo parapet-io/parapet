@@ -4,7 +4,7 @@ import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.parallel.*
 import io.parapet.cats.CatsEffectParapetRuntime
-import io.parapet.effect.{Effect, EffectFiber}
+import io.parapet.effect.{Effect, EffectFiber, Outcome}
 import io.parapet.journal.*
 import io.parapet.{Event, ProcessRef}
 
@@ -69,7 +69,12 @@ object DeliveryRecorderBench:
   ) extends Admitter:
     def admit(draft: JournalDraft): IO[Long] = recorder.admit(draft)
     def flush: IO[Unit]                      = recorder.flush()
-    def close: IO[Unit]                      = recorder.close().flatMap(_ => writer.join)
+    def close: IO[Unit]                      =
+      recorder.close().flatMap(_ => writer.join).flatMap {
+        case Outcome.Succeeded(_)  => IO.unit
+        case Outcome.Failed(error) => IO.raiseError(error)
+        case Outcome.Canceled()    => IO.canceled
+      }
 
   // ----------------------------------------------------------------- observation
 

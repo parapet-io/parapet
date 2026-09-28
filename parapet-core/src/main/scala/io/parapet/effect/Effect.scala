@@ -7,8 +7,8 @@ import scala.concurrent.duration.FiniteDuration
   * Used by [[io.parapet.effect.Fiber]] to wrap effect-level fibers in a DSL-friendly form.
   */
 trait EffectFiber[F[_], A]:
-  /** Suspends until the fiber finishes and returns its result. */
-  def join: F[A]
+  /** Suspends until the fiber finishes and returns its terminal outcome. */
+  def join: F[Outcome[A]]
 
   /** Requests cancellation. Idempotent. */
   def cancel: F[Unit]
@@ -55,7 +55,9 @@ trait Effect[F[_]] extends Monad[F]:
     */
   def startBlocking[A](fa: F[A]): F[EffectFiber[F, A]]
 
-  /** Races `left` against `right`; the loser is cancelled. */
+  /** Races `left` against `right`; the loser is cancelled. A cancelled participant does not win, and the race is
+    * cancelled if both participants cancel.
+    */
   def race[A, B](left: F[A], right: F[B]): F[Either[A, B]]
 
   /** Runs `fa` and runs `finalizer` afterward regardless of success, failure, or cancellation. */
