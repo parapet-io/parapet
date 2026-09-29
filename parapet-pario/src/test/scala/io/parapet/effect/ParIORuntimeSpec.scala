@@ -8,6 +8,12 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.concurrent.duration.*
 
 class ParIORuntimeSpec extends AnyFunSuite:
+  private def succeededValue[A](outcome: Outcome[A]): A =
+    outcome match
+      case Outcome.Succeeded(value) => value
+      case Outcome.Failed(error)    => throw error
+      case Outcome.Canceled()       => fail("expected the fiber to succeed, but it was canceled")
+
   private def testRuntime(asyncSize: Int = 2): ParIORuntime =
     new ParIORuntime(
       ParIORuntimeConfig(
@@ -47,8 +53,58 @@ class ParIORuntimeSpec extends AnyFunSuite:
     val runtime = testRuntime()
     try
       val fiber = runtime.unsafeRun(runtime.effect.startBlocking(ParIO.delay(Thread.currentThread().getName)))
-      runtime.unsafeRun(fiber.join) should startWith("test-blocking-")
+      succeededValue(runtime.unsafeRun(fiber.join)) should startWith("test-blocking-")
     finally runtime.shutdown()
+  }
+
+  test("join materializes a fiber failure") {
+    val runtime = testRuntime()
+    val error   = new RuntimeException("boom")
+
+    try
+      val fiber = runtime.unsafeRun(runtime.effect.start(ParIO.raiseError[Int](error)))
+      runtime.unsafeRun(fiber.join) shouldBe Outcome.Failed(error)
+    finally runtime.shutdown()
+  }
+
+  test("outcome materializes success, failure, and self-cancellation") {
+    val runtime           = testRuntime()
+    val error             = new RuntimeException("boom")
+    val cancellationError = new CancellationException("ordinary failure")
+
+    try
+      runtime.unsafeRun(runtime.effect.outcome(ParIO.pure(42))) shouldBe Outcome.Succeeded(42)
+      runtime.unsafeRun(runtime.effect.outcome(ParIO.raiseError[Int](error))) shouldBe Outcome.Failed(error)
+      runtime.unsafeRun(runtime.effect.outcome(ParIO.raiseError[Int](cancellationError))) shouldBe Outcome.Failed(
+        cancellationError
+      )
+      runtime.unsafeRun(runtime.effect.outcome(runtime.effect.canceled)) shouldBe Outcome.Canceled()
+    finally runtime.shutdown()
+  }
+
+  test("canceling an outcome caller cancels its child and remains cancellation") {
+    val runtime   = testRuntime()
+    val started   = new CountDownLatch(1)
+    val release   = new CountDownLatch(1)
+    val finalized = new AtomicBoolean(false)
+    val child     = runtime.effect.onCancel(
+      ParIO.delay {
+        started.countDown()
+        release.await()
+      }
+    )(ParIO.delay(finalized.set(true)))
+
+    try
+      val fiber = runtime.unsafeRun(runtime.effect.start(runtime.effect.outcome(child)))
+      started.await(1, TimeUnit.SECONDS) shouldBe true
+
+      runtime.unsafeRun(fiber.cancel)
+
+      finalized.get() shouldBe true
+      runtime.unsafeRun(fiber.join) shouldBe Outcome.Canceled()
+    finally
+      release.countDown()
+      runtime.shutdown()
   }
 
   test("guarantee returns the original value after a successful finalizer") {
@@ -144,7 +200,7 @@ class ParIORuntimeSpec extends AnyFunSuite:
       runtime.unsafeRun(fiber.cancel)
 
       finalized.get() shouldBe true
-      intercept[CancellationException](runtime.unsafeRun(fiber.join))
+      runtime.unsafeRun(fiber.join) shouldBe Outcome.Canceled()
     finally
       release.countDown()
       runtime.shutdown()
@@ -171,13 +227,11 @@ class ParIORuntimeSpec extends AnyFunSuite:
       val pending = runtime.unsafeRun(runtime.effect.start(ParIO.delay(42)))
       runtime.unsafeRun(pending.cancel)
 
-      val joinTask = joinExecutor.submit(new Callable[CancellationException]:
-        override def call(): CancellationException =
-          intercept[CancellationException] {
-            runtime.unsafeRun(pending.join)
-          })
+      val joinTask = joinExecutor.submit(new Callable[Outcome[Int]]:
+        override def call(): Outcome[Int] =
+          runtime.unsafeRun(pending.join))
 
-      joinTask.get(1, TimeUnit.SECONDS) shouldBe a[CancellationException]
+      joinTask.get(1, TimeUnit.SECONDS) shouldBe Outcome.Canceled()
 
       release.countDown()
       runtime.unsafeRun(occupied.join)
@@ -195,7 +249,7 @@ class ParIORuntimeSpec extends AnyFunSuite:
 
     try
       val completed = runtime.unsafeRun(runtime.effect.start(ParIO.delay(Thread.currentThread().getName)))
-      runtime.unsafeRun(completed.join) should startWith("test-async-")
+      succeededValue(runtime.unsafeRun(completed.join)) should startWith("test-async-")
 
       val running = runtime.unsafeRun(
         runtime.effect.start(
@@ -268,6 +322,54 @@ class ParIORuntimeSpec extends AnyFunSuite:
       runtime.shutdown()
   }
 
+  test("a canceled participant does not win a race") {
+    val runtime      = testRuntime()
+    val leftCanceled = new CountDownLatch(1)
+    val left         = runtime.effect.onCancel(runtime.effect.canceled)(ParIO.delay(leftCanceled.countDown()))
+    val right        = ParIO.delay {
+      if !leftCanceled.await(1, TimeUnit.SECONDS) then throw new IllegalStateException("left branch did not cancel")
+      42
+    }
+
+    try runtime.unsafeRun(runtime.effect.race(left, right)) shouldBe Right(42)
+    finally runtime.shutdown()
+  }
+
+  test("a race is canceled when both participants cancel") {
+    val runtime   = testRuntime()
+    val finalized = new AtomicBoolean(false)
+    val race      = runtime.effect.onCancel(
+      runtime.effect.race(runtime.effect.canceled, runtime.effect.canceled)
+    )(ParIO.delay(finalized.set(true)))
+
+    try
+      intercept[CancellationException](runtime.unsafeRun(race))
+      finalized.get() shouldBe true
+    finally runtime.shutdown()
+  }
+
+  test("a failed participant terminates the race and cancels the other participant") {
+    val runtime        = testRuntime()
+    val error          = new RuntimeException("boom")
+    val loserStarted   = new CountDownLatch(1)
+    val loserFinalized = new AtomicBoolean(false)
+    val loser          = ParIO
+      .delay {
+        loserStarted.countDown()
+        Thread.sleep(10.seconds.toMillis)
+      }
+      .onCancel(ParIO.delay(loserFinalized.set(true)))
+    val failed = ParIO.delay {
+      if !loserStarted.await(1, TimeUnit.SECONDS) then throw new IllegalStateException("loser did not start")
+      throw error
+    }
+
+    try
+      intercept[RuntimeException](runtime.unsafeRun(runtime.effect.race(failed, loser))) shouldBe error
+      loserFinalized.get() shouldBe true
+    finally runtime.shutdown()
+  }
+
   test("parallel.par fails fast when one effect raises") {
     val runtime = testRuntime()
     val boom    = new RuntimeException("boom")
@@ -318,6 +420,24 @@ class ParIORuntimeSpec extends AnyFunSuite:
     finally runtime.shutdown()
   }
 
+  test("canceled runs cancellation finalizers and skips the remaining computation") {
+    val runtime                 = testRuntime()
+    val finalized               = new AtomicBoolean(false)
+    val remainingComputationRan = new AtomicBoolean(false)
+    val cancellationRecovered   = new AtomicBoolean(false)
+    val program                 = runtime.effect
+      .onCancel(runtime.effect.canceled)(ParIO.delay(finalized.set(true)))
+      .flatMap(_ => ParIO.delay(remainingComputationRan.set(true)))
+      .handleErrorWith(_ => ParIO.delay(cancellationRecovered.set(true)))
+
+    try
+      intercept[CancellationException](runtime.unsafeRun(program))
+      finalized.get() shouldBe true
+      remainingComputationRan.get() shouldBe false
+      cancellationRecovered.get() shouldBe false
+    finally runtime.shutdown()
+  }
+
   test("onCancel runs nested finalizers in order and skips the remaining computation") {
     val runtime                 = testRuntime()
     val started                 = new CountDownLatch(1)
@@ -362,7 +482,7 @@ class ParIORuntimeSpec extends AnyFunSuite:
       outerSawInnerFinalized.get() shouldBe true
       remainingComputationRan.get() shouldBe false
       cancellationRecovered.get() shouldBe false
-      intercept[CancellationException](runtime.unsafeRun(fiber.join))
+      runtime.unsafeRun(fiber.join) shouldBe Outcome.Canceled()
     finally
       release.countDown()
       runtime.shutdown()

@@ -49,6 +49,27 @@ abstract class SchedulerSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
       }
     }
 
+    "a handler cancels itself" should {
+      "continue delivering events to the process" in {
+        val eventStore = new EventStore[F, Event]
+        val server     = new Process[F, Event] {
+          def handle: Receive = {
+            case CancelDelivery    => suspend(ct.canceled)
+            case AfterCancellation => eval(eventStore.add(ref, AfterCancellation))
+          }
+        }
+        val client = new Process[F, Event] {
+          def handle: Receive = { case Start =>
+            (CancelDelivery ~> server) ++ (AfterCancellation ~> server)
+          }
+        }
+
+        unsafeRun(eventStore.await(1, createApp(ct.pure(Seq(client, server))).run))
+
+        eventStore.get(server.ref) shouldBe Seq(AfterCancellation)
+      }
+    }
+
   }
 
   // todo unstable
@@ -101,6 +122,10 @@ abstract class SchedulerSpec[F[_]] extends AnyWordSpec with IntegrationSpec[F] {
 object SchedulerSpec {
 
   object Request extends Event
+
+  object CancelDelivery extends Event
+
+  object AfterCancellation extends Event
 
   case class NamedRequest(name: String) extends Event
 

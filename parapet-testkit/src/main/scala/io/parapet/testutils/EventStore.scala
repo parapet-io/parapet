@@ -1,6 +1,6 @@
 package io.parapet.testutils
 
-import io.parapet.effect.Effect
+import io.parapet.effect.{Effect, Outcome}
 import io.parapet.effect.Effect.*
 import io.parapet.effect.Monad.*
 import io.parapet.{Event, ProcessRef}
@@ -67,6 +67,13 @@ class EventStore[F[_], A <: Event](using effect: Effect[F]) {
       delay: FiniteDuration = 100.millis,
       timeout: FiniteDuration = 1.minute
   ): F[Unit] = {
+    def awaitFiber: F[Unit] =
+      fiber.join.flatMap {
+        case Outcome.Succeeded(_)  => effect.pure(())
+        case Outcome.Failed(error) => effect.raiseError(error)
+        case Outcome.Canceled()    => effect.canceled
+      }
+
     def cancelAndWait: F[Unit] =
       effect
         .race(
@@ -87,7 +94,7 @@ class EventStore[F[_], A <: Event](using effect: Effect[F]) {
         )
         .void
 
-    effect.guarantee(effect.race(waitWithTimeout, fiber.join).void)(cancelAndWait)
+    effect.guarantee(effect.race(waitWithTimeout, awaitFiber).void)(cancelAndWait)
   }
 }
 

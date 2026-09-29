@@ -41,11 +41,17 @@ object ParIO:
   /** Defers construction of a `ParIO`. */
   final case class Suspend[A](thunk: () => ParIO[A]) extends ParIO[A]
 
+  /** Races two computations. A canceled participant does not win the race. */
+  final case class Race[A, B](left: ParIO[A], right: ParIO[B]) extends ParIO[Either[A, B]]
+
   /** Sequencing constructor used by [[ParIO.flatMap]]. */
   final case class FlatMap[A, B](source: ParIO[A], bind: A => ParIO[B]) extends ParIO[B]
 
   /** Error-recovery constructor used by [[ParIO.handleErrorWith]]. */
   final case class HandleError[A](source: ParIO[A], handler: Throwable => ParIO[A]) extends ParIO[A]
+
+  /** Requests cancellation of the current fiber. */
+  case object Canceled extends ParIO[Unit]
 
   /** Describes a duration delay. How this is scheduled depends on the active [[ParIORuntime]]. */
   final case class Sleep(duration: FiniteDuration) extends ParIO[Unit]
@@ -55,6 +61,9 @@ object ParIO:
 
   /** Registers a finalizer for every outcome of `source`. */
   final case class Guarantee[+A](source: ParIO[A], finalizer: ParIO[Unit]) extends ParIO[A]
+
+  /** Materializes the terminal outcome of `source` in an isolated cancellation scope. */
+  final case class OutcomeOf[+A](source: ParIO[A]) extends ParIO[Outcome[A]]
 
   /** Lifts a pure value. */
   def pure[A](value: A): ParIO[A] =
@@ -79,6 +88,10 @@ object ParIO:
   /** Aborts with `error` when interpreted. */
   def raiseError[A](error: Throwable): ParIO[A] =
     Delay(() => throw error)
+
+  /** Requests cancellation of the current fiber. */
+  def canceled: ParIO[Unit] =
+    Canceled
 
   /** Describes a duration delay. */
   def sleep(duration: FiniteDuration): ParIO[Unit] =

@@ -356,9 +356,12 @@ object Dsl:
       *
       * {{{
       * for
-      *   fiber <- fork(eval("long running operation"))
-      *   res   <- fiber.join
-      *   _     <- eval(print(res))
+      *   fiber   <- fork(eval("long running operation"))
+      *   outcome <- fiber.join
+      *   _ <- outcome match
+      *     case Outcome.Succeeded(value) => eval(print(value))
+      *     case Outcome.Failed(error)    => raiseError(error)
+      *     case Outcome.Canceled()       => unit
       * yield ()
       * }}}
       */

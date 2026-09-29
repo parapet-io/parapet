@@ -1,14 +1,14 @@
 package io.parapet.cats
 
-import cats.effect.{FiberIO, IO, Outcome}
+import cats.effect.{FiberIO, IO, Outcome as CatsOutcome}
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
 import io.parapet.ParApp
-import io.parapet.effect.{Effect, EffectFiber, Parallel}
+import io.parapet.effect.{Effect, EffectFiber, Outcome as FiberOutcome, Parallel}
 import io.parapet.runtime.SchedulerRuntime
 
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.{CancellationException, ExecutorService, Executors, ThreadFactory}
+import java.util.concurrent.{ExecutorService, Executors, ThreadFactory}
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration.*
 
@@ -46,6 +46,16 @@ final class CatsEffectParapetRuntime private (
     def raiseError[A](error: Throwable): IO[A] =
       IO.raiseError(error)
 
+    def canceled: IO[Unit] =
+      IO.canceled
+
+    def outcome[A](fa: IO[A]): IO[FiberOutcome[A]] =
+      IO.uncancelable { poll =>
+        fa.start.flatMap { fiber =>
+          poll(wrapFiber(fiber).join).onCancel(fiber.cancel)
+        }
+      }
+
     def sleep(duration: FiniteDuration): IO[Unit] =
       IO.sleep(duration)
 
@@ -78,11 +88,11 @@ final class CatsEffectParapetRuntime private (
 
   private def wrapFiber[A](fiber: FiberIO[A]): EffectFiber[IO, A] =
     new EffectFiber[IO, A]:
-      def join: IO[A] =
+      def join: IO[FiberOutcome[A]] =
         fiber.join.flatMap {
-          case Outcome.Succeeded(value) => value
-          case Outcome.Errored(error)   => IO.raiseError(error)
-          case Outcome.Canceled()       => IO.raiseError(new CancellationException("fiber cancelled"))
+          case CatsOutcome.Succeeded(value) => value.map[FiberOutcome[A]](FiberOutcome.Succeeded(_))
+          case CatsOutcome.Errored(error)   => IO.pure[FiberOutcome[A]](FiberOutcome.Failed(error))
+          case CatsOutcome.Canceled()       => IO.pure[FiberOutcome[A]](FiberOutcome.Canceled())
         }
 
       def cancel: IO[Unit] =

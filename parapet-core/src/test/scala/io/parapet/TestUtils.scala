@@ -1,16 +1,19 @@
 package io.parapet
 
 import io.parapet.dsl.Dsl.*
-import io.parapet.effect.{Effect, EffectFiber, Monad}
+import io.parapet.effect.{Effect, EffectFiber, Monad, Outcome}
 import io.parapet.runtime.*
 import io.parapet.runtime.Scheduler.{Deliver, SubmissionResult, Task}
 import io.parapet.{ParConfig, ProcessRef}
 
+import java.util.concurrent.CancellationException
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.FiniteDuration
 
 object TestUtils:
   type Id[A] = A
+
+  final private class TestCancellation extends CancellationException("effect canceled")
 
   given Monad[Id] with
     def pure[A](value: A): A = value
@@ -73,15 +76,30 @@ object TestUtils:
     def raiseError[A](error: Throwable): TestIO[A] =
       TestIO.raiseError(error)
 
+    def canceled: TestIO[Unit] =
+      TestIO.raiseError(new TestCancellation)
+
+    def outcome[A](fa: TestIO[A]): TestIO[Outcome[A]] =
+      TestIO.delay {
+        try Outcome.Succeeded(fa.unsafeRun())
+        catch
+          case _: TestCancellation => Outcome.Canceled()
+          case error: Throwable    => Outcome.Failed(error)
+      }
+
     def sleep(duration: FiniteDuration): TestIO[Unit] =
       TestIO.delay(Thread.sleep(duration.toMillis))
 
     def start[A](fa: TestIO[A]): TestIO[EffectFiber[TestIO, A]] =
       TestIO.delay {
-        val result = fa.handleErrorWith(TestIO.raiseError).unsafeRun()
+        val outcome =
+          try Outcome.Succeeded(fa.unsafeRun())
+          catch
+            case _: TestCancellation => Outcome.Canceled()
+            case error: Throwable    => Outcome.Failed(error)
         new EffectFiber[TestIO, A]:
-          def join: TestIO[A]      = TestIO.pure(result)
-          def cancel: TestIO[Unit] = TestIO.unit
+          def join: TestIO[Outcome[A]] = TestIO.pure(outcome)
+          def cancel: TestIO[Unit]     = TestIO.unit
       }
 
     def startBlocking[A](fa: TestIO[A]): TestIO[EffectFiber[TestIO, A]] =

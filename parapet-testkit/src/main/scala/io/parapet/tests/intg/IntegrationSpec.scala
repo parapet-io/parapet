@@ -26,6 +26,9 @@ trait IntegrationSpec[F[_]] extends WithDsl[F] with FlowSyntax[F] with ParApp[F]
     def raiseError[A](error: Throwable): F[A] =
       summon[Effect[F]].raiseError(error)
 
+    def canceled: F[Unit] =
+      summon[Effect[F]].canceled
+
     def unit: F[Unit] =
       summon[Effect[F]].pure(())
   }
