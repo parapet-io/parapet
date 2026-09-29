@@ -105,9 +105,7 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
           case false => effect.pure(())
           case true  =>
             runHandler(
-              effect.suspend(
-                state.process(event).foldMap(interpreter.interpret(ProcessRef.SystemRef, state, Scope.empty)).void
-              )
+              state.process(event).foldMap(interpreter.interpret(ProcessRef.SystemRef, state, Scope.empty)).void
             )
         }
 
@@ -149,9 +147,7 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
               case Success(_) if state.process.isInstanceOf[ReplayBoundary] => effect.pure(())
               case Success(event)                                           =>
                 val scope = Scope.empty.put(Scope.Cause, entry.id)
-                runHandler(
-                  effect.suspend(state.process(event).foldMap(interpreter.interpret(entry.sender, state, scope)).void)
-                )
+                runHandler(state.process(event).foldMap(interpreter.interpret(entry.sender, state, scope)).void)
 
   private def runHandler(program: F[Unit]): F[Unit] =
     effect.outcome(program).flatMap {

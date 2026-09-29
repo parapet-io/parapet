@@ -160,7 +160,7 @@ object DslInterpreter:
                     .map(_ => Right(()))
                     .handleErrorWith(error => effect.pure(Left(error)))
                     .flatMap(outcome => done.complete(outcome).void)
-                )
+                ) // fixme cancellation can happen during flaMap, so fiber is not registered and canceled
                 _ <- processState.offloads.add(fiber, done)
               yield ().asInstanceOf[A]
 

@@ -666,7 +666,7 @@ object Scheduler:
           case Outcome.Failed(error)                                => errorHandler(error)
           case Outcome.Canceled()                                   =>
             logger.debug(s"worker[$name]::runEffect canceled. envelope: $envelope") >>
-              processState.offloads.cancelAll
+              effect.pure(())
         }
 
       private def createNotifySignal(ref: ProcessRef.Unknown): Signal =
