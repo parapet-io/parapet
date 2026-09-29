@@ -665,8 +665,7 @@ object Scheduler:
           case Outcome.Failed(violation: RecoveryContractViolation) => effect.raiseError(violation)
           case Outcome.Failed(error)                                => errorHandler(error)
           case Outcome.Canceled()                                   =>
-            logger.debug(s"worker[$name]::runEffect canceled. envelope: $envelope") >>
-              effect.pure(())
+            logger.debug(s"worker[$name]::runEffect canceled. envelope: $envelope")
         }
 
       private def createNotifySignal(ref: ProcessRef.Unknown): Signal =

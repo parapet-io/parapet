@@ -149,8 +149,8 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
                 val scope = Scope.empty.put(Scope.Cause, entry.id)
                 runHandler(state.process(event).foldMap(interpreter.interpret(entry.sender, state, scope)).void)
 
-  private def runHandler(program: F[Unit]): F[Unit] =
-    effect.outcome(program).flatMap {
+  private def runHandler(program: => F[Unit]): F[Unit] =
+    effect.outcome(effect.suspend(program)).flatMap {
       case Outcome.Succeeded(()) => effect.pure(())
       case Outcome.Failed(error) => effect.raiseError(error)
       case Outcome.Canceled()    => effect.pure(())
