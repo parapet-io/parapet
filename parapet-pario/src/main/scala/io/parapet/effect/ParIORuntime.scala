@@ -18,7 +18,7 @@ import java.util.concurrent.{
   ThreadPoolExecutor,
   TimeUnit
 }
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
+import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.*
 
 /** Bounded pool configuration.
@@ -139,12 +139,21 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
   final private case class CancelFrame(run: ParIO[Any])               extends Frame
   final private case class GuaranteeFrame(run: ParIO[Any])            extends Frame
 
+  // `future` controls executor scheduling and carries the task's result or failure. `terminated` is an
+  // outcome-independent barrier: it completes after a started task has fully unwound, or after cancellation proves
+  // that the task will never start. Cancellation waits on this barrier so it cannot return while task finalizers are
+  // still running.
   final private case class RunningTask[A](
       future: Future[A],
       cancellationSignal: CancellationSignal,
-      started: AtomicBoolean,
+      startState: AtomicInteger,
       terminated: CompletableFuture[Unit]
   )
+
+  private object TaskStartState:
+    val Pending             = 0
+    val Started             = 1
+    val CanceledBeforeStart = 2
 
   private val runtimeContextLocal = new ThreadLocal[RuntimeContext]()
 
@@ -375,28 +384,36 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
 
     cancellation
 
+  private def runCancelable[A](cancellationSignal: CancellationSignal)(thunk: => A): A =
+    val runner = Thread.currentThread()
+    cancellationSignal.fiberContext.registerRunner(runner)
+    try thunk
+    finally cancellationSignal.fiberContext.clearRunner(runner)
+
   private def startFiberOn[A](
       pool: ExecutorService,
       runtimeContext: RuntimeContext,
       fa: ParIO[A]
   ): EffectFiber[ParIO, A] =
-    // `task` is the executor cancellation handle and becomes canceled before a running computation has necessarily
-    // finished unwinding. `result` is completed by the runner after `unsafeRunLoop` terminates, so `join` can observe
-    // the fiber outcome and `cancel` can wait for cancellation finalizers to finish.
+    // `result` is completed by the runner after `unsafeRunLoop` terminates, so `join` observes the terminal outcome
+    // and `cancel` waits for cancellation finalizers to finish.
     val result             = new CompletableFuture[Outcome[A]]()
-    val started            = new AtomicBoolean(false)
+    val startState         = new AtomicInteger(TaskStartState.Pending)
     val cancellationSignal = new CancellationSignal()
     val task               = pool.submit(new Callable[Unit]:
       override def call(): Unit =
-        started.set(true)
-        withRuntimeContext(runtimeContext) {
-          try result.complete(Outcome.Succeeded(unsafeRunLoop(fa, cancellationSignal)))
-          catch
-            case _: Throwable if cancellationSignal.isRequested =>
-              result.complete(Outcome.Canceled())
-            case error: Throwable =>
-              result.complete(Outcome.Failed(error))
-        })
+        if startState.compareAndSet(TaskStartState.Pending, TaskStartState.Started) then
+          withRuntimeContext(runtimeContext) {
+            try
+              result.complete(
+                Outcome.Succeeded(runCancelable(cancellationSignal)(unsafeRunLoop(fa, cancellationSignal)))
+              )
+            catch
+              case _: Throwable if cancellationSignal.isRequested =>
+                result.complete(Outcome.Canceled())
+              case error: Throwable =>
+                result.complete(Outcome.Failed(error))
+          })
 
     new EffectFiber[ParIO, A]:
       def join: ParIO[Outcome[A]] =
@@ -404,30 +421,31 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
 
       def cancel: ParIO[Unit] =
         ParIO.blocking {
-          if cancellationSignal.request() then
-            task.cancel(true)
+          cancellationSignal.request()
 
-            if started.get() then
-              try result.get()
-              catch
-                case _: CancellationException    => ()
-                case _: ExecutionException       => ()
-                case error: InterruptedException =>
-                  Thread.currentThread().interrupt()
-                  throw error
-            else result.complete(Outcome.Canceled())
-            ()
+          if startState.compareAndSet(TaskStartState.Pending, TaskStartState.CanceledBeforeStart) then
+            task.cancel(false)
+            result.complete(Outcome.Canceled())
+
+          try result.get()
+          catch
+            case _: CancellationException    => ()
+            case _: ExecutionException       => ()
+            case error: InterruptedException =>
+              Thread.currentThread().interrupt()
+              throw error
+          ()
         }
 
   private def racePrograms[A, B](left: ParIO[A], right: ParIO[B]): Outcome[Either[A, B]] =
     final case class RaceResult(tag: Int, outcome: Outcome[Any])
 
-    def runBranch[X](tag: Int, program: ParIO[X], signal: CancellationSignal): RaceResult =
+    def runBranch[X](tag: Int, program: ParIO[X], cancellationSignal: CancellationSignal): RaceResult =
       val outcome: Outcome[X] =
-        try Outcome.Succeeded(unsafeRunLoop(program, signal))
+        try Outcome.Succeeded(runCancelable(cancellationSignal)(unsafeRunLoop(program, cancellationSignal)))
         catch
-          case _: Throwable if signal.isRequested => Outcome.Canceled()
-          case error: Throwable                   => Outcome.Failed(error)
+          case _: Throwable if cancellationSignal.isRequested => Outcome.Canceled()
+          case error: Throwable                               => Outcome.Failed(error)
       RaceResult(tag, outcome)
 
     def toRaceOutcome(result: RaceResult): Outcome[Either[A, B]] =
@@ -442,14 +460,17 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
 
     def submitBranch[X](tag: Int, program: ParIO[X]): RunningTask[RaceResult] =
       val cancellationSignal = new CancellationSignal()
-      val started            = new AtomicBoolean(false)
+      val startState         = new AtomicInteger(TaskStartState.Pending)
       val terminated         = new CompletableFuture[Unit]()
       val future             = completion.submit(new Callable[RaceResult]:
         override def call(): RaceResult =
-          started.set(true)
-          try withRuntimeContext(RuntimeContext.Async)(runBranch(tag, program, cancellationSignal))
-          finally terminated.complete(()))
-      RunningTask(future, cancellationSignal, started, terminated)
+          if startState.compareAndSet(TaskStartState.Pending, TaskStartState.Started) then
+            try withRuntimeContext(RuntimeContext.Async)(runBranch(tag, program, cancellationSignal))
+            finally terminated.complete(())
+          else
+            terminated.complete(())
+            throw new CancellationException("task canceled before start"))
+      RunningTask(future, cancellationSignal, startState, terminated)
 
     val leftTask  = submitBranch(0, left)
     val rightTask = submitBranch(1, right)
@@ -498,16 +519,20 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
       try
         effects.foreach { effect =>
           val cancellationSignal = new CancellationSignal()
-          val started            = new AtomicBoolean(false)
+          val startState         = new AtomicInteger(TaskStartState.Pending)
           val terminated         = new CompletableFuture[Unit]()
           val future             = completion.submit(
             new Callable[Unit]:
               override def call(): Unit =
-                started.set(true)
-                try withRuntimeContext(runtimeContext)(unsafeRunLoop(effect, cancellationSignal))
-                finally terminated.complete(())
+                if startState.compareAndSet(TaskStartState.Pending, TaskStartState.Started) then
+                  try
+                    withRuntimeContext(runtimeContext) {
+                      runCancelable(cancellationSignal)(unsafeRunLoop(effect, cancellationSignal))
+                    }
+                  finally terminated.complete(())
+                else terminated.complete(())
           )
-          running += RunningTask(future, cancellationSignal, started, terminated)
+          running += RunningTask(future, cancellationSignal, startState, terminated)
         }
 
         var remaining = running.size
@@ -529,8 +554,12 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
   private def cancelAndAwait[A](task: RunningTask[A]): Unit =
     if !task.future.isDone then
       task.cancellationSignal.request()
-      task.future.cancel(true)
-      if task.started.get() then await(task.terminated)
+      val canceledBeforeStart =
+        task.startState.compareAndSet(TaskStartState.Pending, TaskStartState.CanceledBeforeStart)
+      if canceledBeforeStart then
+        task.future.cancel(false)
+        task.terminated.complete(())
+      else await(task.terminated)
 
   private def sleepOnTimer(duration: FiniteDuration): Unit =
     if duration.length > 0L then
@@ -585,14 +614,27 @@ object ParIORuntime:
   lazy val default: ParIORuntime =
     new ParIORuntime(ParIORuntimeConfig.default)
 
-  final private class CancellationSignal(parent: Option[CancellationSignal] = None):
-    private val requested = new AtomicBoolean(false)
+  final private class CancellationSignal private (
+      val fiberContext: FiberContext,
+      parent: Option[CancellationSignal]
+  ):
+    private var requested = false
+
+    def this() =
+      this(new FiberContext(), None)
 
     def child(): CancellationSignal =
-      new CancellationSignal(Some(this))
+      new CancellationSignal(fiberContext, Some(this))
 
     def request(): Boolean =
-      requested.compareAndSet(false, true)
+      val accepted = synchronized {
+        if requested then false
+        else
+          requested = true
+          true
+      }
+      if accepted then fiberContext.interruptRunner()
+      accepted
 
     def isRequested: Boolean =
-      requested.get() || parent.exists(_.isRequested)
+      synchronized(requested) || parent.exists(_.isRequested)

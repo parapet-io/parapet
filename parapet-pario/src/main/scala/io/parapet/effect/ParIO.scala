@@ -27,6 +27,10 @@ sealed trait ParIO[+A]:
   final def onCancel(finalizer: ParIO[Unit]): ParIO[A] =
     ParIO.OnCancel(this, finalizer)
 
+  /** Runs `finalizer` after this computation regardless of success, failure, or cancellation. */
+  final def guarantee(finalizer: ParIO[Unit]): ParIO[A] =
+    ParIO.Guarantee(this, finalizer)
+
 /** [[ParIO]] constructors and the default runtime-backed type-class instances for the reference runtime. */
 object ParIO:
   /** Wraps an already-known value. */
