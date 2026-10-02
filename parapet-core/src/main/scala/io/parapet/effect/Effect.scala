@@ -13,6 +13,9 @@ trait EffectFiber[F[_], A]:
   /** Requests cancellation. Idempotent. */
   def cancel: F[Unit]
 
+trait Poll[F[_]]:
+  def apply[A](fa: F[A]): F[A]
+
 /** Capability bundle the parapet runtime requires of any effect type `F`.
   *
   * Extends [[Monad]] with the additional primitives the [[io.parapet.runtime.Scheduler]] and
@@ -72,6 +75,8 @@ trait Effect[F[_]] extends Monad[F]:
 
   /** Runs `finalizer` if `fa` is canceled. */
   def onCancel[A](fa: F[A])(finalizer: F[Unit]): F[A]
+
+  def uncancellable[A](poll: Poll[F] => F[A]): F[A]
 
   extension [A](fa: F[A])
     /** Recovers from an exception via `f`. */

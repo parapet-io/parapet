@@ -134,10 +134,12 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     case External, Scheduler, Parallel, Async, Blocking
 
   sealed private trait Frame
-  final private case class BindFrame(run: Any => ParIO[Any])          extends Frame
-  final private case class RecoverFrame(run: Throwable => ParIO[Any]) extends Frame
-  final private case class CancelFrame(run: ParIO[Any])               extends Frame
-  final private case class GuaranteeFrame(run: ParIO[Any])            extends Frame
+  final private case class BindFrame(run: Any => ParIO[Any])                  extends Frame
+  final private case class RecoverFrame(run: Throwable => ParIO[Any])         extends Frame
+  final private case class CancelFrame(run: ParIO[Any])                       extends Frame
+  final private case class GuaranteeFrame(run: ParIO[Any])                    extends Frame
+  final private case class ExitUncancelableFrame(mask: CancellationMaskToken) extends Frame
+  final private case class ReinstateMaskFrame(mask: CancellationMaskToken) extends Frame
 
   // `future` controls executor scheduling and carries the task's result or failure. `terminated` is an
   // outcome-independent barrier: it completes after a started task has fully unwound, or after cancellation proves
@@ -222,6 +224,9 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     def onCancel[A](fa: ParIO[A])(finalizer: ParIO[Unit]): ParIO[A] =
       ParIO.OnCancel(fa, finalizer)
 
+    def uncancellable[A](poll: Poll[ParIO] => ParIO[A]): ParIO[A] =
+      ParIO.Uncancellable(poll)
+
   /** [[Parallel]] instance backed by this runtime */
   given parallel: Parallel[ParIO] with
     def par(effects: Seq[ParIO[Unit]]): ParIO[Unit] =
@@ -276,6 +281,12 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
                 stack = tail
                 unsafeRunLoop(finalizer, new CancellationSignal())
                 current = Pure(value)
+              case ReinstateMaskFrame(mask) :: tail =>
+                cancellationSignal.fiberContext.reinstateMask(mask)
+                stack = tail
+              case ExitUncancelableFrame(mask) :: tail =>
+                stack = tail
+                cancellationSignal.fiberContext.exitMask(mask)
 
           case Delay(thunk) =>
             current = Pure(thunk())
@@ -316,6 +327,27 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
           case HandleError(source, handler) =>
             current = source.asInstanceOf[ParIO[Any]]
             stack = RecoverFrame(handler.asInstanceOf[Throwable => ParIO[Any]]) :: stack
+
+          case Uncancellable(body) =>
+            cancellationSignal.tryEnterUncancellable() match {
+              case FiberContext.UncancellableEntry.CancelNow =>
+                runCancellationFinalizers(stack)
+              case FiberContext.UncancellableEntry.Entered(mask) =>
+                val poll = new Poll[ParIO] {
+                  override def apply[B](fa: ParIO[B]): ParIO[B] =
+                    RestoreCancellation(fa, mask)
+                }
+                stack = ExitUncancelableFrame(mask) :: stack
+                current = body(poll)
+            }
+
+          case RestoreCancellation(fa, mask) =>
+            cancellationSignal.fiberContext.tryRestoreCancellation(mask) match {
+              case FiberContext.RestoreCancellationDecision.Opened =>
+                stack = ReinstateMaskFrame(mask) :: stack
+              case FiberContext.RestoreCancellationDecision.Ignored => ()
+            }
+            current = fa
 
           case Canceled =>
             cancellationSignal.request()
@@ -614,7 +646,7 @@ object ParIORuntime:
   lazy val default: ParIORuntime =
     new ParIORuntime(ParIORuntimeConfig.default)
 
-  final private class CancellationSignal private (
+  final private[effect] class CancellationSignal private (
       val fiberContext: FiberContext,
       parent: Option[CancellationSignal]
   ):
@@ -638,3 +670,6 @@ object ParIORuntime:
 
     def isRequested: Boolean =
       synchronized(requested) || parent.exists(_.isRequested)
+
+    def tryEnterUncancellable(): FiberContext.UncancellableEntry =
+      fiberContext.tryEnterUncancellable(this)

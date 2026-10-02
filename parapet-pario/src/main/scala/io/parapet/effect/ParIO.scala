@@ -69,6 +69,10 @@ object ParIO:
   /** Materializes the terminal outcome of `source` in an isolated cancellation scope. */
   final case class OutcomeOf[+A](source: ParIO[A]) extends ParIO[Outcome[A]]
 
+  final case class Uncancellable[+A](body: Poll[ParIO] => ParIO[A]) extends ParIO[A]
+
+  final private[effect] case class RestoreCancellation[A](fa: ParIO[A], mask: CancellationMaskToken) extends ParIO[A]
+
   /** Lifts a pure value. */
   def pure[A](value: A): ParIO[A] =
     Pure(value)
