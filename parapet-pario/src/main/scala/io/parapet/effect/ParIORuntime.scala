@@ -671,15 +671,16 @@ object ParIORuntime:
 
   final private[effect] class CancellationSignal private (
       val fiberContext: FiberContext,
-      parent: Option[CancellationSignal]
+      parent: Option[CancellationSignal],
+      baseMaskDepth: Int
   ):
     private var requested = false
 
     def this() =
-      this(new FiberContext(), None)
+      this(new FiberContext(), None, 0)
 
     def child(): CancellationSignal =
-      new CancellationSignal(fiberContext, Some(this))
+      new CancellationSignal(fiberContext, Some(this), fiberContext.maskDepth)
 
     def request(): Boolean =
       val accepted = synchronized {
@@ -696,3 +697,9 @@ object ParIORuntime:
 
     def tryEnterUncancellable(): FiberContext.UncancellableEntry =
       fiberContext.tryEnterUncancellable(this)
+
+    private[effect] def isCancellationDueAt(currentMaskDepth: Int): Boolean =
+      val hasMaskEnteredSinceCreation = currentMaskDepth > baseMaskDepth
+      val localCancellationDue        = synchronized(requested) && !hasMaskEnteredSinceCreation
+
+      localCancellationDue || parent.exists(_.isCancellationDueAt(currentMaskDepth))

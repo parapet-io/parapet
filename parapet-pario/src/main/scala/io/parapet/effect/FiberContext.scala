@@ -17,6 +17,10 @@ final private[effect] class FiberContext:
     runner = null
   }
 
+  def maskDepth: Int = synchronized {
+    cancellationMasks.size
+  }
+
   def tryEnterUncancellable(signal: CancellationSignal): FiberContext.UncancellableEntry = synchronized {
     if cancellationDueLocked(signal) then FiberContext.UncancellableEntry.CancelNow
     else
@@ -64,7 +68,7 @@ final private[effect] class FiberContext:
   }
 
   private def cancellationDueLocked(signal: CancellationSignal): Boolean =
-    cancellationMasks.isEmpty && signal.isRequested
+    signal.isCancellationDueAt(cancellationMasks.size)
 
   private def reinstateMaskLocked(mask: CancellationMaskToken): Unit =
     if cancellationMasks.exists(_ eq mask) then
