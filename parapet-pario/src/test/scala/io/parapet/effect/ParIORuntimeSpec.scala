@@ -28,6 +28,12 @@ class ParIORuntimeSpec extends AnyFunSuite:
         ),
         parallel = FixedPoolConfig(2, "test-parallel"),
         async = FixedPoolConfig(asyncSize, "test-async"),
+        observer = ElasticPoolConfig(
+          coreSize = 0,
+          maxSize = 4,
+          keepAlive = 30.seconds,
+          threadNamePrefix = "test-observer"
+        ),
         blocking = ElasticPoolConfig(
           coreSize = 0,
           maxSize = 4,
@@ -83,6 +89,36 @@ class ParIORuntimeSpec extends AnyFunSuite:
       )
       runtime.unsafeRun(observeOutcome(runtime)(runtime.effect.canceled)) shouldBe Outcome.Canceled()
     finally runtime.shutdown()
+  }
+
+  test("observing a child makes progress when the bounded async pool is occupied") {
+    val runtime          = testRuntime(asyncSize = 1)
+    val occupied         = new CountDownLatch(1)
+    val release          = new CountDownLatch(1)
+    val observerExecutor = Executors.newSingleThreadExecutor()
+
+    val longLived = runtime.unsafeRun(
+      runtime.effect.start(
+        ParIO.delay {
+          occupied.countDown()
+          release.await()
+        }
+      )
+    )
+
+    try
+      occupied.await(1, TimeUnit.SECONDS) shouldBe true
+
+      val observed = observerExecutor.submit(new Callable[Outcome[Int]]() {
+        override def call(): Outcome[Int] =
+          runtime.unsafeRun(observeOutcome(runtime)(ParIO.pure(42)))
+      })
+      observed.get(1, TimeUnit.SECONDS) shouldBe Outcome.Succeeded(42)
+    finally
+      release.countDown()
+      runtime.unsafeRun(longLived.join)
+      observerExecutor.shutdownNow()
+      runtime.shutdown()
   }
 
   test("canceling a child-fiber observer cancels the child and remains cancellation") {

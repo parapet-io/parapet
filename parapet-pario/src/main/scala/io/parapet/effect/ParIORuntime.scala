@@ -49,6 +49,7 @@ final case class ParIORuntimeConfig(
     scheduler: ElasticPoolConfig,
     parallel: FixedPoolConfig,
     async: FixedPoolConfig,
+    observer: ElasticPoolConfig,
     blocking: ElasticPoolConfig,
     race: ElasticPoolConfig,
     timer: TimerThreadPoolConfig
@@ -68,6 +69,12 @@ object ParIORuntimeConfig:
       ),
       parallel = FixedPoolConfig(DefaultParallelism, "parapet-parallel"),
       async = FixedPoolConfig(DefaultParallelism, "parapet-async"),
+      observer = ElasticPoolConfig(
+        coreSize = 0,
+        maxSize = Int.MaxValue,
+        keepAlive = 60.seconds,
+        threadNamePrefix = "parapet-observer"
+      ),
       blocking = ElasticPoolConfig(
         coreSize = 0,
         maxSize = Int.MaxValue,
@@ -170,6 +177,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
   private val schedulerPool = Pools.elastic(config.scheduler)
   private val parallelPool  = Pools.fixed(config.parallel)
   private val asyncPool     = Pools.fixed(config.async)
+  private val observerPool  = Pools.elastic(config.observer)
   private val blockingPool  = Pools.elastic(config.blocking)
   private val racePool      = Pools.elastic(config.race)
   private val timer         = Pools.scheduled(config.timer)
@@ -225,6 +233,16 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     def uncancellable[A](body: Poll[ParIO] => ParIO[A]): ParIO[A] =
       ParIO.Uncancellable(body)
 
+    // A started ParIO fiber runs synchronously to completion on one executor task. Runtime-owned observers use a
+    // separate elastic pool so a long-running fiber on the bounded public async pool cannot prevent a handler from
+    // starting.
+    override private[parapet] def observeOutcome[A](fa: ParIO[A]): ParIO[Outcome[A]] =
+      ParIO.Uncancellable { poll =>
+        ParIO.delay(startFiberOn(observerPool, RuntimeContext.Async, fa)).flatMap { fiber =>
+          ParIO.OnCancel(poll(fiber.join), fiber.cancel)
+        }
+      }
+
   /** [[Parallel]] instance backed by this runtime */
   given parallel: Parallel[ParIO] with
     def par(effects: Seq[ParIO[Unit]]): ParIO[Unit] =
@@ -246,6 +264,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     timer.shutdownNow()
     racePool.shutdownNow()
     blockingPool.shutdownNow()
+    observerPool.shutdownNow()
     asyncPool.shutdownNow()
     parallelPool.shutdownNow()
     schedulerPool.shutdownNow()

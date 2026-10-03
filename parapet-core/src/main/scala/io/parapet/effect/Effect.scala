@@ -77,6 +77,17 @@ trait Effect[F[_]] extends Monad[F]:
     */
   def uncancellable[A](body: Poll[F] => F[A]): F[A]
 
+  /** Runs `fa` in a child fiber and returns its terminal outcome.
+    *
+    * Cancellation of the caller cancels the child and propagates to the caller.
+    */
+  private[parapet] def observeOutcome[A](fa: F[A]): F[Outcome[A]] =
+    uncancellable { poll =>
+      start(fa).flatMap { fiber =>
+        onCancel(poll(fiber.join))(fiber.cancel)
+      }
+    }
+
   extension [A](fa: F[A])
     /** Recovers from an exception via `f`. */
     def handleErrorWith(f: Throwable => F[A]): F[A]
@@ -91,11 +102,7 @@ object Effect:
     * Cancellation of the caller cancels the child and propagates to the caller.
     */
   private[parapet] def observeOutcome[F[_], A](fa: F[A])(using effect: Effect[F]): F[Outcome[A]] =
-    effect.uncancellable { poll =>
-      effect.start(fa).flatMap { fiber =>
-        effect.onCancel(poll(fiber.join))(fiber.cancel)
-      }
-    }
+    effect.observeOutcome(fa)
 
   extension [F[_]: Effect, A](fa: F[A])
     /** Recovers from an exception via `f`. */

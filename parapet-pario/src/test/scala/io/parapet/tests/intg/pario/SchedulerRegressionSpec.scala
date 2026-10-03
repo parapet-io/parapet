@@ -42,6 +42,12 @@ class SchedulerRegressionSpec extends AnyFunSuite:
         parallel = FixedPoolConfig(2, "reg-parallel"),
         // Keep async larger so the regression isolates submitter starvation on the parallel pool.
         async = FixedPoolConfig(6, "reg-async"),
+        observer = ElasticPoolConfig(
+          coreSize = 0,
+          maxSize = 16,
+          keepAlive = 30.seconds,
+          threadNamePrefix = "reg-observer"
+        ),
         blocking = ElasticPoolConfig(
           coreSize = 0,
           maxSize = 32,
