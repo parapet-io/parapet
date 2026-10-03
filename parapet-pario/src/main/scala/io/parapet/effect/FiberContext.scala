@@ -1,10 +1,9 @@
 package io.parapet.effect
 
-import io.parapet.effect.ParIORuntime.CancellationSignal
-
-/** Execution state shared by the cancellation scopes of one physical fiber. */
+/** Cancellation and runner state for one effect fiber. */
 final private[effect] class FiberContext:
   private var runner: Thread | Null = null
+  private var cancellationRequested = false
   private var cancellationMasks     = List.empty[CancellationMaskToken]
 
   def registerRunner(thread: Thread): Unit = synchronized {
@@ -17,24 +16,24 @@ final private[effect] class FiberContext:
     runner = null
   }
 
-  def maskDepth: Int = synchronized {
-    cancellationMasks.size
+  def requestCancellation(): Boolean = synchronized {
+    if cancellationRequested then false
+    else
+      cancellationRequested = true
+      if cancellationDueLocked then interruptRunnerLocked()
+      true
   }
 
-  def tryEnterUncancellable(signal: CancellationSignal): FiberContext.UncancellableEntry = synchronized {
-    if cancellationDueLocked(signal) then FiberContext.UncancellableEntry.CancelNow
+  def tryEnterUncancellable(): FiberContext.UncancellableEntry = synchronized {
+    if cancellationDueLocked then FiberContext.UncancellableEntry.CancelNow
     else
       val mask = CancellationMaskToken.create()
       cancellationMasks = mask :: cancellationMasks
       FiberContext.UncancellableEntry.Entered(mask)
   }
 
-  def cancellationDue(signal: CancellationSignal): Boolean = synchronized {
-    cancellationDueLocked(signal)
-  }
-
-  def interruptRunnerIfCancellationDue(signal: CancellationSignal): Unit = synchronized {
-    if cancellationDueLocked(signal) then interruptRunnerLocked()
+  def cancellationDue: Boolean = synchronized {
+    cancellationDueLocked
   }
 
   def exitMask(mask: CancellationMaskToken): Unit = synchronized {
@@ -49,30 +48,26 @@ final private[effect] class FiberContext:
     cancellationMasks match
       case active :: remaining if active eq mask =>
         cancellationMasks = remaining
-        FiberContext.RestoreCancellationDecision.Opened
-      case _ => FiberContext.RestoreCancellationDecision.Ignored
+        FiberContext.RestoreCancellationDecision.Restored
+      case _ => FiberContext.RestoreCancellationDecision.Unchanged
   }
 
   def reinstateMask(mask: CancellationMaskToken): Unit = synchronized {
     reinstateMaskLocked(mask)
   }
 
-  def tryReinstateMask(
-      signal: CancellationSignal,
-      mask: CancellationMaskToken
-  ): FiberContext.ReinstateMaskDecision = synchronized {
-    if cancellationDueLocked(signal) then FiberContext.ReinstateMaskDecision.CancelNow
+  def tryReinstateMask(mask: CancellationMaskToken): FiberContext.ReinstateMaskDecision = synchronized {
+    if cancellationDueLocked then FiberContext.ReinstateMaskDecision.CancelNow
     else
       reinstateMaskLocked(mask)
       FiberContext.ReinstateMaskDecision.Reinstated
   }
 
-  private def cancellationDueLocked(signal: CancellationSignal): Boolean =
-    signal.isCancellationDueAt(cancellationMasks.size)
+  private def cancellationDueLocked: Boolean =
+    cancellationRequested && cancellationMasks.isEmpty
 
   private def reinstateMaskLocked(mask: CancellationMaskToken): Unit =
-    if cancellationMasks.exists(_ eq mask) then
-      throw new IllegalStateException("cancellation mask is already active")
+    if cancellationMasks.exists(_ eq mask) then throw new IllegalStateException("cancellation mask is already active")
 
     cancellationMasks = mask :: cancellationMasks
 
@@ -87,8 +82,8 @@ private[effect] object FiberContext:
     case Entered(mask: CancellationMaskToken)
 
   enum RestoreCancellationDecision:
-    case Opened
-    case Ignored
+    case Restored
+    case Unchanged
 
   enum ReinstateMaskDecision:
     case CancelNow

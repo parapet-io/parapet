@@ -1,7 +1,7 @@
 package io.parapet
 
 import io.parapet.dsl.Dsl.*
-import io.parapet.effect.{Effect, EffectFiber, Monad, Outcome}
+import io.parapet.effect.{Effect, EffectFiber, Monad, Outcome, Poll}
 import io.parapet.runtime.*
 import io.parapet.runtime.Scheduler.{Deliver, SubmissionResult, Task}
 import io.parapet.{ParConfig, ProcessRef}
@@ -79,14 +79,6 @@ object TestUtils:
     def canceled: TestIO[Unit] =
       TestIO.raiseError(new TestCancellation)
 
-    def outcome[A](fa: TestIO[A]): TestIO[Outcome[A]] =
-      TestIO.delay {
-        try Outcome.Succeeded(fa.unsafeRun())
-        catch
-          case _: TestCancellation => Outcome.Canceled()
-          case error: Throwable    => Outcome.Failed(error)
-      }
-
     def sleep(duration: FiniteDuration): TestIO[Unit] =
       TestIO.delay(Thread.sleep(duration.toMillis))
 
@@ -123,6 +115,10 @@ object TestUtils:
 
     def onCancel[A](fa: TestIO[A])(finalizer: TestIO[Unit]): TestIO[A] =
       fa
+
+    def uncancellable[A](body: Poll[TestIO] => TestIO[A]): TestIO[A] =
+      body(new Poll[TestIO]:
+        def apply[B](fa: TestIO[B]): TestIO[B] = fa)
 
   final class RuntimeFixture:
     val captured: ListBuffer[Envelope] = ListBuffer.empty

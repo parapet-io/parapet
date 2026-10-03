@@ -66,9 +66,6 @@ object ParIO:
   /** Registers a finalizer for every outcome of `source`. */
   final case class Guarantee[+A](source: ParIO[A], finalizer: ParIO[Unit]) extends ParIO[A]
 
-  /** Materializes the terminal outcome of `source` in an isolated cancellation scope. */
-  final case class OutcomeOf[+A](source: ParIO[A]) extends ParIO[Outcome[A]]
-
   /** Masks cancellation while the effect returned by `body` runs. */
   final case class Uncancellable[+A](body: Poll[ParIO] => ParIO[A]) extends ParIO[A]
 
