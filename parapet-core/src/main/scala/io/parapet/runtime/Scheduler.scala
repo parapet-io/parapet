@@ -660,7 +660,7 @@ object Scheduler:
           processState: ProcessState[F],
           errorHandler: Throwable => F[Unit]
       ): F[Unit] =
-        logger.debug(s"worker[$name]::runEffect. envelope: $envelope") >> effect.outcome(effect0).flatMap {
+        logger.debug(s"worker[$name]::runEffect. envelope: $envelope") >> Effect.observeOutcome(effect0).flatMap {
           case Outcome.Succeeded(())                                => effect.pure(())
           case Outcome.Failed(violation: RecoveryContractViolation) => effect.raiseError(violation)
           case Outcome.Failed(error)                                => errorHandler(error)
@@ -770,7 +770,7 @@ object Scheduler:
               case true =>
                 stopChildProcesses >>
                   processState.offloads.cancelAll >>
-                  effect.outcome(deliverStopEvent(sender, processState, interpreter, scope)).flatMap {
+                  Effect.observeOutcome(deliverStopEvent(sender, processState, interpreter, scope)).flatMap {
                     case Outcome.Succeeded(()) => effect.pure(())
                     case Outcome.Failed(error) => onError(receiver, error)
                     case Outcome.Canceled()    =>

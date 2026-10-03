@@ -4,7 +4,7 @@ import cats.effect.{FiberIO, IO, Outcome as CatsOutcome}
 import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
 import io.parapet.ParApp
-import io.parapet.effect.{Effect, EffectFiber, Outcome as FiberOutcome, Parallel}
+import io.parapet.effect.{Effect, EffectFiber, Outcome as FiberOutcome, Parallel, Poll}
 import io.parapet.runtime.SchedulerRuntime
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -49,13 +49,6 @@ final class CatsEffectParapetRuntime private (
     def canceled: IO[Unit] =
       IO.canceled
 
-    def outcome[A](fa: IO[A]): IO[FiberOutcome[A]] =
-      IO.uncancelable { poll =>
-        fa.start.flatMap { fiber =>
-          poll(wrapFiber(fiber).join).onCancel(fiber.cancel)
-        }
-      }
-
     def sleep(duration: FiniteDuration): IO[Unit] =
       IO.sleep(duration)
 
@@ -73,6 +66,14 @@ final class CatsEffectParapetRuntime private (
 
     def onCancel[A](fa: IO[A])(finalizer: IO[Unit]): IO[A] =
       fa.onCancel(finalizer)
+
+    override def uncancellable[A](body: Poll[IO] => IO[A]): IO[A] =
+      IO.uncancelable { catsPoll =>
+        val poll = new Poll[IO]:
+          override def apply[B](fa: IO[B]): IO[B] =
+            catsPoll(fa)
+        body(poll)
+      }
 
   given parallel: Parallel[IO] with
     def par(effects: Seq[IO[Unit]]): IO[Unit] =

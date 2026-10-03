@@ -13,6 +13,11 @@ trait EffectFiber[F[_], A]:
   /** Requests cancellation. Idempotent. */
   def cancel: F[Unit]
 
+/** Restores cancellation while an effect runs inside an [[Effect.uncancellable]] region. */
+trait Poll[F[_]]:
+  /** Runs `fa` with the cancellation state that existed outside the enclosing uncancellable region. */
+  def apply[A](fa: F[A]): F[A]
+
 /** Capability bundle the parapet runtime requires of any effect type `F`.
   *
   * Extends [[Monad]] with the additional primitives the [[io.parapet.runtime.Scheduler]] and
@@ -41,13 +46,6 @@ trait Effect[F[_]] extends Monad[F]:
   /** Requests cancellation of the current fiber. */
   def canceled: F[Unit]
 
-  /** Runs `fa` and returns its terminal outcome.
-    *
-    * Cancellation of `fa` is returned as [[Outcome.Canceled]]. Cancellation of the caller still cancels `fa` and
-    * propagates to the caller.
-    */
-  def outcome[A](fa: F[A]): F[Outcome[A]]
-
   /** Suspends for `duration`.
     *
     * Implementations may block a runtime thread unless they support true async suspension.
@@ -73,6 +71,23 @@ trait Effect[F[_]] extends Monad[F]:
   /** Runs `finalizer` if `fa` is canceled. */
   def onCancel[A](fa: F[A])(finalizer: F[Unit]): F[A]
 
+  /** Runs `body` with cancellation masked. Effects passed to the supplied [[Poll]] temporarily restore the previous
+    * cancellation state. Nested regions compose: a poll restores only the state outside the region that created it and
+    * does not remove masks established by enclosing regions.
+    */
+  def uncancellable[A](body: Poll[F] => F[A]): F[A]
+
+  /** Runs `fa` in a child fiber and returns its terminal outcome.
+    *
+    * Cancellation of the caller cancels the child and propagates to the caller.
+    */
+  private[parapet] def observeOutcome[A](fa: F[A]): F[Outcome[A]] =
+    uncancellable { poll =>
+      start(fa).flatMap { fiber =>
+        onCancel(poll(fiber.join))(fiber.cancel)
+      }
+    }
+
   extension [A](fa: F[A])
     /** Recovers from an exception via `f`. */
     def handleErrorWith(f: Throwable => F[A]): F[A]
@@ -81,6 +96,13 @@ trait Effect[F[_]] extends Monad[F]:
 object Effect:
   /** Summons an [[Effect]] instance for `F`. */
   def apply[F[_]](using effect: Effect[F]): Effect[F] = effect
+
+  /** Runs `fa` in a child fiber and returns its terminal outcome.
+    *
+    * Cancellation of the caller cancels the child and propagates to the caller.
+    */
+  private[parapet] def observeOutcome[F[_], A](fa: F[A])(using effect: Effect[F]): F[Outcome[A]] =
+    effect.observeOutcome(fa)
 
   extension [F[_]: Effect, A](fa: F[A])
     /** Recovers from an exception via `f`. */

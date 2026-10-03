@@ -27,6 +27,10 @@ sealed trait ParIO[+A]:
   final def onCancel(finalizer: ParIO[Unit]): ParIO[A] =
     ParIO.OnCancel(this, finalizer)
 
+  /** Runs `finalizer` after this computation regardless of success, failure, or cancellation. */
+  final def guarantee(finalizer: ParIO[Unit]): ParIO[A] =
+    ParIO.Guarantee(this, finalizer)
+
 /** [[ParIO]] constructors and the default runtime-backed type-class instances for the reference runtime. */
 object ParIO:
   /** Wraps an already-known value. */
@@ -62,8 +66,11 @@ object ParIO:
   /** Registers a finalizer for every outcome of `source`. */
   final case class Guarantee[+A](source: ParIO[A], finalizer: ParIO[Unit]) extends ParIO[A]
 
-  /** Materializes the terminal outcome of `source` in an isolated cancellation scope. */
-  final case class OutcomeOf[+A](source: ParIO[A]) extends ParIO[Outcome[A]]
+  /** Masks cancellation while the effect returned by `body` runs. */
+  final case class Uncancellable[+A](body: Poll[ParIO] => ParIO[A]) extends ParIO[A]
+
+  /** Runs `fa` under the cancellation state outside the mask identified by `mask`. */
+  final private[effect] case class RestoreCancellation[A](fa: ParIO[A], mask: CancellationMaskToken) extends ParIO[A]
 
   /** Lifts a pure value. */
   def pure[A](value: A): ParIO[A] =

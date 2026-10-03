@@ -8,6 +8,9 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.concurrent.duration.*
 
 class ParIORuntimeSpec extends AnyFunSuite:
+  private def observeOutcome[A](runtime: ParIORuntime)(fa: ParIO[A]): ParIO[Outcome[A]] =
+    Effect.observeOutcome(fa)(using runtime.effect)
+
   private def succeededValue[A](outcome: Outcome[A]): A =
     outcome match
       case Outcome.Succeeded(value) => value
@@ -25,6 +28,12 @@ class ParIORuntimeSpec extends AnyFunSuite:
         ),
         parallel = FixedPoolConfig(2, "test-parallel"),
         async = FixedPoolConfig(asyncSize, "test-async"),
+        observer = ElasticPoolConfig(
+          coreSize = 0,
+          maxSize = 4,
+          keepAlive = 30.seconds,
+          threadNamePrefix = "test-observer"
+        ),
         blocking = ElasticPoolConfig(
           coreSize = 0,
           maxSize = 4,
@@ -67,22 +76,52 @@ class ParIORuntimeSpec extends AnyFunSuite:
     finally runtime.shutdown()
   }
 
-  test("outcome materializes success, failure, and self-cancellation") {
+  test("observing a child fiber materializes success, failure, and self-cancellation") {
     val runtime           = testRuntime()
     val error             = new RuntimeException("boom")
     val cancellationError = new CancellationException("ordinary failure")
 
     try
-      runtime.unsafeRun(runtime.effect.outcome(ParIO.pure(42))) shouldBe Outcome.Succeeded(42)
-      runtime.unsafeRun(runtime.effect.outcome(ParIO.raiseError[Int](error))) shouldBe Outcome.Failed(error)
-      runtime.unsafeRun(runtime.effect.outcome(ParIO.raiseError[Int](cancellationError))) shouldBe Outcome.Failed(
+      runtime.unsafeRun(observeOutcome(runtime)(ParIO.pure(42))) shouldBe Outcome.Succeeded(42)
+      runtime.unsafeRun(observeOutcome(runtime)(ParIO.raiseError[Int](error))) shouldBe Outcome.Failed(error)
+      runtime.unsafeRun(observeOutcome(runtime)(ParIO.raiseError[Int](cancellationError))) shouldBe Outcome.Failed(
         cancellationError
       )
-      runtime.unsafeRun(runtime.effect.outcome(runtime.effect.canceled)) shouldBe Outcome.Canceled()
+      runtime.unsafeRun(observeOutcome(runtime)(runtime.effect.canceled)) shouldBe Outcome.Canceled()
     finally runtime.shutdown()
   }
 
-  test("canceling an outcome caller cancels its child and remains cancellation") {
+  test("observing a child makes progress when the bounded async pool is occupied") {
+    val runtime          = testRuntime(asyncSize = 1)
+    val occupied         = new CountDownLatch(1)
+    val release          = new CountDownLatch(1)
+    val observerExecutor = Executors.newSingleThreadExecutor()
+
+    val longLived = runtime.unsafeRun(
+      runtime.effect.start(
+        ParIO.delay {
+          occupied.countDown()
+          release.await()
+        }
+      )
+    )
+
+    try
+      occupied.await(1, TimeUnit.SECONDS) shouldBe true
+
+      val observed = observerExecutor.submit(new Callable[Outcome[Int]]() {
+        override def call(): Outcome[Int] =
+          runtime.unsafeRun(observeOutcome(runtime)(ParIO.pure(42)))
+      })
+      observed.get(1, TimeUnit.SECONDS) shouldBe Outcome.Succeeded(42)
+    finally
+      release.countDown()
+      runtime.unsafeRun(longLived.join)
+      observerExecutor.shutdownNow()
+      runtime.shutdown()
+  }
+
+  test("canceling a child-fiber observer cancels the child and remains cancellation") {
     val runtime   = testRuntime()
     val started   = new CountDownLatch(1)
     val release   = new CountDownLatch(1)
@@ -95,7 +134,7 @@ class ParIORuntimeSpec extends AnyFunSuite:
     )(ParIO.delay(finalized.set(true)))
 
     try
-      val fiber = runtime.unsafeRun(runtime.effect.start(runtime.effect.outcome(child)))
+      val fiber = runtime.unsafeRun(runtime.effect.start(observeOutcome(runtime)(child)))
       started.await(1, TimeUnit.SECONDS) shouldBe true
 
       runtime.unsafeRun(fiber.cancel)
@@ -486,6 +525,233 @@ class ParIORuntimeSpec extends AnyFunSuite:
     finally
       release.countDown()
       runtime.shutdown()
+  }
+
+  test("uncancellable defers self-cancellation until the region exits") {
+    val runtime          = testRuntime()
+    val insideRegionRan  = new AtomicBoolean(false)
+    val outsideRegionRan = new AtomicBoolean(false)
+    val program          = runtime.effect
+      .uncancellable { _ =>
+        runtime.effect.canceled.flatMap(_ => ParIO.delay(insideRegionRan.set(true)))
+      }
+      .flatMap(_ => ParIO.delay(outsideRegionRan.set(true)))
+
+    try
+      runtime.unsafeRun(observeOutcome(runtime)(program)) shouldBe Outcome.Canceled()
+      insideRegionRan.get() shouldBe true
+      outsideRegionRan.get() shouldBe false
+    finally runtime.shutdown()
+  }
+
+  test("uncancellable completes normally when cancellation was not requested") {
+    val runtime = testRuntime()
+
+    try
+      runtime.unsafeRun(runtime.effect.uncancellable(_ => ParIO.pure(42))) shouldBe 42
+    finally runtime.shutdown()
+  }
+
+  test("external cancellation waits for an uncancellable region to exit") {
+    val runtime          = testRuntime()
+    val cancelExecutor   = Executors.newSingleThreadExecutor()
+    val started          = new CountDownLatch(1)
+    val release          = new CountDownLatch(1)
+    val interrupted      = new AtomicBoolean(false)
+    val insideRegionRan  = new AtomicBoolean(false)
+    val outsideRegionRan = new AtomicBoolean(false)
+    val program          = runtime.effect
+      .uncancellable { _ =>
+        ParIO.delay {
+          started.countDown()
+          try release.await()
+          catch
+            case error: InterruptedException =>
+              interrupted.set(true)
+              throw error
+          insideRegionRan.set(true)
+        }
+      }
+      .flatMap(_ => ParIO.delay(outsideRegionRan.set(true)))
+
+    try
+      val fiber = runtime.unsafeRun(runtime.effect.start(program))
+      started.await(1, TimeUnit.SECONDS) shouldBe true
+
+      val cancellation = cancelExecutor.submit(new Callable[Unit]:
+        override def call(): Unit = runtime.unsafeRun(fiber.cancel))
+
+      Thread.sleep(100)
+      cancellation.isDone shouldBe false
+
+      release.countDown()
+      cancellation.get(1, TimeUnit.SECONDS)
+
+      interrupted.get() shouldBe false
+      insideRegionRan.get() shouldBe true
+      outsideRegionRan.get() shouldBe false
+      runtime.unsafeRun(fiber.join) shouldBe Outcome.Canceled()
+    finally
+      release.countDown()
+      cancelExecutor.shutdownNow()
+      runtime.shutdown()
+  }
+
+  test("poll restores cancellation for its source") {
+    val runtime       = testRuntime()
+    val started       = new CountDownLatch(1)
+    val release       = new CountDownLatch(1)
+    val finalized     = new AtomicBoolean(false)
+    val afterPollRan  = new AtomicBoolean(false)
+    val polledProgram = runtime.effect.onCancel(
+      ParIO.delay {
+        started.countDown()
+        release.await()
+        ()
+      }
+    )(ParIO.delay(finalized.set(true)))
+    val program = runtime.effect.uncancellable { poll =>
+      poll(polledProgram).flatMap(_ => ParIO.delay(afterPollRan.set(true)))
+    }
+
+    try
+      val fiber = runtime.unsafeRun(runtime.effect.start(program))
+      started.await(1, TimeUnit.SECONDS) shouldBe true
+
+      runtime.unsafeRun(fiber.cancel)
+
+      finalized.get() shouldBe true
+      afterPollRan.get() shouldBe false
+      runtime.unsafeRun(fiber.join) shouldBe Outcome.Canceled()
+    finally
+      release.countDown()
+      runtime.shutdown()
+  }
+
+  test("cancellation is masked again after a successful poll") {
+    val runtime          = testRuntime()
+    val cancelExecutor   = Executors.newSingleThreadExecutor()
+    val started          = new CountDownLatch(1)
+    val release          = new CountDownLatch(1)
+    val interrupted      = new AtomicBoolean(false)
+    val insideRegionRan  = new AtomicBoolean(false)
+    val outsideRegionRan = new AtomicBoolean(false)
+    val program          = runtime.effect
+      .uncancellable { poll =>
+        poll(ParIO.unit).flatMap { _ =>
+          ParIO.delay {
+            started.countDown()
+            try release.await()
+            catch
+              case error: InterruptedException =>
+                interrupted.set(true)
+                throw error
+            insideRegionRan.set(true)
+          }
+        }
+      }
+      .flatMap(_ => ParIO.delay(outsideRegionRan.set(true)))
+
+    try
+      val fiber = runtime.unsafeRun(runtime.effect.start(program))
+      started.await(1, TimeUnit.SECONDS) shouldBe true
+
+      val cancellation = cancelExecutor.submit(new Callable[Unit]:
+        override def call(): Unit = runtime.unsafeRun(fiber.cancel))
+
+      Thread.sleep(100)
+      cancellation.isDone shouldBe false
+
+      release.countDown()
+      cancellation.get(1, TimeUnit.SECONDS)
+
+      interrupted.get() shouldBe false
+      insideRegionRan.get() shouldBe true
+      outsideRegionRan.get() shouldBe false
+      runtime.unsafeRun(fiber.join) shouldBe Outcome.Canceled()
+    finally
+      release.countDown()
+      cancelExecutor.shutdownNow()
+      runtime.shutdown()
+  }
+
+  test("an error outside poll observes the reinstated cancellation mask") {
+    val runtime              = testRuntime()
+    val continuedAfterCancel = new AtomicBoolean(false)
+    val error                = new RuntimeException("boom")
+    val program              = runtime.effect.uncancellable { poll =>
+      poll(ParIO.raiseError[Unit](error)).handleErrorWith { _ =>
+        runtime.effect.canceled.flatMap(_ => ParIO.delay(continuedAfterCancel.set(true)))
+      }
+    }
+
+    try
+      runtime.unsafeRun(observeOutcome(runtime)(program)) shouldBe Outcome.Canceled()
+      continuedAfterCancel.get() shouldBe true
+    finally runtime.shutdown()
+  }
+
+  test("an error removes an uncancellable region before an outer handler runs") {
+    val runtime              = testRuntime()
+    val continuedAfterCancel = new AtomicBoolean(false)
+    val error                = new RuntimeException("boom")
+    val program              = runtime.effect
+      .uncancellable[Unit](_ => throw error)
+      .handleErrorWith { _ =>
+        runtime.effect.canceled.flatMap(_ => ParIO.delay(continuedAfterCancel.set(true)))
+      }
+
+    try
+      runtime.unsafeRun(observeOutcome(runtime)(program)) shouldBe Outcome.Canceled()
+      continuedAfterCancel.get() shouldBe false
+    finally runtime.shutdown()
+  }
+
+  test("a throwing error handler does not leak its enclosing cancellation mask") {
+    val runtime              = testRuntime()
+    val firstError           = new RuntimeException("first")
+    val handlerError         = new RuntimeException("handler")
+    val continuedAfterCancel = new AtomicBoolean(false)
+    val failed               = runtime.effect.uncancellable { _ =>
+      ParIO.raiseError[Unit](firstError).handleErrorWith(_ => throw handlerError)
+    }
+    val program = observeOutcome(runtime)(failed).flatMap {
+      case Outcome.Failed(error) if error eq handlerError =>
+        runtime.effect.canceled.flatMap(_ => ParIO.delay(continuedAfterCancel.set(true)))
+      case outcome =>
+        ParIO.raiseError(new IllegalStateException(s"unexpected outcome: $outcome"))
+    }
+
+    try
+      runtime.unsafeRun(observeOutcome(runtime)(program)) shouldBe Outcome.Canceled()
+      continuedAfterCancel.get() shouldBe false
+    finally runtime.shutdown()
+  }
+
+  test("observing a child materializes its cancellation inside an uncancellable region") {
+    val runtime     = testRuntime()
+    val observation = runtime.effect.uncancellable { _ =>
+      observeOutcome(runtime)(runtime.effect.canceled)
+    }
+
+    try
+      runtime.unsafeRun(observation) shouldBe Outcome.Canceled()
+    finally runtime.shutdown()
+  }
+
+  test("an outer poll does not open a nested uncancellable region") {
+    val runtime   = testRuntime()
+    val continued = new AtomicBoolean(false)
+    val program   = runtime.effect.uncancellable { outerPoll =>
+      runtime.effect.uncancellable { _ =>
+        outerPoll(runtime.effect.canceled).flatMap(_ => ParIO.delay(continued.set(true)))
+      }
+    }
+
+    try
+      runtime.unsafeRun(observeOutcome(runtime)(program)) shouldBe Outcome.Canceled()
+      continued.get() shouldBe true
+    finally runtime.shutdown()
   }
 
   test("race completes the losing branch cancellation before returning") {
