@@ -134,12 +134,14 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     case External, Scheduler, Parallel, Async, Blocking
 
   sealed private trait Frame
-  final private case class BindFrame(run: Any => ParIO[Any])                  extends Frame
-  final private case class RecoverFrame(run: Throwable => ParIO[Any])         extends Frame
-  final private case class CancelFrame(run: ParIO[Any])                       extends Frame
-  final private case class GuaranteeFrame(run: ParIO[Any])                    extends Frame
-  final private case class ExitUncancelableFrame(mask: CancellationMaskToken) extends Frame
-  final private case class ReinstateMaskFrame(mask: CancellationMaskToken) extends Frame
+  final private case class BindFrame(run: Any => ParIO[Any])                   extends Frame
+  final private case class RecoverFrame(run: Throwable => ParIO[Any])          extends Frame
+  final private case class CancelFrame(run: ParIO[Any])                        extends Frame
+  final private case class GuaranteeFrame(run: ParIO[Any])                     extends Frame
+  final private case class ExitUncancellableFrame(mask: CancellationMaskToken) extends Frame
+  final private case class ReinstateMaskFrame(mask: CancellationMaskToken)     extends Frame
+
+  final private class FiberCancellationException extends CancellationException("fiber canceled")
 
   // `future` controls executor scheduling and carries the task's result or failure. `terminated` is an
   // outcome-independent barrier: it completes after a started task has fully unwound, or after cancellation proves
@@ -224,8 +226,8 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     def onCancel[A](fa: ParIO[A])(finalizer: ParIO[Unit]): ParIO[A] =
       ParIO.OnCancel(fa, finalizer)
 
-    def uncancellable[A](poll: Poll[ParIO] => ParIO[A]): ParIO[A] =
-      ParIO.Uncancellable(poll)
+    def uncancellable[A](body: Poll[ParIO] => ParIO[A]): ParIO[A] =
+      ParIO.Uncancellable(body)
 
   /** [[Parallel]] instance backed by this runtime */
   given parallel: Parallel[ParIO] with
@@ -260,7 +262,8 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
     var stack: List[Frame]  = Nil
 
     while true do
-      if cancellationSignal.isRequested then throw runCancellationFinalizers(stack)
+      if cancellationSignal.fiberContext.cancellationDue(cancellationSignal) then
+        throw runCancellationFinalizers(stack, cancellationSignal.fiberContext)
 
       try
         current match
@@ -282,9 +285,12 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
                 unsafeRunLoop(finalizer, new CancellationSignal())
                 current = Pure(value)
               case ReinstateMaskFrame(mask) :: tail =>
-                cancellationSignal.fiberContext.reinstateMask(mask)
-                stack = tail
-              case ExitUncancelableFrame(mask) :: tail =>
+                cancellationSignal.fiberContext.tryReinstateMask(cancellationSignal, mask) match
+                  case FiberContext.ReinstateMaskDecision.CancelNow =>
+                    throw new FiberCancellationException
+                  case FiberContext.ReinstateMaskDecision.Reinstated =>
+                    stack = tail
+              case ExitUncancellableFrame(mask) :: tail =>
                 stack = tail
                 cancellationSignal.fiberContext.exitMask(mask)
 
@@ -310,11 +316,12 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
               current = Pure(Outcome.Succeeded(value))
             catch
               // Cancellation of the enclosing computation must propagate.
-              case error: Throwable if cancellationSignal.isRequested =>
+              case error: Throwable
+                  if cancellationSignal.fiberContext.cancellationDue(cancellationSignal) =>
                 throw error
 
               // Cancellation requested by the source is materialized.
-              case _: Throwable if childSignal.isRequested =>
+              case _: Throwable if childSignal.fiberContext.cancellationDue(childSignal) =>
                 current = Pure(Outcome.Canceled())
 
               case error: Throwable =>
@@ -329,25 +336,24 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
             stack = RecoverFrame(handler.asInstanceOf[Throwable => ParIO[Any]]) :: stack
 
           case Uncancellable(body) =>
-            cancellationSignal.tryEnterUncancellable() match {
+            cancellationSignal.tryEnterUncancellable() match
               case FiberContext.UncancellableEntry.CancelNow =>
-                runCancellationFinalizers(stack)
+                throw new FiberCancellationException
               case FiberContext.UncancellableEntry.Entered(mask) =>
-                val poll = new Poll[ParIO] {
+                val poll = new Poll[ParIO]:
                   override def apply[B](fa: ParIO[B]): ParIO[B] =
                     RestoreCancellation(fa, mask)
-                }
-                stack = ExitUncancelableFrame(mask) :: stack
-                current = body(poll)
-            }
+
+                stack = ExitUncancellableFrame(mask) :: stack
+                current = body(poll).asInstanceOf[ParIO[Any]]
 
           case RestoreCancellation(fa, mask) =>
-            cancellationSignal.fiberContext.tryRestoreCancellation(mask) match {
+            cancellationSignal.fiberContext.tryRestoreCancellation(mask) match
               case FiberContext.RestoreCancellationDecision.Opened =>
                 stack = ReinstateMaskFrame(mask) :: stack
               case FiberContext.RestoreCancellationDecision.Ignored => ()
-            }
-            current = fa
+
+            current = fa.asInstanceOf[ParIO[Any]]
 
           case Canceled =>
             cancellationSignal.request()
@@ -365,15 +371,15 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
             current = source.asInstanceOf[ParIO[Any]]
             stack = GuaranteeFrame(finalizer.asInstanceOf[ParIO[Any]]) :: stack
       catch
-        case _: Throwable if cancellationSignal.isRequested =>
-          throw runCancellationFinalizers(stack)
+        case _: Throwable if cancellationSignal.fiberContext.cancellationDue(cancellationSignal) =>
+          throw runCancellationFinalizers(stack, cancellationSignal.fiberContext)
         case error: Throwable =>
           var frames  = stack
           var handled = false
           while !handled && frames.nonEmpty do
             frames match
               case RecoverFrame(run) :: tail =>
-                current = run(error)
+                current = Suspend(() => run(error))
                 stack = tail
                 handled = true
               case GuaranteeFrame(finalizer) :: tail =>
@@ -381,6 +387,12 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
                 try unsafeRunLoop(finalizer, new CancellationSignal())
                 catch case finalizerError: Throwable => error.addSuppressed(finalizerError)
                 finally if wasInterrupted then Thread.currentThread().interrupt()
+                frames = tail
+              case ReinstateMaskFrame(mask) :: tail =>
+                cancellationSignal.fiberContext.reinstateMask(mask)
+                frames = tail
+              case ExitUncancellableFrame(mask) :: tail =>
+                cancellationSignal.fiberContext.exitMask(mask)
                 frames = tail
               case _ :: tail =>
                 frames = tail
@@ -391,9 +403,14 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
 
     throw new IllegalStateException("unreachable")
 
-  private def runCancellationFinalizers(stack: List[Frame]): CancellationException =
-    val cancellation = new CancellationException("fiber canceled")
+  private def runCancellationFinalizers(
+      stack: List[Frame],
+      fiberContext: FiberContext
+  ): CancellationException =
+    val cancellation = new FiberCancellationException
     var frames       = stack
+
+    Thread.interrupted()
 
     while frames.nonEmpty do
       frames match
@@ -408,6 +425,12 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
           try unsafeRunLoop(finalizer, new CancellationSignal())
           catch case error: Throwable => cancellation.addSuppressed(error)
           finally Thread.interrupted()
+          frames = tail
+        case ReinstateMaskFrame(mask) :: tail =>
+          fiberContext.reinstateMask(mask)
+          frames = tail
+        case ExitUncancellableFrame(mask) :: tail =>
+          fiberContext.exitMask(mask)
           frames = tail
         case _ :: tail =>
           frames = tail
@@ -441,7 +464,7 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
                 Outcome.Succeeded(runCancelable(cancellationSignal)(unsafeRunLoop(fa, cancellationSignal)))
               )
             catch
-              case _: Throwable if cancellationSignal.isRequested =>
+              case _: FiberCancellationException =>
                 result.complete(Outcome.Canceled())
               case error: Throwable =>
                 result.complete(Outcome.Failed(error))
@@ -476,8 +499,8 @@ final class ParIORuntime(val config: ParIORuntimeConfig) extends AutoCloseable:
       val outcome: Outcome[X] =
         try Outcome.Succeeded(runCancelable(cancellationSignal)(unsafeRunLoop(program, cancellationSignal)))
         catch
-          case _: Throwable if cancellationSignal.isRequested => Outcome.Canceled()
-          case error: Throwable                               => Outcome.Failed(error)
+          case _: FiberCancellationException => Outcome.Canceled()
+          case error: Throwable              => Outcome.Failed(error)
       RaceResult(tag, outcome)
 
     def toRaceOutcome(result: RaceResult): Outcome[Either[A, B]] =
@@ -665,7 +688,7 @@ object ParIORuntime:
           requested = true
           true
       }
-      if accepted then fiberContext.interruptRunner()
+      if accepted then fiberContext.interruptRunnerIfCancellationDue(this)
       accepted
 
     def isRequested: Boolean =

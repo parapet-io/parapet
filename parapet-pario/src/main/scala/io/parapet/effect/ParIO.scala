@@ -69,8 +69,10 @@ object ParIO:
   /** Materializes the terminal outcome of `source` in an isolated cancellation scope. */
   final case class OutcomeOf[+A](source: ParIO[A]) extends ParIO[Outcome[A]]
 
+  /** Masks cancellation while the effect returned by `body` runs. */
   final case class Uncancellable[+A](body: Poll[ParIO] => ParIO[A]) extends ParIO[A]
 
+  /** Runs `fa` under the cancellation state outside the mask identified by `mask`. */
   final private[effect] case class RestoreCancellation[A](fa: ParIO[A], mask: CancellationMaskToken) extends ParIO[A]
 
   /** Lifts a pure value. */
