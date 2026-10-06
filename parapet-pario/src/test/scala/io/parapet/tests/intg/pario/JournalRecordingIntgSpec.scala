@@ -17,7 +17,7 @@ import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.{CountDownLatch, TimeUnit, TimeoutException}
 import scala.util.Try
-import io.parapet.tests.intg.pario.JournalRecordingIntgSpec._
+import io.parapet.tests.intg.pario.JournalRecordingIntgSpec.given
 
 class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
 
