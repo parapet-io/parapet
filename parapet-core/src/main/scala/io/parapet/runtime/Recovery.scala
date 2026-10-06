@@ -4,11 +4,11 @@ import io.parapet.Event.{Initialize, Registered, Restored}
 import io.parapet.effect.Effect
 import io.parapet.effect.Monad.*
 import io.parapet.effect.Outcome
-import io.parapet.journal.JournalEntry
+import io.parapet.journal.{JournalEntry, RegisteredEventCodec}
 import io.parapet.runtime.DslInterpreter.Interpreter
 import io.parapet.runtime.{Context, Envelope, Scope}
 import io.parapet.snapshot.{Snapshot, Snapshotable}
-import io.parapet.{Event, Process, ProcessRef, ReplayBoundary}
+import io.parapet.{Event, Process, ProcessRef}
 import org.slf4j.LoggerFactory
 
 import scala.util.{Failure, Success}
@@ -138,16 +138,34 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
     context.getProcessState(entry.receiver) match
       case None        => effect.raiseError(new IllegalStateException(s"replay: no process for ref=${entry.receiver}"))
       case Some(state) =>
-        context.codecForTag(entry.tag) match
-          case None        => effect.raiseError(new IllegalStateException(s"replay: no codec for tag '${entry.tag}'"))
-          case Some(codec) =>
-            codec.decode(entry.schemaVersion, entry.event) match
-              case Failure(error)                                           => effect.raiseError(error)
-              case Success(Registered(child))                               => recover(child)
-              case Success(_) if state.process.isInstanceOf[ReplayBoundary] => effect.pure(())
-              case Success(event)                                           =>
-                val scope = Scope.empty.put(Scope.Cause, entry.id)
-                runHandler(state.process(event).foldMap(interpreter.interpret(entry.sender, state, scope)).void)
+        if entry.tag == RegisteredEventCodec.tag then
+          RegisteredEventCodec.decode(entry.schemaVersion, entry.event) match
+            case Failure(error)             => effect.raiseError(error)
+            case Success(Registered(child)) => recover(child)
+        else if !state.replayable then
+          effect.raiseError(
+            new IllegalStateException(
+              s"replay: receiver ${entry.receiver} is not replayable for entry ${entry.seq}"
+            )
+          )
+        else
+          state.process.eventCodec match
+            case None =>
+              effect.raiseError(
+                new IllegalStateException(s"replay: process ${entry.receiver} does not provide an event codec")
+              )
+            case Some(codec) if codec.tag != entry.tag =>
+              effect.raiseError(
+                new IllegalStateException(
+                  s"replay: codec tag '${codec.tag}' for process ${entry.receiver} does not match recorded tag '${entry.tag}'"
+                )
+              )
+            case Some(codec) =>
+              codec.decode(entry.schemaVersion, entry.event) match
+                case Failure(error) => effect.raiseError(error)
+                case Success(event) =>
+                  val scope = Scope.empty.put(Scope.Cause, entry.id)
+                  runHandler(state.process(event).foldMap(interpreter.interpret(entry.sender, state, scope)).void)
 
   private def runHandler(program: => F[Unit]): F[Unit] =
     Effect.observeOutcome(effect.suspend(program)).flatMap {

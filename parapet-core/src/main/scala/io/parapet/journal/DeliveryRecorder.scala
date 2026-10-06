@@ -1,6 +1,6 @@
 package io.parapet.journal
 
-import io.parapet.ProcessRef
+import io.parapet.{Event, ProcessRef}
 import io.parapet.effect.Monad.*
 import io.parapet.effect.Effect
 
@@ -17,7 +17,6 @@ import scala.util.{Failure, Success}
   */
 final class DeliveryRecorder[F[_]] private (
     store: JournalStore[F],
-    registry: EventCodecRegistry,
     config: JournalConfig,
     startSeq: Long
 )(using effect: Effect[F]):
@@ -30,7 +29,7 @@ final class DeliveryRecorder[F[_]] private (
   )
 
   /** Establishes the delivery's global position and admits it under the configured durability guarantee. */
-  def admit(draft: JournalDraft): F[Long] =
+  def admit[A <: Event](draft: JournalDraft[A]): F[Long] =
     encode(draft).flatMap { encoded =>
       config.writeMode match
         case JournalWriteMode.Buffered   => recorder.admit(encoded)
@@ -38,33 +37,29 @@ final class DeliveryRecorder[F[_]] private (
     }
 
   /** Establishes the delivery's global position and waits until it and all earlier admissions have been stored. */
-  def admitAndFlush(draft: JournalDraft): F[Long] =
+  def admitAndFlush[A <: Event](draft: JournalDraft[A]): F[Long] =
     encode(draft).flatMap(encoded => recorder.admitDurable(encoded))
 
   /** Publishes admitted deliveries until [[close]] is called. The runtime supervises this effect. */
   private[parapet] def runWriter: F[Unit] = recorder.runWriter
 
   /** Encodes the event carried by `draft` into the representation accepted by the delivery store. */
-  private def encode(draft: JournalDraft): F[EncodedDraft] =
+  private def encode[A <: Event](draft: JournalDraft[A]): F[EncodedDraft] =
     effect.suspend {
-      registry.codecFor(draft.event) match
-        case None =>
-          effect.raiseError(new IllegalStateException(s"no journal codec for event ${draft.event.getClass.getName}"))
-        case Some(codec) =>
-          codec.encode(draft.event) match
-            case Success(bytes) =>
-              effect.pure(
-                EncodedDraft(
-                  draft.id,
-                  draft.sender,
-                  draft.receiver,
-                  draft.cause,
-                  bytes.clone(),
-                  codec.tag,
-                  codec.version
-                )
-              )
-            case Failure(error) => effect.raiseError(error)
+      draft.codec.encode(draft.event) match
+        case Success(bytes) =>
+          effect.pure(
+            EncodedDraft(
+              draft.id,
+              draft.sender,
+              draft.receiver,
+              draft.cause,
+              bytes.clone(),
+              draft.codec.tag,
+              draft.codec.version
+            )
+          )
+        case Failure(error) => effect.raiseError(error)
     }
 
   /** Assigns and returns the next delivery sequence without admitting a delivery. */
@@ -130,10 +125,9 @@ object DeliveryRecorder:
   /** Creates a recorder for a journal with no previously assigned delivery positions. */
   def fresh[F[_]](
       store: JournalStore[F],
-      registry: EventCodecRegistry = EventCodecRegistry.empty,
       config: JournalConfig = JournalConfig.default
   )(using Effect[F]): DeliveryRecorder[F] =
-    create(store, config, 0L, registry)
+    create(store, config, 0L)
 
   /** Creates a recorder that continues after `highWater`.
     *
@@ -143,16 +137,14 @@ object DeliveryRecorder:
   def resume[F[_]](
       store: JournalStore[F],
       highWater: Long,
-      registry: EventCodecRegistry = EventCodecRegistry.empty,
       config: JournalConfig = JournalConfig.default
   )(using Effect[F]): DeliveryRecorder[F] =
-    create(store, config, highWater, registry)
+    create(store, config, highWater)
 
   /** Creates a delivery recorder with the supplied recovered high-water position. */
   private def create[F[_]](
       store: JournalStore[F],
       config: JournalConfig,
-      highWater: Long,
-      registry: EventCodecRegistry
+      highWater: Long
   )(using Effect[F]): DeliveryRecorder[F] =
-    new DeliveryRecorder[F](store, registry, config, highWater)
+    new DeliveryRecorder[F](store, config, highWater)

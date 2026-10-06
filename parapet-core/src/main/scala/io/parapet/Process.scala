@@ -34,8 +34,14 @@ import scala.util.Try
   * @tparam In
   *   the domain events this process accepts.
   */
-trait Process[F[_], In <: Event] extends WithDsl[F] with FlowSyntax[F]:
+trait Process[F[_], In <: Event](using eventCodecAvailability: EventCodecAvailability[In])
+    extends WithDsl[F]
+    with FlowSyntax[F]:
   self =>
+
+  /** The codec for this process's input protocol, when available. */
+  final private[parapet] def eventCodec: Option[EventCodec[In]] =
+    eventCodecAvailability.toOption
 
   /** Convenience alias for the program type produced by [[handle]] cases. */
   type Program = DslF[F, Unit]
@@ -146,7 +152,7 @@ trait Process[F[_], In <: Event] extends WithDsl[F] with FlowSyntax[F]:
         timeout: FiniteDuration
     ): DslF[F, Try[Res]] =
       dsl.flow {
-        if context.journalEnabled && !self.isInstanceOf[ReplayBoundary] then
+        if context.journalEnabled && self.isInstanceOf[Replayable] then
           dsl.raiseError(exceptions.RecoveryContractViolation(ref, "ask"))
         else
           // A per-ask child: the ref is derived from a counter rather than a UUID so that a replayed handler

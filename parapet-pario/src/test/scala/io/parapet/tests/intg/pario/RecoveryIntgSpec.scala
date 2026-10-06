@@ -1,14 +1,14 @@
 package io.parapet.tests.intg.pario
 
 import io.parapet.Event.{Initialize, Restored, Start}
-import io.parapet.{ParConfig, Process}
+import io.parapet.{EventCodec, EventCodecAvailability, ParConfig, Process, Replayable}
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
-import io.parapet.journal.{EventCodec, EventCodecRegistry, JournalConfig, JournalStoreLocal}
+import io.parapet.journal.{JournalConfig, JournalStoreLocal}
 import io.parapet.snapshot.{Snapshot, SnapshotConfig, SnapshotStorageLocal, Snapshotable}
 import io.parapet.testutils.EventStore
 import io.parapet.tests.intg.BasicParIOSpec
-import io.parapet.{Event, ProcessRef, ReplayBoundary}
+import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
@@ -21,6 +21,7 @@ import scala.util.{Failure, Success, Try}
 class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
 
   import RecoveryIntgSpec.*
+  import RecoveryIntgSpec.given
   import dsl.*
 
   test("a restart re-folds the recorded journal to reconstruct process state (no snapshot)") {
@@ -32,7 +33,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     val store1   = new EventStore[ParIO, Event]
     val counter1 = new Counter(ref, store1)
     val driver1  = onStart((1 to 3).map(i => Add(i) ~> ref).reduce(_ ++ _))
-    unsafeRun(store1.await(3, createApp(ct.pure(Seq(counter1, driver1)), config0 = config, eventCodecs0 = codecs).run))
+    unsafeRun(store1.await(3, createApp(ct.pure(Seq(counter1, driver1)), config0 = config).run))
     counter1.count shouldBe 6L
 
     // Run 2 (same data dir, fresh instance, no snapshot): boot re-folds the journal onto the counter before it goes
@@ -40,7 +41,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     val store2   = new EventStore[ParIO, Event]
     val counter2 = new Counter(ref, store2, recordInitialize = true, recordStart = true)
     val driver2  = onStart(unit)
-    unsafeRun(store2.await(5, createApp(ct.pure(Seq(counter2, driver2)), config0 = config, eventCodecs0 = codecs).run))
+    unsafeRun(store2.await(5, createApp(ct.pure(Seq(counter2, driver2)), config0 = config).run))
     counter2.count shouldBe 6L
     store2.get(ref) shouldBe Seq(InitializedWith(0L), Acked(1L), Acked(3L), Acked(6L), StartedWith(6L))
   }
@@ -59,7 +60,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     unsafeRun(
       store1.await(
         1,
-        createApp(ct.pure(Seq(parent1, driver1)), config0 = config, eventCodecs0 = dynamicCodecs).run
+        createApp(ct.pure(Seq(parent1, driver1)), config0 = config).run
       )
     )
 
@@ -73,7 +74,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     unsafeRun(
       store2.await(
         2,
-        createApp(ct.pure(Seq(parent2, driver2)), config0 = config, eventCodecs0 = dynamicCodecs).run
+        createApp(ct.pure(Seq(parent2, driver2)), config0 = config).run
       )
     )
 
@@ -99,8 +100,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
         1,
         createApp(
           ct.pure(Seq(new Parent(parentRef, childRef, store1), onStart(Spawn ~> parentRef))),
-          config0 = config,
-          eventCodecs0 = dynamicCodecs
+          config0 = config
         ).run
       )
     )
@@ -113,8 +113,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
       unsafeRun(
         createApp(
           ct.pure(Seq(new Parent(parentRef, childRef, new EventStore[ParIO, Event]), onStart(unit))),
-          config0 = config,
-          eventCodecs0 = dynamicCodecs
+          config0 = config
         ).run
       )
     }
@@ -142,8 +141,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
         1,
         createApp(
           ct.pure(Seq(new Parent(parentRef, childRef, store1), onStart(Spawn ~> parentRef))),
-          config0 = config,
-          eventCodecs0 = dynamicCodecs
+          config0 = config
         ).run
       )
     )
@@ -171,8 +169,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
               onStart(unit)
             )
           ),
-          config0 = config,
-          eventCodecs0 = dynamicCodecs
+          config0 = config
         ).run,
         timeout = 5.seconds
       )
@@ -181,7 +178,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     store2.get(childRef) shouldBe Seq(InitializedWith(0L), StartedWith(0L))
   }
 
-  test("a replay boundary skips IO while its replayable child is recovered and replayed") {
+  test("an ordinary IO process is not replayed while its replayable child is recovered") {
     val dir         = Files.createTempDirectory("recovery-boundary")
     val boundaryRef = ProcessRef.root[Event]("storage")
     val childRef    = boundaryRef.child[Event]("state")
@@ -201,8 +198,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
               onStart(Store(9) ~> boundaryRef)
             )
           ),
-          config0 = config,
-          eventCodecs0 = boundaryCodecs
+          config0 = config
         ).run
       )
     )
@@ -219,8 +215,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
               onStart(unit)
             )
           ),
-          config0 = config,
-          eventCodecs0 = boundaryCodecs
+          config0 = config
         ).run
       )
     )
@@ -243,7 +238,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     val store1   = new EventStore[ParIO, Event]
     val counter1 = new SnapCounter(ref, store1)
     val driver1  = onStart((1 to 3).map(i => Add(i) ~> ref).reduce(_ ++ _))
-    unsafeRun(store1.await(3, createApp(ct.pure(Seq(counter1, driver1)), config0 = config, eventCodecs0 = codecs).run))
+    unsafeRun(store1.await(3, createApp(ct.pure(Seq(counter1, driver1)), config0 = config).run))
     counter1.count shouldBe 6L
 
     // A snapshot covering at least the first delivery must exist, so recovery restores a non-empty prefix.
@@ -260,7 +255,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     val store2   = new EventStore[ParIO, Event]
     val counter2 = new SnapCounter(ref, store2, recordAcked = false, recordStart = true)
     unsafeRun(
-      store2.await(1, createApp(ct.pure(Seq(counter2, onStart(unit))), config0 = config, eventCodecs0 = codecs).run)
+      store2.await(1, createApp(ct.pure(Seq(counter2, onStart(unit))), config0 = config).run)
     )
 
     counter2.count shouldBe 6L                    // restored once - NOT re-folded to more than 6
@@ -277,7 +272,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     unsafeRun(
       store1.await(
         3,
-        createApp(ct.pure(Seq(new Counter(ref, store1), driver1)), config0 = config, eventCodecs0 = codecs).run
+        createApp(ct.pure(Seq(new Counter(ref, store1), driver1)), config0 = config).run
       )
     )
     val before = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync().map(_.seq)
@@ -286,7 +281,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     val store2   = new EventStore[ParIO, Event]
     val counter2 = new Counter(ref, store2, recordStart = true)
     unsafeRun(
-      store2.await(4, createApp(ct.pure(Seq(counter2, onStart(unit))), config0 = config, eventCodecs0 = codecs).run)
+      store2.await(4, createApp(ct.pure(Seq(counter2, onStart(unit))), config0 = config).run)
     )
     val after = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync().map(_.seq)
 
@@ -308,7 +303,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     unsafeRun(
       store1.await(
         1,
-        createApp(ct.pure(Seq(relay1, child1, driver1)), config0 = config, eventCodecs0 = relayCodecs).run
+        createApp(ct.pure(Seq(relay1, child1, driver1)), config0 = config).run
       )
     )
 
@@ -321,8 +316,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
         2,
         createApp(
           ct.pure(Seq(new Relay(relayRef, childRef), child2, onStart(unit))),
-          config0 = config,
-          eventCodecs0 = relayCodecs
+          config0 = config
         ).run
       )
     )
@@ -342,7 +336,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     unsafeRun(
       store1.await(
         3,
-        createApp(ct.pure(Seq(new Counter(ref, store1), driver1)), config0 = config, eventCodecs0 = codecs).run
+        createApp(ct.pure(Seq(new Counter(ref, store1), driver1)), config0 = config).run
       )
     )
     val versions = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
@@ -353,11 +347,13 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
       .distinct
     versions shouldBe Vector(1)
 
-    // Run 2: the registry now holds a v2 codec for the same tag; its decode must read the v1 bytes.
+    // Run 2: the receiver now owns a v2 codec for the same tag; its decode must read the v1 bytes.
     val store2   = new EventStore[ParIO, Event]
-    val counter2 = new Counter(ref, store2, recordStart = true)
+    val counter2 = new Counter(ref, store2, recordStart = true)(using
+      EventCodecAvailability.Available(AddCodecV2)
+    )
     unsafeRun(
-      store2.await(4, createApp(ct.pure(Seq(counter2, onStart(unit))), config0 = config, eventCodecs0 = codecsV2).run)
+      store2.await(4, createApp(ct.pure(Seq(counter2, onStart(unit))), config0 = config).run)
     )
 
     counter2.count shouldBe 6L
@@ -376,64 +372,39 @@ object RecoveryIntgSpec:
   final case class RestoredWith(count: Long)    extends Event
   final case class Emit(n: Int)                 extends Event
 
-  object AddCodec extends EventCodec:
-    val tag: String                            = "add"
-    val version: Int                           = 1
-    def encode(event: Event): Try[Array[Byte]] = event match
-      case Add(n) => Success(ByteBuffer.allocate(4).putInt(n).array())
-      case other  => Failure(new IllegalArgumentException(s"cannot encode $other"))
-    def decode(version: Int, bytes: Array[Byte]): Try[Event] = Success(Add(ByteBuffer.wrap(bytes).getInt))
+  object AddCodec extends EventCodec[Add]:
+    val tag: String                                        = "add"
+    val version: Int                                       = 1
+    def encode(event: Add): Try[Array[Byte]]               = Success(ByteBuffer.allocate(4).putInt(event.n).array())
+    def decode(version: Int, bytes: Array[Byte]): Try[Add] = Success(Add(ByteBuffer.wrap(bytes).getInt))
 
-  object SpawnCodec extends EventCodec:
-    val tag: String                            = "spawn"
-    val version: Int                           = 1
-    def encode(event: Event): Try[Array[Byte]] = event match
-      case Spawn => Success(Array.emptyByteArray)
-      case other => Failure(new IllegalArgumentException(s"cannot encode $other"))
-    def decode(version: Int, bytes: Array[Byte]): Try[Event] = Success(Spawn)
-
-  object StoreCodec extends EventCodec:
-    val tag: String                            = "store"
-    val version: Int                           = 1
-    def encode(event: Event): Try[Array[Byte]] = event match
-      case Store(n) => Success(ByteBuffer.allocate(4).putInt(n).array())
-      case other    => Failure(new IllegalArgumentException(s"cannot encode $other"))
-    def decode(version: Int, bytes: Array[Byte]): Try[Event] = Success(Store(ByteBuffer.wrap(bytes).getInt))
+  object SpawnCodec extends EventCodec[Spawn.type]:
+    val tag: String                                               = "spawn"
+    val version: Int                                              = 1
+    def encode(event: Spawn.type): Try[Array[Byte]]               = Success(Array.emptyByteArray)
+    def decode(version: Int, bytes: Array[Byte]): Try[Spawn.type] = Success(Spawn)
 
   /** Same tag as [[AddCodec]] but schema version 2 (8-byte payload). Decodes both versions, so it can read entries
     * recorded by the v1 codec.
     */
-  object AddCodecV2 extends EventCodec:
-    val tag: String                            = "add"
-    val version: Int                           = 2
-    def encode(event: Event): Try[Array[Byte]] = event match
-      case Add(n) => Success(ByteBuffer.allocate(8).putLong(n.toLong).array())
-      case other  => Failure(new IllegalArgumentException(s"cannot encode $other"))
-    def decode(version: Int, bytes: Array[Byte]): Try[Event] = version match
+  object AddCodecV2 extends EventCodec[Add]:
+    val tag: String                          = "add"
+    val version: Int                         = 2
+    def encode(event: Add): Try[Array[Byte]] = Success(ByteBuffer.allocate(8).putLong(event.n.toLong).array())
+    def decode(version: Int, bytes: Array[Byte]): Try[Add] = version match
       case 1     => Success(Add(ByteBuffer.wrap(bytes).getInt))
       case 2     => Success(Add(ByteBuffer.wrap(bytes).getLong.toInt))
       case other => Failure(new IllegalArgumentException(s"unsupported add version $other"))
 
-  object EmitCodec extends EventCodec:
-    val tag: String                            = "emit"
-    val version: Int                           = 1
-    def encode(event: Event): Try[Array[Byte]] = event match
-      case Emit(n) => Success(ByteBuffer.allocate(4).putInt(n).array())
-      case other   => Failure(new IllegalArgumentException(s"cannot encode $other"))
-    def decode(version: Int, bytes: Array[Byte]): Try[Event] = Success(Emit(ByteBuffer.wrap(bytes).getInt))
+  object EmitCodec extends EventCodec[Emit]:
+    val tag: String                                         = "emit"
+    val version: Int                                        = 1
+    def encode(event: Emit): Try[Array[Byte]]               = Success(ByteBuffer.allocate(4).putInt(event.n).array())
+    def decode(version: Int, bytes: Array[Byte]): Try[Emit] = Success(Emit(ByteBuffer.wrap(bytes).getInt))
 
-  val codecs: EventCodecRegistry = EventCodecRegistry(classOf[Add] -> AddCodec)
-
-  val codecsV2: EventCodecRegistry = EventCodecRegistry(classOf[Add] -> AddCodecV2)
-
-  val dynamicCodecs: EventCodecRegistry =
-    EventCodecRegistry(classOf[Add] -> AddCodec, classOf[Spawn.type] -> SpawnCodec)
-
-  val boundaryCodecs: EventCodecRegistry =
-    EventCodecRegistry(classOf[Add] -> AddCodec, classOf[Store] -> StoreCodec)
-
-  val relayCodecs: EventCodecRegistry =
-    EventCodecRegistry(classOf[Add] -> AddCodec, classOf[Emit] -> EmitCodec)
+  given EventCodec[Add]        = AddCodec
+  given EventCodec[Spawn.type] = SpawnCodec
+  given EventCodec[Emit]       = EmitCodec
 
   final class StorageBoundary(
       override val ref: ProcessRef[Event],
@@ -441,8 +412,7 @@ object RecoveryIntgSpec:
       store: EventStore[ParIO, Event],
       ioCalls: AtomicInteger,
       recreateChild: Boolean
-  ) extends Process[ParIO, Event]
-      with ReplayBoundary:
+  ) extends Process[ParIO, Store]:
 
     import dsl.*
 
@@ -462,7 +432,9 @@ object RecoveryIntgSpec:
       store: EventStore[ParIO, Event],
       recordChildStart: Boolean = false,
       recordChildInitialize: Boolean = false
-  ) extends Process[ParIO, Event]:
+  )(using EventCodecAvailability[Spawn.type])
+      extends Process[ParIO, Spawn.type]
+      with Replayable:
 
     import dsl.*
 
@@ -477,7 +449,9 @@ object RecoveryIntgSpec:
       store: EventStore[ParIO, Event],
       recordStart: Boolean = false,
       recordInitialize: Boolean = false
-  ) extends Process[ParIO, Event]:
+  )(using EventCodecAvailability[Add])
+      extends Process[ParIO, Add]
+      with Replayable:
 
     import dsl.*
 
@@ -506,7 +480,9 @@ object RecoveryIntgSpec:
       recordAcked: Boolean = true,
       recordStart: Boolean = false,
       recordRestored: Boolean = false
-  ) extends Process[ParIO, Event]
+  )(using EventCodecAvailability[Add])
+      extends Process[ParIO, Add]
+      with Replayable
       with Snapshotable:
 
     import dsl.*
@@ -526,7 +502,9 @@ object RecoveryIntgSpec:
   final class Relay(
       override val ref: ProcessRef[Event],
       childRef: ProcessRef[Event]
-  ) extends Process[ParIO, Event]:
+  )(using EventCodecAvailability[Emit])
+      extends Process[ParIO, Emit]
+      with Replayable:
 
     import dsl.*
 
