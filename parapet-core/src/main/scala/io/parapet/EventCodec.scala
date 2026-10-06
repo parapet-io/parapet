@@ -22,6 +22,7 @@ trait EventCodec[A <: Event] extends Codec[A] {
 
 }
 object EventCodec {
+
   /** Stable identifier of an event protocol codec. */
   type Tag = String
 }
