@@ -5,7 +5,7 @@ import io.parapet.dsl.Dsl
 import io.parapet.effect.Monad.*
 import io.parapet.effect.{Effect, Parallel}
 import io.parapet.fault.{FaultInjector, FaultPolicy}
-import io.parapet.journal.{EventCodecRegistry, JournalStore, JournalStoreLocal}
+import io.parapet.journal.{JournalStore, JournalStoreLocal}
 import io.parapet.runtime.*
 import io.parapet.runtime.DslInterpreter.Interpreter
 import io.parapet.snapshot.{SnapshotStorage, SnapshotStorageLocal}
@@ -98,11 +98,6 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
       )
     )
 
-  /** Codecs for events that may be journaled, keyed by event class and tag. Override to register application events;
-    * defaults to empty (nothing is journalable).
-    */
-  def eventCodecs: EventCodecRegistry = EventCodecRegistry.empty
-
   /** When true, the runtime wraps the interpreter with a [[io.parapet.fault.FaultInjector]] that injects the faults
     * described by [[faultPolicy]]. Defaults to false, so production runs are unaffected. Override - e.g. from a system
     * property - to enable fault injection for tests or simulations.
@@ -165,8 +160,7 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
         config,
         eventTransformers.build,
         snapshotStorage = Option.when(config.snapshot.enabled)(snapshotStorage),
-        journalStorage = Option.when(config.journal.enabled)(journalStorage),
-        codecRegistry = eventCodecs
+        journalStorage = Option.when(config.journal.enabled)(journalStorage)
       )
       interp = interpreter(context)
       scheduler <- Scheduler(config.schedulerConfig, context, interp)

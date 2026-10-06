@@ -4,8 +4,6 @@ import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
 import io.parapet.journal.{
   DeliveryRecorder,
-  EventCodec,
-  EventCodecRegistry,
   JournalConfig,
   JournalDraft,
   JournalEntry,
@@ -13,7 +11,7 @@ import io.parapet.journal.{
   JournalStoreLocal,
   JournalWriteMode
 }
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, EventCodec, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
@@ -30,20 +28,17 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
   private case class E(id: Long) extends Event
 
-  private object ECodec extends EventCodec:
-    val tag: String                            = "e"
-    val version: Int                           = 1
-    def encode(event: Event): Try[Array[Byte]] = event match
-      case E(id) => Success(java.nio.ByteBuffer.allocate(8).putLong(id).array())
-      case other => Failure(new IllegalArgumentException(s"cannot encode $other"))
-    def decode(version: Int, bytes: Array[Byte]): Try[Event] =
+  private object ECodec extends EventCodec[E]:
+    val tag: String                        = "e"
+    val version: Int                       = 1
+    def encode(event: E): Try[Array[Byte]] =
+      Success(java.nio.ByteBuffer.allocate(8).putLong(event.id).array())
+    def decode(version: Int, bytes: Array[Byte]): Try[E] =
       Success(E(java.nio.ByteBuffer.wrap(bytes).getLong))
-
-  private val registry = EventCodecRegistry(classOf[E] -> ECodec)
 
   extension [A](fa: ParIO[A]) private def run(): A = fa.unsafeRunSync()
 
-  private def draft(id: Long): JournalDraft = JournalDraft(id, ref, ref, 0L, E(id))
+  private def draft(id: Long): JournalDraft[E] = JournalDraft(id, ref, ref, 0L, E(id), ECodec)
 
   private def storeAt(dir: Path): JournalStoreLocal[ParIO] =
     new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
@@ -105,14 +100,14 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       store: JournalStore[ParIO],
       config: JournalConfig = JournalConfig.default
   ): ActiveRecorder =
-    startRecorder(DeliveryRecorder.fresh(store, registry, config))
+    startRecorder(DeliveryRecorder.fresh(store, config))
 
   private def resume(
       store: JournalStore[ParIO],
       highWater: Long,
       config: JournalConfig = JournalConfig.default
   ): ActiveRecorder =
-    startRecorder(DeliveryRecorder.resume(store, highWater, registry, config))
+    startRecorder(DeliveryRecorder.resume(store, highWater, config))
 
   private def awaitAll[A](running: Seq[Running[A]], clue: String): Vector[Try[A]] =
     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(awaitSeconds)
@@ -381,7 +376,6 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   test("construction rejects invalid parameters") {
     an[IllegalArgumentException] should be thrownBy DeliveryRecorder.fresh[ParIO](
       storeAt(Files.createTempDirectory("r")),
-      registry,
       JournalConfig(batchSize = 0)
     )
     an[IllegalArgumentException] should be thrownBy DeliveryRecorder.resume[ParIO](

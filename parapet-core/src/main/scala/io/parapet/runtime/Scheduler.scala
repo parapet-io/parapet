@@ -13,7 +13,7 @@ import io.parapet.runtime.Context.ProcessState
 import io.parapet.runtime.DslInterpreter.Interpreter
 import io.parapet.runtime.Scheduler.*
 import io.parapet.snapshot.Snapshotable
-import io.parapet.{Event, Process, ProcessRef}
+import io.parapet.{Event, EventCodec, Process, ProcessRef}
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
@@ -473,18 +473,36 @@ object Scheduler:
         val event            = envelope.event
         val snapEnabled      = snapshotting(processState)
         val journalCandidate =
-          context.journalEnabled && journaled(event) && processState.process.canHandle(event)
+          context.journalEnabled && processState.replayable && journaled(event) &&
+            processState.process.canHandle(event)
         val onDelivered = (seq: Long) =>
           if snapEnabled then effect.delay(processState.checkpoints.onDelivered(seq)) else effect.pure(())
 
-        if journalCandidate && context.codecFor(event).isDefined then journalAdmit(envelope).flatMap(onDelivered)
-        else if journalCandidate && context.requireEventCodec then
-          effect.raiseError(new IllegalStateException(s"journal requires a codec for event ${event.getClass.getName}"))
+        if journalCandidate then
+          processState.process.eventCodec match
+            case Some(codec) => journalAdmit(envelope, codec).flatMap(onDelivered)
+            case None        =>
+              effect.raiseError(
+                new IllegalStateException(
+                  s"replayable process ${processState.process.ref} does not provide an event codec"
+                )
+              )
         else if snapEnabled then context.nextSeq().flatMap(onDelivered)
         else effect.pure(())
 
-      private def journalAdmit(envelope: Envelope): F[Long] =
-        context.admit(JournalDraft(envelope.id, envelope.sender, envelope.receiver, envelope.cause, envelope.event))
+      private def journalAdmit[A <: Event](envelope: Envelope, codec: EventCodec[A]): F[Long] =
+        // onConsume checked that the receiver handles this non-system event. The cast reconnects that fact after the
+        // receiver's input type was erased by the runtime process registry.
+        context.admit(
+          JournalDraft(
+            envelope.id,
+            envelope.sender,
+            envelope.receiver,
+            envelope.cause,
+            envelope.event.asInstanceOf[A],
+            codec
+          )
+        )
 
       /** Runtime events are not recorded at the delivery seam. */
       private def journaled(event: Event): Boolean =
