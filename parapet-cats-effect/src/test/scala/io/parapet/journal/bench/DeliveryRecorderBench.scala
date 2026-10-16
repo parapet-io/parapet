@@ -70,8 +70,8 @@ object DeliveryRecorderBench:
       writer: EffectFiber[IO, Unit]
   ) extends Admitter:
     def admit(draft: JournalDraft): IO[Long] = recorder.admit(draft)
-    def flush: IO[Unit]                               = recorder.flush()
-    def close: IO[Unit]                               =
+    def flush: IO[Unit]                      = recorder.flush()
+    def close: IO[Unit]                      =
       recorder.close().flatMap(_ => writer.join).flatMap {
         case Outcome.Succeeded(_)  => IO.unit
         case Outcome.Failed(error) => IO.raiseError(error)

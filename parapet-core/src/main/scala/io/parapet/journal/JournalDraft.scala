@@ -16,7 +16,7 @@ import io.parapet.ProcessRef
   * @param event
   *   the encoded payload with its leaf schema and version
   */
-private[parapet] final case class JournalDraft(
+final private[parapet] case class JournalDraft(
     id: Long,
     sender: ProcessRef.Unknown,
     receiver: ProcessRef.Unknown,

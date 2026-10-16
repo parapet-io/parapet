@@ -252,8 +252,8 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   }
 
   test("buffered admission owns the encoded bytes before the caller reuses its buffer") {
-    val store = new ControlledStore(gateFirst = false)
-    val active = fresh(store, JournalConfig.default.copy(batchSize = 4))
+    val store    = new ControlledStore(gateFirst = false)
+    val active   = fresh(store, JournalConfig.default.copy(batchSize = 4))
     val original = draft(7L)
     val expected = original.event.bytes.toVector
     try
@@ -266,8 +266,8 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   }
 
   test("runtime encoding is lazy and encoding failures do not consume a journal sequence") {
-    val store = new ControlledStore(gateFirst = false)
-    val active = fresh(store)
+    val store   = new ControlledStore(gateFirst = false)
+    val active  = fresh(store)
     val context = new io.parapet.runtime.Context[ParIO](
       io.parapet.ParConfig.default,
       io.parapet.runtime.EventTransformers.empty,
@@ -275,19 +275,19 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       Some(active.recorder)
     )
     val calls = new AtomicInteger(0)
-    val boom = new IllegalArgumentException("cannot encode")
+    val boom  = new IllegalArgumentException("cannot encode")
     try
       for throwsDirectly <- Vector(false, true) do
         val failing = new EventCodec.Simple[E] {
-          val schema = ECodec.schema
-          val version = 1
+          val schema                             = ECodec.schema
+          val version                            = 1
           def encode(value: E): Try[Array[Byte]] = {
             calls.incrementAndGet()
             if throwsDirectly then throw boom else Failure(boom)
           }
           def decode(version: Int, bytes: Array[Byte]): Try[E] = ECodec.decode(version, bytes)
         }
-        val before = calls.get()
+        val before    = calls.get()
         val admission = context.encodeEvent(E(1L), failing).flatMap { encoded =>
           context.admit(JournalDraft(1L, ref, ref, 0L, encoded))
         }
@@ -296,9 +296,12 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
         calls.get() shouldBe before + 1
         store.appendAttempts shouldBe empty
 
-      val seq = context.encodeEvent(E(2L), ECodec).flatMap { encoded =>
-        context.admit(JournalDraft(2L, ref, ref, 0L, encoded))
-      }.run()
+      val seq = context
+        .encodeEvent(E(2L), ECodec)
+        .flatMap { encoded =>
+          context.admit(JournalDraft(2L, ref, ref, 0L, encoded))
+        }
+        .run()
       seq shouldBe 1L
       close(active)
       store.appendAttempts.flatten.map(_.id) shouldBe Vector(2L)
