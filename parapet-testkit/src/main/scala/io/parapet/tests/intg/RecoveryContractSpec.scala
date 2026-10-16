@@ -22,14 +22,14 @@ abstract class RecoveryContractSpec[F[_]] extends AnyFlatSpec with IntegrationSp
 
   import dsl._
 
-  private given EventCodec[Event] with
-    val tag: String  = "recovery-contract"
-    val version: Int = 1
+  private given EventCodec.Simple[Event] with
+    val schema: io.parapet.EventCodec.Schema.Simple = io.parapet.EventCodec.Schema.Simple("", "recovery-contract")
+    val version: Int                                = 1
 
     def encode(event: Event): Try[Array[Byte]] =
       Failure(new IllegalArgumentException(s"unsupported recovery-contract event: $event"))
 
-    def decode(version: Int, bytes: Array[Byte]): Try[Event] =
+    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Event] =
       Failure(new IllegalArgumentException("the recovery-contract codec does not decode business events"))
 
   "A replayable process" should "fail when it uses Suspend" in

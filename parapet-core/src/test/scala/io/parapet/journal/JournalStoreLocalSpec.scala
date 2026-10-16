@@ -16,7 +16,16 @@ class JournalStoreLocalSpec extends AnyFunSuite:
   private val b = ProcessRef[Event]("b")
 
   private def entry(seq: Long, receiver: ProcessRef.Unknown = a, id: Long = 0L, cause: Long = 0L) =
-    JournalEntry(seq, id, a, receiver, cause, s"e$seq".getBytes(UTF_8), tag = "e", schemaVersion = 1)
+    JournalEntry(
+      seq,
+      id,
+      a,
+      receiver,
+      cause,
+      s"e$seq".getBytes(UTF_8),
+      schema = io.parapet.EventCodec.Schema.Simple("test", "e"),
+      schemaVersion = 1
+    )
 
   private def newStore(
       dir: Path = Files.createTempDirectory("journal-spec"),

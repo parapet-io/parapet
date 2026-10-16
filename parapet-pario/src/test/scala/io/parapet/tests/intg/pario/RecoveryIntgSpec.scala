@@ -1,5 +1,7 @@
 package io.parapet.tests.intg.pario
 
+import io.parapet.EventCodec.Schema
+
 import io.parapet.Event.{Initialize, Restored, Start}
 import io.parapet.{EventCodec, EventCodecAvailability, ParConfig, Process, Replayable}
 import io.parapet.effect.ParIO
@@ -66,7 +68,11 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
 
     val entries = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
     entries.map(_.receiver) shouldBe Vector(parentRef, parentRef, childRef)
-    entries.map(_.tag) shouldBe Vector(SpawnCodec.tag, "parapet.registered", AddCodec.tag)
+    entries.map(_.schema) shouldBe Vector(
+      SpawnCodec.schema,
+      io.parapet.EventCodec.Schema.Simple("", "parapet.registered"),
+      AddCodec.schema
+    )
 
     val store2  = new EventStore[ParIO, Event]
     val parent2 = new Parent(parentRef, childRef, store2, recordChildStart = true)
@@ -106,7 +112,9 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     )
 
     val entries = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
-    val marker  = entries.find(_.tag == "parapet.registered").getOrElse(fail("registration marker not recorded"))
+    val marker  = entries
+      .find(_.schema == io.parapet.EventCodec.Schema.Simple("", "parapet.registered"))
+      .getOrElse(fail("registration marker not recorded"))
     deleteSingleEntrySegment(dir, marker.seq)
 
     val error = intercept[IllegalStateException] {
@@ -146,8 +154,10 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
       )
     )
 
-    val entries    = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
-    val marker     = entries.find(_.tag == "parapet.registered").getOrElse(fail("registration marker not recorded"))
+    val entries = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
+    val marker  = entries
+      .find(_.schema == io.parapet.EventCodec.Schema.Simple("", "parapet.registered"))
+      .getOrElse(fail("registration marker not recorded"))
     val childEntry = entries.find(_.receiver == childRef).getOrElse(fail("child delivery not recorded"))
     deleteSingleEntrySegment(dir, marker.seq)
     deleteSingleEntrySegment(dir, childEntry.seq)
@@ -342,7 +352,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     val versions = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
       .read(0L)
       .unsafeRunSync()
-      .filter(_.tag == AddCodec.tag)
+      .filter(_.schema == AddCodec.schema)
       .map(_.schemaVersion)
       .distinct
     versions shouldBe Vector(1)
@@ -372,35 +382,48 @@ object RecoveryIntgSpec:
   final case class RestoredWith(count: Long)    extends Event
   final case class Emit(n: Int)                 extends Event
 
-  object AddCodec extends EventCodec[Add]:
-    val tag: String                                        = "add"
-    val version: Int                                       = 1
-    def encode(event: Add): Try[Array[Byte]]               = Success(ByteBuffer.allocate(4).putInt(event.n).array())
-    def decode(version: Int, bytes: Array[Byte]): Try[Add] = Success(Add(ByteBuffer.wrap(bytes).getInt))
+  object AddCodec extends EventCodec.Simple[Add]:
+    val version                              = 1
+    val schema                               = Schema.Simple("", "add")
+    def encode(event: Add): Try[Array[Byte]] =
+      Try(ByteBuffer.allocate(4).putInt(event.n).array())
+    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Add] = Try {
+      require(encodedVersion == 1)
+      Add(ByteBuffer.wrap(bytes).getInt)
+    }
 
-  object SpawnCodec extends EventCodec[Spawn.type]:
-    val tag: String                                               = "spawn"
-    val version: Int                                              = 1
-    def encode(event: Spawn.type): Try[Array[Byte]]               = Success(Array.emptyByteArray)
-    def decode(version: Int, bytes: Array[Byte]): Try[Spawn.type] = Success(Spawn)
+  object SpawnCodec extends EventCodec.Simple[Spawn.type]:
+    val version                                     = 1
+    val schema                                      = Schema.Simple("", "spawn")
+    def encode(event: Spawn.type): Try[Array[Byte]] =
+      Success(Array.emptyByteArray)
+    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Spawn.type] = Try {
+      require(encodedVersion == 1 && bytes.isEmpty)
+      Spawn
+    }
 
-  /** Same tag as [[AddCodec]] but schema version 2 (8-byte payload). Decodes both versions, so it can read entries
-    * recorded by the v1 codec.
-    */
-  object AddCodecV2 extends EventCodec[Add]:
-    val tag: String                          = "add"
-    val version: Int                         = 2
-    def encode(event: Add): Try[Array[Byte]] = Success(ByteBuffer.allocate(8).putLong(event.n.toLong).array())
-    def decode(version: Int, bytes: Array[Byte]): Try[Add] = version match
-      case 1     => Success(Add(ByteBuffer.wrap(bytes).getInt))
-      case 2     => Success(Add(ByteBuffer.wrap(bytes).getLong.toInt))
-      case other => Failure(new IllegalArgumentException(s"unsupported add version $other"))
+  /** Same schema as AddCodec; writes version 2 and reads both historical layouts. */
+  object AddCodecV2 extends EventCodec.Simple[Add]:
+    val version                              = 2
+    val schema                               = Schema.Simple("", "add")
+    def encode(event: Add): Try[Array[Byte]] =
+      Try(ByteBuffer.allocate(8).putLong(event.n.toLong).array())
+    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Add] = Try {
+      encodedVersion match
+        case 1     => Add(ByteBuffer.wrap(bytes).getInt)
+        case 2     => Add(ByteBuffer.wrap(bytes).getLong.toInt)
+        case other => throw new IllegalArgumentException(s"unsupported add version $other")
+    }
 
-  object EmitCodec extends EventCodec[Emit]:
-    val tag: String                                         = "emit"
-    val version: Int                                        = 1
-    def encode(event: Emit): Try[Array[Byte]]               = Success(ByteBuffer.allocate(4).putInt(event.n).array())
-    def decode(version: Int, bytes: Array[Byte]): Try[Emit] = Success(Emit(ByteBuffer.wrap(bytes).getInt))
+  object EmitCodec extends EventCodec.Simple[Emit]:
+    val version                               = 1
+    val schema                                = Schema.Simple("", "emit")
+    def encode(event: Emit): Try[Array[Byte]] =
+      Try(ByteBuffer.allocate(4).putInt(event.n).array())
+    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Emit] = Try {
+      require(encodedVersion == 1)
+      Emit(ByteBuffer.wrap(bytes).getInt)
+    }
 
   given EventCodec[Add]        = AddCodec
   given EventCodec[Spawn.type] = SpawnCodec

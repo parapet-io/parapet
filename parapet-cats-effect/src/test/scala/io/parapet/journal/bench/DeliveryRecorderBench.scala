@@ -48,11 +48,15 @@ object DeliveryRecorderBench:
 
   final case class Payload(bytes: Array[Byte]) extends Event
 
-  private object PayloadCodec extends EventCodec[Payload]:
-    val tag: String                                                   = "bench.payload"
-    val version: Int                                                  = 1
-    def encode(event: Payload): Try[Array[Byte]]                      = Try(event.bytes)
-    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Payload] = Try(Payload(bytes))
+  private object PayloadCodec extends EventCodec.Simple[Payload]:
+    val version                                  = 1
+    val schema                                   = io.parapet.EventCodec.Schema.Simple("bench", "payload")
+    def encode(event: Payload): Try[Array[Byte]] =
+      Try(event.bytes)
+    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Payload] = Try {
+      require(encodedVersion == 1)
+      Payload(bytes)
+    }
 
   // ----------------------------------------------------------------- admitters
 

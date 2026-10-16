@@ -178,10 +178,10 @@ class Context[F[_]](
           effect.raiseError(
             new IllegalStateException(s"replayable process ${process.ref} does not provide an event codec")
           )
-        case Some(codec) if codec.tag == RegisteredEventCodec.tag =>
+        case Some(codec) if codec.schema.contains(RegisteredEventCodec.schema) =>
           effect.raiseError(
             new IllegalStateException(
-              s"event codec tag '${codec.tag}' is reserved by the runtime for registration records"
+              s"event codec schema '${codec.schema}' is reserved by the runtime for registration records"
             )
           )
         case Some(_) => effect.pure(())

@@ -45,7 +45,7 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
 
     val entries = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
 
-    entries.map(e => CounterCodec.decode(e.schemaVersion, e.event).get) shouldBe
+    entries.map(e => CounterCodec.decodeEvent(e.encoded).get) shouldBe
       Vector(Add(1), Add(2), Add(3), Probe)
     entries.map(_.receiver).distinct shouldBe Vector(counterRef) // driver is not recoverable; Start is not journalled
     entries.map(_.seq) shouldBe entries.map(_.seq).sorted        // ascending
@@ -159,9 +159,9 @@ object JournalRecordingIntgSpec:
   case object Probe                   extends CounterCommand
   final case class Acked(count: Long) extends Event
 
-  given CounterCodec: EventCodec[CounterCommand] with
-    val tag: String  = "counter-command"
-    val version: Int = 1
+  given CounterCodec: EventCodec.Simple[CounterCommand] with
+    val schema: io.parapet.EventCodec.Schema.Simple = io.parapet.EventCodec.Schema.Simple("", "counter-command")
+    val version: Int                                = 1
 
     def encode(event: CounterCommand): Try[Array[Byte]] = Try {
       event match
@@ -169,7 +169,8 @@ object JournalRecordingIntgSpec:
         case Probe  => Array(2.toByte)
     }
 
-    def decode(version: Int, bytes: Array[Byte]): Try[CounterCommand] = Try {
+    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[CounterCommand] = Try {
+      require(encodedVersion == version)
       val buffer = ByteBuffer.wrap(bytes)
       buffer.get() match
         case 1     => Add(buffer.getInt())

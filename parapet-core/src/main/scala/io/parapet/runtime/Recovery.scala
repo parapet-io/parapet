@@ -138,8 +138,8 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
     context.getProcessState(entry.receiver) match
       case None        => effect.raiseError(new IllegalStateException(s"replay: no process for ref=${entry.receiver}"))
       case Some(state) =>
-        if entry.tag == RegisteredEventCodec.tag then
-          RegisteredEventCodec.decode(entry.schemaVersion, entry.event) match
+        if entry.schema == RegisteredEventCodec.schema then
+          RegisteredEventCodec.decodeEvent(entry.encoded) match
             case Failure(error)             => effect.raiseError(error)
             case Success(Registered(child)) => recover(child)
         else if !state.replayable then
@@ -154,14 +154,14 @@ final class Recovery[F[_]](context: Context[F], interpreter: Interpreter[F])(usi
               effect.raiseError(
                 new IllegalStateException(s"replay: process ${entry.receiver} does not provide an event codec")
               )
-            case Some(codec) if codec.tag != entry.tag =>
+            case Some(codec) if !codec.schema.contains(entry.schema) =>
               effect.raiseError(
                 new IllegalStateException(
-                  s"replay: codec tag '${codec.tag}' for process ${entry.receiver} does not match recorded tag '${entry.tag}'"
+                  s"replay: codec schema '${codec.schema}' for process ${entry.receiver} does not match recorded schema '${entry.schema}'"
                 )
               )
             case Some(codec) =>
-              codec.decode(entry.schemaVersion, entry.event) match
+              codec.decodeEvent(entry.encoded) match
                 case Failure(error) => effect.raiseError(error)
                 case Success(event) =>
                   val scope = Scope.empty.put(Scope.Cause, entry.id)

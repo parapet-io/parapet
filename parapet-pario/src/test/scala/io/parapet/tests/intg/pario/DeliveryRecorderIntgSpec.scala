@@ -1,5 +1,7 @@
 package io.parapet.tests.intg.pario
 
+import io.parapet.EventCodec.Schema
+
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
 import io.parapet.journal.{
@@ -28,13 +30,15 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
   private case class E(id: Long) extends Event
 
-  private object ECodec extends EventCodec[E]:
-    val tag: String                        = "e"
-    val version: Int                       = 1
+  private object ECodec extends EventCodec.Simple[E]:
+    val version                            = 1
+    val schema                             = Schema.Simple("", "e")
     def encode(event: E): Try[Array[Byte]] =
-      Success(java.nio.ByteBuffer.allocate(8).putLong(event.id).array())
-    def decode(version: Int, bytes: Array[Byte]): Try[E] =
-      Success(E(java.nio.ByteBuffer.wrap(bytes).getLong))
+      Try(java.nio.ByteBuffer.allocate(8).putLong(event.id).array())
+    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[E] = Try {
+      require(encodedVersion == 1)
+      E(java.nio.ByteBuffer.wrap(bytes).getLong)
+    }
 
   extension [A](fa: ParIO[A]) private def run(): A = fa.unsafeRunSync()
 
@@ -214,6 +218,35 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
       active.recorder.flush().run()
       store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L))
+      close(active)
+    finally stop(active)
+  }
+
+  test("records the selected leaf schema and version from a composed codec") {
+    case class Other() extends Event
+    val other = new EventCodec.Simple[Other] {
+      val schema                                 = io.parapet.EventCodec.Schema.Simple("test", "other")
+      val version                                = 3
+      def encode(value: Other): Try[Array[Byte]] = Success(Array.emptyByteArray)
+      def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Other] = Try {
+        require(encodedVersion == version && bytes.isEmpty)
+        Other()
+      }
+    }
+    val codec = EventCodec.union(ECodec, other) {
+      case e: E     => Left(e)
+      case o: Other => Right(o)
+    }
+    val store  = new ControlledStore(gateFirst = false)
+    val active = fresh(store)
+    try
+      active.recorder.admit(JournalDraft[E | Other](1L, ref, ref, 0L, E(7), codec)).run()
+      active.recorder.admit(JournalDraft[E | Other](2L, ref, ref, 0L, Other(), codec)).run()
+      active.recorder.flush().run()
+      val entries = store.appendAttempts.flatten
+      entries.map(_.schema) shouldBe Vector(ECodec.schema, other.schema)
+      entries.map(_.schemaVersion) shouldBe Vector(1, 3)
+      entries.map(e => codec.decodeEvent(e.encoded).get) shouldBe Vector(E(7), Other())
       close(active)
     finally stop(active)
   }

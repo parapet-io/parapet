@@ -26,7 +26,7 @@ class DeliveryLogReaderSpec extends AnyFunSuite:
     receiver = ProcessRef[Event]("receiver"),
     cause = 7L,
     event = "event".getBytes(UTF_8),
-    tag = "event",
+    schema = io.parapet.EventCodec.Schema.Simple("test", "event"),
     schemaVersion = 1
   )
   private val footer = Footer(

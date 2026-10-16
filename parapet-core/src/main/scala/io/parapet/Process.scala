@@ -39,8 +39,11 @@ trait Process[F[_], In <: Event](using eventCodecAvailability: EventCodecAvailab
     with FlowSyntax[F]:
   self =>
 
+  // todo doc
+  def version: Int = 1
+
   /** The codec for this process's input protocol, when available. */
-  final private[parapet] def eventCodec: Option[EventCodec[In]] =
+  def eventCodec: Option[EventCodec[In]] =
     eventCodecAvailability.toOption
 
   /** Convenience alias for the program type produced by [[handle]] cases. */

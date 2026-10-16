@@ -46,17 +46,19 @@ final class DeliveryRecorder[F[_]] private (
   /** Encodes the event carried by `draft` into the representation accepted by the delivery store. */
   private def encode[A <: Event](draft: JournalDraft[A]): F[EncodedDraft] =
     effect.suspend {
-      draft.codec.encode(draft.event) match
-        case Success(bytes) =>
+      draft.codec.encodeEvent(draft.event) match
+        case Success(encoded) if !draft.codec.schema.contains(encoded.schema) =>
+          effect.raiseError(new IllegalArgumentException(s"Codec emitted undeclared schema: ${encoded.schema}"))
+        case Success(encoded) =>
           effect.pure(
             EncodedDraft(
               draft.id,
               draft.sender,
               draft.receiver,
               draft.cause,
-              bytes.clone(),
-              draft.codec.tag,
-              draft.codec.version
+              encoded.bytes.clone(),
+              encoded.schema,
+              encoded.version
             )
           )
         case Failure(error) => effect.raiseError(error)
@@ -95,7 +97,7 @@ object DeliveryRecorder:
       receiver: ProcessRef.Unknown,
       cause: Long,
       event: Array[Byte],
-      tag: String,
+      schema: io.parapet.EventCodec.Schema.Simple,
       schemaVersion: Int
   )
 
@@ -115,7 +117,7 @@ object DeliveryRecorder:
               draft.receiver,
               draft.cause,
               draft.event,
-              draft.tag,
+              draft.schema,
               draft.schemaVersion
             )
           }
