@@ -42,7 +42,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
   extension [A](fa: ParIO[A]) private def run(): A = fa.unsafeRunSync()
 
-  private def draft(id: Long): JournalDraft[E] = JournalDraft(id, ref, ref, 0L, E(id), ECodec)
+  private def draft(id: Long): JournalDraft = JournalDraft(id, ref, ref, 0L, ECodec.encodeEvent(E(id)).get)
 
   private def storeAt(dir: Path): JournalStoreLocal[ParIO] =
     new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
@@ -240,14 +240,68 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val store  = new ControlledStore(gateFirst = false)
     val active = fresh(store)
     try
-      active.recorder.admit(JournalDraft[E | Other](1L, ref, ref, 0L, E(7), codec)).run()
-      active.recorder.admit(JournalDraft[E | Other](2L, ref, ref, 0L, Other(), codec)).run()
+      active.recorder.admit(JournalDraft(1L, ref, ref, 0L, codec.encodeEvent(E(7)).get)).run()
+      active.recorder.admit(JournalDraft(2L, ref, ref, 0L, codec.encodeEvent(Other()).get)).run()
       active.recorder.flush().run()
       val entries = store.appendAttempts.flatten
       entries.map(_.schema) shouldBe Vector(ECodec.schema, other.schema)
       entries.map(_.schemaVersion) shouldBe Vector(1, 3)
       entries.map(e => codec.decodeEvent(e.encoded).get) shouldBe Vector(E(7), Other())
       close(active)
+    finally stop(active)
+  }
+
+  test("buffered admission owns the encoded bytes before the caller reuses its buffer") {
+    val store = new ControlledStore(gateFirst = false)
+    val active = fresh(store, JournalConfig.default.copy(batchSize = 4))
+    val original = draft(7L)
+    val expected = original.event.bytes.toVector
+    try
+      active.recorder.admit(original).run() shouldBe 1L
+      java.util.Arrays.fill(original.event.bytes, 0.toByte)
+      active.recorder.flush().run()
+      store.appendAttempts.flatten.head.event.toVector shouldBe expected
+      close(active)
+    finally stop(active)
+  }
+
+  test("runtime encoding is lazy and encoding failures do not consume a journal sequence") {
+    val store = new ControlledStore(gateFirst = false)
+    val active = fresh(store)
+    val context = new io.parapet.runtime.Context[ParIO](
+      io.parapet.ParConfig.default,
+      io.parapet.runtime.EventTransformers.empty,
+      None,
+      Some(active.recorder)
+    )
+    val calls = new AtomicInteger(0)
+    val boom = new IllegalArgumentException("cannot encode")
+    try
+      for throwsDirectly <- Vector(false, true) do
+        val failing = new EventCodec.Simple[E] {
+          val schema = ECodec.schema
+          val version = 1
+          def encode(value: E): Try[Array[Byte]] = {
+            calls.incrementAndGet()
+            if throwsDirectly then throw boom else Failure(boom)
+          }
+          def decode(version: Int, bytes: Array[Byte]): Try[E] = ECodec.decode(version, bytes)
+        }
+        val before = calls.get()
+        val admission = context.encodeEvent(E(1L), failing).flatMap { encoded =>
+          context.admit(JournalDraft(1L, ref, ref, 0L, encoded))
+        }
+        calls.get() shouldBe before
+        assertSameFailure(boom)(admission.run())
+        calls.get() shouldBe before + 1
+        store.appendAttempts shouldBe empty
+
+      val seq = context.encodeEvent(E(2L), ECodec).flatMap { encoded =>
+        context.admit(JournalDraft(2L, ref, ref, 0L, encoded))
+      }.run()
+      seq shouldBe 1L
+      close(active)
+      store.appendAttempts.flatten.map(_.id) shouldBe Vector(2L)
     finally stop(active)
   }
 

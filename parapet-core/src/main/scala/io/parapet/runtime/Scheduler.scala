@@ -493,16 +493,17 @@ object Scheduler:
       private def journalAdmit[A <: Event](envelope: Envelope, codec: EventCodec[A]): F[Long] =
         // onConsume checked that the receiver handles this non-system event. The cast reconnects that fact after the
         // receiver's input type was erased by the runtime process registry.
-        context.admit(
-          JournalDraft(
-            envelope.id,
-            envelope.sender,
-            envelope.receiver,
-            envelope.cause,
-            envelope.event.asInstanceOf[A],
-            codec
+        context.encodeEvent(envelope.event.asInstanceOf[A], codec).flatMap { encoded =>
+          context.admit(
+            JournalDraft(
+              envelope.id,
+              envelope.sender,
+              envelope.receiver,
+              envelope.cause,
+              encoded
+            )
           )
-        )
+        }
 
       /** Runtime events are not recorded at the delivery seam. */
       private def journaled(event: Event): Boolean =

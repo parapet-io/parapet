@@ -61,7 +61,7 @@ object DeliveryRecorderBench:
   // ----------------------------------------------------------------- admitters
 
   private trait Admitter:
-    def admit(draft: JournalDraft[Payload]): IO[Long]
+    def admit(draft: JournalDraft): IO[Long]
     def flush: IO[Unit]
     def close: IO[Unit]
 
@@ -69,7 +69,7 @@ object DeliveryRecorderBench:
       recorder: DeliveryRecorder[IO],
       writer: EffectFiber[IO, Unit]
   ) extends Admitter:
-    def admit(draft: JournalDraft[Payload]): IO[Long] = recorder.admit(draft)
+    def admit(draft: JournalDraft): IO[Long] = recorder.admit(draft)
     def flush: IO[Unit]                               = recorder.flush()
     def close: IO[Unit]                               =
       recorder.close().flatMap(_ => writer.join).flatMap {
@@ -184,17 +184,17 @@ object DeliveryRecorderBench:
     def step(i: Int): IO[Unit] =
       if i >= count then IO.unit
       else
-        IO.delay(
-          JournalDraft(
-            envelopeIds.incrementAndGet(),
-            fixture.sender,
-            fixture.receiver,
-            0L,
-            fixture.payload,
-            PayloadCodec
-          )
-        ).flatMap { draft =>
-          IO.monotonic.flatMap { started =>
+        // Include encoding in admission latency, as when the recorder owned encoding.
+        IO.monotonic.flatMap { started =>
+          IO.delay(
+            JournalDraft(
+              envelopeIds.incrementAndGet(),
+              fixture.sender,
+              fixture.receiver,
+              0L,
+              PayloadCodec.encodeEvent(fixture.payload).get
+            )
+          ).flatMap { draft =>
             fixture.admitter.admit(draft).flatMap { _ =>
               IO.monotonic.flatMap { ended =>
                 IO.delay { out(base + i) = (ended - started).toNanos }.flatMap(_ => step(i + 1))

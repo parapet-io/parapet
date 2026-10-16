@@ -56,15 +56,3 @@ or order. Duplicate identities are rejected.
 
 A composed codec has no public bytes-only encode/decode API: runtime decoding
 requires the stored schema identity as well as the payload version and bytes.
-
-## Journal migration
-
-Journal format 2 persists namespace and name separately, followed by payload
-version and bytes. It also reads format 1 records by mapping the old tag to
-Schema.Simple("", oldTag). To replay an existing journal, the codec must support
-that legacy identity. Moving to a nonempty namespace requires explicit
-migration support. The runtime registration schema retains its legacy identity.
-
-This is a source-breaking API change. EventCodec no longer extends Codec,
-client implementations extend EventCodec.Simple, and JournalEntry uses schema
-instead of tag. Old binaries cannot read new format 2 records.

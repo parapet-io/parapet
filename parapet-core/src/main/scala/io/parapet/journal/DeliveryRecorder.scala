@@ -1,10 +1,7 @@
 package io.parapet.journal
 
-import io.parapet.{Event, ProcessRef}
 import io.parapet.effect.Monad.*
 import io.parapet.effect.Effect
-
-import scala.util.{Failure, Success}
 
 /** Records deliveries to a [[JournalStore]], assigning each a global delivery `seq`.
   *
@@ -23,46 +20,29 @@ final class DeliveryRecorder[F[_]] private (
 
   import DeliveryRecorder.*
 
-  private val recorder = Recorder[F, EncodedDraft](
+  private val recorder = Recorder[F, JournalDraft](
     new DeliveryStore[F](store),
     Recorder.Config(startId = startSeq, batchSize = config.batchSize)
   )
 
   /** Establishes the delivery's global position and admits it under the configured durability guarantee. */
-  def admit[A <: Event](draft: JournalDraft[A]): F[Long] =
-    encode(draft).flatMap { encoded =>
+  private[parapet] def admit(draft: JournalDraft): F[Long] =
+    copyPayload(draft).flatMap { encoded =>
       config.writeMode match
         case JournalWriteMode.Buffered   => recorder.admit(encoded)
         case JournalWriteMode.WriteAhead => recorder.admitDurable(encoded)
     }
 
   /** Establishes the delivery's global position and waits until it and all earlier admissions have been stored. */
-  def admitAndFlush[A <: Event](draft: JournalDraft[A]): F[Long] =
-    encode(draft).flatMap(encoded => recorder.admitDurable(encoded))
+  private[parapet] def admitAndFlush(draft: JournalDraft): F[Long] =
+    copyPayload(draft).flatMap(encoded => recorder.admitDurable(encoded))
 
   /** Publishes admitted deliveries until [[close]] is called. The runtime supervises this effect. */
   private[parapet] def runWriter: F[Unit] = recorder.runWriter
 
-  /** Encodes the event carried by `draft` into the representation accepted by the delivery store. */
-  private def encode[A <: Event](draft: JournalDraft[A]): F[EncodedDraft] =
-    effect.suspend {
-      draft.codec.encodeEvent(draft.event) match
-        case Success(encoded) if !draft.codec.schema.contains(encoded.schema) =>
-          effect.raiseError(new IllegalArgumentException(s"Codec emitted undeclared schema: ${encoded.schema}"))
-        case Success(encoded) =>
-          effect.pure(
-            EncodedDraft(
-              draft.id,
-              draft.sender,
-              draft.receiver,
-              draft.cause,
-              encoded.bytes.clone(),
-              encoded.schema,
-              encoded.version
-            )
-          )
-        case Failure(error) => effect.raiseError(error)
-    }
+  /** Own the payload bytes before buffering so callers may reuse their encoding buffers after admission. */
+  private def copyPayload(draft: JournalDraft): F[JournalDraft] =
+    effect.delay(draft.copy(event = draft.event.copy(bytes = draft.event.bytes.clone())))
 
   /** Assigns and returns the next delivery sequence without admitting a delivery. */
   def advanceSequence(): F[Long] = recorder.advanceId()
@@ -91,21 +71,11 @@ final class DeliveryRecorder[F[_]] private (
 
 object DeliveryRecorder:
 
-  final private case class EncodedDraft(
-      id: Long,
-      sender: ProcessRef.Unknown,
-      receiver: ProcessRef.Unknown,
-      cause: Long,
-      event: Array[Byte],
-      schema: io.parapet.EventCodec.Schema.Simple,
-      schemaVersion: Int
-  )
-
   final private class DeliveryStore[F[_]](store: JournalStore[F])(using effect: Effect[F])
-      extends Recorder.Store[F, EncodedDraft]:
+      extends Recorder.Store[F, JournalDraft]:
 
     /** Publishes recorder entries to the journal store in recorder order. */
-    def append(entries: Vector[Recorder.Entry[EncodedDraft]]): F[Unit] =
+    def append(entries: Vector[Recorder.Entry[JournalDraft]]): F[Unit] =
       effect
         .delay {
           entries.map { entry =>
@@ -116,9 +86,9 @@ object DeliveryRecorder:
               draft.sender,
               draft.receiver,
               draft.cause,
-              draft.event,
-              draft.schema,
-              draft.schemaVersion
+              draft.event.bytes,
+              draft.event.schema,
+              draft.event.version
             )
           }
         }

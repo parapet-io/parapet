@@ -10,11 +10,13 @@ import io.parapet.runtime.Context.*
 import io.parapet.runtime.DslInterpreter.Interpreter
 import io.parapet.runtime.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.snapshot.{SnapshotManager, SnapshotStorage, Snapshotable}
-import io.parapet.{Event, ParConfig, Process, ProcessRef, Replayable}
+import io.parapet.{Event, EventCodec, ParConfig, Process, ProcessRef, Replayable}
+import io.parapet.EventCodec.EncodedEvent
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
 import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters.*
+import scala.util.{Failure, Success}
 
 /** The runtime state for a single parapet application: registry of running processes, supervision graph, event log, and
   * a handle to the [[Scheduler]] that drives them.
@@ -79,8 +81,18 @@ class Context[F[_]](
   /** Records `draft` in the delivery journal and returns its assigned delivery `seq`. Only valid when journalling is on
     * (the caller reaches this only for a journalable delivery).
     */
-  def admit[A <: Event](draft: JournalDraft[A]): F[Long] =
+  private[parapet] def admit(draft: JournalDraft): F[Long] =
     recorder.fold(effect.raiseError[Long](new IllegalStateException("journal is not enabled")))(_.admit(draft))
+
+  /** Encode lazily and validate the leaf identity before the recorder can assign a delivery sequence. */
+  private[parapet] def encodeEvent[A <: Event](event: A, codec: EventCodec[A]): F[EncodedEvent] =
+    effect.suspend {
+      codec.encodeEvent(event) match
+        case Success(encoded) if !codec.schema.contains(encoded.schema) =>
+          effect.raiseError(new IllegalArgumentException(s"Codec emitted undeclared schema: ${encoded.schema}"))
+        case Success(encoded) => effect.pure(encoded)
+        case Failure(error)   => effect.raiseError(error)
+    }
 
   /** Stops the journal, publishing any buffered tail. No-op when the journal is off. */
   def stopJournal: F[Unit] =
@@ -193,16 +205,17 @@ class Context[F[_]](
         case None    => effect.pure(())
         case Some(_) =>
           effect.delay(Envelope(ProcessRef.SystemRef, Registered(child), parent)).flatMap { envelope =>
-            admit(
-              JournalDraft(
-                envelope.id,
-                envelope.sender,
-                envelope.receiver,
-                envelope.cause,
-                Registered(child),
-                RegisteredEventCodec
+            encodeEvent(Registered(child), RegisteredEventCodec).flatMap { encoded =>
+              admit(
+                JournalDraft(
+                  envelope.id,
+                  envelope.sender,
+                  envelope.receiver,
+                  envelope.cause,
+                  encoded
+                )
               )
-            ).void
+            }.void
           }
 
   /** Direct children of `parent` in the supervision graph. */

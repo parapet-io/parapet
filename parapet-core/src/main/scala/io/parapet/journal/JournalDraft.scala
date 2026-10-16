@@ -1,6 +1,7 @@
 package io.parapet.journal
 
-import io.parapet.{Event, EventCodec, ProcessRef}
+import io.parapet.EventCodec.EncodedEvent
+import io.parapet.ProcessRef
 
 /** A delivery to record.
   *
@@ -13,15 +14,12 @@ import io.parapet.{Event, EventCodec, ProcessRef}
   * @param cause
   *   id of the envelope that caused this delivery (`0` for none)
   * @param event
-  *   the event delivered
-  * @param codec
-  *   codec for the receiver's input protocol
+  *   the encoded payload with its leaf schema and version
   */
-final case class JournalDraft[A <: Event](
+private[parapet] final case class JournalDraft(
     id: Long,
     sender: ProcessRef.Unknown,
     receiver: ProcessRef.Unknown,
     cause: Long,
-    event: A,
-    codec: EventCodec[A]
+    event: EncodedEvent
 )
