@@ -1,11 +1,11 @@
 package io.parapet.tests.intg.pario
 
+import io.parapet.EventCodec.Schema
+
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
 import io.parapet.journal.{
   DeliveryRecorder,
-  EventCodec,
-  EventCodecRegistry,
   JournalConfig,
   JournalDraft,
   JournalEntry,
@@ -13,7 +13,7 @@ import io.parapet.journal.{
   JournalStoreLocal,
   JournalWriteMode
 }
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, EventCodec, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
@@ -30,20 +30,19 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
   private case class E(id: Long) extends Event
 
-  private object ECodec extends EventCodec:
-    val tag: String                            = "e"
-    val version: Int                           = 1
-    def encode(event: Event): Try[Array[Byte]] = event match
-      case E(id) => Success(java.nio.ByteBuffer.allocate(8).putLong(id).array())
-      case other => Failure(new IllegalArgumentException(s"cannot encode $other"))
-    def decode(version: Int, bytes: Array[Byte]): Try[Event] =
-      Success(E(java.nio.ByteBuffer.wrap(bytes).getLong))
-
-  private val registry = EventCodecRegistry(classOf[E] -> ECodec)
+  private object ECodec extends EventCodec.Simple[E]:
+    val version                            = 1
+    val schema                             = Schema.Simple("", "e")
+    def encode(event: E): Try[Array[Byte]] =
+      Try(java.nio.ByteBuffer.allocate(8).putLong(event.id).array())
+    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[E] = Try {
+      require(encodedVersion == 1)
+      E(java.nio.ByteBuffer.wrap(bytes).getLong)
+    }
 
   extension [A](fa: ParIO[A]) private def run(): A = fa.unsafeRunSync()
 
-  private def draft(id: Long): JournalDraft = JournalDraft(id, ref, ref, 0L, E(id))
+  private def draft(id: Long): JournalDraft = JournalDraft(id, ref, ref, 0L, ECodec.encodeEvent(E(id)).get)
 
   private def storeAt(dir: Path): JournalStoreLocal[ParIO] =
     new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
@@ -105,14 +104,14 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       store: JournalStore[ParIO],
       config: JournalConfig = JournalConfig.default
   ): ActiveRecorder =
-    startRecorder(DeliveryRecorder.fresh(store, registry, config))
+    startRecorder(DeliveryRecorder.fresh(store, config))
 
   private def resume(
       store: JournalStore[ParIO],
       highWater: Long,
       config: JournalConfig = JournalConfig.default
   ): ActiveRecorder =
-    startRecorder(DeliveryRecorder.resume(store, highWater, registry, config))
+    startRecorder(DeliveryRecorder.resume(store, highWater, config))
 
   private def awaitAll[A](running: Seq[Running[A]], clue: String): Vector[Try[A]] =
     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(awaitSeconds)
@@ -220,6 +219,92 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       active.recorder.flush().run()
       store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L))
       close(active)
+    finally stop(active)
+  }
+
+  test("records the selected leaf schema and version from a composed codec") {
+    case class Other() extends Event
+    val other = new EventCodec.Simple[Other] {
+      val schema                                 = io.parapet.EventCodec.Schema.Simple("test", "other")
+      val version                                = 3
+      def encode(value: Other): Try[Array[Byte]] = Success(Array.emptyByteArray)
+      def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Other] = Try {
+        require(encodedVersion == version && bytes.isEmpty)
+        Other()
+      }
+    }
+    val codec = EventCodec.union(ECodec, other) {
+      case e: E     => Left(e)
+      case o: Other => Right(o)
+    }
+    val store  = new ControlledStore(gateFirst = false)
+    val active = fresh(store)
+    try
+      active.recorder.admit(JournalDraft(1L, ref, ref, 0L, codec.encodeEvent(E(7)).get)).run()
+      active.recorder.admit(JournalDraft(2L, ref, ref, 0L, codec.encodeEvent(Other()).get)).run()
+      active.recorder.flush().run()
+      val entries = store.appendAttempts.flatten
+      entries.map(_.schema) shouldBe Vector(ECodec.schema, other.schema)
+      entries.map(_.schemaVersion) shouldBe Vector(1, 3)
+      entries.map(e => codec.decodeEvent(e.encoded).get) shouldBe Vector(E(7), Other())
+      close(active)
+    finally stop(active)
+  }
+
+  test("buffered admission owns the encoded bytes before the caller reuses its buffer") {
+    val store    = new ControlledStore(gateFirst = false)
+    val active   = fresh(store, JournalConfig.default.copy(batchSize = 4))
+    val original = draft(7L)
+    val expected = original.event.bytes.toVector
+    try
+      active.recorder.admit(original).run() shouldBe 1L
+      java.util.Arrays.fill(original.event.bytes, 0.toByte)
+      active.recorder.flush().run()
+      store.appendAttempts.flatten.head.event.toVector shouldBe expected
+      close(active)
+    finally stop(active)
+  }
+
+  test("runtime encoding is lazy and encoding failures do not consume a journal sequence") {
+    val store   = new ControlledStore(gateFirst = false)
+    val active  = fresh(store)
+    val context = new io.parapet.runtime.Context[ParIO](
+      io.parapet.ParConfig.default,
+      io.parapet.runtime.EventTransformers.empty,
+      None,
+      Some(active.recorder)
+    )
+    val calls = new AtomicInteger(0)
+    val boom  = new IllegalArgumentException("cannot encode")
+    try
+      for throwsDirectly <- Vector(false, true) do
+        val failing = new EventCodec.Simple[E] {
+          val schema                             = ECodec.schema
+          val version                            = 1
+          def encode(value: E): Try[Array[Byte]] = {
+            calls.incrementAndGet()
+            if throwsDirectly then throw boom else Failure(boom)
+          }
+          def decode(version: Int, bytes: Array[Byte]): Try[E] = ECodec.decode(version, bytes)
+        }
+        val before    = calls.get()
+        val admission = context.encodeEvent(E(1L), failing).flatMap { encoded =>
+          context.admit(JournalDraft(1L, ref, ref, 0L, encoded))
+        }
+        calls.get() shouldBe before
+        assertSameFailure(boom)(admission.run())
+        calls.get() shouldBe before + 1
+        store.appendAttempts shouldBe empty
+
+      val seq = context
+        .encodeEvent(E(2L), ECodec)
+        .flatMap { encoded =>
+          context.admit(JournalDraft(2L, ref, ref, 0L, encoded))
+        }
+        .run()
+      seq shouldBe 1L
+      close(active)
+      store.appendAttempts.flatten.map(_.id) shouldBe Vector(2L)
     finally stop(active)
   }
 
@@ -381,7 +466,6 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   test("construction rejects invalid parameters") {
     an[IllegalArgumentException] should be thrownBy DeliveryRecorder.fresh[ParIO](
       storeAt(Files.createTempDirectory("r")),
-      registry,
       JournalConfig(batchSize = 0)
     )
     an[IllegalArgumentException] should be thrownBy DeliveryRecorder.resume[ParIO](

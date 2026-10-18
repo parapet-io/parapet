@@ -5,7 +5,6 @@ import io.parapet.Event.Start
 import io.parapet.{DeadLetterProcess, ParConfig, Process}
 import io.parapet.effect.{Effect, EffectFiber}
 import io.parapet.effect.Monad.*
-import io.parapet.journal.EventCodecRegistry
 import io.parapet.syntax.FlowSyntax
 import io.parapet.{Event, ParApp, ProcessRef}
 
@@ -47,8 +46,7 @@ trait IntegrationSpec[F[_]] extends WithDsl[F] with FlowSyntax[F] with ParApp[F]
   def createApp(
       processes0: F[Seq[Process[F, ?]]],
       deadLetter0: Option[F[DeadLetterProcess[F]]] = None,
-      config0: ParConfig = ParConfig.default,
-      eventCodecs0: EventCodecRegistry = EventCodecRegistry.empty
+      config0: ParConfig = ParConfig.default
   ): ParApp[F]
 
   def onStart(program: DslF[F, Unit]): Process[F, Event] =

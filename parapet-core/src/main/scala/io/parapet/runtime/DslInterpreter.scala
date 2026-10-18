@@ -8,7 +8,7 @@ import io.parapet.exceptions.RecoveryContractViolation
 import io.parapet.runtime.Context.ProcessState
 import io.parapet.runtime.Scheduler.{Deliver, ProcessQueueIsFull}
 import io.parapet.runtime.Scope
-import io.parapet.{Event, Process, ProcessRef, ReplayBoundary}
+import io.parapet.{Event, Process, ProcessRef, Replayable}
 
 /** Translates parapet [[Dsl.FlowOp]] programs into the user's effect type `F[_]`.
   *
@@ -216,7 +216,7 @@ object DslInterpreter:
                 .foldMap(interpret(sender, processState, f(scope)))
 
     private def recoveryRestricted(processState: ProcessState[F]): Boolean =
-      context.journalEnabled && !processState.process.isInstanceOf[ReplayBoundary]
+      context.journalEnabled && processState.process.isInstanceOf[Replayable]
 
     private def send(
         sender: ProcessRef.Unknown,

@@ -6,7 +6,7 @@ import cats.syntax.parallel.*
 import io.parapet.cats.CatsEffectParapetRuntime
 import io.parapet.effect.{Effect, EffectFiber, Outcome}
 import io.parapet.journal.*
-import io.parapet.{Event, ProcessRef}
+import io.parapet.{Event, EventCodec, ProcessRef}
 
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
@@ -48,13 +48,15 @@ object DeliveryRecorderBench:
 
   final case class Payload(bytes: Array[Byte]) extends Event
 
-  private object PayloadCodec extends EventCodec:
-    val tag: String                                                 = "bench.payload"
-    val version: Int                                                = 1
-    def encode(event: Event): Try[Array[Byte]]                      = Try(event.asInstanceOf[Payload].bytes)
-    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Event] = Try(Payload(bytes))
-
-  private def registry: EventCodecRegistry = EventCodecRegistry(classOf[Payload] -> PayloadCodec)
+  private object PayloadCodec extends EventCodec.Simple[Payload]:
+    val version                                  = 1
+    val schema                                   = io.parapet.EventCodec.Schema.Simple("bench", "payload")
+    def encode(event: Payload): Try[Array[Byte]] =
+      Try(event.bytes)
+    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Payload] = Try {
+      require(encodedVersion == 1)
+      Payload(bytes)
+    }
 
   // ----------------------------------------------------------------- admitters
 
@@ -172,7 +174,6 @@ object DeliveryRecorderBench:
   private def recorderAdmitter(store: JournalStore[IO], cfg: RunConfig): IO[Admitter] =
     val recorder = DeliveryRecorder.fresh[IO](
       store,
-      registry,
       JournalConfig(batchSize = cfg.batchSize, writeMode = cfg.writeMode, durability = cfg.durability)
     )
     effectInstance.start(recorder.runWriter).map(writer => new RecorderAdmitter(recorder, writer))
@@ -183,10 +184,17 @@ object DeliveryRecorderBench:
     def step(i: Int): IO[Unit] =
       if i >= count then IO.unit
       else
-        IO.delay(
-          JournalDraft(envelopeIds.incrementAndGet(), fixture.sender, fixture.receiver, 0L, fixture.payload)
-        ).flatMap { draft =>
-          IO.monotonic.flatMap { started =>
+        // Include encoding in admission latency, as when the recorder owned encoding.
+        IO.monotonic.flatMap { started =>
+          IO.delay(
+            JournalDraft(
+              envelopeIds.incrementAndGet(),
+              fixture.sender,
+              fixture.receiver,
+              0L,
+              PayloadCodec.encodeEvent(fixture.payload).get
+            )
+          ).flatMap { draft =>
             fixture.admitter.admit(draft).flatMap { _ =>
               IO.monotonic.flatMap { ended =>
                 IO.delay { out(base + i) = (ended - started).toNanos }.flatMap(_ => step(i + 1))

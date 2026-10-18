@@ -16,10 +16,10 @@ class JournalEntryBinaryFormatSpec extends AnyFunSuite:
       id: Long = 0L,
       cause: Long = 0L,
       event: String = "event",
-      tag: String = "evt",
+      schema: io.parapet.EventCodec.Schema.Simple = io.parapet.EventCodec.Schema.Simple("test", "evt"),
       schemaVersion: Int = 1
   ) =
-    JournalEntry(seq, id, sender, receiver, cause, event.getBytes(UTF_8), tag, schemaVersion)
+    JournalEntry(seq, id, sender, receiver, cause, event.getBytes(UTF_8), schema, schemaVersion)
 
   private def sameAs(a: JournalEntry, b: JournalEntry): Unit =
     a.seq shouldBe b.seq
@@ -28,7 +28,7 @@ class JournalEntryBinaryFormatSpec extends AnyFunSuite:
     a.receiver shouldBe b.receiver
     a.cause shouldBe b.cause
     a.event.toVector shouldBe b.event.toVector
-    a.tag shouldBe b.tag
+    a.schema shouldBe b.schema
     a.schemaVersion shouldBe b.schemaVersion
 
   test("encode/decode round-trips one entry") {
@@ -38,18 +38,66 @@ class JournalEntryBinaryFormatSpec extends AnyFunSuite:
 
   test("round-trips the codec tag and schema version") {
     val decoded = JournalEntryBinaryFormat.decode(
-      JournalEntryBinaryFormat.encode(entry(1L, tag = "order.placed", schemaVersion = 3))
+      JournalEntryBinaryFormat.encode(
+        entry(1L, schema = io.parapet.EventCodec.Schema.Simple("test", "order.placed"), schemaVersion = 3)
+      )
     )
-    decoded.tag shouldBe "order.placed"
+    decoded.schema shouldBe io.parapet.EventCodec.Schema.Simple("test", "order.placed")
     decoded.schemaVersion shouldBe 3
   }
 
   test("round-trips an empty event payload") {
-    val original = JournalEntry(1L, 5L, sender, receiver, 0L, Array.emptyByteArray, tag = "e", schemaVersion = 1)
-    val decoded  = JournalEntryBinaryFormat.decode(JournalEntryBinaryFormat.encode(original))
+    val original = JournalEntry(
+      1L,
+      5L,
+      sender,
+      receiver,
+      0L,
+      Array.emptyByteArray,
+      schema = io.parapet.EventCodec.Schema.Simple("test", "e"),
+      schemaVersion = 1
+    )
+    val decoded = JournalEntryBinaryFormat.decode(JournalEntryBinaryFormat.encode(original))
     decoded.event shouldBe empty
     decoded.seq shouldBe 1L
     decoded.id shouldBe 5L
+  }
+
+  test("reads legacy format 1 tags as schemas with an empty namespace, including mixed batches") {
+    val payloadBytes                     = new java.io.ByteArrayOutputStream()
+    val payload                          = new java.io.DataOutputStream(payloadBytes)
+    def writeString(value: String): Unit = {
+      val bytes = value.getBytes(UTF_8)
+      payload.writeInt(bytes.length)
+      payload.write(bytes)
+    }
+    payload.writeLong(1L)
+    payload.writeLong(5L)
+    writeString(sender.value)
+    writeString(receiver.value)
+    payload.writeLong(0L)
+    writeString("legacy-event")
+    payload.writeInt(3)
+    payload.writeInt(0)
+    val bytes = payloadBytes.toByteArray
+    val crc   = new java.util.zip.CRC32()
+    crc.update(bytes)
+    val legacy = java.nio.ByteBuffer
+      .allocate(10 + bytes.length + 4)
+      .putInt(0x504a524e)
+      .putShort(1.toShort)
+      .putInt(bytes.length)
+      .put(bytes)
+      .putInt(crc.getValue.toInt)
+      .array()
+    val decoded = JournalEntryBinaryFormat.decode(legacy)
+    decoded.schema shouldBe io.parapet.EventCodec.Schema.Simple("", "legacy-event")
+    decoded.schemaVersion shouldBe 3
+    decoded.event shouldBe empty
+    val current = entry(2L)
+    val batch   = JournalEntryBinaryFormat.decodeBatch(legacy ++ JournalEntryBinaryFormat.encode(current))
+    batch.map(_.seq) shouldBe Vector(1L, 2L)
+    sameAs(batch(1), current)
   }
 
   test("encodeBatch/decodeBatch round-trips every entry in order") {

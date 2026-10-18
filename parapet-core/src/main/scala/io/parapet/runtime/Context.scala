@@ -10,11 +10,13 @@ import io.parapet.runtime.Context.*
 import io.parapet.runtime.DslInterpreter.Interpreter
 import io.parapet.runtime.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.snapshot.{SnapshotManager, SnapshotStorage, Snapshotable}
-import io.parapet.{Event, ParConfig, Process, ProcessRef}
+import io.parapet.{Event, EventCodec, ParConfig, Process, ProcessRef, Replayable}
+import io.parapet.EventCodec.EncodedEvent
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
 import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters.*
+import scala.util.{Failure, Success}
 
 /** The runtime state for a single parapet application: registry of running processes, supervision graph, event log, and
   * a handle to the [[Scheduler]] that drives them.
@@ -35,8 +37,7 @@ class Context[F[_]](
     config: ParConfig,
     val eventTransformers: EventTransformers,
     private[parapet] val snapshotManager: Option[SnapshotManager[F]],
-    private[parapet] val recorder: Option[DeliveryRecorder[F]],
-    private[parapet] val codecRegistry: EventCodecRegistry
+    private[parapet] val recorder: Option[DeliveryRecorder[F]]
 )(using effect: Effect[F]):
   self =>
 
@@ -67,15 +68,6 @@ class Context[F[_]](
   /** Whether the delivery journal is recording. */
   val journalEnabled: Boolean = recorder.isDefined
 
-  /** When true, a delivery whose event has no codec fails loud instead of being skipped. */
-  val requireEventCodec: Boolean = config.journal.requireCodec
-
-  /** The codec for `event`, or `None` when its type is not registered */
-  def codecFor(event: Event): Option[EventCodec] = codecRegistry.codecFor(event)
-
-  /** The codec that recorded entries under `tag`, or `None` when the tag is unknown */
-  def codecForTag(tag: String): Option[EventCodec] = codecRegistry.codecForTag(tag)
-
   private val bootModeRef = new AtomicReference[BootMode](BootMode.Live)
 
   /** Current boot mode; [[BootMode.Replaying]] while recovery re-folds recorded history, else [[BootMode.Live]]. */
@@ -89,8 +81,18 @@ class Context[F[_]](
   /** Records `draft` in the delivery journal and returns its assigned delivery `seq`. Only valid when journalling is on
     * (the caller reaches this only for a journalable delivery).
     */
-  def admit(draft: JournalDraft): F[Long] =
+  private[parapet] def admit(draft: JournalDraft): F[Long] =
     recorder.fold(effect.raiseError[Long](new IllegalStateException("journal is not enabled")))(_.admit(draft))
+
+  /** Encode lazily and validate the leaf identity before the recorder can assign a delivery sequence. */
+  private[parapet] def encodeEvent[A <: Event](event: A, codec: EventCodec[A]): F[EncodedEvent] =
+    effect.suspend {
+      codec.encodeEvent(event) match
+        case Success(encoded) if !codec.schema.contains(encoded.schema) =>
+          effect.raiseError(new IllegalArgumentException(s"Codec emitted undeclared schema: ${encoded.schema}"))
+        case Success(encoded) => effect.pure(encoded)
+        case Failure(error)   => effect.raiseError(error)
+    }
 
   /** Stops the journal, publishing any buffered tail. No-op when the journal is off. */
   def stopJournal: F[Unit] =
@@ -156,26 +158,45 @@ class Context[F[_]](
       if !processes.containsKey(parent) then
         effect.raiseError(UnknownProcessException(s"process cannot be registered because parent $parent doesn't exist"))
       else
-        child.init(self)
-        ProcessState(child, config, clock).flatMap { state =>
-          effect
-            .delay {
-              if processes.putIfAbsent(child.ref, state) != null then
-                throw new IllegalStateException(s"duplicated process. ref = ${child.ref}")
-            }
-            .flatMap { _ =>
-              recordRegistration(parent, child.ref)
-                .handleErrorWith { error =>
-                  effect.delay(processes.remove(child.ref, state)).flatMap(_ => effect.raiseError(error))
-                } >> effect.delay {
-                parents.put(child.ref, parent)
-                graph.computeIfAbsent(parent, _ => ListBuffer.empty)
-                graph.computeIfPresent(parent, (_, values) => values :+ child.ref)
-                child.ref
+        validateReplayConfiguration(child) >> effect.suspend {
+          child.init(self)
+          ProcessState(child, config, clock).flatMap { state =>
+            effect
+              .delay {
+                if processes.putIfAbsent(child.ref, state) != null then
+                  throw new IllegalStateException(s"duplicated process. ref = ${child.ref}")
               }
-            }
+              .flatMap { _ =>
+                recordRegistration(parent, child.ref)
+                  .handleErrorWith { error =>
+                    effect.delay(processes.remove(child.ref, state)).flatMap(_ => effect.raiseError(error))
+                  } >> effect.delay {
+                  parents.put(child.ref, parent)
+                  graph.computeIfAbsent(parent, _ => ListBuffer.empty)
+                  graph.computeIfPresent(parent, (_, values) => values :+ child.ref)
+                  child.ref
+                }
+              }
+          }
         }
     }
+
+  /** Validates the recovery metadata required by a process before it can receive deliveries. */
+  private def validateReplayConfiguration(process: Process[F, ?]): F[Unit] =
+    if !journalEnabled || !process.isInstanceOf[Replayable] then effect.pure(())
+    else
+      process.eventCodec match
+        case None =>
+          effect.raiseError(
+            new IllegalStateException(s"replayable process ${process.ref} does not provide an event codec")
+          )
+        case Some(codec) if codec.schema.contains(RegisteredEventCodec.schema) =>
+          effect.raiseError(
+            new IllegalStateException(
+              s"event codec schema '${codec.schema}' is reserved by the runtime for registration records"
+            )
+          )
+        case Some(_) => effect.pure(())
 
   private def recordRegistration(parent: ProcessRef.Unknown, child: ProcessRef.Unknown): F[Unit] =
     if replaying then effect.pure(())
@@ -184,7 +205,17 @@ class Context[F[_]](
         case None    => effect.pure(())
         case Some(_) =>
           effect.delay(Envelope(ProcessRef.SystemRef, Registered(child), parent)).flatMap { envelope =>
-            admit(JournalDraft(envelope.id, envelope.sender, envelope.receiver, envelope.cause, envelope.event)).void
+            encodeEvent(Registered(child), RegisteredEventCodec).flatMap { encoded =>
+              admit(
+                JournalDraft(
+                  envelope.id,
+                  envelope.sender,
+                  envelope.receiver,
+                  envelope.cause,
+                  encoded
+                )
+              )
+            }.void
           }
 
   /** Direct children of `parent` in the supervision graph. */
@@ -278,17 +309,16 @@ object Context:
       config: ParConfig,
       eventTransformers: EventTransformers,
       snapshotStorage: Option[SnapshotStorage[F]] = None,
-      journalStorage: Option[JournalStore[F]] = None,
-      codecRegistry: EventCodecRegistry = EventCodecRegistry.empty
+      journalStorage: Option[JournalStore[F]] = None
   )(using effect: Effect[F]): F[Context[F]] =
     for
       snapshots <- buildWithStorage(config.snapshot.enabled, snapshotStorage, "snapshotting")(
         SnapshotManager[F](_, Clock(), config.snapshot.queueCapacity)
       )
       recorder <- buildWithStorage(config.journal.enabled, journalStorage, "journal")(store =>
-        effect.pure(DeliveryRecorder.fresh(store, codecRegistry, config.journal))
+        effect.pure(DeliveryRecorder.fresh(store, config.journal))
       )
-    yield new Context[F](config, eventTransformers, snapshots, recorder, codecRegistry)
+    yield new Context[F](config, eventTransformers, snapshots, recorder)
 
   private def buildWithStorage[F[_], S, M](enabled: Boolean, storage: Option[S], name: String)(
       build: S => F[M]
@@ -381,6 +411,9 @@ object Context:
 
     /** Whether this process opts into snapshotting. */
     val snapshotable: Boolean = process.isInstanceOf[Snapshotable]
+
+    /** Whether this process opts into delivery and effect recovery. */
+    val replayable: Boolean = process.isInstanceOf[Replayable]
 
     /** Bookkeeping for offloaded operations spawned by this process. */
     def offloads: OffloadTracker[F] =

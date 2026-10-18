@@ -33,8 +33,7 @@ import scala.util.Try
 class Channel[F[_], Res <: Event](
     override val ref: ProcessRef[Event] = ProcessRef.jdkUUIDRef[Event]
 )(using Effect[F], ClassTag[Res])
-    extends Process[F, Event]
-    with ReplayBoundary:
+    extends Process[F, Event]:
   import Channel.*
   import dsl.*
 
