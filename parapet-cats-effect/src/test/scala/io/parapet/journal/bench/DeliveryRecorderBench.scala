@@ -6,7 +6,7 @@ import cats.syntax.parallel.*
 import io.parapet.cats.CatsEffectParapetRuntime
 import io.parapet.effect.{Effect, EffectFiber, Outcome}
 import io.parapet.journal.*
-import io.parapet.{Event, EventCodec, ProcessRef}
+import io.parapet.{Codec, Event, EventCodec, ProcessRef}
 
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
@@ -49,13 +49,19 @@ object DeliveryRecorderBench:
   final case class Payload(bytes: Array[Byte]) extends Event
 
   private object PayloadCodec extends EventCodec.Simple[Payload]:
-    val version                                  = 1
-    val schema                                   = io.parapet.EventCodec.Schema.Simple("bench", "payload")
-    def encode(event: Payload): Try[Array[Byte]] =
-      Try(event.bytes)
-    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Payload] = Try {
-      require(encodedVersion == 1)
-      Payload(bytes)
+    val version = 1
+    val schema  = io.parapet.EventCodec.Schema.Simple("bench", "payload")
+
+    override def codec: Codec[Payload] =
+      new Codec[Payload] {
+        override def encode(value: Payload): Try[Array[Byte]] = Try(value.bytes)
+
+        override def decode(buff: ByteBuffer): Try[Payload] = Try(Payload(buff.array()))
+      }
+
+    override def codec(version: Int): Option[Codec[Payload]] = {
+      require(version == 1)
+      Some(codec)
     }
 
   // ----------------------------------------------------------------- admitters
@@ -90,6 +96,8 @@ object DeliveryRecorderBench:
     def observed: Vector[AppendSample] = lock.synchronized(samples.toVector)
     def reset(): Unit                  = lock.synchronized(samples.clear())
 
+    def open(): IO[Unit] = delegate.open()
+
     def append(entries: Vector[JournalEntry]): IO[Unit] =
       IO.monotonic.flatMap { started =>
         delegate.append(entries).flatMap { _ =>
@@ -107,6 +115,7 @@ object DeliveryRecorderBench:
     def maxSeq: IO[Option[Long]]                       = delegate.maxSeq
     def maxEnvelopeId: IO[Option[Long]]                = delegate.maxEnvelopeId
     def truncate(upToSeq: Long): IO[Unit]              = delegate.truncate(upToSeq)
+    def close(): IO[Unit]                              = delegate.close()
 
   // ----------------------------------------------------------------- run
 
@@ -159,7 +168,7 @@ object DeliveryRecorderBench:
       )
       (dir, store)
     }.flatMap { (dir, store) =>
-      recorderAdmitter(store, cfg).map { admitter =>
+      store.open().flatMap(_ => recorderAdmitter(store, cfg)).map { admitter =>
         Fixture(
           dir,
           store,
@@ -253,8 +262,8 @@ object DeliveryRecorderBench:
           (ended - started).toNanos,
           latencies,
           observed,
-          names.count(name => name.endsWith(".jrnl")),
-          names.count(name => name.endsWith(".open"))
+          names.count(name => name.endsWith(".jrl")),
+          names.count(name => name == "open")
         )
       val cleanup =
         fixture.admitter.close.attempt.flatMap { _ =>
@@ -286,9 +295,8 @@ object DeliveryRecorderBench:
     Files.deleteIfExists(path)
     out
 
-  /** Same write, but the channel is opened once and held - what `appendToFile` would cost if `DeliveryLog` kept the
-    * active segment's channel open instead of reopening per batch. No force, so the delta against `openCloseFloor` is
-    * the open/close pair alone.
+  /** Same write, but the channel is opened once and held, as the journal's log holds the channel of its active segment.
+    * No force, so the delta against `openCloseFloor` is the open/close pair alone.
     */
   def heldChannelFloor(dir: Path, samples: Int, bytes: Int): Array[Long] =
     val path    = dir.resolve("held-probe")

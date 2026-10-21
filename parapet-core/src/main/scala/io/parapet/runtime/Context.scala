@@ -315,8 +315,9 @@ object Context:
       snapshots <- buildWithStorage(config.snapshot.enabled, snapshotStorage, "snapshotting")(
         SnapshotManager[F](_, Clock(), config.snapshot.queueCapacity)
       )
+      // The recorder closes the store when the journal stops.
       recorder <- buildWithStorage(config.journal.enabled, journalStorage, "journal")(store =>
-        effect.pure(DeliveryRecorder.fresh(store, config.journal))
+        store.open().map(_ => DeliveryRecorder.fresh(store, config.journal))
       )
     yield new Context[F](config, eventTransformers, snapshots, recorder)
 

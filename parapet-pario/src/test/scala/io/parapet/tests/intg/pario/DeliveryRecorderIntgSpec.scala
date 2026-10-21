@@ -47,8 +47,15 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   private def storeAt(dir: Path): JournalStoreLocal[ParIO] =
     new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
 
+  /** Runs `use` on an open store of its own for `dir`, which no other open store may share, and closes it. */
+  private def withStore[A](dir: Path)(use: JournalStoreLocal[ParIO] => A): A =
+    val store = storeAt(dir)
+    store.open().run()
+    try use(store)
+    finally store.close().run()
+
   private def seqsOnDisk(dir: Path): Vector[Long] =
-    storeAt(dir).read(0L).run().map(_.seq)
+    withStore(dir)(_.read(0L).run().map(_.seq))
 
   private def fileRanges(dir: Path): Vector[(Long, Long)] =
     val listing = Files.list(dir)
@@ -57,9 +64,9 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
         .iterator()
         .asScala
         .map(_.getFileName.toString)
-        .filter(_.endsWith(".jrnl"))
+        .filter(_.endsWith(".jrl"))
         .map { name =>
-          val Array(min, max) = name.stripSuffix(".jrnl").split('-'): @unchecked
+          val Array(min, max) = name.stripSuffix(".jrl").split('-'): @unchecked
           (min.toLong, max.toLong)
         }
         .toVector
@@ -100,17 +107,21 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   private def startRecorder(recorder: DeliveryRecorder[ParIO]): ActiveRecorder =
     ActiveRecorder(recorder, startThread("delivery-recorder-writer")(recorder.runWriter.run()))
 
+  /** Opens `store`, as the runtime does, and starts a recorder on it. */
   private def fresh(
       store: JournalStore[ParIO],
       config: JournalConfig = JournalConfig.default
   ): ActiveRecorder =
+    store.open().run()
     startRecorder(DeliveryRecorder.fresh(store, config))
 
+  /** Opens `store`, as the runtime does, and starts a recorder on it that continues after `highWater`. */
   private def resume(
       store: JournalStore[ParIO],
       highWater: Long,
       config: JournalConfig = JournalConfig.default
   ): ActiveRecorder =
+    store.open().run()
     startRecorder(DeliveryRecorder.resume(store, highWater, config))
 
   private def awaitAll[A](running: Seq[Running[A]], clue: String): Vector[Try[A]] =
@@ -169,6 +180,9 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     private val attempts       = new CopyOnWriteArrayList[Vector[JournalEntry]]()
     private val durableBatches = new CopyOnWriteArrayList[Vector[JournalEntry]]()
     private val truncations    = new AtomicInteger(0)
+    private val closes         = new AtomicInteger(0)
+
+    override def open(): ParIO[Unit] = ParIO.delay(())
 
     override def append(entries: Vector[JournalEntry]): ParIO[Unit] =
       ParIO.blocking {
@@ -202,11 +216,19 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
         ()
       }
 
+    override def close(): ParIO[Unit] =
+      ParIO.delay {
+        closes.incrementAndGet()
+        ()
+      }
+
     def release(): Unit = releaseFirst.countDown()
 
     def appendAttempts: Vector[Vector[JournalEntry]] = attempts.asScala.toVector
 
     def truncateCount: Int = truncations.get()
+
+    def closeCount: Int = closes.get()
 
   test("buffered mode may return before a partial batch is durable") {
     val store  = new ControlledStore(gateFirst = false)
@@ -218,7 +240,10 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
       active.recorder.flush().run()
       store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L))
+      store.closeCount shouldBe 0
       close(active)
+      // Closing the recorder closes the store, which records a clean stop.
+      store.closeCount shouldBe 1
     finally stop(active)
   }
 
@@ -333,20 +358,23 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   }
 
   test("truncate publishes the buffered tail before discarding covered segments") {
-    val dir    = Files.createTempDirectory("recorder-truncate")
-    val active = fresh(storeAt(dir), JournalConfig(batchSize = 4))
+    val dir = Files.createTempDirectory("recorder-truncate")
+    // With a limit of one byte every entry seals the one before it, and truncate deletes sealed segments only.
+    val store  = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir, maxSegmentBytes = 1L))
+    val active = fresh(store, JournalConfig(batchSize = 4))
 
     try
       active.recorder.admit(draft(1L)).run() shouldBe 1L
-      seqsOnDisk(dir) shouldBe empty
+      active.recorder.admit(draft(2L)).run() shouldBe 2L
+      store.read(0L).run() shouldBe empty
 
       active.recorder.truncate(1L).run()
-      active.recorder.read(0L).run() shouldBe empty
-      active.recorder.maxSeq.run() shouldBe Some(1L)
+      active.recorder.read(0L).run().map(_.seq) shouldBe Vector(2L)
+      active.recorder.maxSeq.run() shouldBe Some(2L)
 
-      active.recorder.admit(draft(2L)).run() shouldBe 2L
+      active.recorder.admit(draft(3L)).run() shouldBe 3L
       close(active)
-      seqsOnDisk(dir) shouldBe Vector(2L)
+      seqsOnDisk(dir) shouldBe Vector(2L, 3L)
     finally stop(active)
   }
 
@@ -371,6 +399,8 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       assertSameFailure(boom)(active.recorder.advanceSequence().run())
       assertSameFailure(boom)(active.recorder.flush().run())
       assertSameFailure(boom)(active.recorder.close().run())
+      // A recorder that failed leaves the store open, so the stop is not recorded as clean.
+      store.closeCount shouldBe 0
     finally
       store.release()
       stopThreads(truncation.toVector.map(_.thread))
@@ -451,7 +481,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       close(first)
     finally stop(first)
 
-    val highWater = storeAt(dir).maxSeq.run().getOrElse(0L)
+    val highWater = withStore(dir)(_.maxSeq.run().getOrElse(0L))
     val second    = resume(storeAt(dir), highWater, JournalConfig(batchSize = 4))
 
     try

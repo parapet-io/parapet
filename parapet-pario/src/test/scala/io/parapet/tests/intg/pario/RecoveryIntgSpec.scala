@@ -6,7 +6,7 @@ import io.parapet.Event.{Initialize, Restored, Start}
 import io.parapet.{EventCodec, EventCodecAvailability, ParConfig, Process, Replayable}
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
-import io.parapet.journal.{JournalConfig, JournalStoreLocal}
+import io.parapet.journal.{JournalConfig, JournalEntry, JournalStoreLocal}
 import io.parapet.snapshot.{Snapshot, SnapshotConfig, SnapshotStorageLocal, Snapshotable}
 import io.parapet.testutils.EventStore
 import io.parapet.tests.intg.BasicParIOSpec
@@ -66,7 +66,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
       )
     )
 
-    val entries = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
+    val entries = readJournal(dir)
     entries.map(_.receiver) shouldBe Vector(parentRef, parentRef, childRef)
     entries.map(_.schema) shouldBe Vector(
       SpawnCodec.schema,
@@ -111,7 +111,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
       )
     )
 
-    val entries = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
+    val entries = readJournal(dir)
     val marker  = entries
       .find(_.schema == io.parapet.EventCodec.Schema.Simple("", "parapet.registered"))
       .getOrElse(fail("registration marker not recorded"))
@@ -154,7 +154,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
       )
     )
 
-    val entries = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
+    val entries = readJournal(dir)
     val marker  = entries
       .find(_.schema == io.parapet.EventCodec.Schema.Simple("", "parapet.registered"))
       .getOrElse(fail("registration marker not recorded"))
@@ -285,7 +285,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
         createApp(ct.pure(Seq(new Counter(ref, store1), driver1)), config0 = config).run
       )
     )
-    val before = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync().map(_.seq)
+    val before = readJournal(dir).map(_.seq)
 
     // Run 2 recovers (replay re-folds the three Adds) then goes live; the driver sends nothing.
     val store2   = new EventStore[ParIO, Event]
@@ -293,7 +293,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     unsafeRun(
       store2.await(4, createApp(ct.pure(Seq(counter2, onStart(unit))), config0 = config).run)
     )
-    val after = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync().map(_.seq)
+    val after = readJournal(dir).map(_.seq)
 
     counter2.count shouldBe 6L
     after shouldBe before // replay recorded nothing new
@@ -349,9 +349,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
         createApp(ct.pure(Seq(new Counter(ref, store1), driver1)), config0 = config).run
       )
     )
-    val versions = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
-      .read(0L)
-      .unsafeRunSync()
+    val versions = readJournal(dir)
       .filter(_.schema == AddCodec.schema)
       .map(_.schemaVersion)
       .distinct
@@ -371,7 +369,17 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
 
 object RecoveryIntgSpec:
 
-  private val RotateAfterEveryEntryBytes = JournalStoreLocal.MinimumSegmentBytes + 1L
+  /** With this limit every entry seals the one before it, so each sealed segment holds one entry. */
+  private val RotateAfterEveryEntryBytes = 1L
+
+  /** Reads the whole journal in `dir` with a store of its own, which no running app may share the directory with.
+    * Opening it seals the segment the last run was writing.
+    */
+  private def readJournal(dir: Path): Vector[JournalEntry] =
+    val store = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
+    store.open().unsafeRunSync()
+    try store.read(0L).unsafeRunSync()
+    finally store.close().unsafeRunSync()
 
   final case class Add(n: Int)                  extends Event
   final case class Acked(count: Long)           extends Event
@@ -536,5 +544,4 @@ object RecoveryIntgSpec:
       case Emit(n) => Add(n) ~> childRef
 
   private def deleteSingleEntrySegment(dir: Path, seq: Long): Unit =
-    val value = f"$seq%020d"
-    Files.delete(dir.resolve(s"$value-$value.jrnl"))
+    Files.delete(dir.resolve(s"$seq-$seq.jrl"))

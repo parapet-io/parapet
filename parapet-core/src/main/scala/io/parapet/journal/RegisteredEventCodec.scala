@@ -3,19 +3,15 @@ package io.parapet.journal
 import io.parapet.Event.Registered
 import io.parapet.EventCodec.Schema
 import io.parapet.{Event, EventCodec, ProcessRef}
-
-import java.nio.charset.StandardCharsets.UTF_8
-import scala.util.Try
+import io.parapet.Codec
+import io.parapet.Codec.given
 
 private[parapet] object RegisteredEventCodec extends EventCodec.Simple[Registered]:
-  val schema: Schema.Simple = Schema.Simple("", "parapet.registered")
-  val version: Int          = 1
+  val schema: Schema.Simple    = Schema.Simple("", "parapet.registered")
+  val version: Int             = 1
+  val codec: Codec[Registered] = Codec.derived
 
-  def encode(event: Registered): Try[Array[Byte]] =
-    Try(event.child.value.getBytes(UTF_8))
-
-  def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Registered] = Try {
-    if encodedVersion != version then
-      throw new IllegalArgumentException(s"unsupported Registered schema version: ${encodedVersion}")
-    Registered(ProcessRef[Event](new String(bytes, UTF_8)))
+  override def codec(version: Int): Option[Codec[Registered]] = version match {
+    case 1 => Option(codec)
+    case _ => Option.empty
   }

@@ -1,7 +1,8 @@
 package io.parapet.journal
 
-import io.parapet.ProcessRef
+import io.parapet.{Codec, ProcessRef}
 import io.parapet.EventCodec.{EncodedEvent, Schema}
+import io.parapet.journal.JournalEntry
 
 /** Recorded delivery.
   *
@@ -31,6 +32,10 @@ final case class JournalEntry(
     event: Array[Byte],
     schema: Schema.Simple,
     schemaVersion: Int
-) {
+) derives Codec {
   private[parapet] def encoded: EncodedEvent = EncodedEvent(schema, schemaVersion, event)
+}
+
+object JournalEntry {
+  given Codec[Schema.Simple] = Codec.derived
 }

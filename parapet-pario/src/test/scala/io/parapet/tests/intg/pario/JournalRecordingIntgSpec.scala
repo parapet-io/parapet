@@ -13,7 +13,7 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
 import java.nio.ByteBuffer
-import java.nio.file.Files
+import java.nio.file.{Files, Path}
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.{CountDownLatch, TimeUnit, TimeoutException}
 import scala.util.Try
@@ -43,7 +43,7 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
     unsafeRun(store.await(4, createApp(ct.pure(Seq(counter, driver)), config0 = config).run))
     counter.count shouldBe 6L
 
-    val entries = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
+    val entries = readJournal(dir)
 
     entries.map(e => CounterCodec.decodeEvent(e.encoded).get) shouldBe
       Vector(Add(1), Add(2), Add(3), Probe)
@@ -92,7 +92,8 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
       Option(outcome.get()).getOrElse(fail("runtime terminated without reporting an outcome")).get
 
       counter.count shouldBe 1L
-      durableStore.read(0L).unsafeRunSync().map(_.seq) shouldBe Vector(1L)
+      // The runtime closed the store when it stopped.
+      readJournal(dir).map(_.seq) shouldBe Vector(1L)
     finally
       gatedStore.release()
       if thread.isAlive then thread.interrupt()
@@ -121,7 +122,7 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
     runOnce() // records seqs 1..4
     runOnce() // must continue at 5..8, not reuse 1..4 and overwrite the segments
 
-    val entries = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
+    val entries = readJournal(dir)
     entries.map(_.seq) shouldBe (1L to 8L).toVector
     entries.map(_.id).distinct.size shouldBe 8 // envelope ids continue across the restart, so none collide
   }
@@ -136,6 +137,8 @@ object JournalRecordingIntgSpec:
       if !appendEntered.await(10L, TimeUnit.SECONDS) then throw new TimeoutException("journal append did not start")
 
     def release(): Unit = allowAppend.countDown()
+
+    override def open(): ParIO[Unit] = delegate.open()
 
     override def append(entries: Vector[JournalEntry]): ParIO[Unit] =
       ParIO
@@ -153,6 +156,15 @@ object JournalRecordingIntgSpec:
     override def maxEnvelopeId: ParIO[Option[Long]] = delegate.maxEnvelopeId
 
     override def truncate(upToSeq: Long): ParIO[Unit] = delegate.truncate(upToSeq)
+
+    override def close(): ParIO[Unit] = delegate.close()
+
+  /** Reads the whole journal in `dir` with a store of its own, which no running app may share the directory with. */
+  private def readJournal(dir: Path): Vector[JournalEntry] =
+    val store = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
+    store.open().unsafeRunSync()
+    try store.read(0L).unsafeRunSync()
+    finally store.close().unsafeRunSync()
 
   sealed trait CounterCommand         extends Event
   final case class Add(n: Int)        extends CounterCommand
