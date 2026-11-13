@@ -1,7 +1,7 @@
 package io.parapet.tests.intg.pario
 
 import io.parapet.Event.Start
-import io.parapet.{EventCodec, ParConfig, ParIOApp, Process, Replayable}
+import io.parapet.{Codec, EventCodec, ParConfig, ParIOApp, Process, Replayable}
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
 import io.parapet.journal.{JournalConfig, JournalEntry, JournalStore, JournalStoreLocal, JournalWriteMode}
@@ -175,20 +175,19 @@ object JournalRecordingIntgSpec:
     val schema: io.parapet.EventCodec.Schema.Simple = io.parapet.EventCodec.Schema.Simple("", "counter-command")
     val version: Int                                = 1
 
-    def encode(event: CounterCommand): Try[Array[Byte]] = Try {
-      event match
-        case Add(n) => ByteBuffer.allocate(5).put(1.toByte).putInt(n).array()
-        case Probe  => Array(2.toByte)
-    }
+    val codec: Codec[CounterCommand] = new Codec[CounterCommand]:
+      def encode(event: CounterCommand): Try[Array[Byte]] = Try {
+        event match
+          case Add(n) => ByteBuffer.allocate(5).put(1.toByte).putInt(n).array()
+          case Probe  => Array(2.toByte)
+      }
 
-    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[CounterCommand] = Try {
-      require(encodedVersion == version)
-      val buffer = ByteBuffer.wrap(bytes)
-      buffer.get() match
-        case 1     => Add(buffer.getInt())
-        case 2     => Probe
-        case other => throw new IllegalArgumentException(s"unknown counter command tag $other")
-    }
+      def decode(buffer: ByteBuffer): Try[CounterCommand] = Try {
+        buffer.get() match
+          case 1     => Add(buffer.getInt())
+          case 2     => Probe
+          case other => throw new IllegalArgumentException(s"unknown counter command tag $other")
+      }
 
   private def encodeCount(count: Long): Array[Byte] = ByteBuffer.allocate(8).putLong(count).array()
   private def decodeCount(bytes: Array[Byte]): Long = ByteBuffer.wrap(bytes).getLong

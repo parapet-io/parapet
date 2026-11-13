@@ -13,10 +13,11 @@ import io.parapet.journal.{
   JournalStoreLocal,
   JournalWriteMode
 }
-import io.parapet.{Event, EventCodec, ProcessRef}
+import io.parapet.{Codec, Event, EventCodec, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
+import java.nio.ByteBuffer
 import java.nio.file.{Files, Path}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong, AtomicReference}
 import java.util.concurrent.{CopyOnWriteArrayList, CountDownLatch, CyclicBarrier, TimeUnit, TimeoutException}
@@ -28,17 +29,12 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   private val ref          = ProcessRef[Event]("a")
   private val awaitSeconds = 10L
 
-  private case class E(id: Long) extends Event
+  private case class E(id: Long) extends Event derives Codec
 
   private object ECodec extends EventCodec.Simple[E]:
-    val version                            = 1
-    val schema                             = Schema.Simple("", "e")
-    def encode(event: E): Try[Array[Byte]] =
-      Try(java.nio.ByteBuffer.allocate(8).putLong(event.id).array())
-    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[E] = Try {
-      require(encodedVersion == 1)
-      E(java.nio.ByteBuffer.wrap(bytes).getLong)
-    }
+    val version = 1
+    val schema  = Schema.Simple("", "e")
+    val codec   = summon[Codec[E]]
 
   extension [A](fa: ParIO[A]) private def run(): A = fa.unsafeRunSync()
 
@@ -250,12 +246,11 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   test("records the selected leaf schema and version from a composed codec") {
     case class Other() extends Event
     val other = new EventCodec.Simple[Other] {
-      val schema                                 = io.parapet.EventCodec.Schema.Simple("test", "other")
-      val version                                = 3
-      def encode(value: Other): Try[Array[Byte]] = Success(Array.emptyByteArray)
-      def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Other] = Try {
-        require(encodedVersion == version && bytes.isEmpty)
-        Other()
+      val schema              = io.parapet.EventCodec.Schema.Simple("test", "other")
+      val version             = 3
+      val codec: Codec[Other] = new Codec[Other] {
+        def encode(value: Other): Try[Array[Byte]] = Success(Array.emptyByteArray)
+        def decode(buffer: ByteBuffer): Try[Other] = Success(Other())
       }
     }
     val codec = EventCodec.union(ECodec, other) {
@@ -304,13 +299,15 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     try
       for throwsDirectly <- Vector(false, true) do
         val failing = new EventCodec.Simple[E] {
-          val schema                             = ECodec.schema
-          val version                            = 1
-          def encode(value: E): Try[Array[Byte]] = {
-            calls.incrementAndGet()
-            if throwsDirectly then throw boom else Failure(boom)
+          val schema          = ECodec.schema
+          val version         = 1
+          val codec: Codec[E] = new Codec[E] {
+            def encode(value: E): Try[Array[Byte]] = {
+              calls.incrementAndGet()
+              if throwsDirectly then throw boom else Failure(boom)
+            }
+            def decode(buffer: ByteBuffer): Try[E] = ECodec.codec.decode(buffer)
           }
-          def decode(version: Int, bytes: Array[Byte]): Try[E] = ECodec.decode(version, bytes)
         }
         val before    = calls.get()
         val admission = context.encodeEvent(E(1L), failing).flatMap { encoded =>
