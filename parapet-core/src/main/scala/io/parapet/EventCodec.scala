@@ -2,6 +2,7 @@ package io.parapet
 
 import scala.util.{Failure, Try}
 import io.parapet.EventCodec.{EncodedEvent, Schema}
+import io.parapet.Codec
 
 /** A codec usable by the runtime. Implement [[EventCodec.Simple]] or compose codecs with [[EventCodec.union]]. */
 trait EventCodec[A <: Event] {
@@ -38,21 +39,26 @@ object EventCodec {
   final private[parapet] case class EncodedEvent(schema: Schema.Simple, version: Int, bytes: Array[Byte])
 
   /** Client implementation of one schema identity, with independently versioned payloads. */
-  abstract class Simple[A <: Event] extends EventCodec[A] {
+  abstract class Simple[A <: Event] extends EventCodec[A] { self =>
     def schema: Schema.Simple
 
     /** Version written by encode. Decode may also support historical versions. */
     def version: Int
-    def encode(value: A): Try[Array[Byte]]
-    def decode(version: Int, bytes: Array[Byte]): Try[A]
+    def codec: Codec[A]
+    def codec(version: Int): Option[Codec[A]] = version match {
+      case _ if self.version == version => Option(codec)
+      case _                            => Option.empty
+    }
 
     final private[parapet] def encodeEvent(value: A): Try[EncodedEvent] =
-      encode(value).map(bytes => EncodedEvent(schema, version, bytes))
+      codec.encode(value).map(bytes => EncodedEvent(schema, version, bytes))
 
     final private[parapet] def decodeEvent(encoded: EncodedEvent): Try[A] =
       if encoded.schema != schema then
         Failure(new IllegalArgumentException(s"Unsupported event schema: ${encoded.schema}"))
-      else decode(encoded.version, encoded.bytes)
+      else
+        codec(encoded.version)
+          .fold(Failure(new IllegalArgumentException(s"unknown codec version=$version")))(_.decode(encoded.bytes))
   }
 
   /** Compose disjoint schemas with explicit typed routing for encoding. */

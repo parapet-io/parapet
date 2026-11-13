@@ -3,10 +3,10 @@ package io.parapet.tests.intg.pario
 import io.parapet.EventCodec.Schema
 
 import io.parapet.Event.{Initialize, Restored, Start}
-import io.parapet.{EventCodec, EventCodecAvailability, ParConfig, Process, Replayable}
+import io.parapet.{Codec, EventCodec, EventCodecAvailability, ParConfig, Process, Replayable}
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
-import io.parapet.journal.{JournalConfig, JournalStoreLocal}
+import io.parapet.journal.{JournalConfig, JournalEntry, JournalStoreLocal}
 import io.parapet.snapshot.{Snapshot, SnapshotConfig, SnapshotStorageLocal, Snapshotable}
 import io.parapet.testutils.EventStore
 import io.parapet.tests.intg.BasicParIOSpec
@@ -66,7 +66,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
       )
     )
 
-    val entries = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
+    val entries = readJournal(dir)
     entries.map(_.receiver) shouldBe Vector(parentRef, parentRef, childRef)
     entries.map(_.schema) shouldBe Vector(
       SpawnCodec.schema,
@@ -111,7 +111,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
       )
     )
 
-    val entries = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
+    val entries = readJournal(dir)
     val marker  = entries
       .find(_.schema == io.parapet.EventCodec.Schema.Simple("", "parapet.registered"))
       .getOrElse(fail("registration marker not recorded"))
@@ -154,7 +154,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
       )
     )
 
-    val entries = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync()
+    val entries = readJournal(dir)
     val marker  = entries
       .find(_.schema == io.parapet.EventCodec.Schema.Simple("", "parapet.registered"))
       .getOrElse(fail("registration marker not recorded"))
@@ -285,7 +285,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
         createApp(ct.pure(Seq(new Counter(ref, store1), driver1)), config0 = config).run
       )
     )
-    val before = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync().map(_.seq)
+    val before = readJournal(dir).map(_.seq)
 
     // Run 2 recovers (replay re-folds the three Adds) then goes live; the driver sends nothing.
     val store2   = new EventStore[ParIO, Event]
@@ -293,7 +293,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
     unsafeRun(
       store2.await(4, createApp(ct.pure(Seq(counter2, onStart(unit))), config0 = config).run)
     )
-    val after = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir)).read(0L).unsafeRunSync().map(_.seq)
+    val after = readJournal(dir).map(_.seq)
 
     counter2.count shouldBe 6L
     after shouldBe before // replay recorded nothing new
@@ -349,9 +349,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
         createApp(ct.pure(Seq(new Counter(ref, store1), driver1)), config0 = config).run
       )
     )
-    val versions = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
-      .read(0L)
-      .unsafeRunSync()
+    val versions = readJournal(dir)
       .filter(_.schema == AddCodec.schema)
       .map(_.schemaVersion)
       .distinct
@@ -371,59 +369,56 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
 
 object RecoveryIntgSpec:
 
-  private val RotateAfterEveryEntryBytes = JournalStoreLocal.MinimumSegmentBytes + 1L
+  /** With this limit every entry seals the one before it, so each sealed segment holds one entry. */
+  private val RotateAfterEveryEntryBytes = 1L
 
-  final case class Add(n: Int)                  extends Event
+  /** Reads the whole journal in `dir` with a store of its own, which no running app may share the directory with.
+    * Opening it seals the segment the last run was writing.
+    */
+  private def readJournal(dir: Path): Vector[JournalEntry] =
+    val store = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
+    store.open().unsafeRunSync()
+    try store.read(0L).unsafeRunSync()
+    finally store.close().unsafeRunSync()
+
+  final case class Add(n: Int)                  extends Event derives Codec
   final case class Acked(count: Long)           extends Event
   final case class InitializedWith(count: Long) extends Event
   final case class StartedWith(count: Long)     extends Event
   case object Spawn                             extends Event
   final case class Store(n: Int)                extends Event
   final case class RestoredWith(count: Long)    extends Event
-  final case class Emit(n: Int)                 extends Event
+  final case class Emit(n: Int)                 extends Event derives Codec
 
   object AddCodec extends EventCodec.Simple[Add]:
-    val version                              = 1
-    val schema                               = Schema.Simple("", "add")
-    def encode(event: Add): Try[Array[Byte]] =
-      Try(ByteBuffer.allocate(4).putInt(event.n).array())
-    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Add] = Try {
-      require(encodedVersion == 1)
-      Add(ByteBuffer.wrap(bytes).getInt)
-    }
+    val version = 1
+    val schema  = Schema.Simple("", "add")
+    val codec   = summon[Codec[Add]]
 
   object SpawnCodec extends EventCodec.Simple[Spawn.type]:
-    val version                                     = 1
-    val schema                                      = Schema.Simple("", "spawn")
-    def encode(event: Spawn.type): Try[Array[Byte]] =
-      Success(Array.emptyByteArray)
-    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Spawn.type] = Try {
-      require(encodedVersion == 1 && bytes.isEmpty)
-      Spawn
-    }
+    val version                  = 1
+    val schema                   = Schema.Simple("", "spawn")
+    val codec: Codec[Spawn.type] = new Codec[Spawn.type]:
+      def encode(event: Spawn.type): Try[Array[Byte]] = Success(Array.emptyByteArray)
+      def decode(buffer: ByteBuffer): Try[Spawn.type] = Success(Spawn)
 
-  /** Same schema as AddCodec; writes version 2 and reads both historical layouts. */
+  /** Same schema as AddCodec; writes version 2, a long where version 1 has an int, and reads both. */
   object AddCodecV2 extends EventCodec.Simple[Add]:
-    val version                              = 2
-    val schema                               = Schema.Simple("", "add")
-    def encode(event: Add): Try[Array[Byte]] =
-      Try(ByteBuffer.allocate(8).putLong(event.n.toLong).array())
-    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Add] = Try {
-      encodedVersion match
-        case 1     => Add(ByteBuffer.wrap(bytes).getInt)
-        case 2     => Add(ByteBuffer.wrap(bytes).getLong.toInt)
-        case other => throw new IllegalArgumentException(s"unsupported add version $other")
-    }
+    val version           = 2
+    val schema            = Schema.Simple("", "add")
+    val codec: Codec[Add] = new Codec[Add]:
+      def encode(event: Add): Try[Array[Byte]] = Try(ByteBuffer.allocate(8).putLong(event.n.toLong).array())
+      def decode(buffer: ByteBuffer): Try[Add] = Try(Add(buffer.getLong.toInt))
+
+    override def codec(version: Int): Option[Codec[Add]] = version match
+      case 1 => Some(AddCodec.codec)
+      case 2 => Some(codec)
+      case _ => None
 
   object EmitCodec extends EventCodec.Simple[Emit]:
-    val version                               = 1
-    val schema                                = Schema.Simple("", "emit")
-    def encode(event: Emit): Try[Array[Byte]] =
-      Try(ByteBuffer.allocate(4).putInt(event.n).array())
-    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Emit] = Try {
-      require(encodedVersion == 1)
-      Emit(ByteBuffer.wrap(bytes).getInt)
-    }
+    val version = 1
+    val schema  = Schema.Simple("", "emit")
+    val codec   = summon[Codec[Emit]]
 
   given EventCodec[Add]        = AddCodec
   given EventCodec[Spawn.type] = SpawnCodec
@@ -536,5 +531,4 @@ object RecoveryIntgSpec:
       case Emit(n) => Add(n) ~> childRef
 
   private def deleteSingleEntrySegment(dir: Path, seq: Long): Unit =
-    val value = f"$seq%020d"
-    Files.delete(dir.resolve(s"$value-$value.jrnl"))
+    Files.delete(dir.resolve(s"$seq-$seq.jrl"))

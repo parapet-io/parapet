@@ -13,10 +13,11 @@ import io.parapet.journal.{
   JournalStoreLocal,
   JournalWriteMode
 }
-import io.parapet.{Event, EventCodec, ProcessRef}
+import io.parapet.{Codec, Event, EventCodec, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
+import java.nio.ByteBuffer
 import java.nio.file.{Files, Path}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicLong, AtomicReference}
 import java.util.concurrent.{CopyOnWriteArrayList, CountDownLatch, CyclicBarrier, TimeUnit, TimeoutException}
@@ -28,17 +29,12 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   private val ref          = ProcessRef[Event]("a")
   private val awaitSeconds = 10L
 
-  private case class E(id: Long) extends Event
+  private case class E(id: Long) extends Event derives Codec
 
   private object ECodec extends EventCodec.Simple[E]:
-    val version                            = 1
-    val schema                             = Schema.Simple("", "e")
-    def encode(event: E): Try[Array[Byte]] =
-      Try(java.nio.ByteBuffer.allocate(8).putLong(event.id).array())
-    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[E] = Try {
-      require(encodedVersion == 1)
-      E(java.nio.ByteBuffer.wrap(bytes).getLong)
-    }
+    val version = 1
+    val schema  = Schema.Simple("", "e")
+    val codec   = summon[Codec[E]]
 
   extension [A](fa: ParIO[A]) private def run(): A = fa.unsafeRunSync()
 
@@ -47,8 +43,15 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   private def storeAt(dir: Path): JournalStoreLocal[ParIO] =
     new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
 
+  /** Runs `use` on an open store of its own for `dir`, which no other open store may share, and closes it. */
+  private def withStore[A](dir: Path)(use: JournalStoreLocal[ParIO] => A): A =
+    val store = storeAt(dir)
+    store.open().run()
+    try use(store)
+    finally store.close().run()
+
   private def seqsOnDisk(dir: Path): Vector[Long] =
-    storeAt(dir).read(0L).run().map(_.seq)
+    withStore(dir)(_.read(0L).run().map(_.seq))
 
   private def fileRanges(dir: Path): Vector[(Long, Long)] =
     val listing = Files.list(dir)
@@ -57,9 +60,9 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
         .iterator()
         .asScala
         .map(_.getFileName.toString)
-        .filter(_.endsWith(".jrnl"))
+        .filter(_.endsWith(".jrl"))
         .map { name =>
-          val Array(min, max) = name.stripSuffix(".jrnl").split('-'): @unchecked
+          val Array(min, max) = name.stripSuffix(".jrl").split('-'): @unchecked
           (min.toLong, max.toLong)
         }
         .toVector
@@ -100,17 +103,21 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   private def startRecorder(recorder: DeliveryRecorder[ParIO]): ActiveRecorder =
     ActiveRecorder(recorder, startThread("delivery-recorder-writer")(recorder.runWriter.run()))
 
+  /** Opens `store`, as the runtime does, and starts a recorder on it. */
   private def fresh(
       store: JournalStore[ParIO],
       config: JournalConfig = JournalConfig.default
   ): ActiveRecorder =
+    store.open().run()
     startRecorder(DeliveryRecorder.fresh(store, config))
 
+  /** Opens `store`, as the runtime does, and starts a recorder on it that continues after `highWater`. */
   private def resume(
       store: JournalStore[ParIO],
       highWater: Long,
       config: JournalConfig = JournalConfig.default
   ): ActiveRecorder =
+    store.open().run()
     startRecorder(DeliveryRecorder.resume(store, highWater, config))
 
   private def awaitAll[A](running: Seq[Running[A]], clue: String): Vector[Try[A]] =
@@ -169,6 +176,9 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     private val attempts       = new CopyOnWriteArrayList[Vector[JournalEntry]]()
     private val durableBatches = new CopyOnWriteArrayList[Vector[JournalEntry]]()
     private val truncations    = new AtomicInteger(0)
+    private val closes         = new AtomicInteger(0)
+
+    override def open(): ParIO[Unit] = ParIO.delay(())
 
     override def append(entries: Vector[JournalEntry]): ParIO[Unit] =
       ParIO.blocking {
@@ -202,11 +212,19 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
         ()
       }
 
+    override def close(): ParIO[Unit] =
+      ParIO.delay {
+        closes.incrementAndGet()
+        ()
+      }
+
     def release(): Unit = releaseFirst.countDown()
 
     def appendAttempts: Vector[Vector[JournalEntry]] = attempts.asScala.toVector
 
     def truncateCount: Int = truncations.get()
+
+    def closeCount: Int = closes.get()
 
   test("buffered mode may return before a partial batch is durable") {
     val store  = new ControlledStore(gateFirst = false)
@@ -218,19 +236,21 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
       active.recorder.flush().run()
       store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L))
+      store.closeCount shouldBe 0
       close(active)
+      // Closing the recorder closes the store, which records a clean stop.
+      store.closeCount shouldBe 1
     finally stop(active)
   }
 
   test("records the selected leaf schema and version from a composed codec") {
     case class Other() extends Event
     val other = new EventCodec.Simple[Other] {
-      val schema                                 = io.parapet.EventCodec.Schema.Simple("test", "other")
-      val version                                = 3
-      def encode(value: Other): Try[Array[Byte]] = Success(Array.emptyByteArray)
-      def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Other] = Try {
-        require(encodedVersion == version && bytes.isEmpty)
-        Other()
+      val schema              = io.parapet.EventCodec.Schema.Simple("test", "other")
+      val version             = 3
+      val codec: Codec[Other] = new Codec[Other] {
+        def encode(value: Other): Try[Array[Byte]] = Success(Array.emptyByteArray)
+        def decode(buffer: ByteBuffer): Try[Other] = Success(Other())
       }
     }
     val codec = EventCodec.union(ECodec, other) {
@@ -279,13 +299,15 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     try
       for throwsDirectly <- Vector(false, true) do
         val failing = new EventCodec.Simple[E] {
-          val schema                             = ECodec.schema
-          val version                            = 1
-          def encode(value: E): Try[Array[Byte]] = {
-            calls.incrementAndGet()
-            if throwsDirectly then throw boom else Failure(boom)
+          val schema          = ECodec.schema
+          val version         = 1
+          val codec: Codec[E] = new Codec[E] {
+            def encode(value: E): Try[Array[Byte]] = {
+              calls.incrementAndGet()
+              if throwsDirectly then throw boom else Failure(boom)
+            }
+            def decode(buffer: ByteBuffer): Try[E] = ECodec.codec.decode(buffer)
           }
-          def decode(version: Int, bytes: Array[Byte]): Try[E] = ECodec.decode(version, bytes)
         }
         val before    = calls.get()
         val admission = context.encodeEvent(E(1L), failing).flatMap { encoded =>
@@ -333,20 +355,23 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   }
 
   test("truncate publishes the buffered tail before discarding covered segments") {
-    val dir    = Files.createTempDirectory("recorder-truncate")
-    val active = fresh(storeAt(dir), JournalConfig(batchSize = 4))
+    val dir = Files.createTempDirectory("recorder-truncate")
+    // With a limit of one byte every entry seals the one before it, and truncate deletes sealed segments only.
+    val store  = new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir, maxSegmentBytes = 1L))
+    val active = fresh(store, JournalConfig(batchSize = 4))
 
     try
       active.recorder.admit(draft(1L)).run() shouldBe 1L
-      seqsOnDisk(dir) shouldBe empty
+      active.recorder.admit(draft(2L)).run() shouldBe 2L
+      store.read(0L).run() shouldBe empty
 
       active.recorder.truncate(1L).run()
-      active.recorder.read(0L).run() shouldBe empty
-      active.recorder.maxSeq.run() shouldBe Some(1L)
+      active.recorder.read(0L).run().map(_.seq) shouldBe Vector(2L)
+      active.recorder.maxSeq.run() shouldBe Some(2L)
 
-      active.recorder.admit(draft(2L)).run() shouldBe 2L
+      active.recorder.admit(draft(3L)).run() shouldBe 3L
       close(active)
-      seqsOnDisk(dir) shouldBe Vector(2L)
+      seqsOnDisk(dir) shouldBe Vector(2L, 3L)
     finally stop(active)
   }
 
@@ -371,6 +396,8 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       assertSameFailure(boom)(active.recorder.advanceSequence().run())
       assertSameFailure(boom)(active.recorder.flush().run())
       assertSameFailure(boom)(active.recorder.close().run())
+      // A recorder that failed leaves the store open, so the stop is not recorded as clean.
+      store.closeCount shouldBe 0
     finally
       store.release()
       stopThreads(truncation.toVector.map(_.thread))
@@ -451,7 +478,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       close(first)
     finally stop(first)
 
-    val highWater = storeAt(dir).maxSeq.run().getOrElse(0L)
+    val highWater = withStore(dir)(_.maxSeq.run().getOrElse(0L))
     val second    = resume(storeAt(dir), highWater, JournalConfig(batchSize = 4))
 
     try

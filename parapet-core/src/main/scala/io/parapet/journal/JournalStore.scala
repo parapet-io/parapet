@@ -1,7 +1,10 @@
 package io.parapet.journal
 
-/** Durable store for the delivery journal. */
+/** Durable store for the delivery journal. A store is opened once, used, then closed. */
 trait JournalStore[F[_]]:
+
+  /** Opens the store. It must be called once, before any other method. */
+  def open(): F[Unit]
 
   /** Appends `entries` in ascending `seq` order above the durable high-water. Successful completion means every entry
     * satisfies the store's configured durability guarantee. An append error is terminal for the writer.
@@ -19,8 +22,10 @@ trait JournalStore[F[_]]:
     */
   def maxEnvelopeId: F[Option[Long]]
 
-  /** Drops every segment whose entries are all `<= upToSeq` (dead once covered by snapshots). Segments straddling
-    * `upToSeq` are kept whole. Callers recording through [[DeliveryRecorder]] use [[DeliveryRecorder.truncate]] so
-    * buffered admissions are published first.
+  /** Drops segments whose entries are all `<= upToSeq` (dead once covered by snapshots). Segments straddling `upToSeq`
+    * are kept whole, and a store may keep the segment it is still writing.
     */
   def truncate(upToSeq: Long): F[Unit]
+
+  /** Closes the store. */
+  def close(): F[Unit]

@@ -11,6 +11,8 @@ import io.parapet.effect.Effect
   * In [[JournalWriteMode.Buffered]] mode, [[admit]] returns after admission. In [[JournalWriteMode.WriteAhead]] mode,
   * it waits for its delivery and all earlier admissions to be stored. A write failure is terminal and causes every
   * durability waiter and subsequent operation to fail.
+  *
+  * The store must be open when the recorder is created; [[close]] closes it.
   */
 final class DeliveryRecorder[F[_]] private (
     store: JournalStore[F],
@@ -54,8 +56,10 @@ final class DeliveryRecorder[F[_]] private (
   def truncate(upToSeq: Long): F[Unit] =
     flush() >> store.truncate(upToSeq)
 
-  /** Rejects new admissions, publishes all admitted deliveries, and closes the recorder. */
-  def close(): F[Unit] = recorder.close()
+  /** Rejects new admissions, publishes all admitted deliveries, and closes the recorder, then the store. A recorder
+    * that failed leaves the store open, so the stop is not recorded as clean.
+    */
+  def close(): F[Unit] = recorder.close() >> store.close()
 
   /** Ensures that subsequently assigned delivery sequences are greater than `after`. */
   def continueAfter(after: Long): Unit = recorder.continueAfter(after)

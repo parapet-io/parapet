@@ -3,12 +3,13 @@ package io.parapet.tests.intg
 import io.parapet.Event.Start
 import io.parapet.exceptions.RecoveryContractViolation
 import io.parapet.journal.JournalConfig
-import io.parapet.tests.intg.RecoveryContractSpec._
+import io.parapet.tests.intg.RecoveryContractSpec.*
 import io.parapet.testutils.EventStore
-import io.parapet.{Event, EventCodec, ParConfig, Process, Replayable}
+import io.parapet.{Codec, Event, EventCodec, ParConfig, Process, Replayable}
 import org.scalatest.flatspec.AnyFlatSpec
-import org.scalatest.matchers.should.Matchers._
+import org.scalatest.matchers.should.Matchers.*
 
+import java.nio.ByteBuffer
 import java.nio.file.Files
 import scala.util.{Failure, Try}
 
@@ -25,12 +26,16 @@ abstract class RecoveryContractSpec[F[_]] extends AnyFlatSpec with IntegrationSp
   private given EventCodec.Simple[Event] with
     val schema: io.parapet.EventCodec.Schema.Simple = io.parapet.EventCodec.Schema.Simple("", "recovery-contract")
     val version: Int                                = 1
+    val codec                                       = new Codec[Event] {
 
-    def encode(event: Event): Try[Array[Byte]] =
-      Failure(new IllegalArgumentException(s"unsupported recovery-contract event: $event"))
+      override def encode(value: Event): Try[Array[Byte]] = Failure(
+        new IllegalArgumentException(s"unsupported recovery-contract event: $value")
+      )
 
-    def decode(encodedVersion: Int, bytes: Array[Byte]): Try[Event] =
-      Failure(new IllegalArgumentException("the recovery-contract codec does not decode business events"))
+      override def decode(buff: ByteBuffer): Try[Event] = Failure(
+        new IllegalArgumentException("the recovery-contract codec does not decode business events")
+      )
+    }
 
   "A replayable process" should "fail when it uses Suspend" in
     expectViolation(new Process[F, Event] with Replayable:

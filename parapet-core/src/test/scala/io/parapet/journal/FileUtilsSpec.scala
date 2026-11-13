@@ -1,6 +1,6 @@
 package io.parapet.journal
 
-import io.parapet.journal.DeliveryLog.writeFully
+import io.parapet.journal.FileUtils.writeFully
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
@@ -8,7 +8,7 @@ import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.channels.WritableByteChannel
 
-class DeliveryLogWriterSpec extends AnyFunSuite:
+class FileUtilsSpec extends AnyFunSuite:
 
   test("writeFully completes across partial channel writes") {
     val channel = new PartialWritableChannel(maxWriteSize = 2)
