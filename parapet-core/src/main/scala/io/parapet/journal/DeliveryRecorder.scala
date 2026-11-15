@@ -44,7 +44,7 @@ final class DeliveryRecorder[F[_]] private (
 
   /** Own the payload bytes before buffering so callers may reuse their encoding buffers after admission. */
   private def copyPayload(draft: JournalDraft): F[JournalDraft] =
-    effect.delay(draft.copy(event = draft.event.copy(bytes = draft.event.bytes.clone())))
+    effect.delay(draft.copy(event = draft.event.clone()))
 
   /** Assigns and returns the next delivery sequence without admitting a delivery. */
   def advanceSequence(): F[Long] = recorder.advanceId()
@@ -90,9 +90,8 @@ object DeliveryRecorder:
               draft.sender,
               draft.receiver,
               draft.cause,
-              draft.event.bytes,
-              draft.event.schema,
-              draft.event.version
+              draft.event,
+              draft.kind
             )
           }
         }

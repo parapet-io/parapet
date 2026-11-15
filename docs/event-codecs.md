@@ -1,58 +1,58 @@
-# Event codecs
+# Codecs for events and values
 
-EventCodec is the public type accepted by the runtime. Clients implement
-EventCodec.Simple for one schema identity and use EventCodec.union to compose
-existing codecs.
+The runtime uses `Codec[A]`. A codec owns its byte representation, including any
+discriminator, schema, or version information it chooses to encode. Parapet does
+not add application schema metadata or dispatch historical payload versions.
 
-## Implementing a codec
+## Derived codecs
 
 ```scala
-import io.parapet.{Event, EventCodec}
-import io.parapet.EventCodec.Schema
+import io.parapet.{Codec, Event}
+
+case class Ping(message: String) extends Event derives Codec
+```
+
+`CodecAvailability[A]` discovers a `Codec[A]` from implicit scope. It also works
+for non-event types such as `String`. Ordinary processes can omit their input
+codec; replayable processes require one when journaling is enabled.
+
+Derivation encodes product fields in declaration order using their codecs. It
+does not add schema metadata or automatically migrate old layouts.
+
+## Custom representations and versioning
+
+```scala
+import io.parapet.{Codec, Event}
+import java.nio.ByteBuffer
 import scala.util.Try
 
-case class Ping() extends Event
+case class Add(amount: Long) extends Event
 
-object PingCodec extends EventCodec.Simple[Ping] {
-  val schema = Schema.Simple("example", "ping")
-  val version = 1
-
-  def encode(value: Ping): Try[Array[Byte]] =
-    Try(Array.emptyByteArray)
-
-  def decode(version: Int, bytes: Array[Byte]): Try[Ping] = Try {
-    require(version == 1 && bytes.isEmpty)
-    Ping()
+given Codec[Add] with
+  def encode(value: Add): Try[Array[Byte]] = Try {
+    ByteBuffer.allocate(12).putInt(2).putLong(value.amount).array()
   }
-}
-```
 
-Clients implement payload encoding and version-aware decoding. The library adds
-schema and version metadata and checks schema identity before decoding.
-EncodedEvent, encodeEvent, and decodeEvent are private to the parapet package.
-Domain events do not need serialization metadata.
-
-A Simple codec represents one schema identity; its payload can distinguish
-multiple event variants. The version is the format written by encode. Decode
-must handle supported historical versions and reject unsupported versions.
-Keep schema identity stable across class renames and wire-layout evolution;
-read older layouts into the current model. Use a new identity for a different
-semantic event.
-
-## Composition
-
-```scala
-val codec: EventCodec[Foo | Bar] =
-  EventCodec.union(FooCodec, BarCodec) {
-    case foo: Foo => Left(foo)
-    case bar: Bar => Right(bar)
+  def decode(buffer: ByteBuffer): Try[Add] = Try {
+    buffer.getInt() match
+      case 1 => Add(buffer.getInt().toLong)
+      case 2 => Add(buffer.getLong())
+      case version =>
+        throw new IllegalArgumentException(s"Unsupported Add version: $version")
   }
 ```
 
-The composed codec exposes Schema.Union(first, second). Internally it delegates
-encoding and decoding to the selected child, preserving that child's leaf
-identity and version. Union routing uses leaf identities regardless of nesting
-or order. Duplicate identities are rejected.
+The buffer decoder consumes one value and advances the buffer position. The
+provided `decode(Array[Byte])` adapter also rejects trailing bytes. A union
+codec can encode and dispatch its own discriminator in the same way.
 
-A composed codec has no public bytes-only encode/decode API: runtime decoding
-requires the stored schema identity as well as the payload version and bytes.
+## Journal format change
+
+Journal entries now hold opaque application bytes and a runtime record kind
+(`Event` or `Registration`). Registration routing does not depend on application
+schemas or payload contents.
+
+The delivery segment codec version is now 2; standalone journal entry blobs use
+format 3. Earlier schema-bearing journal formats are rejected and require an
+explicit migration. Removing the old metadata without migrating application
+payloads would lose the information their decoders previously depended on.

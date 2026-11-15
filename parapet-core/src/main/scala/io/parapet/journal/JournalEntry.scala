@@ -1,28 +1,10 @@
 package io.parapet.journal
 
 import io.parapet.{Codec, ProcessRef}
-import io.parapet.EventCodec.{EncodedEvent, Schema}
-import io.parapet.journal.JournalEntry
+import java.nio.ByteBuffer
+import scala.util.Try
 
-/** Recorded delivery.
-  *
-  * @param seq
-  *   global delivery position.
-  * @param id
-  *   identity of the delivered envelope.
-  * @param sender
-  *   the originating process.
-  * @param receiver
-  *   the addressed process.
-  * @param cause
-  *   id of the envelope that caused this delivery (`0` for none), preserving runtime lineage.
-  * @param event
-  *   the encoded event payload.
-  * @param schema
-  *   leaf schema identifying how [[event]] was encoded.
-  * @param schemaVersion
-  *   version of that codec's layout.
-  */
+/** A recorded delivery. Application codecs own the entire event payload, including any version information. */
 final case class JournalEntry(
     seq: Long,
     id: Long,
@@ -30,12 +12,26 @@ final case class JournalEntry(
     receiver: ProcessRef.Unknown,
     cause: Long,
     event: Array[Byte],
-    schema: Schema.Simple,
-    schemaVersion: Int
-) derives Codec {
-  private[parapet] def encoded: EncodedEvent = EncodedEvent(schema, schemaVersion, event)
-}
+    kind: JournalEntry.Kind = JournalEntry.Kind.Event
+) derives Codec
 
 object JournalEntry {
-  given Codec[Schema.Simple] = Codec.derived
+
+  /** Runtime record routing, independent of application payload formats. */
+  enum Kind(val id: Int):
+    case Event        extends Kind(0)
+    case Registration extends Kind(1)
+
+  object Kind {
+    def fromId(id: Int): Kind = id match {
+      case 0 => Kind.Event
+      case 1 => Kind.Registration
+      case _ => throw new IllegalArgumentException(s"unknown journal entry kind: $id")
+    }
+
+    given Codec[Kind] with {
+      def encode(value: Kind): Try[Array[Byte]] = summon[Codec[Int]].encode(value.id)
+      def decode(buffer: ByteBuffer): Try[Kind] = Try(fromId(buffer.getInt()))
+    }
+  }
 }

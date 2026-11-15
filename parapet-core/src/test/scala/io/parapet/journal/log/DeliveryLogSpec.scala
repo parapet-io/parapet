@@ -1,7 +1,6 @@
 package io.parapet.journal.log
 
 import io.parapet.{Event, ProcessRef}
-import io.parapet.EventCodec.Schema
 import io.parapet.journal.{HighWaterStore, JournalDurability, JournalEntry}
 import io.parapet.journal.HighWaterStore.HighWater
 import org.scalatest.funsuite.AnyFunSuite
@@ -15,7 +14,7 @@ class DeliveryLogSpec extends AnyFunSuite:
   private val process = ProcessRef[Event]("a")
 
   private def entry(seq: Long, id: Long, cause: Long = 0L): JournalEntry =
-    JournalEntry(seq, id, process, process, cause, s"e$seq".getBytes(UTF_8), Schema.Simple("test", "e"), 1)
+    JournalEntry(seq, id, process, process, cause, s"e$seq".getBytes(UTF_8))
 
   private def newDirectory(): Path = Files.createTempDirectory("delivery-log-spec")
 

@@ -6,7 +6,7 @@ import cats.syntax.parallel.*
 import io.parapet.cats.CatsEffectParapetRuntime
 import io.parapet.effect.{Effect, EffectFiber, Outcome}
 import io.parapet.journal.*
-import io.parapet.{Codec, Event, EventCodec, ProcessRef}
+import io.parapet.{Codec, Event, ProcessRef}
 
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
@@ -48,20 +48,12 @@ object DeliveryRecorderBench:
 
   final case class Payload(bytes: Array[Byte]) extends Event
 
-  private object PayloadCodec extends EventCodec.Simple[Payload]:
-    val version = 1
-    val schema  = io.parapet.EventCodec.Schema.Simple("bench", "payload")
-
-    override def codec: Codec[Payload] =
-      new Codec[Payload] {
-        override def encode(value: Payload): Try[Array[Byte]] = Try(value.bytes)
-
-        override def decode(buff: ByteBuffer): Try[Payload] = Try(Payload(buff.array()))
-      }
-
-    override def codec(version: Int): Option[Codec[Payload]] = {
-      require(version == 1)
-      Some(codec)
+  private object PayloadCodec extends Codec[Payload]:
+    def encode(value: Payload): Try[Array[Byte]] = Try(value.bytes)
+    def decode(buffer: ByteBuffer): Try[Payload] = Try {
+      val bytes = new Array[Byte](buffer.remaining())
+      buffer.get(bytes)
+      Payload(bytes)
     }
 
   // ----------------------------------------------------------------- admitters
@@ -201,7 +193,7 @@ object DeliveryRecorderBench:
               fixture.sender,
               fixture.receiver,
               0L,
-              PayloadCodec.encodeEvent(fixture.payload).get
+              PayloadCodec.encode(fixture.payload).get
             )
           ).flatMap { draft =>
             fixture.admitter.admit(draft).flatMap { _ =>

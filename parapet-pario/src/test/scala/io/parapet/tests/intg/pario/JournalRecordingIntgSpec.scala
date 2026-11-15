@@ -1,7 +1,7 @@
 package io.parapet.tests.intg.pario
 
 import io.parapet.Event.Start
-import io.parapet.{Codec, EventCodec, ParConfig, ParIOApp, Process, Replayable}
+import io.parapet.{Codec, ParConfig, ParIOApp, Process, Replayable}
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
 import io.parapet.journal.{JournalConfig, JournalEntry, JournalStore, JournalStoreLocal, JournalWriteMode}
@@ -45,7 +45,7 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
 
     val entries = readJournal(dir)
 
-    entries.map(e => CounterCodec.decodeEvent(e.encoded).get) shouldBe
+    entries.map(e => CounterCodec.decode(e.event).get) shouldBe
       Vector(Add(1), Add(2), Add(3), Probe)
     entries.map(_.receiver).distinct shouldBe Vector(counterRef) // driver is not recoverable; Start is not journalled
     entries.map(_.seq) shouldBe entries.map(_.seq).sorted        // ascending
@@ -171,23 +171,19 @@ object JournalRecordingIntgSpec:
   case object Probe                   extends CounterCommand
   final case class Acked(count: Long) extends Event
 
-  given CounterCodec: EventCodec.Simple[CounterCommand] with
-    val schema: io.parapet.EventCodec.Schema.Simple = io.parapet.EventCodec.Schema.Simple("", "counter-command")
-    val version: Int                                = 1
+  given CounterCodec: Codec[CounterCommand] with
+    def encode(event: CounterCommand): Try[Array[Byte]] = Try {
+      event match
+        case Add(n) => ByteBuffer.allocate(5).put(1.toByte).putInt(n).array()
+        case Probe  => Array(2.toByte)
+    }
 
-    val codec: Codec[CounterCommand] = new Codec[CounterCommand]:
-      def encode(event: CounterCommand): Try[Array[Byte]] = Try {
-        event match
-          case Add(n) => ByteBuffer.allocate(5).put(1.toByte).putInt(n).array()
-          case Probe  => Array(2.toByte)
-      }
-
-      def decode(buffer: ByteBuffer): Try[CounterCommand] = Try {
-        buffer.get() match
-          case 1     => Add(buffer.getInt())
-          case 2     => Probe
-          case other => throw new IllegalArgumentException(s"unknown counter command tag $other")
-      }
+    def decode(buffer: ByteBuffer): Try[CounterCommand] = Try {
+      buffer.get() match
+        case 1     => Add(buffer.getInt())
+        case 2     => Probe
+        case other => throw new IllegalArgumentException(s"unknown counter command tag $other")
+    }
 
   private def encodeCount(count: Long): Array[Byte] = ByteBuffer.allocate(8).putLong(count).array()
   private def decodeCount(bytes: Array[Byte]): Long = ByteBuffer.wrap(bytes).getLong
