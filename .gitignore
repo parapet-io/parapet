@@ -11,6 +11,8 @@ site/node_modules
 .coursier
 .ivy2
 .sbt
+.bloop
+.metals
 
 # IntelliJ project files
 *.iml
