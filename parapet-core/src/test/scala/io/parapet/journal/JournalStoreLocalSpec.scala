@@ -25,9 +25,7 @@ class JournalStoreLocalSpec extends AnyFunSuite:
       a,
       receiver,
       cause,
-      s"e$seq".getBytes(UTF_8),
-      schema = io.parapet.EventCodec.Schema.Simple("test", "e"),
-      schemaVersion = 1
+      s"e$seq".getBytes(UTF_8)
     )
 
   private def newDirectory(): Path = Files.createTempDirectory("journal-spec")
@@ -162,8 +160,7 @@ class JournalStoreLocalSpec extends AnyFunSuite:
     loaded.receiver shouldBe b
     loaded.cause shouldBe 2L
     new String(loaded.event, UTF_8) shouldBe "e1"
-    loaded.schema shouldBe io.parapet.EventCodec.Schema.Simple("test", "e")
-    loaded.schemaVersion shouldBe 1
+    loaded.kind shouldBe JournalEntry.Kind.Event
   }
 
   test("batches go to one segment until it is full") {

@@ -1,7 +1,5 @@
 package io.parapet.tests.intg.pario
 
-import io.parapet.EventCodec.Schema
-
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
 import io.parapet.journal.{
@@ -13,7 +11,7 @@ import io.parapet.journal.{
   JournalStoreLocal,
   JournalWriteMode
 }
-import io.parapet.{Codec, Event, EventCodec, ProcessRef}
+import io.parapet.{Codec, Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
@@ -31,14 +29,11 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
   private case class E(id: Long) extends Event derives Codec
 
-  private object ECodec extends EventCodec.Simple[E]:
-    val version = 1
-    val schema  = Schema.Simple("", "e")
-    val codec   = summon[Codec[E]]
+  private val ECodec = summon[Codec[E]]
 
   extension [A](fa: ParIO[A]) private def run(): A = fa.unsafeRunSync()
 
-  private def draft(id: Long): JournalDraft = JournalDraft(id, ref, ref, 0L, ECodec.encodeEvent(E(id)).get)
+  private def draft(id: Long): JournalDraft = JournalDraft(id, ref, ref, 0L, ECodec.encode(E(id)).get)
 
   private def storeAt(dir: Path): JournalStoreLocal[ParIO] =
     new JournalStoreLocal[ParIO](JournalStoreLocal.Config(dir))
@@ -243,30 +238,32 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     finally stop(active)
   }
 
-  test("records the selected leaf schema and version from a composed codec") {
+  test("records opaque union payloads whose discriminator belongs to the codec") {
     case class Other() extends Event
-    val other = new EventCodec.Simple[Other] {
-      val schema              = io.parapet.EventCodec.Schema.Simple("test", "other")
-      val version             = 3
-      val codec: Codec[Other] = new Codec[Other] {
-        def encode(value: Other): Try[Array[Byte]] = Success(Array.emptyByteArray)
-        def decode(buffer: ByteBuffer): Try[Other] = Success(Other())
+    val codec = new Codec[E | Other] {
+      def encode(value: E | Other): Try[Array[Byte]] = Try {
+        value match {
+          case E(id)   => ByteBuffer.allocate(9).put(1.toByte).putLong(id).array()
+          case Other() => Array(2.toByte)
+        }
       }
-    }
-    val codec = EventCodec.union(ECodec, other) {
-      case e: E     => Left(e)
-      case o: Other => Right(o)
+      def decode(buffer: ByteBuffer): Try[E | Other] = Try {
+        buffer.get() match {
+          case 1     => E(buffer.getLong())
+          case 2     => Other()
+          case other => throw new IllegalArgumentException(s"unknown discriminator $other")
+        }
+      }
     }
     val store  = new ControlledStore(gateFirst = false)
     val active = fresh(store)
     try
-      active.recorder.admit(JournalDraft(1L, ref, ref, 0L, codec.encodeEvent(E(7)).get)).run()
-      active.recorder.admit(JournalDraft(2L, ref, ref, 0L, codec.encodeEvent(Other()).get)).run()
+      active.recorder.admit(JournalDraft(1L, ref, ref, 0L, codec.encode(E(7)).get)).run()
+      active.recorder.admit(JournalDraft(2L, ref, ref, 0L, codec.encode(Other()).get)).run()
       active.recorder.flush().run()
       val entries = store.appendAttempts.flatten
-      entries.map(_.schema) shouldBe Vector(ECodec.schema, other.schema)
-      entries.map(_.schemaVersion) shouldBe Vector(1, 3)
-      entries.map(e => codec.decodeEvent(e.encoded).get) shouldBe Vector(E(7), Other())
+      entries.map(_.kind) shouldBe Vector.fill(2)(JournalEntry.Kind.Event)
+      entries.map(e => codec.decode(e.event).get) shouldBe Vector(E(7), Other())
       close(active)
     finally stop(active)
   }
@@ -275,10 +272,10 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val store    = new ControlledStore(gateFirst = false)
     val active   = fresh(store, JournalConfig.default.copy(batchSize = 4))
     val original = draft(7L)
-    val expected = original.event.bytes.toVector
+    val expected = original.event.toVector
     try
       active.recorder.admit(original).run() shouldBe 1L
-      java.util.Arrays.fill(original.event.bytes, 0.toByte)
+      java.util.Arrays.fill(original.event, 0.toByte)
       active.recorder.flush().run()
       store.appendAttempts.flatten.head.event.toVector shouldBe expected
       close(active)
@@ -298,16 +295,12 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val boom  = new IllegalArgumentException("cannot encode")
     try
       for throwsDirectly <- Vector(false, true) do
-        val failing = new EventCodec.Simple[E] {
-          val schema          = ECodec.schema
-          val version         = 1
-          val codec: Codec[E] = new Codec[E] {
-            def encode(value: E): Try[Array[Byte]] = {
-              calls.incrementAndGet()
-              if throwsDirectly then throw boom else Failure(boom)
-            }
-            def decode(buffer: ByteBuffer): Try[E] = ECodec.codec.decode(buffer)
+        val failing = new Codec[E] {
+          def encode(value: E): Try[Array[Byte]] = {
+            calls.incrementAndGet()
+            if throwsDirectly then throw boom else Failure(boom)
           }
+          def decode(buffer: ByteBuffer): Try[E] = ECodec.decode(buffer)
         }
         val before    = calls.get()
         val admission = context.encodeEvent(E(1L), failing).flatMap { encoded =>

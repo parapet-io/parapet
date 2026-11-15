@@ -1,9 +1,7 @@
 package io.parapet.tests.intg.pario
 
-import io.parapet.EventCodec.Schema
-
 import io.parapet.Event.{Initialize, Restored, Start}
-import io.parapet.{Codec, EventCodec, EventCodecAvailability, ParConfig, Process, Replayable}
+import io.parapet.{Codec, CodecAvailability, ParConfig, Process, Replayable}
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
 import io.parapet.journal.{JournalConfig, JournalEntry, JournalStoreLocal}
@@ -68,11 +66,8 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
 
     val entries = readJournal(dir)
     entries.map(_.receiver) shouldBe Vector(parentRef, parentRef, childRef)
-    entries.map(_.schema) shouldBe Vector(
-      SpawnCodec.schema,
-      io.parapet.EventCodec.Schema.Simple("", "parapet.registered"),
-      AddCodec.schema
-    )
+    entries
+      .map(_.kind) shouldBe Vector(JournalEntry.Kind.Event, JournalEntry.Kind.Registration, JournalEntry.Kind.Event)
 
     val store2  = new EventStore[ParIO, Event]
     val parent2 = new Parent(parentRef, childRef, store2, recordChildStart = true)
@@ -113,7 +108,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
 
     val entries = readJournal(dir)
     val marker  = entries
-      .find(_.schema == io.parapet.EventCodec.Schema.Simple("", "parapet.registered"))
+      .find(_.kind == JournalEntry.Kind.Registration)
       .getOrElse(fail("registration marker not recorded"))
     deleteSingleEntrySegment(dir, marker.seq)
 
@@ -156,7 +151,7 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
 
     val entries = readJournal(dir)
     val marker  = entries
-      .find(_.schema == io.parapet.EventCodec.Schema.Simple("", "parapet.registered"))
+      .find(_.kind == JournalEntry.Kind.Registration)
       .getOrElse(fail("registration marker not recorded"))
     val childEntry = entries.find(_.receiver == childRef).getOrElse(fail("child delivery not recorded"))
     deleteSingleEntrySegment(dir, marker.seq)
@@ -350,15 +345,15 @@ class RecoveryIntgSpec extends AnyFunSuite with BasicParIOSpec:
       )
     )
     val versions = readJournal(dir)
-      .filter(_.schema == AddCodec.schema)
-      .map(_.schemaVersion)
+      .filter(e => e.receiver == ref && e.kind == JournalEntry.Kind.Event)
+      .map(e => ByteBuffer.wrap(e.event).getInt())
       .distinct
     versions shouldBe Vector(1)
 
-    // Run 2: the receiver now owns a v2 codec for the same tag; its decode must read the v1 bytes.
+    // Run 2: the receiver now owns a v2 codec for the same event; its decode must read the v1 bytes.
     val store2   = new EventStore[ParIO, Event]
     val counter2 = new Counter(ref, store2, recordStart = true)(using
-      EventCodecAvailability.Available(AddCodecV2)
+      CodecAvailability.Available(AddCodecV2)
     )
     unsafeRun(
       store2.await(4, createApp(ct.pure(Seq(counter2, onStart(unit))), config0 = config).run)
@@ -381,48 +376,47 @@ object RecoveryIntgSpec:
     try store.read(0L).unsafeRunSync()
     finally store.close().unsafeRunSync()
 
-  final case class Add(n: Int)                  extends Event derives Codec
+  final case class Add(n: Int)                  extends Event
   final case class Acked(count: Long)           extends Event
   final case class InitializedWith(count: Long) extends Event
   final case class StartedWith(count: Long)     extends Event
   case object Spawn                             extends Event
   final case class Store(n: Int)                extends Event
   final case class RestoredWith(count: Long)    extends Event
-  final case class Emit(n: Int)                 extends Event derives Codec
+  final case class Emit(n: Int)                 extends Event
 
-  object AddCodec extends EventCodec.Simple[Add]:
-    val version = 1
-    val schema  = Schema.Simple("", "add")
-    val codec   = summon[Codec[Add]]
+  /** This application codec owns its version prefix; the journal treats it as opaque bytes. */
+  object AddCodec extends Codec[Add]:
+    private val raw                          = Codec.derived[Add]
+    def encode(event: Add): Try[Array[Byte]] = raw.encode(event).map { bytes =>
+      ByteBuffer.allocate(4 + bytes.length).putInt(1).put(bytes).array()
+    }
+    def decode(buffer: ByteBuffer): Try[Add] = Try {
+      require(buffer.getInt() == 1, "unsupported Add version")
+      raw.decode(buffer).get
+    }
 
-  object SpawnCodec extends EventCodec.Simple[Spawn.type]:
-    val version                  = 1
-    val schema                   = Schema.Simple("", "spawn")
-    val codec: Codec[Spawn.type] = new Codec[Spawn.type]:
-      def encode(event: Spawn.type): Try[Array[Byte]] = Success(Array.emptyByteArray)
-      def decode(buffer: ByteBuffer): Try[Spawn.type] = Success(Spawn)
+  object SpawnCodec extends Codec[Spawn.type]:
+    def encode(event: Spawn.type): Try[Array[Byte]] = Success(Array.emptyByteArray)
+    def decode(buffer: ByteBuffer): Try[Spawn.type] = Success(Spawn)
 
-  /** Same schema as AddCodec; writes version 2, a long where version 1 has an int, and reads both. */
-  object AddCodecV2 extends EventCodec.Simple[Add]:
-    val version           = 2
-    val schema            = Schema.Simple("", "add")
-    val codec: Codec[Add] = new Codec[Add]:
-      def encode(event: Add): Try[Array[Byte]] = Try(ByteBuffer.allocate(8).putLong(event.n.toLong).array())
-      def decode(buffer: ByteBuffer): Try[Add] = Try(Add(buffer.getLong.toInt))
+  /** Writes v2 and reads both versions without runtime schema/version dispatch. */
+  object AddCodecV2 extends Codec[Add]:
+    def encode(event: Add): Try[Array[Byte]] = Try {
+      ByteBuffer.allocate(12).putInt(2).putLong(event.n.toLong).array()
+    }
+    def decode(buffer: ByteBuffer): Try[Add] = Try {
+      buffer.getInt() match
+        case 1     => Add(buffer.getInt())
+        case 2     => Add(Math.toIntExact(buffer.getLong()))
+        case other => throw new IllegalArgumentException(s"unsupported Add version $other")
+    }
 
-    override def codec(version: Int): Option[Codec[Add]] = version match
-      case 1 => Some(AddCodec.codec)
-      case 2 => Some(codec)
-      case _ => None
+  private val EmitCodec = Codec.derived[Emit]
 
-  object EmitCodec extends EventCodec.Simple[Emit]:
-    val version = 1
-    val schema  = Schema.Simple("", "emit")
-    val codec   = summon[Codec[Emit]]
-
-  given EventCodec[Add]        = AddCodec
-  given EventCodec[Spawn.type] = SpawnCodec
-  given EventCodec[Emit]       = EmitCodec
+  given Codec[Add]        = AddCodec
+  given Codec[Spawn.type] = SpawnCodec
+  given Codec[Emit]       = EmitCodec
 
   final class StorageBoundary(
       override val ref: ProcessRef[Event],
@@ -450,7 +444,7 @@ object RecoveryIntgSpec:
       store: EventStore[ParIO, Event],
       recordChildStart: Boolean = false,
       recordChildInitialize: Boolean = false
-  )(using EventCodecAvailability[Spawn.type])
+  )(using CodecAvailability[Spawn.type])
       extends Process[ParIO, Spawn.type]
       with Replayable:
 
@@ -467,7 +461,7 @@ object RecoveryIntgSpec:
       store: EventStore[ParIO, Event],
       recordStart: Boolean = false,
       recordInitialize: Boolean = false
-  )(using EventCodecAvailability[Add])
+  )(using CodecAvailability[Add])
       extends Process[ParIO, Add]
       with Replayable:
 
@@ -498,7 +492,7 @@ object RecoveryIntgSpec:
       recordAcked: Boolean = true,
       recordStart: Boolean = false,
       recordRestored: Boolean = false
-  )(using EventCodecAvailability[Add])
+  )(using CodecAvailability[Add])
       extends Process[ParIO, Add]
       with Replayable
       with Snapshotable:
@@ -520,7 +514,7 @@ object RecoveryIntgSpec:
   final class Relay(
       override val ref: ProcessRef[Event],
       childRef: ProcessRef[Event]
-  )(using EventCodecAvailability[Emit])
+  )(using CodecAvailability[Emit])
       extends Process[ParIO, Emit]
       with Replayable:
 

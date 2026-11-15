@@ -10,8 +10,7 @@ import io.parapet.runtime.Context.*
 import io.parapet.runtime.DslInterpreter.Interpreter
 import io.parapet.runtime.Scheduler.{Deliver, SubmissionResult, Task, TaskQueue}
 import io.parapet.snapshot.{SnapshotManager, SnapshotStorage, Snapshotable}
-import io.parapet.{Event, EventCodec, ParConfig, Process, ProcessRef, Replayable}
-import io.parapet.EventCodec.EncodedEvent
+import io.parapet.{Codec, Event, ParConfig, Process, ProcessRef, Replayable}
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong, AtomicReference}
 import scala.collection.mutable.ListBuffer
@@ -84,12 +83,10 @@ class Context[F[_]](
   private[parapet] def admit(draft: JournalDraft): F[Long] =
     recorder.fold(effect.raiseError[Long](new IllegalStateException("journal is not enabled")))(_.admit(draft))
 
-  /** Encode lazily and validate the leaf identity before the recorder can assign a delivery sequence. */
-  private[parapet] def encodeEvent[A <: Event](event: A, codec: EventCodec[A]): F[EncodedEvent] =
+  /** Encode lazily before the recorder can assign a delivery sequence. */
+  private[parapet] def encodeEvent[A <: Event](event: A, codec: Codec[A]): F[Array[Byte]] =
     effect.suspend {
-      codec.encodeEvent(event) match
-        case Success(encoded) if !codec.schema.contains(encoded.schema) =>
-          effect.raiseError(new IllegalArgumentException(s"Codec emitted undeclared schema: ${encoded.schema}"))
+      codec.encode(event) match
         case Success(encoded) => effect.pure(encoded)
         case Failure(error)   => effect.raiseError(error)
     }
@@ -190,12 +187,6 @@ class Context[F[_]](
           effect.raiseError(
             new IllegalStateException(s"replayable process ${process.ref} does not provide an event codec")
           )
-        case Some(codec) if codec.schema.contains(RegisteredEventCodec.schema) =>
-          effect.raiseError(
-            new IllegalStateException(
-              s"event codec schema '${codec.schema}' is reserved by the runtime for registration records"
-            )
-          )
         case Some(_) => effect.pure(())
 
   private def recordRegistration(parent: ProcessRef.Unknown, child: ProcessRef.Unknown): F[Unit] =
@@ -212,7 +203,8 @@ class Context[F[_]](
                   envelope.sender,
                   envelope.receiver,
                   envelope.cause,
-                  encoded
+                  encoded,
+                  io.parapet.journal.JournalEntry.Kind.Registration
                 )
               )
             }.void

@@ -1,17 +1,13 @@
 package io.parapet.journal
 
 import io.parapet.Event.Registered
-import io.parapet.EventCodec.Schema
-import io.parapet.{Event, EventCodec, ProcessRef}
 import io.parapet.Codec
-import io.parapet.Codec.given
+import java.nio.ByteBuffer
+import scala.util.Try
 
-private[parapet] object RegisteredEventCodec extends EventCodec.Simple[Registered]:
-  val schema: Schema.Simple    = Schema.Simple("", "parapet.registered")
-  val version: Int             = 1
-  val codec: Codec[Registered] = Codec.derived
-
-  override def codec(version: Int): Option[Codec[Registered]] = version match {
-    case 1 => Option(codec)
-    case _ => Option.empty
-  }
+/** Internal payload codec for registration records, routed by JournalEntry.Kind. */
+private[parapet] object RegisteredEventCodec extends Codec[Registered] {
+  private val codec: Codec[Registered]            = Codec.derived
+  def encode(value: Registered): Try[Array[Byte]] = codec.encode(value)
+  def decode(buffer: ByteBuffer): Try[Registered] = codec.decode(buffer)
+}

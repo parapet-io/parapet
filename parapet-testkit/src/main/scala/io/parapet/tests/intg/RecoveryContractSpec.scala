@@ -5,7 +5,7 @@ import io.parapet.exceptions.RecoveryContractViolation
 import io.parapet.journal.JournalConfig
 import io.parapet.tests.intg.RecoveryContractSpec.*
 import io.parapet.testutils.EventStore
-import io.parapet.{Codec, Event, EventCodec, ParConfig, Process, Replayable}
+import io.parapet.{Codec, Event, ParConfig, Process, Replayable}
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers.*
 
@@ -23,19 +23,13 @@ abstract class RecoveryContractSpec[F[_]] extends AnyFlatSpec with IntegrationSp
 
   import dsl._
 
-  private given EventCodec.Simple[Event] with
-    val schema: io.parapet.EventCodec.Schema.Simple = io.parapet.EventCodec.Schema.Simple("", "recovery-contract")
-    val version: Int                                = 1
-    val codec                                       = new Codec[Event] {
-
-      override def encode(value: Event): Try[Array[Byte]] = Failure(
-        new IllegalArgumentException(s"unsupported recovery-contract event: $value")
-      )
-
-      override def decode(buff: ByteBuffer): Try[Event] = Failure(
-        new IllegalArgumentException("the recovery-contract codec does not decode business events")
-      )
-    }
+  private given Codec[Event] with
+    def encode(value: Event): Try[Array[Byte]] = Failure(
+      new IllegalArgumentException(s"unsupported recovery-contract event: $value")
+    )
+    def decode(buff: ByteBuffer): Try[Event] = Failure(
+      new IllegalArgumentException("the recovery-contract codec does not decode business events")
+    )
 
   "A replayable process" should "fail when it uses Suspend" in
     expectViolation(new Process[F, Event] with Replayable:

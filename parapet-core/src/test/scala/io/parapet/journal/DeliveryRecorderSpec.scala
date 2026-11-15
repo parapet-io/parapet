@@ -1,6 +1,5 @@
 package io.parapet.journal
 
-import io.parapet.EventCodec.{EncodedEvent, Schema}
 import io.parapet.TestUtils.{TestIO, given}
 import io.parapet.{Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
@@ -18,7 +17,7 @@ class DeliveryRecorderSpec extends AnyFunSuite:
   private val ref = ProcessRef[Event]("a")
 
   private def draft(id: Long): JournalDraft =
-    JournalDraft(id, ref, ref, 0L, EncodedEvent(Schema.Simple("test", "e"), 1, Array[Byte](id.toByte)))
+    JournalDraft(id, ref, ref, 0L, Array[Byte](id.toByte))
 
   private def names(dir: Path): Vector[String] =
     val listing = Files.list(dir)

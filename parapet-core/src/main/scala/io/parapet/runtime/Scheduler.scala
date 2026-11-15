@@ -13,7 +13,7 @@ import io.parapet.runtime.Context.ProcessState
 import io.parapet.runtime.DslInterpreter.Interpreter
 import io.parapet.runtime.Scheduler.*
 import io.parapet.snapshot.Snapshotable
-import io.parapet.{Event, EventCodec, Process, ProcessRef}
+import io.parapet.{Codec, Event, Process, ProcessRef}
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
@@ -490,7 +490,7 @@ object Scheduler:
         else if snapEnabled then context.nextSeq().flatMap(onDelivered)
         else effect.pure(())
 
-      private def journalAdmit[A <: Event](envelope: Envelope, codec: EventCodec[A]): F[Long] =
+      private def journalAdmit[A <: Event](envelope: Envelope, codec: Codec[A]): F[Long] =
         // onConsume checked that the receiver handles this non-system event. The cast reconnects that fact after the
         // receiver's input type was erased by the runtime process registry.
         context.encodeEvent(envelope.event.asInstanceOf[A], codec).flatMap { encoded =>

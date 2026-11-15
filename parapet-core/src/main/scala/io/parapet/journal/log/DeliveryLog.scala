@@ -31,7 +31,7 @@ class DeliveryLog(config: Config, highWaterStore: HighWaterStore, clock: Clock =
 
   override protected def lookupCodec(version: Int): Option[LogCodec[JournalEntry, Header, Footer]] =
     version match {
-      case 1 => Option(Codecs)
+      case 2 => Option(Codecs)
       case _ => Option.empty
     }
 
@@ -88,7 +88,7 @@ object DeliveryLog {
   ) derives Codec
 
   object Codecs extends LogCodec[JournalEntry, Header, Footer] {
-    override def version: Int                    = 1
+    override def version: Int                    = 2
     override def headerCodec: Codec[Header]      = summon[Codec[Header]]
     override def entryCodec: Codec[JournalEntry] = summon[Codec[JournalEntry]]
     override def footerCodec: Codec[Footer]      = summon[Codec[Footer]]

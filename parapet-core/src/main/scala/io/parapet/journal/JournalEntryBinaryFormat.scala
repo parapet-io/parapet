@@ -1,7 +1,6 @@
 package io.parapet.journal
 
 import io.parapet.{Event, ProcessRef}
-import io.parapet.EventCodec.Schema
 
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets.UTF_8
@@ -9,7 +8,7 @@ import java.util.zip.CRC32
 
 /** The on-disk byte layout of a [[JournalEntry]].
   *
-  * Writes format 2; reads format 1 tags as Simple("", tag) for legacy replay.
+  * Writes and reads format 3. Earlier schema-bearing entry formats require explicit migration.
   *
   * Layout:
   * {{{
@@ -21,9 +20,7 @@ import java.util.zip.CRC32
   *           [sender length: Int][sender bytes]
   *           [receiver length: Int][receiver bytes]
   *           [cause: Long]
-  *           [namespace length: Int][namespace bytes]
-  *           [name length: Int][name bytes]
-  *           [schema version: Int]
+  *           [record kind: Int]
   *           [event length: Int][event bytes]
   * }}}
   */
@@ -33,7 +30,7 @@ object JournalEntryBinaryFormat:
   final class CorruptEntryException(message: String) extends RuntimeException(message)
 
   private val Magic: Int           = 0x504a524e // "PJRN"
-  private val FormatVersion: Short = 2
+  private val FormatVersion: Short = 3
 
   private val MagicSize    = java.lang.Integer.BYTES
   private val VersionSize  = java.lang.Short.BYTES
@@ -78,19 +75,17 @@ object JournalEntryBinaryFormat:
     check(buf.remaining() >= HeaderSize, "truncated header")
     check(buf.getInt() == Magic, "not a journal entry (bad magic)")
     val version = buf.getShort()
-    check(version == 1 || version == FormatVersion, s"unsupported format version: $version")
+    check(version == FormatVersion, s"unsupported format version: $version")
     val payload = readBytes(buf, "payload")
     check(crc32(payload) == readInt(buf, "payload checksum"), "payload checksum mismatch")
-    decodePayload(payload, version)
+    decodePayload(payload)
 
   private def encodePayload(entry: JournalEntry): Array[Byte] =
-    val sender    = entry.sender.value.getBytes(UTF_8)
-    val receiver  = entry.receiver.value.getBytes(UTF_8)
-    val namespace = entry.schema.namespace.getBytes(UTF_8)
-    val name      = entry.schema.name.getBytes(UTF_8)
-    val buf       = ByteBuffer.allocate(
+    val sender   = entry.sender.value.getBytes(UTF_8)
+    val receiver = entry.receiver.value.getBytes(UTF_8)
+    val buf      = ByteBuffer.allocate(
       LongSize + LongSize + (IntSize + sender.length) + (IntSize + receiver.length) + LongSize +
-        (IntSize + namespace.length) + (IntSize + name.length) + IntSize + (IntSize + entry.event.length)
+        IntSize + (IntSize + entry.event.length)
     )
     buf.putLong(entry.seq)
     buf.putLong(entry.id)
@@ -99,28 +94,23 @@ object JournalEntryBinaryFormat:
     buf.putInt(receiver.length)
     buf.put(receiver)
     buf.putLong(entry.cause)
-    buf.putInt(namespace.length)
-    buf.put(namespace)
-    buf.putInt(name.length)
-    buf.put(name)
-    buf.putInt(entry.schemaVersion)
+    buf.putInt(entry.kind.id)
     buf.putInt(entry.event.length)
     buf.put(entry.event)
     buf.array()
 
-  private def decodePayload(bytes: Array[Byte], formatVersion: Short): JournalEntry =
-    val buf           = ByteBuffer.wrap(bytes)
-    val seq           = readLong(buf, "seq")
-    val id            = readLong(buf, "id")
-    val sender        = readRef(readBytes(buf, "sender"), "sender")
-    val receiver      = readRef(readBytes(buf, "receiver"), "receiver")
-    val cause         = readLong(buf, "cause")
-    val namespace     = if formatVersion == 1 then "" else new String(readBytes(buf, "namespace"), UTF_8)
-    val name          = new String(readBytes(buf, "name"), UTF_8)
-    val schemaVersion = readInt(buf, "schemaVersion")
-    val event         = readBytes(buf, "event")
+  private def decodePayload(bytes: Array[Byte]): JournalEntry =
+    val buf      = ByteBuffer.wrap(bytes)
+    val seq      = readLong(buf, "seq")
+    val id       = readLong(buf, "id")
+    val sender   = readRef(readBytes(buf, "sender"), "sender")
+    val receiver = readRef(readBytes(buf, "receiver"), "receiver")
+    val cause    = readLong(buf, "cause")
+    val kindId   = readInt(buf, "kind")
+    check(kindId == 0 || kindId == 1, s"unknown journal entry kind: $kindId")
+    val event = readBytes(buf, "event")
     check(!buf.hasRemaining, "trailing bytes in payload")
-    JournalEntry(seq, id, sender, receiver, cause, event, Schema.Simple(namespace, name), schemaVersion)
+    JournalEntry(seq, id, sender, receiver, cause, event, JournalEntry.Kind.fromId(kindId))
 
   private def readRef(bytes: Array[Byte], name: String): ProcessRef.Unknown =
     check(bytes.nonEmpty, s"empty $name ref")

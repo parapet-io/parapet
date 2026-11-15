@@ -34,14 +34,12 @@ import scala.util.Try
   * @tparam In
   *   the domain events this process accepts.
   */
-trait Process[F[_], In <: Event](using eventCodecAvailability: EventCodecAvailability[In])
-    extends WithDsl[F]
-    with FlowSyntax[F]:
+trait Process[F[_], In <: Event](using codecAvailability: CodecAvailability[In]) extends WithDsl[F] with FlowSyntax[F]:
   self =>
 
   /** The codec for this process's input protocol, when available. */
-  def eventCodec: Option[EventCodec[In]] =
-    eventCodecAvailability.toOption
+  def eventCodec: Option[Codec[In]] =
+    codecAvailability.toOption
 
   /** Convenience alias for the program type produced by [[handle]] cases. */
   type Program = DslF[F, Unit]
