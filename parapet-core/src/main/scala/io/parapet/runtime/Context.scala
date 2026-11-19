@@ -36,7 +36,7 @@ class Context[F[_]](
     config: ParConfig,
     val eventTransformers: EventTransformers,
     private[parapet] val snapshotManager: Option[SnapshotManager[F]],
-    private[parapet] val recorder: Option[DeliveryRecorder[F]]
+    private[parapet] val deliveryJournal: Option[DeliveryJournal[F]]
 )(using effect: Effect[F]):
   self =>
 
@@ -65,7 +65,7 @@ class Context[F[_]](
     snapshotManager.fold(effect.pure(false))(_.createAsync(ref, process, seq))
 
   /** Whether the delivery journal is recording. */
-  val journalEnabled: Boolean = recorder.isDefined
+  val journalEnabled: Boolean = deliveryJournal.isDefined
 
   private val bootModeRef = new AtomicReference[BootMode](BootMode.Live)
 
@@ -81,7 +81,7 @@ class Context[F[_]](
     * (the caller reaches this only for a journalable delivery).
     */
   private[parapet] def admit(draft: JournalDraft): F[Long] =
-    recorder.fold(effect.raiseError[Long](new IllegalStateException("journal is not enabled")))(_.admit(draft))
+    deliveryJournal.fold(effect.raiseError[Long](new IllegalStateException("journal is not enabled")))(_.admit(draft))
 
   /** Encode lazily before the recorder can assign a delivery sequence. */
   private[parapet] def encodeEvent[A <: Event](event: A, codec: Codec[A]): F[Array[Byte]] =
@@ -93,25 +93,25 @@ class Context[F[_]](
 
   /** Stops the journal, publishing any buffered tail. No-op when the journal is off. */
   def stopJournal: F[Unit] =
-    recorder.fold(effect.pure(()))(_.close())
+    deliveryJournal.fold(effect.pure(()))(_.close())
 
   /** Recorded deliveries with `seq > afterSeq` in ascending order, or empty when the journal is off. */
   def readJournal(afterSeq: Long): F[Vector[JournalEntry]] =
-    recorder.fold(effect.pure(Vector.empty[JournalEntry]))(_.read(afterSeq))
+    deliveryJournal.fold(effect.pure(Vector.empty[JournalEntry]))(_.read(afterSeq))
 
   private val processes = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessState[F]]()
   private val graph     = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ListBuffer[ProcessRef.Unknown]]()
   private val parents   = java.util.concurrent.ConcurrentHashMap[ProcessRef.Unknown, ProcessRef.Unknown]()
 
-  // Global monotonic delivery sequence. When the journal is on, the recorder owns it
+  // Global monotonic delivery sequence. When the journal is on, the delivery journal owns it
   private val seqCounter = new AtomicLong(0L)
 
   /** Returns the next global delivery position for a snapshot-tracked but unjournalled delivery. */
   def nextSeq(): F[Long] =
-    recorder.fold(effect.delay(seqCounter.incrementAndGet()))(_.advanceSequence())
+    deliveryJournal.fold(effect.delay(seqCounter.incrementAndGet()))(_.advanceSequence())
 
   private[parapet] def continueSeqAfter(seq: Long): Unit =
-    recorder match
+    deliveryJournal match
       case Some(r) => r.continueAfter(seq)
       case None    => seqCounter.updateAndGet(current => math.max(current, seq)); ()
 
@@ -192,7 +192,7 @@ class Context[F[_]](
   private def recordRegistration(parent: ProcessRef.Unknown, child: ProcessRef.Unknown): F[Unit] =
     if replaying then effect.pure(())
     else
-      recorder match
+      deliveryJournal match
         case None    => effect.pure(())
         case Some(_) =>
           effect.delay(Envelope(ProcessRef.SystemRef, Registered(child), parent)).flatMap { envelope =>
@@ -254,11 +254,11 @@ class Context[F[_]](
       } >> Monad.sequence(getProcesses.map(process => sendStartEvent(process.ref))).void
 
   /** Durable journal delivery-sequence high-water, if any; seeds the delivery counter at boot. */
-  private[parapet] def journalMaxSeq: F[Option[Long]] = recorder.fold(effect.pure(Option.empty[Long]))(_.maxSeq)
+  private[parapet] def journalMaxSeq: F[Option[Long]] = deliveryJournal.fold(effect.pure(Option.empty[Long]))(_.maxSeq)
 
   /** Durable journal envelope-id high-water, if any. */
   private[parapet] def journalMaxEnvelopeId: F[Option[Long]] =
-    recorder.fold(effect.pure(Option.empty[Long]))(_.maxEnvelopeId)
+    deliveryJournal.fold(effect.pure(Option.empty[Long]))(_.maxEnvelopeId)
 
   /** Snapshot of every [[Process]] currently registered (system + user). */
   def getProcesses: List[Process[F, ?]] =
@@ -307,11 +307,11 @@ object Context:
       snapshots <- buildWithStorage(config.snapshot.enabled, snapshotStorage, "snapshotting")(
         SnapshotManager[F](_, Clock(), config.snapshot.queueCapacity)
       )
-      // The recorder closes the store when the journal stops.
-      recorder <- buildWithStorage(config.journal.enabled, journalStorage, "journal")(store =>
-        store.open().map(_ => DeliveryRecorder.fresh(store, config.journal))
+      // The delivery journal closes the store when it stops.
+      deliveryJournal <- buildWithStorage(config.journal.enabled, journalStorage, "journal")(store =>
+        store.open().map(_ => DeliveryJournal.fresh(store, config.journal))
       )
-    yield new Context[F](config, eventTransformers, snapshots, recorder)
+    yield new Context[F](config, eventTransformers, snapshots, deliveryJournal)
 
   private def buildWithStorage[F[_], S, M](enabled: Boolean, storage: Option[S], name: String)(
       build: S => F[M]

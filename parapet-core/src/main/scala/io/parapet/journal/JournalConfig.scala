@@ -1,13 +1,5 @@
 package io.parapet.journal
 
-/** Controls when admitting a delivery waits for durable journal storage. */
-enum JournalWriteMode:
-  /** Admissions may return while their delivery remains buffered. */
-  case Buffered
-
-  /** Every admission waits until its delivery and all earlier admissions satisfy the configured storage guarantee. */
-  case WriteAhead
-
 /** Controls the storage guarantee acknowledged by a successful journal append. */
 enum JournalDurability:
   /** File data and metadata are forced before append completion. */
@@ -16,7 +8,7 @@ enum JournalDurability:
   /** Append completes when the operating system has accepted the bytes into its page cache. */
   case ProcessCrash
 
-/** Tuning for [[DeliveryRecorder]].
+/** Tuning for [[DeliveryJournal]].
   *
   * @param enabled
   *   whether deliveries are recorded to the journal; off by default.
@@ -37,7 +29,7 @@ final case class JournalConfig(
     enabled: Boolean = false,
     dataDir: String = "parapet-journal",
     batchSize: Int = JournalConfig.DefaultBatchSize,
-    writeMode: JournalWriteMode = JournalWriteMode.Buffered,
+    writeMode: Recorder.WriteMode = Recorder.WriteMode.Buffered,
     durability: JournalDurability = JournalDurability.HostCrash,
     maxSegmentBytes: Long = JournalStoreLocal.DefaultMaxSegmentBytes,
     maxEntryBytes: Int = JournalStoreLocal.DefaultMaxEntryBytes

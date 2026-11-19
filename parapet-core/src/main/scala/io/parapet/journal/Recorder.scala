@@ -9,11 +9,11 @@ import Recorder.*
 
 /** Assigns monotonically increasing identifiers and publishes admitted values through a dedicated writer.
   *
-  * [[runWriter]] must be supervised alongside every operation on this recorder. A store failure fails the writer, every
+  * [[runWriter]] must be supervised alongside every operation on this recorder. A sink failure fails the writer, every
   * operation waiting for durability, and all subsequent recorder operations.
   */
 final class Recorder[F[_], A] private (
-    store: Store[F, A],
+    sink: Sink[F, A],
     config: Config
 )(using effect: Effect[F]):
 
@@ -50,25 +50,38 @@ final class Recorder[F[_], A] private (
   private var inFlight: Batch = null
   private var writerClaimed   = false
 
-  /** Assigns the next identifier and admits `data` without waiting for it to become durable.
+  /** Assigns the next identifier and admits `data`. Identifier assignment and insertion are one atomic operation.
+    *
+    * Under [[WriteMode.Buffered]] it returns once `data` is admitted. Under [[WriteMode.WriteAhead]] it also waits
+    * until the batch containing `data` is durable.
     *
     * @return
     *   the identifier assigned to `data`.
     */
   def admit(data: A): F[Long] =
-    admit(data, durable = false)
+    effect.suspend {
+      lock.synchronized {
+        phase match
+          case Phase.Failed(error)             => effect.raiseError(error)
+          case Phase.Closing(_) | Phase.Closed => effect.raiseError(closedError)
+          case Phase.Open                      =>
+            if id == Long.MaxValue then effect.raiseError(idExhausted)
+            else
+              id += 1
+              val assignedId = id
+              val batch      = active
+              batch.entries(batch.size) = Entry(assignedId, data)
+              batch.size += 1
 
-  /** Assigns the next identifier and waits until the batch containing `data` is durable.
-    *
-    * @return
-    *   the identifier assigned to `data`.
-    */
-  def admitDurable(data: A): F[Long] =
-    admit(data, durable = true)
+              val durable = config.writeMode == WriteMode.WriteAhead
+              val full    = batch.size == config.batchSize
+              if full then sealActiveLocked(batch)
+              if full || durable then requestWriteLocked(batch)
 
-  /** Alias for [[admitDurable]]. */
-  def admitAndFlush(data: A): F[Long] =
-    admitDurable(data)
+              if durable then await(batch.completion).as(assignedId)
+              else effect.pure(assignedId)
+      }
+    }
 
   /** Assigns and returns the next identifier without admitting a value.
     *
@@ -146,35 +159,6 @@ final class Recorder[F[_], A] private (
   def continueAfter(after: Long): Unit =
     lock.synchronized { if after > id then id = after }
 
-  /** Implements buffered and durable admission.
-    *
-    * Identifier assignment and insertion are one atomic operation. When `durable` is true, the returned effect also
-    * waits for publication of the containing batch.
-    */
-  private def admit(data: A, durable: Boolean): F[Long] =
-    effect.suspend {
-      lock.synchronized {
-        phase match
-          case Phase.Failed(error)             => effect.raiseError(error)
-          case Phase.Closing(_) | Phase.Closed => effect.raiseError(closedError)
-          case Phase.Open                      =>
-            if id == Long.MaxValue then effect.raiseError(idExhausted)
-            else
-              id += 1
-              val assignedId = id
-              val batch      = active
-              batch.entries(batch.size) = Entry(assignedId, data)
-              batch.size += 1
-
-              val full = batch.size == config.batchSize
-              if full then sealActiveLocked(batch)
-              if full || durable then requestWriteLocked(batch)
-
-              if durable then await(batch.completion).as(assignedId)
-              else effect.pure(assignedId)
-      }
-    }
-
   /** Requests publication of `batch` exactly once and makes it the latest durability barrier.
     *
     * The caller must hold the recorder lock.
@@ -219,13 +203,13 @@ final class Recorder[F[_], A] private (
 
   /** Processes publication requests in FIFO order until a close request is reached.
     *
-    * A batch completion is signalled only after [[Store.append]] succeeds. Any failure escapes to [[runWriter]], which
+    * A batch completion is signalled only after [[Sink.append]] succeeds. Any failure escapes to [[runWriter]], which
     * transitions the recorder to its terminal failed state.
     */
   private def writerLoop(): F[Unit] =
     effect.blocking(takeWork()).flatMap {
       case Write(batch) =>
-        effect.delay(prepareWrite(batch)).flatMap(store.append) >>
+        effect.delay(prepareWrite(batch)).flatMap(sink.append) >>
           effect.delay(completeWrite(batch)) >>
           writerLoop()
       case Stop => effect.delay(completeClose())
@@ -354,16 +338,26 @@ object Recorder:
   /** A value and its recorder-local admission identifier. */
   final case class Entry[A](id: Long, data: A)
 
-  /** Appends recorder entries in the supplied order. Successful completion means every entry is durable. */
-  trait Store[F[_], A]:
-    /** Publishes `entries` in order and completes only after they satisfy the store's durability contract. */
+  /** Receives the recorder's batches, one at a time, in admission order. Successful completion means every entry is
+    * durable.
+    */
+  trait Sink[F[_], A]:
+    /** Publishes `entries` in order and completes only after they satisfy the sink's durability contract. */
     def append(entries: Vector[Entry[A]]): F[Unit]
 
-  /** Recorder identifier and buffering configuration. */
-  final case class Config(startId: Long, batchSize: Int)
+  /** Controls when [[Recorder.admit]] returns. */
+  enum WriteMode:
+    /** `admit` returns once the value is admitted, possibly before it is durable. */
+    case Buffered
+
+    /** `admit` waits until the value and every earlier admission are durable. */
+    case WriteAhead
+
+  /** Recorder identifier, buffering and write-mode configuration. */
+  final case class Config(startId: Long, batchSize: Int, writeMode: WriteMode)
 
   /** Creates a recorder whose first assigned identifier is `config.startId + 1`. */
-  def apply[F[_], A](store: Store[F, A], config: Config)(using Effect[F]): Recorder[F, A] =
+  def apply[F[_], A](sink: Sink[F, A], config: Config)(using Effect[F]): Recorder[F, A] =
     require(config.startId >= 0, s"recorder startId must be >= 0, got ${config.startId}")
     require(config.batchSize > 0, s"recorder batchSize must be > 0, got ${config.batchSize}")
-    new Recorder[F, A](store, config)
+    new Recorder[F, A](sink, config)
