@@ -4,7 +4,7 @@ import io.parapet.Event.Start
 import io.parapet.{Codec, ParConfig, ParIOApp, Process, Replayable}
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
-import io.parapet.journal.{JournalConfig, JournalEntry, JournalStore, JournalStoreLocal, JournalWriteMode}
+import io.parapet.journal.{JournalConfig, JournalEntry, JournalStore, JournalStoreLocal, Recorder}
 import io.parapet.snapshot.{Snapshot, Snapshotable}
 import io.parapet.testutils.EventStore
 import io.parapet.tests.intg.BasicParIOSpec
@@ -34,7 +34,7 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
         enabled = true,
         dataDir = dir.toString,
         batchSize = 1,
-        writeMode = JournalWriteMode.WriteAhead
+        writeMode = Recorder.WriteMode.WriteAhead
       )
     )
     val counter = new Counter(counterRef, store)
@@ -64,7 +64,7 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
         enabled = true,
         dataDir = dir.toString,
         batchSize = 64,
-        writeMode = JournalWriteMode.WriteAhead
+        writeMode = Recorder.WriteMode.WriteAhead
       )
     )
     val app = new ParIOApp:
@@ -109,7 +109,7 @@ class JournalRecordingIntgSpec extends AnyFunSuite with BasicParIOSpec:
         enabled = true,
         dataDir = dir.toString,
         batchSize = 1,
-        writeMode = JournalWriteMode.WriteAhead
+        writeMode = Recorder.WriteMode.WriteAhead
       )
     )
 
