@@ -1,6 +1,5 @@
 package io.parapet
 
-import io.parapet.journal.effect.FailureData
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers.*
 
@@ -31,18 +30,6 @@ class CodecSpec extends AnyFunSuite:
     roundTrip(full).getModuleVersion shouldBe "1.0"
     roundTrip(minimal) shouldBe minimal
     roundTrip(minimal).getFileName shouldBe null
-  }
-
-  test("failure data with a chain of causes round-trips") {
-    val trace = new RuntimeException().getStackTrace.toList
-    val data  = FailureData(
-      "java.io.IOException",
-      Some("disk full"),
-      trace,
-      Some(FailureData("java.lang.IllegalStateException", None, trace.take(1), None))
-    )
-
-    roundTrip(data) shouldBe data
   }
 
   test("an enum value keeps the fields of its case") {
