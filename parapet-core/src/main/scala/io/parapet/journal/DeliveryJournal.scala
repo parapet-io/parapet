@@ -8,43 +8,34 @@ import io.parapet.effect.Effect
   * Admission is totally ordered: `seq` is assigned in the same step that admits the delivery, so admission order equals
   * `seq` order. Calls to [[advanceSequence]] may leave gaps between recorded positions.
   *
-  * In [[JournalWriteMode.Buffered]] mode, [[admit]] returns after admission. In [[JournalWriteMode.WriteAhead]] mode,
-  * it waits for its delivery and all earlier admissions to be stored. A write failure is terminal and causes every
-  * durability waiter and subsequent operation to fail.
+  * In [[Recorder.WriteMode.Buffered]] mode, [[admit]] returns after admission. In [[Recorder.WriteMode.WriteAhead]]
+  * mode, it waits for its delivery and all earlier admissions to be stored. A write failure is terminal and causes
+  * every durability waiter and subsequent operation to fail.
   *
-  * The store must be open when the recorder is created; [[close]] closes it.
+  * The store must be open when the journal is created; [[close]] closes it.
   */
-final class DeliveryRecorder[F[_]] private (
+final class DeliveryJournal[F[_]] private (
     store: JournalStore[F],
     config: JournalConfig,
     startSeq: Long
 )(using effect: Effect[F]):
 
-  import DeliveryRecorder.*
+  import DeliveryJournal.*
 
   private val recorder = Recorder[F, JournalDraft](
-    new DeliveryStore[F](store),
-    Recorder.Config(startId = startSeq, batchSize = config.batchSize)
+    new DeliverySink[F](store),
+    Recorder.Config(startId = startSeq, batchSize = config.batchSize, writeMode = config.writeMode)
   )
 
-  /** Establishes the delivery's global position and admits it under the configured durability guarantee. */
-  private[parapet] def admit(draft: JournalDraft): F[Long] =
-    copyPayload(draft).flatMap { encoded =>
-      config.writeMode match
-        case JournalWriteMode.Buffered   => recorder.admit(encoded)
-        case JournalWriteMode.WriteAhead => recorder.admitDurable(encoded)
-    }
-
-  /** Establishes the delivery's global position and waits until it and all earlier admissions have been stored. */
-  private[parapet] def admitAndFlush(draft: JournalDraft): F[Long] =
-    copyPayload(draft).flatMap(encoded => recorder.admitDurable(encoded))
+  /** Establishes the delivery's global position and admits it under the configured write mode.
+    *
+    * The journal keeps a reference to `draft.event` until the delivery is written, so the array must not change after
+    * this call.
+    */
+  private[parapet] def admit(draft: JournalDraft): F[Long] = recorder.admit(draft)
 
   /** Publishes admitted deliveries until [[close]] is called. The runtime supervises this effect. */
   private[parapet] def runWriter: F[Unit] = recorder.runWriter
-
-  /** Own the payload bytes before buffering so callers may reuse their encoding buffers after admission. */
-  private def copyPayload(draft: JournalDraft): F[JournalDraft] =
-    effect.delay(draft.copy(event = draft.event.clone()))
 
   /** Assigns and returns the next delivery sequence without admitting a delivery. */
   def advanceSequence(): F[Long] = recorder.advanceId()
@@ -56,8 +47,8 @@ final class DeliveryRecorder[F[_]] private (
   def truncate(upToSeq: Long): F[Unit] =
     flush() >> store.truncate(upToSeq)
 
-  /** Rejects new admissions, publishes all admitted deliveries, and closes the recorder, then the store. A recorder
-    * that failed leaves the store open, so the stop is not recorded as clean.
+  /** Rejects new admissions, publishes all admitted deliveries, and closes the recorder, then the store. A journal
+    * whose recorder failed leaves the store open, so the stop is not recorded as clean.
     */
   def close(): F[Unit] = recorder.close() >> store.close()
 
@@ -73,10 +64,10 @@ final class DeliveryRecorder[F[_]] private (
   /** The durable envelope-id high-water, including discarded entries, if any. */
   def maxEnvelopeId: F[Option[Long]] = store.maxEnvelopeId
 
-object DeliveryRecorder:
+object DeliveryJournal:
 
-  final private class DeliveryStore[F[_]](store: JournalStore[F])(using effect: Effect[F])
-      extends Recorder.Store[F, JournalDraft]:
+  final private class DeliverySink[F[_]](store: JournalStore[F])(using effect: Effect[F])
+      extends Recorder.Sink[F, JournalDraft]:
 
     /** Publishes recorder entries to the journal store in recorder order. */
     def append(entries: Vector[Recorder.Entry[JournalDraft]]): F[Unit] =
@@ -97,14 +88,14 @@ object DeliveryRecorder:
         }
         .flatMap(store.append)
 
-  /** Creates a recorder for a journal with no previously assigned delivery positions. */
+  /** Creates a journal with no previously assigned delivery positions. */
   def fresh[F[_]](
       store: JournalStore[F],
       config: JournalConfig = JournalConfig.default
-  )(using Effect[F]): DeliveryRecorder[F] =
+  )(using Effect[F]): DeliveryJournal[F] =
     create(store, config, 0L)
 
-  /** Creates a recorder that continues after `highWater`.
+  /** Creates a journal that continues after `highWater`.
     *
     * @param highWater
     *   the highest delivery position already represented by recovered durable state.
@@ -113,13 +104,13 @@ object DeliveryRecorder:
       store: JournalStore[F],
       highWater: Long,
       config: JournalConfig = JournalConfig.default
-  )(using Effect[F]): DeliveryRecorder[F] =
+  )(using Effect[F]): DeliveryJournal[F] =
     create(store, config, highWater)
 
-  /** Creates a delivery recorder with the supplied recovered high-water position. */
+  /** Creates a delivery journal with the supplied recovered high-water position. */
   private def create[F[_]](
       store: JournalStore[F],
       config: JournalConfig,
       highWater: Long
-  )(using Effect[F]): DeliveryRecorder[F] =
-    new DeliveryRecorder[F](store, config, highWater)
+  )(using Effect[F]): DeliveryJournal[F] =
+    new DeliveryJournal[F](store, config, highWater)

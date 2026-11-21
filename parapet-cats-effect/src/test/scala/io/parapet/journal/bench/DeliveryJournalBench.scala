@@ -18,17 +18,17 @@ import scala.util.Try
 
 /** Delivery-journal benchmark: N concurrent admitters against `JournalStore`, on cats-effect `IO`.
   *
-  * Every run selects one [[JournalWriteMode]] and one [[JournalDurability]]. Admission latency measures only the
+  * Every run selects one [[Recorder.WriteMode]] and one [[JournalDurability]]. Admission latency measures only the
   * selected write-mode contract. Throughput includes a final durability fence, making buffered and write-ahead runs
   * comparable as completed workloads.
   *
   * Run:
   * {{{
-  * sbt "parapetCatsEffect/Test/runMain io.parapet.journal.bench.DeliveryRecorderBench"
+  * sbt "parapetCatsEffect/Test/runMain io.parapet.journal.bench.DeliveryJournalBench"
   *
   * sbt -Dbench.threads=1,8,32 -Dbench.modes=Buffered,WriteAhead \
   *     -Dbench.durabilities=HostCrash,ProcessCrash -Dbench.ops=5000 \
-  *     "parapetCatsEffect/Test/runMain io.parapet.journal.bench.DeliveryRecorderBench"
+  *     "parapetCatsEffect/Test/runMain io.parapet.journal.bench.DeliveryJournalBench"
   * }}}
   *
   * Properties: bench.threads, bench.modes, bench.durabilities, bench.ops, bench.warmup, bench.batchSize,
@@ -37,7 +37,7 @@ import scala.util.Try
   * Nothing in any `src/main` is modified. Store append count and latency are observed through a delegating
   * [[JournalStore]]. Under [[JournalDurability.HostCrash]], each append includes one `force(true)`.
   */
-object DeliveryRecorderBench:
+object DeliveryJournalBench:
 
   private val parapetRuntime               = CatsEffectParapetRuntime.default
   private given effectInstance: Effect[IO] = parapetRuntime.effect
@@ -63,14 +63,14 @@ object DeliveryRecorderBench:
     def flush: IO[Unit]
     def close: IO[Unit]
 
-  final private class RecorderAdmitter(
-      recorder: DeliveryRecorder[IO],
+  final private class JournalAdmitter(
+      journal: DeliveryJournal[IO],
       writer: EffectFiber[IO, Unit]
   ) extends Admitter:
-    def admit(draft: JournalDraft): IO[Long] = recorder.admit(draft)
-    def flush: IO[Unit]                      = recorder.flush()
+    def admit(draft: JournalDraft): IO[Long] = journal.admit(draft)
+    def flush: IO[Unit]                      = journal.flush()
     def close: IO[Unit]                      =
-      recorder.close().flatMap(_ => writer.join).flatMap {
+      journal.close().flatMap(_ => writer.join).flatMap {
         case Outcome.Succeeded(_)  => IO.unit
         case Outcome.Failed(error) => IO.raiseError(error)
         case Outcome.Canceled()    => IO.canceled
@@ -113,7 +113,7 @@ object DeliveryRecorderBench:
 
   final case class RunConfig(
       threads: Int,
-      writeMode: JournalWriteMode,
+      writeMode: Recorder.WriteMode,
       durability: JournalDurability,
       batchSize: Int,
       maxSegmentBytes: Long,
@@ -160,7 +160,7 @@ object DeliveryRecorderBench:
       )
       (dir, store)
     }.flatMap { (dir, store) =>
-      store.open().flatMap(_ => recorderAdmitter(store, cfg)).map { admitter =>
+      store.open().flatMap(_ => journalAdmitter(store, cfg)).map { admitter =>
         Fixture(
           dir,
           store,
@@ -172,12 +172,12 @@ object DeliveryRecorderBench:
       }
     }
 
-  private def recorderAdmitter(store: JournalStore[IO], cfg: RunConfig): IO[Admitter] =
-    val recorder = DeliveryRecorder.fresh[IO](
+  private def journalAdmitter(store: JournalStore[IO], cfg: RunConfig): IO[Admitter] =
+    val journal = DeliveryJournal.fresh[IO](
       store,
       JournalConfig(batchSize = cfg.batchSize, writeMode = cfg.writeMode, durability = cfg.durability)
     )
-    effectInstance.start(recorder.runWriter).map(writer => new RecorderAdmitter(recorder, writer))
+    effectInstance.start(journal.runWriter).map(writer => new JournalAdmitter(journal, writer))
 
   private def admitLoop(fixture: Fixture, index: Int, count: Int, out: Array[Long]): IO[Unit] =
     val base = index * count
@@ -401,9 +401,9 @@ object DeliveryRecorderBench:
   private def csv(value: String): Vector[String] =
     value.split(",").toVector.map(part => part.trim).filter(part => part.nonEmpty)
 
-  private def parseWriteMode(name: String): JournalWriteMode = name match
-    case "WriteAhead" => JournalWriteMode.WriteAhead
-    case "Buffered"   => JournalWriteMode.Buffered
+  private def parseWriteMode(name: String): Recorder.WriteMode = name match
+    case "WriteAhead" => Recorder.WriteMode.WriteAhead
+    case "Buffered"   => Recorder.WriteMode.Buffered
     case other        => throw new IllegalArgumentException(s"unknown bench mode '$other'")
 
   private def parseDurability(name: String): JournalDurability = name match

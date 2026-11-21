@@ -171,9 +171,9 @@ trait ParApp[F[_]] extends FlowSyntax[F]:
           _                 <- context.boot(ps.toList :+ deadLetterProcess, interp)
           _                 <- scheduler.start
         yield ()
-      supervisedApplication = context.recorder match
-        case None           => application
-        case Some(recorder) => parallel.par(Seq(application, recorder.runWriter))
+      supervisedApplication = context.deliveryJournal match
+        case None          => application
+        case Some(journal) => parallel.par(Seq(application, journal.runWriter))
       _ <- supervisedApplication
     yield ()
 

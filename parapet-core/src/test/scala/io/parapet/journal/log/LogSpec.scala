@@ -1,6 +1,6 @@
 package io.parapet.journal.log
 
-import io.parapet.Codec
+import io.parapet.{Codec, DecodeException}
 import io.parapet.effect.Clock
 import io.parapet.journal.{InMemorySeekableByteChannel, JournalDurability}
 import io.parapet.journal.log.Log.*
@@ -592,9 +592,9 @@ class LogSpec extends AnyFunSuite:
     decoded.name shouldBe original.name
     decoded.count shouldBe original.count
     decoded.bytes.toVector shouldBe original.bytes.toVector
-    summon[Codec[Array[Byte]]].decode(ints(-1)).failed.get shouldBe a[CorruptLogException]
-    summon[Codec[String]].decode(ints(1) ++ Array[Byte](0xff.toByte)).failed.get shouldBe a[CorruptLogException]
-    summon[Codec[Int]].decode(ints(1, 2)).failed.get shouldBe a[CorruptLogException]
+    summon[Codec[Array[Byte]]].decode(ints(-1)).failed.get shouldBe a[DecodeException]
+    summon[Codec[String]].decode(ints(1) ++ Array[Byte](0xff.toByte)).failed.get shouldBe a[DecodeException]
+    summon[Codec[Int]].decode(ints(1, 2)).failed.get shouldBe a[DecodeException]
   }
 
   test("close leaves the open file, which the next init seals before continuing with the next segment ID") {
