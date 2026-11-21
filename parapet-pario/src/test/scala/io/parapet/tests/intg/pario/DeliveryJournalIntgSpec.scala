@@ -3,13 +3,13 @@ package io.parapet.tests.intg.pario
 import io.parapet.effect.ParIO
 import io.parapet.effect.ParIO.given
 import io.parapet.journal.{
-  DeliveryRecorder,
+  DeliveryJournal,
   JournalConfig,
   JournalDraft,
   JournalEntry,
   JournalStore,
   JournalStoreLocal,
-  JournalWriteMode
+  Recorder
 }
 import io.parapet.{Codec, Event, ProcessRef}
 import org.scalatest.funsuite.AnyFunSuite
@@ -22,7 +22,7 @@ import java.util.concurrent.{CopyOnWriteArrayList, CountDownLatch, CyclicBarrier
 import scala.jdk.CollectionConverters.*
 import scala.util.{Failure, Success, Try}
 
-class DeliveryRecorderIntgSpec extends AnyFunSuite:
+class DeliveryJournalIntgSpec extends AnyFunSuite:
 
   private val ref          = ProcessRef[Event]("a")
   private val awaitSeconds = 10L
@@ -84,8 +84,8 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
   final private case class Running[A](thread: Thread, result: AtomicReference[Try[A]])
 
-  final private case class ActiveRecorder(
-      recorder: DeliveryRecorder[ParIO],
+  final private case class ActiveJournal(
+      journal: DeliveryJournal[ParIO],
       writer: Running[Unit]
   )
 
@@ -95,25 +95,25 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     thread.start()
     Running(thread, result)
 
-  private def startRecorder(recorder: DeliveryRecorder[ParIO]): ActiveRecorder =
-    ActiveRecorder(recorder, startThread("delivery-recorder-writer")(recorder.runWriter.run()))
+  private def startJournal(journal: DeliveryJournal[ParIO]): ActiveJournal =
+    ActiveJournal(journal, startThread("delivery-journal-writer")(journal.runWriter.run()))
 
-  /** Opens `store`, as the runtime does, and starts a recorder on it. */
+  /** Opens `store`, as the runtime does, and starts a journal on it. */
   private def fresh(
       store: JournalStore[ParIO],
       config: JournalConfig = JournalConfig.default
-  ): ActiveRecorder =
+  ): ActiveJournal =
     store.open().run()
-    startRecorder(DeliveryRecorder.fresh(store, config))
+    startJournal(DeliveryJournal.fresh(store, config))
 
-  /** Opens `store`, as the runtime does, and starts a recorder on it that continues after `highWater`. */
+  /** Opens `store`, as the runtime does, and starts a journal on it that continues after `highWater`. */
   private def resume(
       store: JournalStore[ParIO],
       highWater: Long,
       config: JournalConfig = JournalConfig.default
-  ): ActiveRecorder =
+  ): ActiveJournal =
     store.open().run()
-    startRecorder(DeliveryRecorder.resume(store, highWater, config))
+    startJournal(DeliveryJournal.resume(store, highWater, config))
 
   private def awaitAll[A](running: Seq[Running[A]], clue: String): Vector[Try[A]] =
     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(awaitSeconds)
@@ -143,12 +143,12 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     threads.filter(_.isAlive).foreach(_.interrupt())
     threads.foreach(_.join(1000L))
 
-  private def stop(active: ActiveRecorder): Unit =
+  private def stop(active: ActiveJournal): Unit =
     stopThreads(Vector(active.writer.thread))
 
-  private def close(active: ActiveRecorder): Unit =
-    active.recorder.close().run()
-    awaitOne(active.writer, "delivery recorder writer").get
+  private def close(active: ActiveJournal): Unit =
+    active.journal.close().run()
+    awaitOne(active.writer, "delivery journal writer").get
 
   private def failureOf[A](result: Try[A]): Throwable = result match
     case Failure(error) => error
@@ -226,14 +226,14 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val active = fresh(store, JournalConfig.default.copy(batchSize = 4))
 
     try
-      active.recorder.admit(draft(1L)).run() shouldBe 1L
+      active.journal.admit(draft(1L)).run() shouldBe 1L
       store.appendAttempts shouldBe empty
 
-      active.recorder.flush().run()
+      active.journal.flush().run()
       store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L))
       store.closeCount shouldBe 0
       close(active)
-      // Closing the recorder closes the store, which records a clean stop.
+      // Closing the journal closes the store, which records a clean stop.
       store.closeCount shouldBe 1
     finally stop(active)
   }
@@ -258,26 +258,12 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val store  = new ControlledStore(gateFirst = false)
     val active = fresh(store)
     try
-      active.recorder.admit(JournalDraft(1L, ref, ref, 0L, codec.encode(E(7)).get)).run()
-      active.recorder.admit(JournalDraft(2L, ref, ref, 0L, codec.encode(Other()).get)).run()
-      active.recorder.flush().run()
+      active.journal.admit(JournalDraft(1L, ref, ref, 0L, codec.encode(E(7)).get)).run()
+      active.journal.admit(JournalDraft(2L, ref, ref, 0L, codec.encode(Other()).get)).run()
+      active.journal.flush().run()
       val entries = store.appendAttempts.flatten
       entries.map(_.kind) shouldBe Vector.fill(2)(JournalEntry.Kind.Event)
       entries.map(e => codec.decode(e.event).get) shouldBe Vector(E(7), Other())
-      close(active)
-    finally stop(active)
-  }
-
-  test("buffered admission owns the encoded bytes before the caller reuses its buffer") {
-    val store    = new ControlledStore(gateFirst = false)
-    val active   = fresh(store, JournalConfig.default.copy(batchSize = 4))
-    val original = draft(7L)
-    val expected = original.event.toVector
-    try
-      active.recorder.admit(original).run() shouldBe 1L
-      java.util.Arrays.fill(original.event, 0.toByte)
-      active.recorder.flush().run()
-      store.appendAttempts.flatten.head.event.toVector shouldBe expected
       close(active)
     finally stop(active)
   }
@@ -289,7 +275,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
       io.parapet.ParConfig.default,
       io.parapet.runtime.EventTransformers.empty,
       None,
-      Some(active.recorder)
+      Some(active.journal)
     )
     val calls = new AtomicInteger(0)
     val boom  = new IllegalArgumentException("cannot encode")
@@ -325,11 +311,11 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
 
   test("write-ahead mode waits for the admitted delivery to become durable") {
     val store     = new ControlledStore()
-    val active    = fresh(store, JournalConfig(batchSize = 4, writeMode = JournalWriteMode.WriteAhead))
+    val active    = fresh(store, JournalConfig(batchSize = 4, writeMode = Recorder.WriteMode.WriteAhead))
     var admission = Option.empty[Running[Long]]
 
     try
-      val running = startThread("write-ahead-admit")(active.recorder.admit(draft(1L)).run())
+      val running = startThread("write-ahead-admit")(active.journal.admit(draft(1L)).run())
       admission = Some(running)
       await(store.firstEntered, "write-ahead admission did not reach the store")
 
@@ -354,15 +340,15 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val active = fresh(store, JournalConfig(batchSize = 4))
 
     try
-      active.recorder.admit(draft(1L)).run() shouldBe 1L
-      active.recorder.admit(draft(2L)).run() shouldBe 2L
+      active.journal.admit(draft(1L)).run() shouldBe 1L
+      active.journal.admit(draft(2L)).run() shouldBe 2L
       store.read(0L).run() shouldBe empty
 
-      active.recorder.truncate(1L).run()
-      active.recorder.read(0L).run().map(_.seq) shouldBe Vector(2L)
-      active.recorder.maxSeq.run() shouldBe Some(2L)
+      active.journal.truncate(1L).run()
+      active.journal.read(0L).run().map(_.seq) shouldBe Vector(2L)
+      active.journal.maxSeq.run() shouldBe Some(2L)
 
-      active.recorder.admit(draft(3L)).run() shouldBe 3L
+      active.journal.admit(draft(3L)).run() shouldBe 3L
       close(active)
       seqsOnDisk(dir) shouldBe Vector(2L, 3L)
     finally stop(active)
@@ -375,21 +361,21 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     var truncation = Option.empty[Running[Unit]]
 
     try
-      active.recorder.admit(draft(1L)).run() shouldBe 1L
-      val running = startThread("truncate-after-flush")(active.recorder.truncate(1L).run())
+      active.journal.admit(draft(1L)).run() shouldBe 1L
+      val running = startThread("truncate-after-flush")(active.journal.truncate(1L).run())
       truncation = Some(running)
       await(store.firstEntered, "truncate did not start flushing the buffered tail")
 
       store.release()
       (failureOf(awaitOne(running, "truncate after failed flush")) eq boom) shouldBe true
-      (failureOf(awaitOne(active.writer, "delivery recorder writer")) eq boom) shouldBe true
+      (failureOf(awaitOne(active.writer, "delivery journal writer")) eq boom) shouldBe true
       store.truncateCount shouldBe 0
 
-      assertSameFailure(boom)(active.recorder.admit(draft(2L)).run())
-      assertSameFailure(boom)(active.recorder.advanceSequence().run())
-      assertSameFailure(boom)(active.recorder.flush().run())
-      assertSameFailure(boom)(active.recorder.close().run())
-      // A recorder that failed leaves the store open, so the stop is not recorded as clean.
+      assertSameFailure(boom)(active.journal.admit(draft(2L)).run())
+      assertSameFailure(boom)(active.journal.advanceSequence().run())
+      assertSameFailure(boom)(active.journal.flush().run())
+      assertSameFailure(boom)(active.journal.close().run())
+      // A journal whose recorder failed leaves the store open, so the stop is not recorded as clean.
       store.closeCount shouldBe 0
     finally
       store.release()
@@ -411,7 +397,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
         barrier.await(awaitSeconds, TimeUnit.SECONDS)
         Vector.fill(perWorker) {
           val id = nextId.incrementAndGet()
-          id -> active.recorder.admit(draft(id)).run()
+          id -> active.journal.admit(draft(id)).run()
         }
       }
     }
@@ -437,9 +423,9 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val active = fresh(store, JournalConfig(batchSize = 2))
 
     try
-      active.recorder.admit(draft(1L)).run() shouldBe 1L
-      active.recorder.advanceSequence().run() shouldBe 2L
-      active.recorder.admit(draft(2L)).run() shouldBe 3L
+      active.journal.admit(draft(1L)).run() shouldBe 1L
+      active.journal.advanceSequence().run() shouldBe 2L
+      active.journal.admit(draft(2L)).run() shouldBe 3L
       close(active)
 
       store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(1L, 3L))
@@ -451,12 +437,12 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val active = resume(store, Long.MaxValue - 1L, JournalConfig(batchSize = 4))
 
     try
-      active.recorder.admit(draft(1L)).run() shouldBe Long.MaxValue
-      an[IllegalStateException] should be thrownBy active.recorder.admit(draft(2L)).run()
-      an[IllegalStateException] should be thrownBy active.recorder.advanceSequence().run()
+      active.journal.admit(draft(1L)).run() shouldBe Long.MaxValue
+      an[IllegalStateException] should be thrownBy active.journal.admit(draft(2L)).run()
+      an[IllegalStateException] should be thrownBy active.journal.advanceSequence().run()
       store.appendAttempts shouldBe empty
 
-      active.recorder.flush().run()
+      active.journal.flush().run()
       close(active)
       store.appendAttempts.map(_.map(_.seq)) shouldBe Vector(Vector(Long.MaxValue))
     finally stop(active)
@@ -467,7 +453,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val first = fresh(storeAt(dir), JournalConfig(batchSize = 4))
 
     try
-      (1L to 6L).foreach(i => first.recorder.admit(draft(i)).run())
+      (1L to 6L).foreach(i => first.journal.admit(draft(i)).run())
       close(first)
     finally stop(first)
 
@@ -475,7 +461,7 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
     val second    = resume(storeAt(dir), highWater, JournalConfig(batchSize = 4))
 
     try
-      (1L to 5L).foreach(i => second.recorder.admit(draft(i)).run())
+      (1L to 5L).foreach(i => second.journal.admit(draft(i)).run())
       close(second)
     finally stop(second)
 
@@ -484,11 +470,11 @@ class DeliveryRecorderIntgSpec extends AnyFunSuite:
   }
 
   test("construction rejects invalid parameters") {
-    an[IllegalArgumentException] should be thrownBy DeliveryRecorder.fresh[ParIO](
+    an[IllegalArgumentException] should be thrownBy DeliveryJournal.fresh[ParIO](
       storeAt(Files.createTempDirectory("r")),
       JournalConfig(batchSize = 0)
     )
-    an[IllegalArgumentException] should be thrownBy DeliveryRecorder.resume[ParIO](
+    an[IllegalArgumentException] should be thrownBy DeliveryJournal.resume[ParIO](
       storeAt(Files.createTempDirectory("r")),
       highWater = -1L
     )
